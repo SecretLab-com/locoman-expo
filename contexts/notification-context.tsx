@@ -74,6 +74,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           router.push("/(client)/deliveries" as any);
         }
         break;
+      case "delivery_update":
+        if (data.deliveryId) {
+          router.push("/(client)/deliveries" as any);
+        }
+        break;
       case "session":
         if (data.sessionId) {
           router.push("/(trainer)/calendar" as any);
@@ -82,6 +87,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       case "order":
         if (data.orderId) {
           router.push("/(trainer)/orders" as any);
+        }
+        break;
+      case "new_order":
+        if (data.orderId) {
+          router.push("/(trainer)/orders" as any);
+        }
+        break;
+      case "bundle_approval":
+        if (data.bundleId) {
+          router.push(`/bundle-editor/${data.bundleId}` as any);
         }
         break;
       case "message":

@@ -280,3 +280,26 @@
 - [x] Add role badge display on profile
 - [x] Add trainer quick actions on profile
 - [x] Add manager quick actions on profile
+
+## Superadmin Impersonation Feature
+- [x] Create impersonation API endpoint on server
+- [x] Add impersonation UI to coordinator dashboard
+- [x] Show user list with impersonate buttons (with search, filter, and star favorites)
+- [x] Add impersonation banner when impersonating (global banner in root layout)
+- [x] Add "End Impersonation" button to return to coordinator
+
+## Push Notifications System
+- [x] Set up expo-notifications configuration (already configured)
+- [x] Create notification context/provider (already exists)
+- [x] Add notification handlers for bundle approvals
+- [x] Add notification handlers for new orders
+- [x] Add notification handlers for delivery updates
+- [x] Add navigation routing for all notification types
+
+## Dark Mode Toggle
+- [x] Create settings screen (trainer settings already exists)
+- [x] Add theme toggle switch (3-way: System/Light/Dark)
+- [x] Persist theme preference (AsyncStorage)
+- [x] Support system, light, and dark modes
+- [x] Add theme toggle to profile screen preferences
+- [x] Add theme toggle to trainer settings screenr to use persisted preference

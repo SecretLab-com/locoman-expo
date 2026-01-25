@@ -6,6 +6,7 @@ import { useColors } from "@/hooks/use-colors";
 import { useAuthContext } from "@/contexts/auth-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
+import { useThemeContext } from "@/lib/theme-provider";
 
 type MenuItemProps = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -74,6 +75,25 @@ function RoleBadge({ role }: { role: string }) {
 export default function ProfileScreen() {
   const colors = useColors();
   const { user, isAuthenticated, logout, loading, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
+  const { themePreference, setThemePreference, colorScheme } = useThemeContext();
+
+  const cycleTheme = async () => {
+    await haptics.light();
+    const themes = ["system", "light", "dark"] as const;
+    const currentIndex = themes.indexOf(themePreference as typeof themes[number]);
+    const nextIndex = (currentIndex + 1) % themes.length;
+    setThemePreference(themes[nextIndex]);
+  };
+
+  const getThemeLabel = () => {
+    if (themePreference === "system") return `System (${colorScheme})`;
+    return themePreference === "light" ? "Light" : "Dark";
+  };
+
+  const getThemeIcon = (): Parameters<typeof IconSymbol>[0]["name"] => {
+    if (themePreference === "system") return "gearshape.fill";
+    return themePreference === "light" ? "sun.max.fill" : "moon.fill";
+  };
 
   const handleLogout = async () => {
     await haptics.medium();
@@ -278,10 +298,23 @@ export default function ProfileScreen() {
           </Text>
           <View className="bg-surface rounded-xl px-4">
             <MenuItem
+              icon={getThemeIcon()}
+              title="Theme"
+              subtitle={getThemeLabel()}
+              onPress={cycleTheme}
+              showChevron={false}
+            />
+            <MenuItem
               icon="gearshape.fill"
               title="Settings"
               subtitle="App preferences and notifications"
-              onPress={() => Alert.alert("Coming Soon", "Settings coming soon!")}
+              onPress={() => {
+                if (isTrainer) {
+                  router.push("/(trainer)/settings" as any);
+                } else {
+                  Alert.alert("Coming Soon", "Settings coming soon!");
+                }
+              }}
             />
             <MenuItem
               icon="info.circle.fill"

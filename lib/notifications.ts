@@ -191,6 +191,105 @@ export async function scheduleOrderNotification(
 }
 
 /**
+ * Schedule a bundle approval notification
+ */
+export async function scheduleBundleApprovalNotification(
+  bundleId: number,
+  bundleTitle: string,
+  status: "approved" | "rejected",
+  reason?: string
+): Promise<string> {
+  if (Platform.OS === "web") {
+    console.log("Notifications not supported on web");
+    return "";
+  }
+
+  const isApproved = status === "approved";
+  const title = isApproved ? "Bundle Approved!" : "Bundle Needs Revision";
+  const body = isApproved
+    ? `Your bundle "${bundleTitle}" has been approved and is now live!`
+    : `Your bundle "${bundleTitle}" needs changes: ${reason || "Please review feedback"}`;
+
+  const identifier = await Notifications.scheduleNotificationAsync({
+    content: {
+      title,
+      body,
+      data: { type: "bundle_approval", bundleId, status },
+      sound: true,
+    },
+    trigger: null, // Immediate
+  });
+
+  return identifier;
+}
+
+/**
+ * Schedule a new order notification for trainers
+ */
+export async function scheduleNewOrderNotification(
+  orderId: number,
+  clientName: string,
+  bundleTitle: string,
+  amount: string
+): Promise<string> {
+  if (Platform.OS === "web") {
+    console.log("Notifications not supported on web");
+    return "";
+  }
+
+  const identifier = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: "New Order Received!",
+      body: `${clientName} purchased "${bundleTitle}" for $${amount}`,
+      data: { type: "new_order", orderId },
+      sound: true,
+    },
+    trigger: null, // Immediate
+  });
+
+  return identifier;
+}
+
+/**
+ * Schedule a delivery update notification
+ */
+export async function scheduleDeliveryUpdateNotification(
+  deliveryId: number,
+  status: "shipped" | "out_for_delivery" | "delivered",
+  bundleTitle: string,
+  trackingInfo?: string
+): Promise<string> {
+  if (Platform.OS === "web") {
+    console.log("Notifications not supported on web");
+    return "";
+  }
+
+  const titles: Record<string, string> = {
+    shipped: "Order Shipped!",
+    out_for_delivery: "Out for Delivery",
+    delivered: "Order Delivered!",
+  };
+
+  const bodies: Record<string, string> = {
+    shipped: `Your "${bundleTitle}" order has shipped${trackingInfo ? `. Tracking: ${trackingInfo}` : ""}`,
+    out_for_delivery: `Your "${bundleTitle}" order is out for delivery today`,
+    delivered: `Your "${bundleTitle}" order has been delivered!`,
+  };
+
+  const identifier = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: titles[status],
+      body: bodies[status],
+      data: { type: "delivery_update", deliveryId, status },
+      sound: true,
+    },
+    trigger: null, // Immediate
+  });
+
+  return identifier;
+}
+
+/**
  * Cancel a scheduled notification
  */
 export async function cancelNotification(identifier: string): Promise<void> {

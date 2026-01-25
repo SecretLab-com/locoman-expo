@@ -212,3 +212,166 @@ describe("Manager Features", () => {
     expect(content).toContain("All Deliveries");
   });
 });
+
+
+describe("Superadmin Impersonation Feature", () => {
+  it("should have impersonation banner component", () => {
+    const componentPath = path.join(projectRoot, "components/impersonation-banner.tsx");
+    expect(fs.existsSync(componentPath)).toBe(true);
+    const content = fs.readFileSync(componentPath, "utf-8");
+    expect(content).toContain("ImpersonationBanner");
+    expect(content).toContain("impersonating");
+  });
+
+  it("should have impersonation functionality in coordinator dashboard", () => {
+    const screenPath = path.join(projectRoot, "app/(coordinator)/index.tsx");
+    expect(fs.existsSync(screenPath)).toBe(true);
+    const content = fs.readFileSync(screenPath, "utf-8");
+    expect(content).toContain("impersonat");
+  });
+
+  it("should have impersonation banner in root layout", () => {
+    const layoutPath = path.join(projectRoot, "app/_layout.tsx");
+    const content = fs.readFileSync(layoutPath, "utf-8");
+    expect(content).toContain("ImpersonationBanner");
+  });
+});
+
+describe("Test Accounts", () => {
+  it("should have trainer test account", () => {
+    const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
+    const content = fs.readFileSync(oauthPath, "utf-8");
+    expect(content).toContain("trainer@secretlab.com");
+  });
+
+  it("should have client test account", () => {
+    const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
+    const content = fs.readFileSync(oauthPath, "utf-8");
+    expect(content).toContain("client@secretlab.com");
+  });
+
+  it("should have manager test account", () => {
+    const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
+    const content = fs.readFileSync(oauthPath, "utf-8");
+    expect(content).toContain("manager@secretlab.com");
+  });
+});
+
+describe("Push Notifications - New Features", () => {
+  it("should have bundle approval notification function", () => {
+    const servicePath = path.join(projectRoot, "lib/notifications.ts");
+    const content = fs.readFileSync(servicePath, "utf-8");
+    expect(content).toContain("scheduleBundleApprovalNotification");
+    expect(content).toContain("Bundle Approved");
+    expect(content).toContain("Bundle Needs Revision");
+  });
+
+  it("should have new order notification function", () => {
+    const servicePath = path.join(projectRoot, "lib/notifications.ts");
+    const content = fs.readFileSync(servicePath, "utf-8");
+    expect(content).toContain("scheduleNewOrderNotification");
+    expect(content).toContain("New Order Received");
+  });
+
+  it("should have delivery update notification function", () => {
+    const servicePath = path.join(projectRoot, "lib/notifications.ts");
+    const content = fs.readFileSync(servicePath, "utf-8");
+    expect(content).toContain("scheduleDeliveryUpdateNotification");
+    expect(content).toContain("Order Shipped");
+    expect(content).toContain("Order Delivered");
+  });
+
+  it("should handle bundle_approval notification type in context", () => {
+    const contextPath = path.join(projectRoot, "contexts/notification-context.tsx");
+    const content = fs.readFileSync(contextPath, "utf-8");
+    expect(content).toContain("bundle_approval");
+  });
+
+  it("should handle new_order notification type in context", () => {
+    const contextPath = path.join(projectRoot, "contexts/notification-context.tsx");
+    const content = fs.readFileSync(contextPath, "utf-8");
+    expect(content).toContain("new_order");
+  });
+
+  it("should handle delivery_update notification type in context", () => {
+    const contextPath = path.join(projectRoot, "contexts/notification-context.tsx");
+    const content = fs.readFileSync(contextPath, "utf-8");
+    expect(content).toContain("delivery_update");
+  });
+});
+
+describe("Dark Mode Toggle", () => {
+  it("should have theme preference support in theme provider", () => {
+    const providerPath = path.join(projectRoot, "lib/theme-provider.tsx");
+    const content = fs.readFileSync(providerPath, "utf-8");
+    expect(content).toContain("themePreference");
+    expect(content).toContain("setThemePreference");
+    expect(content).toContain("isSystemTheme");
+  });
+
+  it("should persist theme preference to AsyncStorage", () => {
+    const providerPath = path.join(projectRoot, "lib/theme-provider.tsx");
+    const content = fs.readFileSync(providerPath, "utf-8");
+    expect(content).toContain("AsyncStorage");
+    expect(content).toContain("THEME_STORAGE_KEY");
+  });
+
+  it("should support system, light, and dark modes", () => {
+    const providerPath = path.join(projectRoot, "lib/theme-provider.tsx");
+    const content = fs.readFileSync(providerPath, "utf-8");
+    expect(content).toContain('"system"');
+    expect(content).toContain('"light"');
+    expect(content).toContain('"dark"');
+  });
+
+  it("should have theme toggle in profile screen", () => {
+    const profilePath = path.join(projectRoot, "app/(tabs)/profile.tsx");
+    const content = fs.readFileSync(profilePath, "utf-8");
+    expect(content).toContain("useThemeContext");
+    expect(content).toContain("cycleTheme");
+    expect(content).toContain("getThemeLabel");
+  });
+
+  it("should have theme toggle in trainer settings", () => {
+    const settingsPath = path.join(projectRoot, "app/(trainer)/settings.tsx");
+    const content = fs.readFileSync(settingsPath, "utf-8");
+    expect(content).toContain("useThemeContext");
+    expect(content).toContain("Appearance");
+    expect(content).toContain("Theme");
+  });
+
+  it("should have sun and moon icon mappings", () => {
+    const iconPath = path.join(projectRoot, "components/ui/icon-symbol.tsx");
+    const content = fs.readFileSync(iconPath, "utf-8");
+    expect(content).toContain("sun.max.fill");
+    expect(content).toContain("moon.fill");
+    expect(content).toContain("light-mode");
+    expect(content).toContain("dark-mode");
+  });
+});
+
+describe("Login Enhancements", () => {
+  it("should have remember me option", () => {
+    const loginPath = path.join(projectRoot, "app/login.tsx");
+    const content = fs.readFileSync(loginPath, "utf-8");
+    expect(content).toContain("rememberMe");
+    expect(content).toContain("Remember me");
+  });
+
+  it("should have password visibility toggle", () => {
+    const loginPath = path.join(projectRoot, "app/login.tsx");
+    const content = fs.readFileSync(loginPath, "utf-8");
+    expect(content).toContain("showPassword");
+    expect(content).toContain("eye.fill");
+    expect(content).toContain("eye.slash.fill");
+  });
+
+  it("should have test account quick fill buttons", () => {
+    const loginPath = path.join(projectRoot, "app/login.tsx");
+    const content = fs.readFileSync(loginPath, "utf-8");
+    expect(content).toContain("Test Accounts");
+    expect(content).toContain("trainer@secretlab.com");
+    expect(content).toContain("client@secretlab.com");
+    expect(content).toContain("manager@secretlab.com");
+  });
+});

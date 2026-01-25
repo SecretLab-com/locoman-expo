@@ -71,6 +71,10 @@ const MAPPING = {
   "square.and.arrow.up": "share",
   "link": "link",
   
+  // Theme icons
+  "sun.max.fill": "light-mode",
+  "moon.fill": "dark-mode",
+  
   // Misc icons
   "photo.fill": "photo",
   "camera.fill": "camera-alt",

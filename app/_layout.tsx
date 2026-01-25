@@ -23,6 +23,7 @@ import { NotificationProvider } from "@/contexts/notification-context";
 import { CartProvider } from "@/contexts/cart-context";
 import { OfflineProvider } from "@/contexts/offline-context";
 import { OfflineIndicator } from "@/components/offline-indicator";
+import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
@@ -91,31 +92,32 @@ export default function RootLayout() {
             <NotificationProvider>
               <CartProvider>
                 <OfflineProvider>
-          <OfflineIndicator />
-          {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
-          {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
-          {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
-            <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
-            <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
-            <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card" }} />
-            <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
-            <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
-            <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false }} />
-            <Stack.Screen name="messages/index" options={{ presentation: "card" }} />
-            <Stack.Screen name="messages/[id]" options={{ presentation: "card" }} />
-            <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
-            <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
-            <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
-            <Stack.Screen name="(client)" options={{ headerShown: false }} />
-            <Stack.Screen name="(manager)" options={{ headerShown: false }} />
-            <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
-            <Stack.Screen name="oauth/callback" />
-          </Stack>
-          <StatusBar style="auto" />
-                              </OfflineProvider>
+                  <ImpersonationBanner />
+                  <OfflineIndicator />
+                  {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
+                  {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
+                  {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
+                    <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
+                    <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
+                    <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card" }} />
+                    <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
+                    <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
+                    <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false }} />
+                    <Stack.Screen name="messages/index" options={{ presentation: "card" }} />
+                    <Stack.Screen name="messages/[id]" options={{ presentation: "card" }} />
+                    <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
+                    <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
+                    <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(client)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(manager)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
+                    <Stack.Screen name="oauth/callback" />
+                  </Stack>
+                  <StatusBar style="auto" />
+                </OfflineProvider>
               </CartProvider>
             </NotificationProvider>
           </AuthProvider>

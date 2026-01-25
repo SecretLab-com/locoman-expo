@@ -12,6 +12,7 @@ import {
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useThemeContext } from "@/lib/theme-provider";
 
 const SPECIALTIES = [
   { value: "weight_loss", label: "Weight Loss" },
@@ -26,6 +27,7 @@ const SPECIALTIES = [
 
 export default function SettingsScreen() {
   const colors = useColors();
+  const { themePreference, setThemePreference, colorScheme } = useThemeContext();
   
   // Profile settings
   const [username, setUsername] = useState("@fitcoach");
@@ -256,6 +258,61 @@ export default function SettingsScreen() {
                 trackColor={{ false: colors.border, true: colors.primary }}
                 thumbColor="#fff"
               />
+            </View>
+          </View>
+        </View>
+
+        {/* Appearance Section */}
+        <View className="mb-6">
+          <Text className="text-lg font-semibold text-foreground mb-3">Appearance</Text>
+          
+          <View className="bg-surface rounded-xl border border-border">
+            <View className="p-4">
+              <Text className="text-base font-medium text-foreground mb-3">Theme</Text>
+              <View className="flex-row gap-2">
+                {(["system", "light", "dark"] as const).map((option) => {
+                  const isSelected = themePreference === option;
+                  const icons = {
+                    system: "gearshape.fill",
+                    light: "sun.max.fill",
+                    dark: "moon.fill",
+                  } as const;
+                  const labels = {
+                    system: "System",
+                    light: "Light",
+                    dark: "Dark",
+                  };
+                  return (
+                    <TouchableOpacity
+                      key={option}
+                      onPress={() => setThemePreference(option)}
+                      className={`flex-1 items-center py-3 rounded-xl border ${
+                        isSelected
+                          ? "bg-primary/10 border-primary"
+                          : "bg-background border-border"
+                      }`}
+                    >
+                      <IconSymbol
+                        name={icons[option]}
+                        size={24}
+                        color={isSelected ? colors.primary : colors.muted}
+                      />
+                      <Text
+                        className={`text-sm mt-1 font-medium ${
+                          isSelected ? "text-primary" : "text-muted"
+                        }`}
+                      >
+                        {labels[option]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text className="text-xs text-muted mt-2 text-center">
+                {themePreference === "system"
+                  ? `Following system preference (currently ${colorScheme})`
+                  : `Using ${themePreference} mode`}
+              </Text>
             </View>
           </View>
         </View>
