@@ -57,6 +57,20 @@ const MAPPING = {
   "xmark.circle.fill": "cancel",
   "info.circle.fill": "info",
   
+  // Product/Bundle icons
+  "cube.box": "inventory-2",
+  "cube.box.fill": "inventory-2",
+  "cart": "shopping-cart",
+  "line.3.horizontal.decrease": "filter-list",
+  "arrow.up.arrow.down": "swap-vert",
+  "person.badge.plus": "person-add",
+  "play.fill": "play-arrow",
+  "pause.fill": "pause",
+  "doc.text.fill": "description",
+  "bell.fill": "notifications",
+  "square.and.arrow.up": "share",
+  "link": "link",
+  
   // Misc icons
   "photo.fill": "photo",
   "camera.fill": "camera-alt",
@@ -67,6 +81,23 @@ const MAPPING = {
   "lock.fill": "lock",
   "eye.fill": "visibility",
   "eye.slash.fill": "visibility-off",
+  
+  // Trainer/Fitness icons
+  "figure.run": "directions-run",
+  "figure.walk": "directions-walk",
+  "dumbbell.fill": "fitness-center",
+  
+  // Coordinator icons
+  "person.badge.key.fill": "admin-panel-settings",
+  
+  // Additional icons
+  "arrow.up": "arrow-upward",
+  "arrow.down": "arrow-downward",
+  "gift.fill": "card-giftcard",
+  "tag.fill": "local-offer",
+  "storefront.fill": "storefront",
+  "map.fill": "map",
+  "mappin.and.ellipse": "place",
 } as IconMapping;
 
 /**

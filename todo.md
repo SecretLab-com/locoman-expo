@@ -3,6 +3,9 @@
 ## Setup
 - [x] Generate app logo and configure branding
 - [x] Update theme colors to match design
+- [x] tRPC client configuration
+- [x] Auth token handling in API calls
+- [x] Cart context with AsyncStorage persistence
 
 ## Authentication
 - [x] Login screen with email/password
@@ -12,14 +15,11 @@
 - [ ] OAuth login (Google/Apple)
 - [x] Role-based navigation (shopper/client/trainer/manager)
 - [x] Impersonation support for coordinator role
-- [ ] Session token refresh
-- [ ] Password reset flow
 
 ## Navigation
 - [x] Bottom tab navigation setup
 - [x] Role-based tab configuration
 - [x] Icon mappings for tabs
-- [ ] Dynamic tab switching based on user role
 
 ## Shopper Features
 - [x] Catalog screen with bundle grid
@@ -28,117 +28,111 @@
 - [x] Add to cart functionality
 - [x] Profile screen
 - [x] Logout functionality
-- [ ] Connect catalog to real API (trpc.catalog.bundles)
-- [ ] Connect bundle detail to real API (trpc.catalog.bundleDetail)
-- [ ] Fulfillment option selection (home_ship, trainer_delivery, vending, cafeteria)
-- [ ] Trainer directory browsing
-- [ ] Trainer profile public view
-- [ ] Goal-based filtering
-- [ ] Search functionality
-
-## Cart & Checkout
-- [x] Cart context with AsyncStorage persistence
-- [x] Cart item quantity management
-- [x] Fulfillment option per item
-- [x] Subtotal calculation
-- [x] Checkout flow (ready for Shopify integration)
-- [x] Order confirmation screen
+- [x] Products catalog (Shopify integration)
+- [x] Product detail sheet with add to cart
+- [x] Trainer directory with search and filters
+- [x] Trainer public profile view (/trainer/:id)
+- [x] Request to join trainer
+- [ ] Join request status tracking
 
 ## Trainer Features
 - [x] Trainer dashboard with stats
 - [x] Bundles management screen
 - [x] Clients list screen
 - [x] Earnings screen
-- [ ] Connect dashboard to real API (trpc.bundles.list, trpc.clients.list)
 - [x] Bundle creation flow (BundleEditor)
 - [x] Bundle editing with product selection
-- [ ] Bundle template selection
-- [ ] Product search and filtering
 - [x] Service configuration (sessions, check-ins)
-- [ ] Bundle image upload/generation
-- [ ] Submit bundle for review
-- [ ] Bundle status tracking (draft, pending_review, published)
-- [ ] Client invitation system
 - [x] Client detail view
-- [ ] Session scheduling
 - [x] Session usage tracking (trainer marks used, show remaining to both)
-- [ ] Subscription management with session counts
-- [x] Delivery management (mark ready, mark delivered)
-- [ ] Earnings analytics with charts
-- [ ] Commission tracking
-- [ ] Trainer profile editing (bio, specialties, social links)
-- [ ] Gallery/media management
-- [ ] Referral code generation
+- [x] Calendar with session scheduling
+- [x] Orders management screen with tabs (pending/processing/completed)
+- [ ] Deliveries management with reschedule approval/rejection
+- [x] Settings screen (username, bio, specialties, social links)
+- [ ] Media gallery management (photos/videos)
+- [x] Points/Status system with tiers (Bronze/Silver/Gold/Platinum)
+- [ ] Ad partnerships management
+- [x] Invite client to bundle (generate invitation link)
+- [ ] Bulk invite dialog
+- [ ] Join requests management (approve/reject)
 
 ## Client Features
 - [x] Client home dashboard
 - [x] Orders screen
 - [x] Deliveries screen
-- [ ] Connect to real API (trpc.subscriptions, trpc.productDeliveries)
-- [ ] Active subscription display
-- [ ] Upcoming session view
 - [x] Sessions remaining display (X of Y sessions used)
 - [x] Delivery tracking
 - [x] Confirm delivery receipt
 - [x] Report delivery issue
-- [ ] Request reschedule
-- [x] Message trainer
+- [x] Subscriptions management (pause/resume/cancel)
+- [x] Spending history with charts
+- [ ] Upcoming session view
+- [ ] Request delivery reschedule
 
-## Manager Features (Admin)
-- [ ] Manager dashboard
-- [ ] User management (list, search, filter)
-- [ ] Role assignment
-- [ ] Trainer approval workflow
-- [ ] Bundle review and approval
-- [ ] Product sync from Shopify
-- [ ] Order oversight
-- [ ] Delivery oversight
-- [ ] Analytics dashboard
-- [ ] Template management
-- [ ] Business referral management
-- [ ] Ad partnership management
+## Manager/Admin Features
+- [x] Manager dashboard with stats cards
+- [x] Low inventory alerts with dismiss/alert trainer actions
+- [x] Users management (list, search, filter by role)
+- [x] Trainers management
+- [x] Bundle templates management
+- [x] Analytics dashboard
+- [x] Invitations management with analytics
+- [x] Send low inventory alert to trainer
 
 ## Coordinator Features
-- [ ] Impersonation system (become any user)
-- [ ] Full admin access
-- [ ] System configuration
+- [x] User impersonation page
+- [x] Quick role simulation (test as any role)
+- [x] Impersonation shortcuts (starred users)
+- [x] Impersonation logs
+- [x] Search users by role
+
+## Checkout & Orders
+- [x] Cart item quantity management
+- [x] Fulfillment option per item
+- [x] Subtotal calculation
+- [x] Checkout flow (ready for Shopify integration)
+- [x] Order confirmation screen
+
+## Deliveries
+- [x] Delivery management (mark ready, mark delivered)
+- [ ] Delivery method selection (in_person, locker, front_desk, shipped)
+- [ ] Tracking number for shipped items
+- [ ] Reschedule request/approval flow
+- [ ] Delivery stats (pending, ready, delivered, confirmed, disputed)
 
 ## Messaging
 - [x] Conversations list
 - [x] Message thread view
 - [x] Send text messages
-- [ ] Real-time message updates
 - [x] Unread message indicators
+- [x] Message trainer
 
-## Notifications
-- [ ] Push notification setup
-- [ ] Delivery status notifications
-- [ ] Order status notifications
-- [ ] Session reminder notifications
-- [ ] Message notifications
+## Invitations
+- [x] Invitation landing page (/invite/:token)
+- [x] Accept/decline invitation
+- [x] Invitation with bundle preview (products, services, goals)
+- [x] Share invitation link
+- [x] Personal message from trainer
 
-## Calendar
-- [ ] Calendar view
-- [ ] Event creation
-- [ ] Session scheduling integration
-- [ ] Delivery scheduling
+## Public Pages
+- [x] Public trainer profile (/trainer/:id) with bundles
+- [ ] Public user profile (/u/:userId)
+- [x] Trainer directory page with search and filters
 
-## Products
-- [ ] Product list view
-- [ ] Product detail view
-- [ ] Inventory display
-- [ ] Product categories
+## Settings & Profile
+- [ ] Theme toggle (dark/light mode)
+- [ ] Username with availability check
+- [ ] Bio editing
+- [ ] Specialties selection (up to 4)
+- [ ] Social links (Instagram, Twitter, LinkedIn, Website)
+- [ ] Avatar/photo upload
 
-## API Integration
-- [x] tRPC client configuration
-- [x] Auth token handling in API calls
-- [ ] Error handling and retry logic
-- [ ] Offline support with caching
+## Pull-to-Refresh
+- [ ] Add pull-to-refresh to all list screens
 
-## UI Polish
-- [ ] Loading states for all screens
-- [ ] Error states and retry buttons
-- [ ] Pull-to-refresh on lists
-- [ ] Empty state illustrations
+## Additional UI Components
+- [ ] Swipeable list items for quick actions
+- [ ] Progress bars for session usage
+- [ ] Badge system for status tiers
+- [ ] Loading skeletons for all screens
 - [ ] Haptic feedback on actions
-- [ ] Animations and transitions

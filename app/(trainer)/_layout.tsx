@@ -37,10 +37,10 @@ export default function TrainerTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="bundles"
+        name="calendar"
         options={{
-          title: "Bundles",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bag.fill" color={color} />,
+          title: "Calendar",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -51,10 +51,42 @@ export default function TrainerTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="orders"
+        options={{
+          title: "Orders",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bag.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="earnings"
         options={{
           title: "Earnings",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="dollarsign.circle.fill" color={color} />,
+        }}
+      />
+      {/* Hidden tabs - accessible via navigation */}
+      <Tabs.Screen
+        name="bundles"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="points"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="invite"
+        options={{
+          href: null, // Hide from tab bar
         }}
       />
     </Tabs>

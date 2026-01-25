@@ -5,12 +5,14 @@ import * as Haptics from "expo-haptics";
 
 export interface CartItem {
   id: string; // unique cart item id
-  bundleId: number;
+  type: "bundle" | "product";
+  bundleId?: number;
+  productId?: number;
   title: string;
-  trainer: string;
+  trainer?: string;
   trainerId?: number;
   price: number;
-  cadence: "one_time" | "weekly" | "monthly";
+  cadence?: "one_time" | "weekly" | "monthly";
   fulfillment: "home_ship" | "trainer_delivery" | "vending" | "cafeteria";
   quantity: number;
   imageUrl?: string;
