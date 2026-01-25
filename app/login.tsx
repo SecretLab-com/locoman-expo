@@ -13,6 +13,7 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { startOAuthLogin } from "@/constants/oauth";
+import { OAuthButtons } from "@/components/oauth-buttons";
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -31,8 +32,19 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      // Use OAuth login flow
-      await startOAuthLogin();
+      // Call login API
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (response.ok) {
+        router.replace("/(tabs)");
+      } else {
+        const data = await response.json();
+        setError(data.message || "Invalid email or password");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -81,6 +93,16 @@ export default function LoginScreen() {
               </View>
             )}
 
+            {/* OAuth Buttons (Apple & Google) */}
+            <OAuthButtons
+              onSuccess={() => {
+                // OAuth success is handled in the component
+              }}
+              onError={(err) => {
+                setError(err.message || "OAuth login failed");
+              }}
+            />
+
             {/* Email Input */}
             <View className="mb-4">
               <Text className="text-sm font-medium text-foreground mb-2">Email</Text>
@@ -127,14 +149,7 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            {/* Divider */}
-            <View className="flex-row items-center my-6">
-              <View className="flex-1 h-px bg-border" />
-              <Text className="mx-4 text-muted">or</Text>
-              <View className="flex-1 h-px bg-border" />
-            </View>
-
-            {/* OAuth Login Button */}
+            {/* Manus OAuth Login Button */}
             <TouchableOpacity
               className="bg-surface border border-border rounded-xl py-4 items-center mb-6"
               onPress={handleOAuthLogin}

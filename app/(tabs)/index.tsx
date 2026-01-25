@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   FlatList,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
@@ -13,81 +14,23 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/hooks/use-auth";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { trpc } from "@/lib/trpc";
 
-// Mock data for bundles - in production this would come from tRPC
-const MOCK_BUNDLES = [
-  {
-    id: 1,
-    title: "Full Body Transformation",
-    description: "Complete 12-week program for total body transformation",
-    price: 149.99,
-    trainerName: "Sarah Johnson",
-    trainerAvatar: "https://i.pravatar.cc/150?img=1",
-    image: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400",
-    rating: 4.8,
-    reviews: 124,
-  },
-  {
-    id: 2,
-    title: "HIIT Cardio Blast",
-    description: "High-intensity interval training for maximum fat burn",
-    price: 79.99,
-    trainerName: "Mike Chen",
-    trainerAvatar: "https://i.pravatar.cc/150?img=3",
-    image: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=400",
-    rating: 4.6,
-    reviews: 89,
-  },
-  {
-    id: 3,
-    title: "Yoga for Beginners",
-    description: "Gentle introduction to yoga practice and mindfulness",
-    price: 59.99,
-    trainerName: "Emma Wilson",
-    trainerAvatar: "https://i.pravatar.cc/150?img=5",
-    image: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=400",
-    rating: 4.9,
-    reviews: 256,
-  },
-  {
-    id: 4,
-    title: "Strength Training 101",
-    description: "Build muscle and strength with proven techniques",
-    price: 99.99,
-    trainerName: "James Rodriguez",
-    trainerAvatar: "https://i.pravatar.cc/150?img=8",
-    image: "https://images.unsplash.com/photo-1581009146145-b5ef050c149a?w=400",
-    rating: 4.7,
-    reviews: 178,
-  },
-  {
-    id: 5,
-    title: "Marathon Prep",
-    description: "16-week program to prepare for your first marathon",
-    price: 129.99,
-    trainerName: "Lisa Park",
-    trainerAvatar: "https://i.pravatar.cc/150?img=9",
-    image: "https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=400",
-    rating: 4.5,
-    reviews: 67,
-  },
-  {
-    id: 6,
-    title: "Core & Abs Focus",
-    description: "Targeted workouts for a stronger core",
-    price: 49.99,
-    trainerName: "David Kim",
-    trainerAvatar: "https://i.pravatar.cc/150?img=12",
-    image: "https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=400",
-    rating: 4.4,
-    reviews: 92,
-  },
-];
-
-type Bundle = (typeof MOCK_BUNDLES)[0];
+type Bundle = {
+  id: number;
+  title: string;
+  description: string | null;
+  price: string | number | null;
+  imageUrl: string | null;
+  trainerName?: string;
+  trainerAvatar?: string;
+  rating?: number;
+  reviews?: number;
+};
 
 function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }) {
   const colors = useColors();
+  const price = typeof bundle.price === "string" ? parseFloat(bundle.price) : bundle.price || 0;
 
   return (
     <TouchableOpacity
@@ -96,34 +39,39 @@ function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }
       activeOpacity={0.8}
     >
       <Image
-        source={{ uri: bundle.image }}
+        source={{ uri: bundle.imageUrl || "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400" }}
         className="w-full h-40"
         contentFit="cover"
+        placeholder="L6PZfSi_.AyE_3t7t7R**0o#DgR4"
       />
       <View className="p-4">
         <Text className="text-lg font-semibold text-foreground mb-1" numberOfLines={1}>
           {bundle.title}
         </Text>
         <Text className="text-sm text-muted mb-3" numberOfLines={2}>
-          {bundle.description}
+          {bundle.description || "No description available"}
         </Text>
 
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <Image
-              source={{ uri: bundle.trainerAvatar }}
-              className="w-6 h-6 rounded-full mr-2"
-            />
-            <Text className="text-sm text-muted">{bundle.trainerName}</Text>
+            {bundle.trainerAvatar && (
+              <Image
+                source={{ uri: bundle.trainerAvatar }}
+                className="w-6 h-6 rounded-full mr-2"
+              />
+            )}
+            <Text className="text-sm text-muted">{bundle.trainerName || "Trainer"}</Text>
           </View>
-          <Text className="text-lg font-bold text-primary">${bundle.price}</Text>
+          <Text className="text-lg font-bold text-primary">${price.toFixed(2)}</Text>
         </View>
 
-        <View className="flex-row items-center mt-2">
-          <IconSymbol name="star.fill" size={14} color={colors.warning} />
-          <Text className="text-sm text-foreground ml-1">{bundle.rating}</Text>
-          <Text className="text-sm text-muted ml-1">({bundle.reviews} reviews)</Text>
-        </View>
+        {bundle.rating !== undefined && (
+          <View className="flex-row items-center mt-2">
+            <IconSymbol name="star.fill" size={14} color={colors.warning} />
+            <Text className="text-sm text-foreground ml-1">{bundle.rating.toFixed(1)}</Text>
+            <Text className="text-sm text-muted ml-1">({bundle.reviews || 0} reviews)</Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -133,20 +81,35 @@ export default function CatalogScreen() {
   const colors = useColors();
   const { isAuthenticated } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
 
-  const filteredBundles = MOCK_BUNDLES.filter(
-    (bundle) =>
-      bundle.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      bundle.trainerName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Fetch bundles from API
+  const { 
+    data: bundlesData, 
+    isLoading, 
+    refetch, 
+    isRefetching 
+  } = trpc.catalog.bundles.useQuery();
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    // Simulate refresh
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
-  };
+  const allBundles: Bundle[] = (bundlesData || []).map((b: any) => ({
+    id: b.id,
+    title: b.title,
+    description: b.description,
+    price: b.price,
+    imageUrl: b.imageUrl,
+    trainerName: b.trainerName || "Trainer",
+    trainerAvatar: b.trainerAvatar,
+    rating: b.rating,
+    reviews: b.reviewCount,
+  }));
+
+  // Client-side filtering
+  const bundles = searchQuery
+    ? allBundles.filter(
+        (b) =>
+          b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (b.trainerName?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+      )
+    : allBundles;
 
   const handleBundlePress = (bundle: Bundle) => {
     router.push(`/bundle/${bundle.id}` as any);
@@ -180,6 +143,7 @@ export default function CatalogScreen() {
             placeholderTextColor={colors.muted}
             value={searchQuery}
             onChangeText={setSearchQuery}
+            returnKeyType="search"
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery("")}>
@@ -190,27 +154,38 @@ export default function CatalogScreen() {
       </View>
 
       {/* Bundle List */}
-      <FlatList
-        data={filteredBundles}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <BundleCard bundle={item} onPress={() => handleBundlePress(item)} />
-        )}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
-        ListEmptyComponent={
-          <View className="items-center py-12">
-            <Text className="text-muted text-center">No bundles found</Text>
-          </View>
-        }
-      />
+      {isLoading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading bundles...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={bundles}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <BundleCard bundle={item} onPress={() => handleBundlePress(item)} />
+          )}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => refetch()}
+              tintColor={colors.primary}
+            />
+          }
+          ListEmptyComponent={
+            <View className="items-center py-12">
+              <IconSymbol name="magnifyingglass" size={48} color={colors.muted} />
+              <Text className="text-muted text-center mt-4">No bundles found</Text>
+              <Text className="text-muted text-center text-sm mt-1">
+                Try adjusting your search
+              </Text>
+            </View>
+          }
+        />
+      )}
     </ScreenContainer>
   );
 }

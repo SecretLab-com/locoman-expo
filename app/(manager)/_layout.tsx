@@ -37,17 +37,17 @@ export default function ManagerTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="approvals"
+        options={{
+          title: "Approvals",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="checkmark.circle.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="users"
         options={{
           title: "Users",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="trainers"
-        options={{
-          title: "Trainers",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="figure.run" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -57,7 +57,13 @@ export default function ManagerTabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="chart.bar.fill" color={color} />,
         }}
       />
-      {/* Hidden tabs */}
+      {/* Hidden tabs - accessible from dashboard */}
+      <Tabs.Screen
+        name="trainers"
+        options={{
+          href: null,
+        }}
+      />
       <Tabs.Screen
         name="templates"
         options={{
@@ -66,6 +72,18 @@ export default function ManagerTabLayout() {
       />
       <Tabs.Screen
         name="invitations"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="deliveries"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="products"
         options={{
           href: null,
         }}

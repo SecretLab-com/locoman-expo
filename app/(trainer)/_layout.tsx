@@ -51,10 +51,10 @@ export default function TrainerTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="orders"
+        name="deliveries"
         options={{
-          title: "Orders",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bag.fill" color={color} />,
+          title: "Deliveries",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="shippingbox.fill" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -68,25 +68,37 @@ export default function TrainerTabLayout() {
       <Tabs.Screen
         name="bundles"
         options={{
-          href: null, // Hide from tab bar
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="orders"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          href: null, // Hide from tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
         name="points"
         options={{
-          href: null, // Hide from tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
         name="invite"
         options={{
-          href: null, // Hide from tab bar
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="partnerships"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

@@ -599,6 +599,64 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // TRAINER DASHBOARD
+  // ============================================================================
+  trainerDashboard: router({
+    stats: trainerProcedure.query(async ({ ctx }) => {
+      const clients = await db.getClientsByTrainer(ctx.user.id);
+      const bundles = await db.getBundleDraftsByTrainer(ctx.user.id);
+      const orders = await db.getOrdersByTrainer(ctx.user.id);
+      const earnings = await db.getEarningsByTrainer(ctx.user.id);
+      
+      const totalEarnings = earnings.reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthlyEarnings = earnings
+        .filter(e => new Date(e.createdAt) >= startOfMonth)
+        .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
+      
+      return {
+        totalEarnings,
+        monthlyEarnings,
+        activeClients: clients.filter(c => c.status === "active").length,
+        activeBundles: bundles.filter(b => b.status === "published").length,
+        pendingOrders: orders.filter(o => o.status === "pending").length,
+        completedDeliveries: 0, // Would need delivery query
+      };
+    }),
+    
+    recentOrders: trainerProcedure.query(async ({ ctx }) => {
+      const orders = await db.getOrdersByTrainer(ctx.user.id);
+      return orders.slice(0, 5);
+    }),
+    
+    todaySessions: trainerProcedure.query(async ({ ctx }) => {
+      const sessions = await db.getUpcomingSessions(ctx.user.id);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      return sessions.filter(s => {
+        const sessionDate = new Date(s.sessionDate);
+        return sessionDate >= today && sessionDate < tomorrow;
+      });
+    }),
+    
+    points: trainerProcedure.query(async ({ ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      const totalPoints = (user as any)?.totalPoints || 0;
+      
+      let statusTier = "Bronze";
+      if (totalPoints >= 5000) statusTier = "Platinum";
+      else if (totalPoints >= 2000) statusTier = "Gold";
+      else if (totalPoints >= 1000) statusTier = "Silver";
+      
+      return { totalPoints, statusTier };
+    }),
+  }),
+
+  // ============================================================================
   // COORDINATOR (Impersonation and system config)
   // ============================================================================
   coordinator: router({

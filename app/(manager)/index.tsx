@@ -170,7 +170,7 @@ export default function ManagerDashboardScreen() {
         {/* Quick Actions */}
         <View className="px-4 mb-6">
           <Text className="text-lg font-semibold text-foreground mb-3">Quick Actions</Text>
-          <View className="flex-row gap-3">
+          <View className="flex-row gap-3 mb-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/templates" as any)}
               className="flex-1 bg-surface rounded-xl p-4 items-center"
@@ -197,6 +197,35 @@ export default function ManagerDashboardScreen() {
                 <IconSymbol name="chart.bar.fill" size={24} color={colors.primary} />
               </View>
               <Text className="text-sm font-medium text-foreground">Analytics</Text>
+            </TouchableOpacity>
+          </View>
+          <View className="flex-row gap-3">
+            <TouchableOpacity
+              onPress={() => router.push("/(manager)/deliveries" as any)}
+              className="flex-1 bg-surface rounded-xl p-4 items-center"
+            >
+              <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
+                <IconSymbol name="shippingbox.fill" size={24} color={colors.primary} />
+              </View>
+              <Text className="text-sm font-medium text-foreground">Deliveries</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push("/(manager)/products" as any)}
+              className="flex-1 bg-surface rounded-xl p-4 items-center"
+            >
+              <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
+                <IconSymbol name="bag.fill" size={24} color={colors.primary} />
+              </View>
+              <Text className="text-sm font-medium text-foreground">Products</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push("/(manager)/approvals" as any)}
+              className="flex-1 bg-surface rounded-xl p-4 items-center"
+            >
+              <View className="w-12 h-12 rounded-full bg-warning/10 items-center justify-center mb-2">
+                <IconSymbol name="checkmark.circle.fill" size={24} color={colors.warning} />
+              </View>
+              <Text className="text-sm font-medium text-foreground">Approvals</Text>
             </TouchableOpacity>
           </View>
         </View>

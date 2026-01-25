@@ -12,7 +12,7 @@
 - [x] Register screen with validation
 - [x] Auth context and token storage
 - [x] Protected route handling
-- [ ] OAuth login (Google/Apple)
+- [x] OAuth login (Google/Apple)
 - [x] Role-based navigation (shopper/client/trainer/manager)
 - [x] Impersonation support for coordinator role
 
@@ -47,11 +47,11 @@
 - [x] Session usage tracking (trainer marks used, show remaining to both)
 - [x] Calendar with session scheduling
 - [x] Orders management screen with tabs (pending/processing/completed)
-- [ ] Deliveries management with reschedule approval/rejection
+- [x] Deliveries management with reschedule approval/rejection
 - [x] Settings screen (username, bio, specialties, social links)
 - [ ] Media gallery management (photos/videos)
 - [x] Points/Status system with tiers (Bronze/Silver/Gold/Platinum)
-- [ ] Ad partnerships management
+- [x] Ad partnerships management
 - [x] Invite client to bundle (generate invitation link)
 - [ ] Bulk invite dialog
 - [ ] Join requests management (approve/reject)
@@ -136,3 +136,47 @@
 - [ ] Badge system for status tiers
 - [ ] Loading skeletons for all screens
 - [ ] Haptic feedback on actions
+
+## New Features to Implement
+
+### Live Backend Connection
+- [x] Connect catalog screen to real API
+- [x] Connect trainer dashboard to real API
+- [ ] Connect products screen to real API
+- [ ] Connect trainer directory to real API
+- [ ] Connect client dashboard to real API
+- [ ] Connect manager dashboard to real API
+- [ ] Connect all CRUD operations to real API
+
+### OAuth Login
+- [x] Google OAuth login
+- [x] Apple OAuth login
+- [x] OAuth callback handling
+
+### Push Notifications
+- [x] Request notification permissions
+- [x] Register for push notifications
+- [x] Delivery status notifications
+- [x] Session reminder notifications
+- [x] New message notifications
+
+### Missing Features from Original Locoman
+- [x] Trainer deliveries management screen (mark ready, mark delivered, reschedule approval)
+- [x] Ad partnerships screen (submit business, create partnership, earnings)
+- [x] Manager bundle approvals screen
+- [x] Manager ad approvals screen (combined with bundle approvals)
+- [x] Manager deliveries screen
+- [x] Manager products screen
+- [ ] Manager settings screen
+- [ ] Manager SPF management screen
+- [ ] Manager tag management screen
+- [ ] Trainer image analytics screen
+- [ ] Trainer messages screen (separate from general messaging)
+- [ ] Business signup page
+- [ ] Trainer landing page
+- [ ] Impersonation banner component
+- [ ] Pull-to-refresh on all list screens
+- [ ] Swipeable list items for quick actions
+- [ ] Image cropper/upload component
+- [ ] Media gallery management
+- [ ] Bulk invite dialog
