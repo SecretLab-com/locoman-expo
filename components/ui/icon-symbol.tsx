@@ -14,10 +14,59 @@ type IconSymbolName = keyof typeof MAPPING;
  * - see SF Symbols in the [SF Symbols](https://developer.apple.com/sf-symbols/) app.
  */
 const MAPPING = {
+  // Navigation icons
   "house.fill": "home",
+  "cart.fill": "shopping-cart",
+  "person.fill": "person",
+  "gearshape.fill": "settings",
+  "chart.bar.fill": "bar-chart",
+  "list.bullet": "list",
+  "rectangle.grid.2x2.fill": "grid-view",
+  "person.2.fill": "people",
+  "dollarsign.circle.fill": "attach-money",
+  "calendar": "calendar-today",
+  "message.fill": "message",
+  "shippingbox.fill": "local-shipping",
+  "bag.fill": "shopping-bag",
+  "creditcard.fill": "credit-card",
+  
+  // Action icons
   "paperplane.fill": "send",
-  "chevron.left.forwardslash.chevron.right": "code",
+  "plus": "add",
+  "minus": "remove",
+  "xmark": "close",
+  "checkmark": "check",
+  "arrow.left": "arrow-back",
+  "arrow.right": "arrow-forward",
+  "chevron.left": "chevron-left",
   "chevron.right": "chevron-right",
+  "chevron.down": "expand-more",
+  "chevron.up": "expand-less",
+  "chevron.left.forwardslash.chevron.right": "code",
+  "magnifyingglass": "search",
+  "trash.fill": "delete",
+  "pencil": "edit",
+  "heart.fill": "favorite",
+  "heart": "favorite-border",
+  "star.fill": "star",
+  "star": "star-border",
+  
+  // Status icons
+  "exclamationmark.triangle.fill": "warning",
+  "checkmark.circle.fill": "check-circle",
+  "xmark.circle.fill": "cancel",
+  "info.circle.fill": "info",
+  
+  // Misc icons
+  "photo.fill": "photo",
+  "camera.fill": "camera-alt",
+  "clock.fill": "schedule",
+  "location.fill": "location-on",
+  "phone.fill": "phone",
+  "envelope.fill": "email",
+  "lock.fill": "lock",
+  "eye.fill": "visibility",
+  "eye.slash.fill": "visibility-off",
 } as IconMapping;
 
 /**

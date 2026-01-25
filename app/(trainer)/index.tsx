@@ -1,0 +1,202 @@
+import { Text, View, TouchableOpacity, ScrollView, RefreshControl } from "react-native";
+import { useState } from "react";
+import { router } from "expo-router";
+import { ScreenContainer } from "@/components/screen-container";
+import { useColors } from "@/hooks/use-colors";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+
+// Mock data for trainer dashboard
+const MOCK_STATS = {
+  totalEarnings: 12450.0,
+  monthlyEarnings: 2340.0,
+  activeClients: 24,
+  activeBundles: 8,
+  pendingOrders: 5,
+  completedDeliveries: 156,
+};
+
+const MOCK_RECENT_ORDERS = [
+  { id: 1, clientName: "John Doe", bundleTitle: "Full Body Transformation", amount: 149.99, status: "pending" },
+  { id: 2, clientName: "Jane Smith", bundleTitle: "HIIT Cardio Blast", amount: 79.99, status: "completed" },
+  { id: 3, clientName: "Mike Johnson", bundleTitle: "Yoga for Beginners", amount: 59.99, status: "pending" },
+];
+
+type StatCardProps = {
+  title: string;
+  value: string | number;
+  icon: Parameters<typeof IconSymbol>[0]["name"];
+  color?: string;
+};
+
+function StatCard({ title, value, icon, color }: StatCardProps) {
+  const colors = useColors();
+  const iconColor = color || colors.primary;
+
+  return (
+    <View className="bg-surface rounded-xl p-4 flex-1 min-w-[140px]">
+      <View className="flex-row items-center justify-between mb-2">
+        <IconSymbol name={icon} size={24} color={iconColor} />
+      </View>
+      <Text className="text-2xl font-bold text-foreground">{value}</Text>
+      <Text className="text-sm text-muted mt-1">{title}</Text>
+    </View>
+  );
+}
+
+type QuickActionProps = {
+  title: string;
+  icon: Parameters<typeof IconSymbol>[0]["name"];
+  onPress: () => void;
+};
+
+function QuickAction({ title, icon, onPress }: QuickActionProps) {
+  const colors = useColors();
+
+  return (
+    <TouchableOpacity
+      className="bg-surface rounded-xl p-4 items-center flex-1 mx-1"
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
+        <IconSymbol name={icon} size={24} color={colors.primary} />
+      </View>
+      <Text className="text-sm font-medium text-foreground text-center">{title}</Text>
+    </TouchableOpacity>
+  );
+}
+
+export default function TrainerDashboardScreen() {
+  const colors = useColors();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    setRefreshing(false);
+  };
+
+  return (
+    <ScreenContainer>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
+      >
+        {/* Header */}
+        <View className="px-4 pt-2 pb-4">
+          <Text className="text-2xl font-bold text-foreground">Dashboard</Text>
+          <Text className="text-sm text-muted">Welcome back, Trainer!</Text>
+        </View>
+
+        {/* Stats Grid */}
+        <View className="px-4 mb-6">
+          <View className="flex-row gap-3 mb-3">
+            <StatCard
+              title="Total Earnings"
+              value={`$${MOCK_STATS.totalEarnings.toLocaleString()}`}
+              icon="dollarsign.circle.fill"
+              color={colors.success}
+            />
+            <StatCard
+              title="This Month"
+              value={`$${MOCK_STATS.monthlyEarnings.toLocaleString()}`}
+              icon="chart.bar.fill"
+            />
+          </View>
+          <View className="flex-row gap-3">
+            <StatCard
+              title="Active Clients"
+              value={MOCK_STATS.activeClients}
+              icon="person.2.fill"
+            />
+            <StatCard
+              title="Active Bundles"
+              value={MOCK_STATS.activeBundles}
+              icon="bag.fill"
+            />
+          </View>
+        </View>
+
+        {/* Quick Actions */}
+        <View className="px-4 mb-6">
+          <Text className="text-lg font-semibold text-foreground mb-3">Quick Actions</Text>
+          <View className="flex-row">
+            <QuickAction
+              title="New Bundle"
+              icon="plus"
+              onPress={() => router.push("/(trainer)/bundles" as any)}
+            />
+            <QuickAction
+              title="Messages"
+              icon="message.fill"
+              onPress={() => {}}
+            />
+            <QuickAction
+              title="Calendar"
+              icon="calendar"
+              onPress={() => {}}
+            />
+          </View>
+        </View>
+
+        {/* Recent Orders */}
+        <View className="px-4 mb-6">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-lg font-semibold text-foreground">Recent Orders</Text>
+            <TouchableOpacity>
+              <Text className="text-primary font-medium">View All</Text>
+            </TouchableOpacity>
+          </View>
+
+          {MOCK_RECENT_ORDERS.map((order) => (
+            <TouchableOpacity
+              key={order.id}
+              className="bg-surface rounded-xl p-4 mb-3 border border-border"
+              activeOpacity={0.8}
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1">
+                  <Text className="text-base font-semibold text-foreground">{order.clientName}</Text>
+                  <Text className="text-sm text-muted mt-1">{order.bundleTitle}</Text>
+                </View>
+                <View className="items-end">
+                  <Text className="text-base font-bold text-foreground">${order.amount}</Text>
+                  <View
+                    className={`px-2 py-1 rounded-full mt-1 ${
+                      order.status === "completed" ? "bg-success/20" : "bg-warning/20"
+                    }`}
+                  >
+                    <Text
+                      className={`text-xs font-medium ${
+                        order.status === "completed" ? "text-success" : "text-warning"
+                      }`}
+                    >
+                      {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Performance Summary */}
+        <View className="px-4 mb-8">
+          <Text className="text-lg font-semibold text-foreground mb-3">Performance</Text>
+          <View className="bg-surface rounded-xl p-4 border border-border">
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-muted">Pending Orders</Text>
+              <Text className="text-foreground font-semibold">{MOCK_STATS.pendingOrders}</Text>
+            </View>
+            <View className="flex-row items-center justify-between">
+              <Text className="text-muted">Completed Deliveries</Text>
+              <Text className="text-foreground font-semibold">{MOCK_STATS.completedDeliveries}</Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    </ScreenContainer>
+  );
+}
