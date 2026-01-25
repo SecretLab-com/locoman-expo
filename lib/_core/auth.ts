@@ -2,12 +2,26 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { SESSION_TOKEN_KEY, USER_INFO_KEY } from "@/constants/oauth";
 
+export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
+
 export type User = {
   id: number;
   openId: string;
   name: string | null;
   email: string | null;
+  phone: string | null;
+  photoUrl: string | null;
   loginMethod: string | null;
+  role: UserRole;
+  username: string | null;
+  bio: string | null;
+  specialties: unknown;
+  socialLinks: unknown;
+  trainerId: number | null;
+  active: boolean;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
   lastSignedIn: Date;
 };
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import {
   Text,
   View,
@@ -130,7 +131,7 @@ export default function TrainerClientsScreen() {
   };
 
   const handleClientPress = (client: Client) => {
-    // Navigate to client detail - coming soon
+    router.push(`/client-detail/${client.id}` as any);
   };
 
   return (

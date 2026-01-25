@@ -7,6 +7,30 @@ type UseAuthOptions = {
   autoFetch?: boolean;
 };
 
+// Helper to convert API response to full User type with defaults
+function normalizeUser(apiUser: Record<string, unknown>): Auth.User {
+  return {
+    id: apiUser.id as number,
+    openId: apiUser.openId as string,
+    name: (apiUser.name as string | null) ?? null,
+    email: (apiUser.email as string | null) ?? null,
+    phone: (apiUser.phone as string | null) ?? null,
+    photoUrl: (apiUser.photoUrl as string | null) ?? null,
+    loginMethod: (apiUser.loginMethod as string | null) ?? null,
+    role: (apiUser.role as Auth.UserRole) ?? "shopper",
+    username: (apiUser.username as string | null) ?? null,
+    bio: (apiUser.bio as string | null) ?? null,
+    specialties: apiUser.specialties ?? null,
+    socialLinks: apiUser.socialLinks ?? null,
+    trainerId: (apiUser.trainerId as number | null) ?? null,
+    active: (apiUser.active as boolean) ?? true,
+    metadata: apiUser.metadata ?? null,
+    createdAt: apiUser.createdAt ? new Date(apiUser.createdAt as string) : new Date(),
+    updatedAt: apiUser.updatedAt ? new Date(apiUser.updatedAt as string) : new Date(),
+    lastSignedIn: apiUser.lastSignedIn ? new Date(apiUser.lastSignedIn as string) : new Date(),
+  };
+}
+
 export function useAuth(options?: UseAuthOptions) {
   const { autoFetch = true } = options ?? {};
   const [user, setUser] = useState<Auth.User | null>(null);
@@ -26,14 +50,7 @@ export function useAuth(options?: UseAuthOptions) {
         console.log("[useAuth] API user response:", apiUser);
 
         if (apiUser) {
-          const userInfo: Auth.User = {
-            id: apiUser.id,
-            openId: apiUser.openId,
-            name: apiUser.name,
-            email: apiUser.email,
-            loginMethod: apiUser.loginMethod,
-            lastSignedIn: new Date(apiUser.lastSignedIn),
-          };
+          const userInfo = normalizeUser(apiUser as Record<string, unknown>);
           setUser(userInfo);
           // Cache user info in localStorage for faster subsequent loads
           await Auth.setUserInfo(userInfo);

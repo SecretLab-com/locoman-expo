@@ -154,7 +154,7 @@ export default function TrainerBundlesScreen() {
   };
 
   const handleEditBundle = (bundle: Bundle) => {
-    Alert.alert("Edit Bundle", `Editing "${bundle.title}" - Coming soon!`);
+    router.push(`/bundle-editor/${bundle.id}` as any);
   };
 
   const handleDeleteBundle = (bundle: Bundle) => {
@@ -175,7 +175,7 @@ export default function TrainerBundlesScreen() {
   };
 
   const handleCreateBundle = () => {
-    Alert.alert("Create Bundle", "Bundle creation coming soon!");
+    router.push("/bundle-editor/new" as any);
   };
 
   return (

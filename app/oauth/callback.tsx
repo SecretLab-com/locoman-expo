@@ -7,6 +7,30 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+// Helper to normalize user data from various sources to full User type
+function normalizeUserData(userData: Record<string, unknown>): Auth.User {
+  return {
+    id: userData.id as number,
+    openId: userData.openId as string,
+    name: (userData.name as string | null) ?? null,
+    email: (userData.email as string | null) ?? null,
+    phone: (userData.phone as string | null) ?? null,
+    photoUrl: (userData.photoUrl as string | null) ?? null,
+    loginMethod: (userData.loginMethod as string | null) ?? null,
+    role: (userData.role as Auth.UserRole) ?? "shopper",
+    username: (userData.username as string | null) ?? null,
+    bio: (userData.bio as string | null) ?? null,
+    specialties: userData.specialties ?? null,
+    socialLinks: userData.socialLinks ?? null,
+    trainerId: (userData.trainerId as number | null) ?? null,
+    active: (userData.active as boolean) ?? true,
+    metadata: userData.metadata ?? null,
+    createdAt: userData.createdAt ? new Date(userData.createdAt as string) : new Date(),
+    updatedAt: userData.updatedAt ? new Date(userData.updatedAt as string) : new Date(),
+    lastSignedIn: userData.lastSignedIn ? new Date(userData.lastSignedIn as string) : new Date(),
+  };
+}
+
 export default function OAuthCallback() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -44,14 +68,7 @@ export default function OAuthCallback() {
                   ? atob(params.user)
                   : Buffer.from(params.user, "base64").toString("utf-8");
               const userData = JSON.parse(userJson);
-              const userInfo: Auth.User = {
-                id: userData.id,
-                openId: userData.openId,
-                name: userData.name,
-                email: userData.email,
-                loginMethod: userData.loginMethod,
-                lastSignedIn: new Date(userData.lastSignedIn || Date.now()),
-              };
+              const userInfo = normalizeUserData(userData);
               await Auth.setUserInfo(userInfo);
               console.log("[OAuth] User info stored:", userInfo);
             } catch (err) {
@@ -195,14 +212,7 @@ export default function OAuthCallback() {
           // Store user info if available
           if (result.user) {
             console.log("[OAuth] User data received:", result.user);
-            const userInfo: Auth.User = {
-              id: result.user.id,
-              openId: result.user.openId,
-              name: result.user.name,
-              email: result.user.email,
-              loginMethod: result.user.loginMethod,
-              lastSignedIn: new Date(result.user.lastSignedIn || Date.now()),
-            };
+            const userInfo = normalizeUserData(result.user as Record<string, unknown>);
             await Auth.setUserInfo(userInfo);
             console.log("[OAuth] User info stored:", userInfo);
           } else {

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Text,
   View,
@@ -12,30 +11,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/hooks/use-auth";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-
-// Mock cart data - in production this would be managed by state/context
-const INITIAL_CART = [
-  {
-    id: 1,
-    bundleId: 1,
-    title: "Full Body Transformation",
-    price: 149.99,
-    trainerName: "Sarah Johnson",
-    image: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400",
-    quantity: 1,
-  },
-  {
-    id: 2,
-    bundleId: 3,
-    title: "Yoga for Beginners",
-    price: 59.99,
-    trainerName: "Emma Wilson",
-    image: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=400",
-    quantity: 1,
-  },
-];
-
-type CartItem = (typeof INITIAL_CART)[0];
+import { useCart, CartItem } from "@/contexts/cart-context";
 
 function CartItemCard({
   item,
@@ -51,18 +27,27 @@ function CartItemCard({
   return (
     <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
       <View className="flex-row">
-        <Image
-          source={{ uri: item.image }}
-          className="w-20 h-20 rounded-lg"
-          contentFit="cover"
-        />
+        {item.imageUrl ? (
+          <Image
+            source={{ uri: item.imageUrl }}
+            className="w-20 h-20 rounded-lg"
+            contentFit="cover"
+          />
+        ) : (
+          <View className="w-20 h-20 rounded-lg bg-primary/20 items-center justify-center">
+            <IconSymbol name="bag.fill" size={28} color={colors.primary} />
+          </View>
+        )}
         <View className="flex-1 ml-4">
           <Text className="text-base font-semibold text-foreground" numberOfLines={2}>
             {item.title}
           </Text>
-          <Text className="text-sm text-muted mt-1">{item.trainerName}</Text>
+          <Text className="text-sm text-muted mt-1">{item.trainer}</Text>
           <Text className="text-lg font-bold text-primary mt-2">
             ${item.price.toFixed(2)}
+            {item.cadence !== "one_time" && (
+              <Text className="text-muted text-sm font-normal">/{item.cadence}</Text>
+            )}
           </Text>
         </View>
       </View>
@@ -99,13 +84,12 @@ function CartItemCard({
 export default function CartScreen() {
   const colors = useColors();
   const { isAuthenticated } = useAuth();
-  const [cartItems, setCartItems] = useState<CartItem[]>(INITIAL_CART);
+  const { items, subtotal, updateQuantity, removeItem, isLoading } = useCart();
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const tax = subtotal * 0.08; // 8% tax
   const total = subtotal + tax;
 
-  const handleRemoveItem = (itemId: number) => {
+  const handleRemoveItem = (itemId: string) => {
     Alert.alert(
       "Remove Item",
       "Are you sure you want to remove this item from your cart?",
@@ -114,17 +98,9 @@ export default function CartScreen() {
         {
           text: "Remove",
           style: "destructive",
-          onPress: () => {
-            setCartItems((items) => items.filter((item) => item.id !== itemId));
-          },
+          onPress: () => removeItem(itemId),
         },
       ]
-    );
-  };
-
-  const handleUpdateQuantity = (itemId: number, quantity: number) => {
-    setCartItems((items) =>
-      items.map((item) => (item.id === itemId ? { ...item, quantity } : item))
     );
   };
 
@@ -140,11 +116,18 @@ export default function CartScreen() {
       );
       return;
     }
-    // TODO: Implement checkout flow
-    Alert.alert("Checkout", "Checkout functionality coming soon!");
+    router.push("/checkout" as any);
   };
 
-  if (cartItems.length === 0) {
+  if (isLoading) {
+    return (
+      <ScreenContainer className="items-center justify-center">
+        <Text className="text-muted">Loading cart...</Text>
+      </ScreenContainer>
+    );
+  }
+
+  if (items.length === 0) {
     return (
       <ScreenContainer className="items-center justify-center px-6">
         <IconSymbol name="cart.fill" size={64} color={colors.muted} />
@@ -169,18 +152,18 @@ export default function CartScreen() {
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
         <Text className="text-2xl font-bold text-foreground">Your Cart</Text>
-        <Text className="text-sm text-muted">{cartItems.length} items</Text>
+        <Text className="text-sm text-muted">{items.length} items</Text>
       </View>
 
       {/* Cart Items */}
       <FlatList
-        data={cartItems}
-        keyExtractor={(item) => item.id.toString()}
+        data={items}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <CartItemCard
             item={item}
             onRemove={() => handleRemoveItem(item.id)}
-            onUpdateQuantity={(quantity) => handleUpdateQuantity(item.id, quantity)}
+            onUpdateQuantity={(quantity) => updateQuantity(item.id, quantity)}
           />
         )}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 200 }}

@@ -90,6 +90,12 @@ export default function RootLayout() {
             <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
             <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
             <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
+            <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card" }} />
+            <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
+            <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
+            <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false }} />
+            <Stack.Screen name="messages/index" options={{ presentation: "card" }} />
+            <Stack.Screen name="messages/[id]" options={{ presentation: "card" }} />
             <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
             <Stack.Screen name="(client)" options={{ headerShown: false }} />
             <Stack.Screen name="oauth/callback" />
