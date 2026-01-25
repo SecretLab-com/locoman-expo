@@ -265,3 +265,18 @@
 - [x] Add manager test account (manager@secretlab.com / supertest)
 - [x] Ensure trainer role is assigned to trainer test account
 - [x] Verify trainer can access bundle creation screen
+
+## Login Enhancements
+- [x] Add Remember Me option with persistent token storage
+- [x] Add password visibility toggle (eye icon)
+- [x] Add test account quick-fill buttons for easy testing
+
+## User Journey Validation
+- [x] Validate trainer journey: login → dashboard → bundles → create bundle → submit for review
+- [x] Validate client journey: login → dashboard → subscriptions → deliveries
+- [x] Validate manager journey: login → dashboard → approvals → user management
+- [x] Validate shopper journey: browse catalog → add to cart → checkout
+- [x] Add role-based dashboard navigation to profile screen
+- [x] Add role badge display on profile
+- [x] Add trainer quick actions on profile
+- [x] Add manager quick actions on profile

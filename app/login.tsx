@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Text,
   View,
@@ -8,14 +8,19 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Switch,
 } from "react-native";
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { startOAuthLogin, getApiBaseUrl } from "@/constants/oauth";
 import { OAuthButtons } from "@/components/oauth-buttons";
 import { haptics } from "@/hooks/use-haptics";
-import { useAuth } from "@/hooks/use-auth";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+
+const REMEMBER_ME_KEY = "locomotivate_remember_me";
+const SAVED_EMAIL_KEY = "locomotivate_saved_email";
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -23,6 +28,27 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // Load saved email on mount
+  useEffect(() => {
+    async function loadSavedCredentials() {
+      try {
+        const savedRememberMe = await AsyncStorage.getItem(REMEMBER_ME_KEY);
+        if (savedRememberMe === "true") {
+          setRememberMe(true);
+          const savedEmail = await AsyncStorage.getItem(SAVED_EMAIL_KEY);
+          if (savedEmail) {
+            setEmail(savedEmail);
+          }
+        }
+      } catch (err) {
+        console.error("[Login] Failed to load saved credentials:", err);
+      }
+    }
+    loadSavedCredentials();
+  }, []);
 
   const handleLogin = async () => {
     await haptics.light();
@@ -37,6 +63,15 @@ export default function LoginScreen() {
     setError(null);
 
     try {
+      // Save or clear remember me preference
+      if (rememberMe) {
+        await AsyncStorage.setItem(REMEMBER_ME_KEY, "true");
+        await AsyncStorage.setItem(SAVED_EMAIL_KEY, email.trim());
+      } else {
+        await AsyncStorage.removeItem(REMEMBER_ME_KEY);
+        await AsyncStorage.removeItem(SAVED_EMAIL_KEY);
+      }
+
       // Call login API with correct base URL
       const apiBaseUrl = getApiBaseUrl();
       const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
@@ -49,7 +84,11 @@ export default function LoginScreen() {
       if (response.ok) {
         await haptics.success();
         // Refresh auth state to pick up the new session
-        window.location.reload();
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          window.location.reload();
+        } else {
+          router.replace("/(tabs)");
+        }
       } else {
         await haptics.error();
         const data = await response.json();
@@ -85,6 +124,16 @@ export default function LoginScreen() {
   const handleGuestPress = async () => {
     await haptics.light();
     router.replace("/(tabs)");
+  };
+
+  const togglePasswordVisibility = async () => {
+    await haptics.light();
+    setShowPassword(!showPassword);
+  };
+
+  const toggleRememberMe = async (value: boolean) => {
+    await haptics.light();
+    setRememberMe(value);
   };
 
   return (
@@ -142,19 +191,44 @@ export default function LoginScreen() {
               />
             </View>
 
-            {/* Password Input */}
-            <View className="mb-6">
+            {/* Password Input with Visibility Toggle */}
+            <View className="mb-4">
               <Text className="text-sm font-medium text-foreground mb-2">Password</Text>
-              <TextInput
-                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                placeholder="Enter your password"
-                placeholderTextColor={colors.muted}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                editable={!loading}
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
+              <View className="relative">
+                <TextInput
+                  className="bg-surface border border-border rounded-xl px-4 py-3 pr-12 text-foreground"
+                  placeholder="Enter your password"
+                  placeholderTextColor={colors.muted}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  editable={!loading}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                />
+                <TouchableOpacity
+                  className="absolute right-3 top-0 bottom-0 justify-center"
+                  onPress={togglePasswordVisibility}
+                  activeOpacity={0.7}
+                >
+                  <IconSymbol
+                    name={showPassword ? "eye.slash.fill" : "eye.fill"}
+                    size={22}
+                    color={colors.muted}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Remember Me Toggle */}
+            <View className="flex-row items-center justify-between mb-6">
+              <Text className="text-sm text-foreground">Remember me</Text>
+              <Switch
+                value={rememberMe}
+                onValueChange={toggleRememberMe}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor={Platform.OS === "android" ? (rememberMe ? colors.primary : colors.surface) : undefined}
+                ios_backgroundColor={colors.border}
               />
             </View>
 
@@ -197,6 +271,37 @@ export default function LoginScreen() {
             >
               <Text className="text-muted">Browse as guest</Text>
             </TouchableOpacity>
+
+            {/* Test Account Hints */}
+            <View className="mt-8 p-4 bg-surface/50 rounded-xl border border-border">
+              <Text className="text-xs text-muted text-center mb-2">Test Accounts (password: supertest)</Text>
+              <View className="flex-row flex-wrap justify-center gap-2">
+                <TouchableOpacity
+                  onPress={() => { setEmail("trainer@secretlab.com"); setPassword("supertest"); }}
+                  className="px-2 py-1 bg-primary/10 rounded"
+                >
+                  <Text className="text-xs text-primary">Trainer</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setEmail("client@secretlab.com"); setPassword("supertest"); }}
+                  className="px-2 py-1 bg-primary/10 rounded"
+                >
+                  <Text className="text-xs text-primary">Client</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setEmail("manager@secretlab.com"); setPassword("supertest"); }}
+                  className="px-2 py-1 bg-primary/10 rounded"
+                >
+                  <Text className="text-xs text-primary">Manager</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setEmail("testuser@secretlab.com"); setPassword("supertest"); }}
+                  className="px-2 py-1 bg-primary/10 rounded"
+                >
+                  <Text className="text-xs text-primary">Shopper</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
