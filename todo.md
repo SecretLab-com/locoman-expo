@@ -251,3 +251,8 @@
 - [x] Add pricing auto-calculation from products + services
 - [x] Add bundle status management (draft/pending_review/published/rejected)
 - [x] Add submit for review workflow
+
+## Login Button and Test User
+- [x] Add login button to landing/home page for unauthenticated users
+- [x] Configure test user credentials (testuser@secretlab.com / supertest)
+- [x] Verify login flow works with test credentials

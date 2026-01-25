@@ -12,9 +12,10 @@ import {
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { startOAuthLogin } from "@/constants/oauth";
+import { startOAuthLogin, getApiBaseUrl } from "@/constants/oauth";
 import { OAuthButtons } from "@/components/oauth-buttons";
 import { haptics } from "@/hooks/use-haptics";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -36,16 +37,19 @@ export default function LoginScreen() {
     setError(null);
 
     try {
-      // Call login API
-      const response = await fetch("/api/auth/login", {
+      // Call login API with correct base URL
+      const apiBaseUrl = getApiBaseUrl();
+      const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
+        credentials: "include",
       });
 
       if (response.ok) {
         await haptics.success();
-        router.replace("/(tabs)");
+        // Refresh auth state to pick up the new session
+        window.location.reload();
       } else {
         await haptics.error();
         const data = await response.json();

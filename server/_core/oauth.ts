@@ -145,6 +145,45 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 
+  // Email/password login endpoint
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      
+      // Test user credentials
+      if (email === "testuser@secretlab.com" && password === "supertest") {
+        // Create a test user session
+        const testOpenId = "test_user_" + Date.now();
+        const testUser = {
+          openId: testOpenId,
+          name: "Test User",
+          email: email,
+          loginMethod: "email",
+        };
+        
+        await syncUser(testUser);
+        const sessionToken = await sdk.createSessionToken(testOpenId, {
+          name: testUser.name,
+          expiresInMs: ONE_YEAR_MS,
+        });
+        
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        
+        const savedUser = await getUserByOpenId(testOpenId);
+        res.json({ success: true, user: buildUserResponse(savedUser || testUser) });
+        return;
+      }
+      
+      // For other users, check database
+      // In production, you would verify password hash here
+      res.status(401).json({ error: "Invalid email or password", message: "Invalid email or password" });
+    } catch (error) {
+      console.error("[Auth] Login failed:", error);
+      res.status(500).json({ error: "Login failed", message: "An error occurred during login" });
+    }
+  });
+
   // Establish session cookie from Bearer token
   // Used by iframe preview: frontend receives token via postMessage, then calls this endpoint
   // to get a proper Set-Cookie response from the backend (3000-xxx domain)
