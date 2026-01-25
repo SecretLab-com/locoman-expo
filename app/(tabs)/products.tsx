@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  RefreshControl,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -48,7 +49,7 @@ export default function ProductsScreen() {
   const [filterModalOpen, setFilterModalOpen] = useState(false);
 
   // Fetch products via tRPC
-  const { data: products, isLoading, refetch } = trpc.catalog.products.useQuery(undefined, {
+  const { data: products, isLoading, refetch, isRefetching } = trpc.catalog.products.useQuery(undefined, {
     staleTime: 60000,
   });
 
@@ -193,7 +194,17 @@ export default function ProductsScreen() {
 
       {/* Product Grid */}
       {!isLoading && (
-        <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
+        <ScrollView
+          className="flex-1 px-4"
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => refetch()}
+              tintColor={colors.primary}
+            />
+          }
+        >
           <View className="flex-row flex-wrap justify-between pb-24">
             {filteredProducts.map((product: Product) => {
               const price = parseFloat(product.price);

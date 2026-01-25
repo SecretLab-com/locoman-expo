@@ -8,12 +8,14 @@ import {
   TextInput,
   Alert,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
+import { trpc } from "@/lib/trpc";
 
 type Product = {
   id: number;
@@ -24,10 +26,11 @@ type Product = {
   category: string;
   imageUrl: string;
   isActive: boolean;
-  shopifyId?: string;
+  shopifyId?: number;
+  sku?: string;
 };
 
-// Mock data
+// Mock data for fallback
 const MOCK_PRODUCTS: Product[] = [
   {
     id: 1,
@@ -38,7 +41,7 @@ const MOCK_PRODUCTS: Product[] = [
     category: "Supplements",
     imageUrl: "https://placehold.co/200x200/10B981/FFFFFF?text=Protein",
     isActive: true,
-    shopifyId: "gid://shopify/Product/1234567890",
+    shopifyId: 123456,
   },
   {
     id: 2,
@@ -49,7 +52,7 @@ const MOCK_PRODUCTS: Product[] = [
     category: "Supplements",
     imageUrl: "https://placehold.co/200x200/F59E0B/FFFFFF?text=PreWorkout",
     isActive: true,
-    shopifyId: "gid://shopify/Product/1234567891",
+    shopifyId: 123457,
   },
   {
     id: 3,
@@ -60,7 +63,7 @@ const MOCK_PRODUCTS: Product[] = [
     category: "Supplements",
     imageUrl: "https://placehold.co/200x200/3B82F6/FFFFFF?text=BCAA",
     isActive: false,
-    shopifyId: "gid://shopify/Product/1234567892",
+    shopifyId: 123458,
   },
   {
     id: 4,
@@ -89,9 +92,47 @@ const CATEGORIES = ["All", "Supplements", "Equipment", "Apparel", "Accessories"]
 export default function ManagerProductsScreen() {
   const colors = useColors();
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
+
+  // Shopify API hooks
+  const shopifyProductsQuery = trpc.shopify.products.useQuery(undefined, {
+    enabled: false, // Don't auto-fetch, we'll trigger manually
+  });
+
+  // Transform Shopify products when data changes
+  const transformShopifyProducts = useCallback((data: typeof shopifyProductsQuery.data) => {
+    if (!data) return;
+    const shopifyProducts: Product[] = data.map((p) => ({
+      id: p.id,
+      name: p.title,
+      description: p.description || "",
+      price: parseFloat(p.price),
+      inventory: p.inventory,
+      category: p.productType || "Supplements",
+      imageUrl: p.imageUrl || "https://placehold.co/200x200/10B981/FFFFFF?text=Product",
+      isActive: p.status === "active",
+      shopifyId: p.id,
+      sku: p.sku,
+    }));
+    setProducts(shopifyProducts);
+  }, []);
+
+  const syncMutation = trpc.shopify.sync.useMutation({
+    onSuccess: (result) => {
+      Alert.alert(
+        "Sync Complete",
+        `Successfully synced ${result.synced} products. ${result.errors > 0 ? `${result.errors} errors occurred.` : ""}`
+      );
+      // Refetch products after sync
+      shopifyProductsQuery.refetch();
+    },
+    onError: (error) => {
+      Alert.alert("Sync Failed", error.message);
+    },
+  });
 
   const filteredProducts = products.filter((p) => {
     const matchesCategory = selectedCategory === "All" || p.category === selectedCategory;
@@ -104,9 +145,14 @@ export default function ManagerProductsScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // Sync with Shopify
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    try {
+      await shopifyProductsQuery.refetch();
+    } catch (error) {
+      console.error("Failed to refresh products:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [shopifyProductsQuery]);
 
   const handleToggleActive = (product: Product) => {
     if (Platform.OS !== "web") {
@@ -125,18 +171,43 @@ export default function ManagerProductsScreen() {
 
     Alert.alert(
       "Sync with Shopify",
-      "This will sync all products with your Shopify store. Continue?",
+      "This will sync all products from your Shopify store to the database. Continue?",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Sync",
-          onPress: () => {
-            // Simulate sync
-            Alert.alert("Success", "Products synced with Shopify!");
+          onPress: async () => {
+            setSyncing(true);
+            try {
+              await syncMutation.mutateAsync();
+            } finally {
+              setSyncing(false);
+            }
           },
         },
       ]
     );
+  };
+
+  const handleFetchFromShopify = async () => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    setRefreshing(true);
+    try {
+      const result = await shopifyProductsQuery.refetch();
+      if (result.data) {
+        transformShopifyProducts(result.data);
+      }
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to fetch products from Shopify");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Stats
@@ -186,12 +257,12 @@ export default function ManagerProductsScreen() {
           <View className="flex-row items-center mt-2 gap-3">
             <Text className="text-primary font-bold">${item.price.toFixed(2)}</Text>
             <View
-              className={`px-2 py-0.5 rounded ${
+              className={`px-2 py-0.5 rounded-full ${
                 item.inventory === 0
-                  ? "bg-error/10"
+                  ? "bg-error/20"
                   : item.inventory < 10
-                  ? "bg-warning/10"
-                  : "bg-success/10"
+                  ? "bg-warning/20"
+                  : "bg-success/20"
               }`}
             >
               <Text
@@ -206,90 +277,107 @@ export default function ManagerProductsScreen() {
                 {item.inventory === 0 ? "Out of Stock" : `${item.inventory} in stock`}
               </Text>
             </View>
-            <Text className="text-muted text-xs">{item.category}</Text>
+            {item.shopifyId && (
+              <View className="px-2 py-0.5 rounded-full bg-primary/20">
+                <Text className="text-xs font-medium text-primary">Shopify</Text>
+              </View>
+            )}
           </View>
+
+          {item.sku && (
+            <Text className="text-muted text-xs mt-1">SKU: {item.sku}</Text>
+          )}
         </View>
       </View>
     </View>
   );
 
   return (
-    <ScreenContainer className="px-4">
+    <ScreenContainer>
       {/* Header */}
-      <View className="flex-row items-center justify-between py-4">
-        <Text className="text-2xl font-bold text-foreground">Products</Text>
-        <TouchableOpacity
-          className="flex-row items-center bg-primary px-4 py-2 rounded-lg"
-          onPress={handleSyncShopify}
-        >
-          <IconSymbol name="arrow.triangle.2.circlepath" size={16} color="#fff" />
-          <Text className="text-background font-medium ml-2">Sync</Text>
-        </TouchableOpacity>
-      </View>
+      <View className="px-4 pt-4 pb-2">
+        <View className="flex-row justify-between items-center mb-4">
+          <Text className="text-2xl font-bold text-foreground">Products</Text>
+          <View className="flex-row gap-2">
+            <TouchableOpacity
+              className="bg-surface border border-border px-3 py-2 rounded-xl flex-row items-center"
+              onPress={handleFetchFromShopify}
+              disabled={refreshing}
+            >
+              {refreshing ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <IconSymbol name="arrow.triangle.2.circlepath" size={18} color={colors.primary} />
+              )}
+              <Text className="text-primary font-medium ml-1">Fetch</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="bg-primary px-3 py-2 rounded-xl flex-row items-center"
+              onPress={handleSyncShopify}
+              disabled={syncing}
+            >
+              {syncing ? (
+                <ActivityIndicator size="small" color={colors.background} />
+              ) : (
+                <IconSymbol name="sync" size={18} color={colors.background} />
+              )}
+              <Text className="text-background font-medium ml-1">Sync</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      {/* Stats */}
-      <View className="flex-row gap-2 mb-4">
-        <View className="flex-1 bg-surface rounded-lg p-3 items-center border border-border">
-          <Text className="text-xl font-bold text-foreground">{stats.total}</Text>
-          <Text className="text-xs text-muted">Total</Text>
+        {/* Stats */}
+        <View className="flex-row gap-2 mb-4">
+          <View className="flex-1 bg-surface rounded-xl p-3 border border-border">
+            <Text className="text-muted text-xs">Total</Text>
+            <Text className="text-foreground text-xl font-bold">{stats.total}</Text>
+          </View>
+          <View className="flex-1 bg-surface rounded-xl p-3 border border-border">
+            <Text className="text-muted text-xs">Active</Text>
+            <Text className="text-success text-xl font-bold">{stats.active}</Text>
+          </View>
+          <View className="flex-1 bg-surface rounded-xl p-3 border border-border">
+            <Text className="text-muted text-xs">Low Stock</Text>
+            <Text className="text-warning text-xl font-bold">{stats.lowStock}</Text>
+          </View>
+          <View className="flex-1 bg-surface rounded-xl p-3 border border-border">
+            <Text className="text-muted text-xs">Out</Text>
+            <Text className="text-error text-xl font-bold">{stats.outOfStock}</Text>
+          </View>
         </View>
-        <View className="flex-1 bg-success/10 rounded-lg p-3 items-center">
-          <Text className="text-xl font-bold text-success">{stats.active}</Text>
-          <Text className="text-xs text-muted">Active</Text>
-        </View>
-        <View className="flex-1 bg-warning/10 rounded-lg p-3 items-center">
-          <Text className="text-xl font-bold text-warning">{stats.lowStock}</Text>
-          <Text className="text-xs text-muted">Low Stock</Text>
-        </View>
-        <View className="flex-1 bg-error/10 rounded-lg p-3 items-center">
-          <Text className="text-xl font-bold text-error">{stats.outOfStock}</Text>
-          <Text className="text-xs text-muted">Out</Text>
-        </View>
-      </View>
 
-      {/* Search */}
-      <View className="mb-4">
-        <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-3">
+        {/* Search */}
+        <View className="flex-row items-center bg-surface border border-border rounded-xl px-3 mb-3">
           <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
           <TextInput
-            className="flex-1 ml-2 text-foreground"
+            className="flex-1 py-3 px-2 text-foreground"
             placeholder="Search products..."
             placeholderTextColor={colors.muted}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
-          {searchQuery !== "" && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
-              <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
-            </TouchableOpacity>
-          )}
         </View>
-      </View>
 
-      {/* Category Filter */}
-      <View className="mb-4">
-        <FlatList
-          horizontal
-          data={CATEGORIES}
-          showsHorizontalScrollIndicator={false}
-          renderItem={({ item }) => (
+        {/* Categories */}
+        <View className="flex-row gap-2">
+          {CATEGORIES.map((cat) => (
             <TouchableOpacity
-              className={`px-4 py-2 rounded-full mr-2 ${
-                selectedCategory === item ? "bg-primary" : "bg-surface border border-border"
+              key={cat}
+              className={`px-3 py-1.5 rounded-full ${
+                selectedCategory === cat ? "bg-primary" : "bg-surface border border-border"
               }`}
-              onPress={() => setSelectedCategory(item)}
+              onPress={() => setSelectedCategory(cat)}
             >
               <Text
                 className={`text-sm font-medium ${
-                  selectedCategory === item ? "text-background" : "text-foreground"
+                  selectedCategory === cat ? "text-background" : "text-foreground"
                 }`}
               >
-                {item}
+                {cat}
               </Text>
             </TouchableOpacity>
-          )}
-          keyExtractor={(item) => item}
-        />
+          ))}
+        </View>
       </View>
 
       {/* Products List */}
@@ -297,19 +385,19 @@ export default function ManagerProductsScreen() {
         data={filteredProducts}
         renderItem={renderProduct}
         keyExtractor={(item) => item.id.toString()}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ padding: 16, paddingTop: 8 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
         ListEmptyComponent={
-          <View className="items-center py-12">
-            <IconSymbol name="shippingbox.fill" size={48} color={colors.muted} />
-            <Text className="text-muted mt-4">No products found</Text>
+          <View className="items-center justify-center py-12">
+            <IconSymbol name="cube.box" size={48} color={colors.muted} />
+            <Text className="text-muted mt-2">No products found</Text>
           </View>
         }
       />

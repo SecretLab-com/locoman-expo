@@ -17,6 +17,8 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
+import { SingleImagePicker } from "@/components/media-picker";
+import { buildBundleImagePrompt } from "@/lib/image-generation";
 
 // Service types for bundles
 type ServiceItem = {
@@ -79,6 +81,10 @@ export default function BundleEditorScreen() {
 
   const [loading, setLoading] = useState(!isNewBundle);
   const [saving, setSaving] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  
+  // AI image generation mutation
+  const generateImageMutation = trpc.ai.generateBundleImage.useMutation();
   const [activeSection, setActiveSection] = useState<"basic" | "services" | "products" | "goals">("basic");
 
   const [form, setForm] = useState<BundleFormState>({
@@ -307,17 +313,55 @@ export default function BundleEditorScreen() {
           {activeSection === "basic" && (
             <View className="p-4 gap-4">
               {/* Bundle Image */}
-              <View className="items-center">
+              <View>
+                <Text className="text-sm font-medium text-foreground mb-2">Bundle Image</Text>
+                <SingleImagePicker
+                  image={form.imageUrl || null}
+                  onImageChange={(uri) => updateForm("imageUrl", uri || "")}
+                  aspectRatio={[16, 9]}
+                  placeholder="Add Bundle Cover Image"
+                />
+                
+                {/* AI Generate Button */}
                 <TouchableOpacity
-                  className="w-32 h-32 rounded-xl bg-surface border-2 border-dashed border-border items-center justify-center overflow-hidden"
-                  onPress={() => Alert.alert("Coming Soon", "Image upload will be available soon")}
+                  className={`mt-2 flex-row items-center justify-center py-3 rounded-xl border ${
+                    generatingImage ? "bg-surface border-border" : "bg-primary/10 border-primary"
+                  }`}
+                  onPress={async () => {
+                    if (!form.title.trim()) {
+                      Alert.alert("Title Required", "Please enter a bundle title first to generate an image.");
+                      return;
+                    }
+                    setGeneratingImage(true);
+                    try {
+                      const result = await generateImageMutation.mutateAsync({
+                        title: form.title,
+                        description: form.description || undefined,
+                        goals: form.goals.length > 0 ? form.goals : undefined,
+                        style: "fitness",
+                      });
+                      if (result.url) {
+                        updateForm("imageUrl", result.url);
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      }
+                    } catch (error) {
+                      console.error("Failed to generate image:", error);
+                      Alert.alert("Error", "Failed to generate image. Please try again.");
+                    } finally {
+                      setGeneratingImage(false);
+                    }
+                  }}
+                  disabled={generatingImage}
                 >
-                  {form.imageUrl ? (
-                    <Image source={{ uri: form.imageUrl }} className="w-full h-full" contentFit="cover" />
+                  {generatingImage ? (
+                    <>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                      <Text className="text-primary font-medium ml-2">Generating...</Text>
+                    </>
                   ) : (
                     <>
-                      <IconSymbol name="camera.fill" size={32} color={colors.muted} />
-                      <Text className="text-muted text-sm mt-2">Add Image</Text>
+                      <IconSymbol name="sparkles" size={18} color={colors.primary} />
+                      <Text className="text-primary font-medium ml-2">Generate with AI</Text>
                     </>
                   )}
                 </TouchableOpacity>

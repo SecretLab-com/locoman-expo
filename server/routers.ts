@@ -3,6 +3,8 @@ import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, trainerProcedure, managerProcedure, coordinatorProcedure, router } from "./_core/trpc";
+import { generateImage } from "./_core/imageGeneration";
+import * as shopify from "./shopify";
 import * as db from "./db";
 
 export const appRouter = router({
@@ -657,6 +659,46 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // AI (Image generation and LLM features)
+  // ============================================================================
+  ai: router({
+    generateImage: protectedProcedure
+      .input(z.object({
+        prompt: z.string().min(1).max(1000),
+        style: z.enum(["modern", "fitness", "wellness", "professional"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await generateImage({
+          prompt: input.prompt,
+        });
+        return { url: result.url };
+      }),
+    
+    generateBundleImage: protectedProcedure
+      .input(z.object({
+        title: z.string().min(1).max(255),
+        description: z.string().optional(),
+        goals: z.array(z.string()).optional(),
+        style: z.enum(["modern", "fitness", "wellness", "professional"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const goalsText = input.goals?.length ? `focusing on ${input.goals.join(", ")}` : "";
+        const styleDescriptions: Record<string, string> = {
+          modern: "clean, minimalist, modern design with geometric shapes and gradients",
+          fitness: "energetic, dynamic fitness imagery with athletic elements",
+          wellness: "calm, serene wellness imagery with natural elements and soft colors",
+          professional: "professional, corporate style with clean lines and business aesthetics",
+        };
+        const styleDesc = styleDescriptions[input.style || "fitness"];
+        
+        const prompt = `Create a professional fitness bundle cover image for "${input.title}". ${input.description ? `The bundle is about: ${input.description}.` : ""} ${goalsText}. Style: ${styleDesc}. The image should be suitable as a product thumbnail, with no text overlays, high quality, and visually appealing for a fitness/wellness mobile app.`;
+        
+        const result = await generateImage({ prompt });
+        return { url: result.url };
+      }),
+  }),
+
+  // ============================================================================
   // COORDINATOR (Impersonation and system config)
   // ============================================================================
   coordinator: router({
@@ -677,6 +719,105 @@ export const appRouter = router({
         });
         // Return target user info for client to use
         return { targetUser };
+      }),
+  }),
+
+  // ============================================================================
+  // SHOPIFY (Product sync and bundle publishing)
+  // ============================================================================
+  shopify: router({
+    products: managerProcedure.query(async () => {
+      const products = await shopify.fetchProducts();
+      return products.map((p) => ({
+        id: p.id,
+        title: p.title,
+        description: p.body_html,
+        vendor: p.vendor,
+        productType: p.product_type,
+        status: p.status,
+        price: p.variants[0]?.price || "0.00",
+        inventory: p.variants[0]?.inventory_quantity || 0,
+        sku: p.variants[0]?.sku || "",
+        imageUrl: p.images[0]?.src || null,
+      }));
+    }),
+    
+    product: managerProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const product = await shopify.fetchProduct(input.id);
+        if (!product) return null;
+        return {
+          id: product.id,
+          title: product.title,
+          description: product.body_html,
+          vendor: product.vendor,
+          productType: product.product_type,
+          status: product.status,
+          price: product.variants[0]?.price || "0.00",
+          inventory: product.variants[0]?.inventory_quantity || 0,
+          sku: product.variants[0]?.sku || "",
+          imageUrl: product.images[0]?.src || null,
+        };
+      }),
+    
+    sync: managerProcedure.mutation(async () => {
+      const shopifyProducts = await shopify.fetchProducts();
+      let synced = 0;
+      let errors = 0;
+      
+      for (const product of shopifyProducts) {
+        try {
+          const variant = product.variants[0];
+          const image = product.images[0];
+          
+          await db.upsertProduct({
+            shopifyProductId: product.id,
+            shopifyVariantId: variant?.id,
+            name: product.title,
+            description: product.body_html || null,
+            price: variant?.price || "0.00",
+            imageUrl: image?.src || null,
+            brand: product.vendor || null,
+            inventoryQuantity: variant?.inventory_quantity || 0,
+            syncedAt: new Date(),
+          });
+          synced++;
+        } catch (error) {
+          console.error(`[Shopify] Failed to sync product ${product.id}:`, error);
+          errors++;
+        }
+      }
+      
+      return { synced, errors };
+    }),
+    
+    publishBundle: trainerProcedure
+      .input(z.object({
+        bundleId: z.number(),
+        title: z.string(),
+        description: z.string(),
+        price: z.string(),
+        imageUrl: z.string().optional(),
+        products: z.array(z.object({
+          name: z.string(),
+          quantity: z.number(),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await shopify.publishBundle({
+          ...input,
+          trainerId: ctx.user.id,
+          trainerName: ctx.user.name || "Trainer",
+        });
+        
+        // Update bundle with Shopify IDs
+        await db.updateBundleDraft(input.bundleId, {
+          shopifyProductId: result.productId,
+          shopifyVariantId: result.variantId,
+        });
+        
+        return result;
       }),
   }),
 });

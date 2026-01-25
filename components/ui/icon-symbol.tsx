@@ -5,7 +5,7 @@ import { SymbolWeight, SymbolViewProps } from "expo-symbols";
 import { ComponentProps } from "react";
 import { OpaqueColorValue, type StyleProp, type TextStyle } from "react-native";
 
-type IconMapping = Record<SymbolViewProps["name"], ComponentProps<typeof MaterialIcons>["name"]>;
+type MaterialIconName = ComponentProps<typeof MaterialIcons>["name"];
 type IconSymbolName = keyof typeof MAPPING;
 
 /**
@@ -98,7 +98,21 @@ const MAPPING = {
   "storefront.fill": "storefront",
   "map.fill": "map",
   "mappin.and.ellipse": "place",
-} as IconMapping;
+  "sparkles": "auto-awesome",
+  "wand.and.stars": "auto-fix-high",
+  "video.fill": "videocam",
+  "sync": "sync",
+  "refresh": "refresh",
+  "photo": "photo",
+  "plus.circle.fill": "add-circle",
+  "building.2.fill": "business",
+  "dollarsign.square.fill": "payments",
+  "chart.line.uptrend.xyaxis": "trending-up",
+  "arrow.triangle.2.circlepath": "sync",
+  "barcode": "qr-code",
+  "megaphone.fill": "campaign",
+  "ellipsis.circle.fill": "more-horiz",
+} as const satisfies Record<string, MaterialIconName>;
 
 /**
  * An icon component that uses native SF Symbols on iOS, and Material Icons on Android and web.

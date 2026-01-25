@@ -180,3 +180,47 @@
 - [ ] Image cropper/upload component
 - [ ] Media gallery management
 - [ ] Bulk invite dialog
+
+## New Features - Follow-up Implementation
+
+### Pull-to-Refresh
+- [x] Add RefreshControl to catalog/home screen
+- [x] Add RefreshControl to products screen
+- [x] Add RefreshControl to trainer directory screen
+- [ ] Add RefreshControl to trainer dashboard
+- [ ] Add RefreshControl to trainer clients screen
+- [ ] Add RefreshControl to trainer orders screen
+- [ ] Add RefreshControl to trainer deliveries screen
+- [ ] Add RefreshControl to client dashboard
+- [ ] Add RefreshControl to client orders screen
+- [ ] Add RefreshControl to client deliveries screen
+- [ ] Add RefreshControl to manager screens
+
+### Loading Skeletons
+- [x] Create reusable skeleton components
+- [x] Add skeleton to bundle cards
+- [x] Add skeleton to product cards
+- [x] Add skeleton to trainer cards
+- [x] Add skeleton to order items
+- [x] Add skeleton to delivery items
+- [x] Add skeleton to dashboard stats
+
+### Media Gallery
+- [x] Create image picker component using expo-image-picker
+- [x] Create media gallery component for displaying images
+- [ ] Add image upload to trainer profile
+- [x] Add image upload to bundle editor
+- [x] Implement image cropping/resizing (via allowsEditing)
+
+### Bundle Image Generation
+- [x] Create AI image generation service using server LLM
+- [x] Add "Generate Image" button to bundle editor
+- [x] Generate bundle cover images based on bundle description
+- [x] Save generated images to storage
+
+### Shopify Integration
+- [x] Create Shopify API client
+- [x] Implement product sync from Shopify
+- [x] Implement inventory sync
+- [x] Add Shopify product import to manager products screen
+- [ ] Handle Shopify webhooks for real-time updates (requires external endpoint)
