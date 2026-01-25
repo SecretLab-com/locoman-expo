@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Text,
   View,
@@ -15,6 +15,9 @@ import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/hooks/use-auth";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
+import { useOffline } from "@/contexts/offline-context";
+import { OfflineBadge } from "@/components/offline-indicator";
+import { haptics } from "@/hooks/use-haptics";
 
 type Bundle = {
   id: number;
@@ -32,10 +35,15 @@ function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }
   const colors = useColors();
   const price = typeof bundle.price === "string" ? parseFloat(bundle.price) : bundle.price || 0;
 
+  const handlePress = async () => {
+    await haptics.light();
+    onPress();
+  };
+
   return (
     <TouchableOpacity
       className="bg-surface rounded-2xl overflow-hidden mb-4 border border-border"
-      onPress={onPress}
+      onPress={handlePress}
       activeOpacity={0.8}
     >
       <Image
@@ -81,26 +89,72 @@ export default function CatalogScreen() {
   const colors = useColors();
   const { isAuthenticated } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
+  const { isOnline, getCachedBundles, cacheBundles } = useOffline();
+  const [cachedBundles, setCachedBundles] = useState<Bundle[]>([]);
+  const [usingCache, setUsingCache] = useState(false);
 
   // Fetch bundles from API
   const { 
     data: bundlesData, 
     isLoading, 
     refetch, 
-    isRefetching 
-  } = trpc.catalog.bundles.useQuery();
+    isRefetching,
+    isError,
+  } = trpc.catalog.bundles.useQuery(undefined, {
+    enabled: isOnline, // Only fetch when online
+    retry: isOnline ? 1 : 0,
+  });
 
-  const allBundles: Bundle[] = (bundlesData || []).map((b: any) => ({
-    id: b.id,
-    title: b.title,
-    description: b.description,
-    price: b.price,
-    imageUrl: b.imageUrl,
-    trainerName: b.trainerName || "Trainer",
-    trainerAvatar: b.trainerAvatar,
-    rating: b.rating,
-    reviews: b.reviewCount,
-  }));
+  // Load cached data on mount
+  useEffect(() => {
+    async function loadCache() {
+      const cached = await getCachedBundles();
+      if (cached) {
+        setCachedBundles(cached.map((b: any) => ({
+          id: b.id,
+          title: b.title,
+          description: b.description,
+          price: b.price,
+          imageUrl: b.imageUrl,
+          trainerName: b.trainerName || "Trainer",
+          trainerAvatar: b.trainerAvatar,
+          rating: b.rating,
+          reviews: b.reviewCount,
+        })));
+      }
+    }
+    loadCache();
+  }, [getCachedBundles]);
+
+  // Cache bundles when fetched
+  useEffect(() => {
+    if (bundlesData && bundlesData.length > 0) {
+      cacheBundles(bundlesData);
+      setUsingCache(false);
+    }
+  }, [bundlesData, cacheBundles]);
+
+  // Determine which data to show
+  const allBundles: Bundle[] = bundlesData 
+    ? bundlesData.map((b: any) => ({
+        id: b.id,
+        title: b.title,
+        description: b.description,
+        price: b.price,
+        imageUrl: b.imageUrl,
+        trainerName: b.trainerName || "Trainer",
+        trainerAvatar: b.trainerAvatar,
+        rating: b.rating,
+        reviews: b.reviewCount,
+      }))
+    : cachedBundles;
+
+  // Set using cache flag
+  useEffect(() => {
+    if (!isOnline || isError) {
+      setUsingCache(cachedBundles.length > 0);
+    }
+  }, [isOnline, isError, cachedBundles.length]);
 
   // Client-side filtering
   const bundles = searchQuery
@@ -115,19 +169,34 @@ export default function CatalogScreen() {
     router.push(`/bundle/${bundle.id}` as any);
   };
 
+  const handleRefresh = async () => {
+    await haptics.light();
+    if (isOnline) {
+      refetch();
+    }
+  };
+
+  const handleLoginPress = async () => {
+    await haptics.light();
+    router.push("/login");
+  };
+
   return (
     <ScreenContainer>
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center justify-between mb-4">
           <View>
-            <Text className="text-2xl font-bold text-foreground">Discover</Text>
+            <View className="flex-row items-center">
+              <Text className="text-2xl font-bold text-foreground">Discover</Text>
+              {usingCache && <View className="ml-2"><OfflineBadge /></View>}
+            </View>
             <Text className="text-sm text-muted">Find your perfect fitness program</Text>
           </View>
           {!isAuthenticated && (
             <TouchableOpacity
               className="bg-primary px-4 py-2 rounded-full"
-              onPress={() => router.push("/login")}
+              onPress={handleLoginPress}
             >
               <Text className="text-background font-semibold">Login</Text>
             </TouchableOpacity>
@@ -154,7 +223,7 @@ export default function CatalogScreen() {
       </View>
 
       {/* Bundle List */}
-      {isLoading ? (
+      {isLoading && !usingCache ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={colors.primary} />
           <Text className="text-muted mt-4">Loading bundles...</Text>
@@ -171,16 +240,20 @@ export default function CatalogScreen() {
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}
-              onRefresh={() => refetch()}
+              onRefresh={handleRefresh}
               tintColor={colors.primary}
             />
           }
           ListEmptyComponent={
             <View className="items-center py-12">
               <IconSymbol name="magnifyingglass" size={48} color={colors.muted} />
-              <Text className="text-muted text-center mt-4">No bundles found</Text>
+              <Text className="text-muted text-center mt-4">
+                {!isOnline ? "You're offline" : "No bundles found"}
+              </Text>
               <Text className="text-muted text-center text-sm mt-1">
-                Try adjusting your search
+                {!isOnline 
+                  ? "Connect to the internet to browse bundles" 
+                  : "Try adjusting your search"}
               </Text>
             </View>
           }

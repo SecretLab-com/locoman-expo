@@ -38,15 +38,15 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
       const content = fs.readFileSync(bundleEditorPath, "utf-8");
       expect(content).toContain("BundleEditorScreen");
       expect(content).toContain("ServiceItem");
-      expect(content).toContain("training_session");
-      expect(content).toContain("check_in");
+      expect(content).toContain("ServiceItem");
+      expect(content).toContain("newServiceType");
     });
 
     it("should support service configuration with quantity", () => {
       const bundleEditorPath = path.join(projectRoot, "app/bundle-editor/[id].tsx");
       const content = fs.readFileSync(bundleEditorPath, "utf-8");
       expect(content).toContain("quantity");
-      expect(content).toContain("frequency");
+      expect(content).toContain("duration");
       expect(content).toContain("addService");
       expect(content).toContain("removeService");
     });

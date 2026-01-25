@@ -224,3 +224,30 @@
 - [x] Implement inventory sync
 - [x] Add Shopify product import to manager products screen
 - [ ] Handle Shopify webhooks for real-time updates (requires external endpoint)
+
+## New Features - Follow-up Implementation II
+
+### Haptic Feedback
+- [x] Add haptic feedback to all button presses (HapticButton component)
+- [x] Add haptic feedback to tab navigation (HapticTab component)
+- [x] Add haptic feedback to swipe actions (via use-haptics hook)
+- [x] Add haptic feedback to pull-to-refresh (via RefreshableScrollView)
+- [x] Add haptic feedback to form submissions (login/register screens)
+- [x] Add haptic feedback to toggle switches (via use-haptics hook)
+- [x] Add haptic feedback to cart actions (add/remove) - already in cart-context
+
+### Offline Mode
+- [x] Create AsyncStorage caching service (offline-cache.ts)
+- [x] Cache bundles for offline browsing
+- [x] Cache products for offline browsing
+- [x] Cache trainer directory for offline browsing
+- [x] Show offline indicator when not connected (OfflineIndicator component)
+- [x] Sync data when connection restored
+- [x] Handle stale cache gracefully Bundle Editor Improvements
+- [x] Review original locoman BundleEditor implementation
+- [x] Ensure all fields match original (title, description, goals, products, services)
+- [x] Implement product selection modal with search/filter
+- [x] Implement service configuration (sessions, check-ins, deliveries)
+- [x] Add pricing auto-calculation from products + services
+- [x] Add bundle status management (draft/pending_review/published/rejected)
+- [x] Add submit for review workflow

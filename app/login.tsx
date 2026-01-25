@@ -14,6 +14,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { startOAuthLogin } from "@/constants/oauth";
 import { OAuthButtons } from "@/components/oauth-buttons";
+import { haptics } from "@/hooks/use-haptics";
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -23,7 +24,10 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async () => {
+    await haptics.light();
+    
     if (!email.trim() || !password.trim()) {
+      await haptics.error();
       setError("Please enter both email and password");
       return;
     }
@@ -40,12 +44,15 @@ export default function LoginScreen() {
       });
 
       if (response.ok) {
+        await haptics.success();
         router.replace("/(tabs)");
       } else {
+        await haptics.error();
         const data = await response.json();
         setError(data.message || "Invalid email or password");
       }
     } catch (err) {
+      await haptics.error();
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
@@ -53,15 +60,27 @@ export default function LoginScreen() {
   };
 
   const handleOAuthLogin = async () => {
+    await haptics.light();
     setLoading(true);
     setError(null);
 
     try {
       await startOAuthLogin();
     } catch (err) {
+      await haptics.error();
       setError(err instanceof Error ? err.message : "Login failed");
       setLoading(false);
     }
+  };
+
+  const handleRegisterPress = async () => {
+    await haptics.light();
+    router.push("/register" as any);
+  };
+
+  const handleGuestPress = async () => {
+    await haptics.light();
+    router.replace("/(tabs)");
   };
 
   return (
@@ -162,7 +181,7 @@ export default function LoginScreen() {
             {/* Register Link */}
             <View className="flex-row justify-center">
               <Text className="text-muted">Don't have an account? </Text>
-              <TouchableOpacity onPress={() => router.push("/register" as any)}>
+              <TouchableOpacity onPress={handleRegisterPress}>
                 <Text className="text-primary font-semibold">Sign Up</Text>
               </TouchableOpacity>
             </View>
@@ -170,7 +189,7 @@ export default function LoginScreen() {
             {/* Skip for now (guest browsing) */}
             <TouchableOpacity
               className="mt-6 items-center"
-              onPress={() => router.replace("/(tabs)")}
+              onPress={handleGuestPress}
             >
               <Text className="text-muted">Browse as guest</Text>
             </TouchableOpacity>
