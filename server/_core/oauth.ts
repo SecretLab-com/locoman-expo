@@ -49,6 +49,7 @@ function buildUserResponse(
         email?: string | null;
         loginMethod?: string | null;
         lastSignedIn?: Date | null;
+        role?: string | null;
       },
 ) {
   return {
@@ -57,6 +58,7 @@ function buildUserResponse(
     name: user?.name ?? null,
     email: user?.email ?? null,
     loginMethod: user?.loginMethod ?? null,
+    role: (user as any)?.role ?? "shopper",
     lastSignedIn: (user?.lastSignedIn ?? new Date()).toISOString(),
   };
 }
@@ -150,10 +152,10 @@ export function registerOAuthRoutes(app: Express) {
     try {
       const { email, password } = req.body;
       
-      // Test user credentials
+      // Test user credentials - default shopper role
       if (email === "testuser@secretlab.com" && password === "supertest") {
         // Create a test user session
-        const testOpenId = "test_user_" + Date.now();
+        const testOpenId = "test_user_shopper";
         const testUser = {
           openId: testOpenId,
           name: "Test User",
@@ -172,6 +174,81 @@ export function registerOAuthRoutes(app: Express) {
         
         const savedUser = await getUserByOpenId(testOpenId);
         res.json({ success: true, user: buildUserResponse(savedUser || testUser) });
+        return;
+      }
+      
+      // Trainer test account - has trainer role for testing bundle creation
+      if (email === "trainer@secretlab.com" && password === "supertest") {
+        const trainerOpenId = "test_trainer_account";
+        const trainerUser = {
+          openId: trainerOpenId,
+          name: "Test Trainer",
+          email: email,
+          loginMethod: "email",
+          role: "trainer" as const,
+        };
+        
+        await syncUser(trainerUser);
+        const sessionToken = await sdk.createSessionToken(trainerOpenId, {
+          name: trainerUser.name,
+          expiresInMs: ONE_YEAR_MS,
+        });
+        
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        
+        const savedUser = await getUserByOpenId(trainerOpenId);
+        res.json({ success: true, user: buildUserResponse(savedUser || trainerUser) });
+        return;
+      }
+      
+      // Client test account - has client role for testing client features
+      if (email === "client@secretlab.com" && password === "supertest") {
+        const clientOpenId = "test_client_account";
+        const clientUser = {
+          openId: clientOpenId,
+          name: "Test Client",
+          email: email,
+          loginMethod: "email",
+          role: "client" as const,
+        };
+        
+        await syncUser(clientUser);
+        const sessionToken = await sdk.createSessionToken(clientOpenId, {
+          name: clientUser.name,
+          expiresInMs: ONE_YEAR_MS,
+        });
+        
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        
+        const savedUser = await getUserByOpenId(clientOpenId);
+        res.json({ success: true, user: buildUserResponse(savedUser || clientUser) });
+        return;
+      }
+      
+      // Manager test account - has manager role for testing admin features
+      if (email === "manager@secretlab.com" && password === "supertest") {
+        const managerOpenId = "test_manager_account";
+        const managerUser = {
+          openId: managerOpenId,
+          name: "Test Manager",
+          email: email,
+          loginMethod: "email",
+          role: "manager" as const,
+        };
+        
+        await syncUser(managerUser);
+        const sessionToken = await sdk.createSessionToken(managerOpenId, {
+          name: managerUser.name,
+          expiresInMs: ONE_YEAR_MS,
+        });
+        
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        
+        const savedUser = await getUserByOpenId(managerOpenId);
+        res.json({ success: true, user: buildUserResponse(savedUser || managerUser) });
         return;
       }
       

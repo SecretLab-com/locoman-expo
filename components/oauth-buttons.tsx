@@ -1,10 +1,10 @@
-import { View, Text, TouchableOpacity, Platform, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, Platform, StyleSheet, Alert } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as WebBrowser from "expo-web-browser";
 import { useColors } from "@/hooks/use-colors";
-import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { router } from "expo-router";
+import { startOAuthLogin, getApiBaseUrl } from "@/constants/oauth";
 
 // Ensure web browser redirects are handled
 WebBrowser.maybeCompleteAuthSession();
@@ -32,7 +32,8 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
       
       if (identityToken) {
         // Send to backend for verification and session creation
-        const response = await fetch("/api/auth/apple", {
+        const apiBaseUrl = getApiBaseUrl();
+        const response = await fetch(`${apiBaseUrl}/api/auth/apple`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -41,6 +42,7 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
             email,
             fullName: fullName ? `${fullName.givenName || ""} ${fullName.familyName || ""}`.trim() : undefined,
           }),
+          credentials: "include",
         });
 
         if (response.ok) {
@@ -66,16 +68,10 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
 
   const handleGoogleSignIn = async () => {
     try {
-      // Open Google OAuth flow in browser
-      const result = await WebBrowser.openAuthSessionAsync(
-        `/api/auth/google`,
-        "exp://localhost:8081/oauth/callback"
-      );
-
-      if (result.type === "success" && result.url) {
-        // The OAuth callback will handle the rest
-        onSuccess?.();
-      }
+      // Use the centralized OAuth login flow which handles both web and native
+      await startOAuthLogin();
+      // The OAuth callback will handle the rest via deep link or redirect
+      onSuccess?.();
     } catch (error: any) {
       console.error("Google Sign In error:", error);
       onError?.(error);
@@ -95,7 +91,7 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
         />
       )}
 
-      {/* Google Sign In */}
+      {/* Google/Manus OAuth Sign In */}
       <TouchableOpacity
         className="flex-row items-center justify-center bg-white border border-border rounded-xl py-4 px-6"
         onPress={handleGoogleSignIn}

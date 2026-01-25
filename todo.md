@@ -256,3 +256,12 @@
 - [x] Add login button to landing/home page for unauthenticated users
 - [x] Configure test user credentials (testuser@secretlab.com / supertest)
 - [x] Verify login flow works with test credentials
+
+## OAuth and Trainer Account Fixes
+- [x] Fix OAuth routing issue - /api/auth/google showing unmatched route
+- [x] Fix popup window blocked error on mobile OAuth
+- [x] Add dedicated trainer test account (trainer@secretlab.com / supertest)
+- [x] Add client test account (client@secretlab.com / supertest)
+- [x] Add manager test account (manager@secretlab.com / supertest)
+- [x] Ensure trainer role is assigned to trainer test account
+- [x] Verify trainer can access bundle creation screen
