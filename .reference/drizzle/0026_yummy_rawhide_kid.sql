@@ -1,0 +1,1 @@
+ALTER TABLE `bundle_templates` ADD `goalsJson` json;

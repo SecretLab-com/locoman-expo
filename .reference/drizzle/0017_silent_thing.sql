@@ -1,0 +1,1 @@
+ALTER TABLE `trainer_media` MODIFY COLUMN `type` enum('profile_photo','gallery_image','video','bundle_cover') NOT NULL;

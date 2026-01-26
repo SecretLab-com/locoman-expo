@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -20,6 +21,175 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+  }),
+
+  // ============================================================================
+  // TEMPLATES (Manager template management)
+  // ============================================================================
+  templates: router({
+    list: publicProcedure.query(async () => {
+      return db.getAllBundleTemplates(false);
+    }),
+    
+    listActive: publicProcedure.query(async () => {
+      return db.getAllBundleTemplates(true);
+    }),
+    
+    get: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return db.getBundleTemplateById(input.id);
+      }),
+    
+    create: managerProcedure
+      .input(z.object({
+        title: z.string().min(1),
+        description: z.string().optional(),
+        goalType: z.enum(["weight_loss", "strength", "longevity", "power"]).optional(),
+        goalsJson: z.array(z.string()).optional(),
+        basePrice: z.string().optional(),
+        minPrice: z.string().optional(),
+        maxPrice: z.string().optional(),
+        rulesJson: z.any().optional(),
+        defaultServices: z.any().optional(),
+        defaultProducts: z.any().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const id = await db.createBundleTemplate({
+          ...input,
+          createdBy: ctx.user.id,
+        });
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "template_created",
+          entityType: "bundle_template",
+          entityId: id,
+        });
+        
+        return { id };
+      }),
+    
+    update: managerProcedure
+      .input(z.object({
+        id: z.number(),
+        title: z.string().min(1).optional(),
+        description: z.string().optional(),
+        goalType: z.enum(["weight_loss", "strength", "longevity", "power"]).optional(),
+        goalsJson: z.array(z.string()).optional(),
+        basePrice: z.string().optional(),
+        minPrice: z.string().optional(),
+        maxPrice: z.string().optional(),
+        rulesJson: z.any().optional(),
+        defaultServices: z.any().optional(),
+        defaultProducts: z.any().optional(),
+        active: z.boolean().optional(),
+        imageUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { id, ...data } = input;
+        await db.updateBundleTemplate(id, data);
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "template_updated",
+          entityType: "bundle_template",
+          entityId: id,
+        });
+        
+        return { success: true };
+      }),
+    
+    delete: managerProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.deleteBundleTemplate(input.id);
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "template_deleted",
+          entityType: "bundle_template",
+          entityId: input.id,
+        });
+        
+        return { success: true };
+      }),
+  }),
+
+  // ============================================================================
+  // TRAINERS (Trainer directory and management)
+  // ============================================================================
+  trainers: router({
+    // Public: List all active trainers for directory
+    directory: publicProcedure.query(async () => {
+      return db.getActiveTrainers();
+    }),
+    
+    // Public: Get trainer details with bundles
+    getPublic: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const trainer = await db.getTrainerWithBundles(input.id);
+        if (!trainer) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Trainer not found" });
+        }
+        return trainer;
+      }),
+    
+    // Manager: List all trainers (admin view)
+    list: managerProcedure.query(async () => {
+      return db.getTrainers();
+    }),
+    
+    // Manager: List pending trainer applications
+    pending: managerProcedure.query(async () => {
+      return db.getPendingTrainers();
+    }),
+    
+    // Manager: Approve trainer
+    approve: managerProcedure
+      .input(z.object({ trainerId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.updateUserRole(input.trainerId, "trainer");
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "trainer_approved",
+          entityType: "user",
+          entityId: input.trainerId,
+        });
+        
+        return { success: true };
+      }),
+    
+    // Manager: Reject trainer
+    reject: managerProcedure
+      .input(z.object({ trainerId: z.number(), reason: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "trainer_rejected",
+          entityType: "user",
+          entityId: input.trainerId,
+          details: input.reason ? { reason: input.reason } : undefined,
+        });
+        
+        return { success: true };
+      }),
+    
+    // Manager: Suspend trainer
+    suspend: managerProcedure
+      .input(z.object({ trainerId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "trainer_suspended",
+          entityType: "user",
+          entityId: input.trainerId,
+        });
+        
+        return { success: true };
+      }),
   }),
 
   // ============================================================================
@@ -909,6 +1079,232 @@ export const appRouter = router({
         });
         
         return result;
+      }),
+  }),
+
+  // ============================================================================
+  // INVITATIONS (Trainer client invitations)
+  // ============================================================================
+  invitations: router({
+    list: trainerProcedure.query(async ({ ctx }) => {
+      return db.getInvitationsByTrainer(ctx.user.id);
+    }),
+    
+    send: trainerProcedure
+      .input(z.object({
+        email: z.string().email(),
+        name: z.string().optional(),
+        message: z.string().optional(),
+        bundleDraftId: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const token = crypto.randomUUID();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        
+        const id = await db.createInvitation({
+          trainerId: ctx.user.id,
+          email: input.email,
+          name: input.name,
+          token,
+          bundleDraftId: input.bundleDraftId,
+          expiresAt,
+        });
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "invitation_sent",
+          entityType: "invitation",
+          entityId: id,
+          details: { email: input.email },
+        });
+        
+        return { id, token };
+      }),
+    
+    accept: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        if (!ctx.user) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Please log in to accept the invitation" });
+        }
+        
+        const result = await db.acceptInvitation(input.token, ctx.user.id);
+        if (!result) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Invalid or expired invitation" });
+        }
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "invitation_accepted",
+          entityType: "invitation",
+          entityId: result.id,
+        });
+        
+        return { success: true, trainerId: result.trainerId };
+      }),
+    
+    revoke: trainerProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.updateInvitation(input.id, { status: "revoked" });
+        return { success: true };
+      }),
+  }),
+
+  // ============================================================================
+  // BUNDLE APPROVAL (Manager review workflow)
+  // ============================================================================
+  bundleApproval: router({
+    // Get all bundles for admin view
+    allBundles: managerProcedure
+      .input(z.object({ status: z.string().optional() }).optional())
+      .query(async () => {
+        return db.getAllBundlesWithTrainer();
+      }),
+    
+    // Get pending review queue
+    pending: managerProcedure.query(async () => {
+      return db.getPendingBundleReviews();
+    }),
+    
+    // Approve a bundle
+    approve: managerProcedure
+      .input(z.object({
+        bundleId: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await db.approveBundleDraft(input.bundleId, ctx.user.id, input.notes);
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "bundle_approved",
+          entityType: "bundle_draft",
+          entityId: input.bundleId,
+        });
+        
+        return { success: true };
+      }),
+    
+    // Reject a bundle
+    reject: managerProcedure
+      .input(z.object({
+        bundleId: z.number(),
+        notes: z.string().min(1),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await db.rejectBundleDraft(input.bundleId, ctx.user.id, input.notes);
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "bundle_rejected",
+          entityType: "bundle_draft",
+          entityId: input.bundleId,
+        });
+        
+        return { success: true };
+      }),
+    
+    // Request changes
+    requestChanges: managerProcedure
+      .input(z.object({
+        bundleId: z.number(),
+        notes: z.string().min(1),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await db.requestBundleChanges(input.bundleId, ctx.user.id, input.notes);
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "bundle_changes_requested",
+          entityType: "bundle_draft",
+          entityId: input.bundleId,
+        });
+        
+        return { success: true };
+      }),
+    
+    // Get review history for a bundle
+    history: managerProcedure
+      .input(z.object({ bundleId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getBundleReviewHistory(input.bundleId);
+      }),
+  }),
+
+  // ============================================================================
+  // JOIN REQUESTS (Customer-initiated trainer requests)
+  // ============================================================================
+  joinRequests: router({
+    // Customer: Request to join a trainer
+    create: protectedProcedure
+      .input(z.object({
+        trainerId: z.number(),
+        message: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const id = await db.createJoinRequest({
+          trainerId: input.trainerId,
+          userId: ctx.user.id,
+          message: input.message,
+        });
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "join_request_sent",
+          entityType: "join_request",
+          entityId: id,
+        });
+        
+        return { id };
+      }),
+    
+    // Customer: View their requests
+    myRequests: protectedProcedure.query(async ({ ctx }) => {
+      return db.getJoinRequestsByUser(ctx.user.id);
+    }),
+    
+    // Trainer: View requests to join
+    listForTrainer: trainerProcedure.query(async ({ ctx }) => {
+      return db.getJoinRequestsByTrainer(ctx.user.id);
+    }),
+    
+    // Trainer: Approve a request
+    approve: trainerProcedure
+      .input(z.object({
+        id: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await db.approveJoinRequest(input.id, ctx.user.id, input.notes);
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "join_request_approved",
+          entityType: "join_request",
+          entityId: input.id,
+        });
+        
+        return { success: true };
+      }),
+    
+    // Trainer: Reject a request
+    reject: trainerProcedure
+      .input(z.object({
+        id: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        await db.rejectJoinRequest(input.id, ctx.user.id, input.notes);
+        
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "join_request_rejected",
+          entityType: "join_request",
+          entityId: input.id,
+        });
+        
+        return { success: true };
       }),
   }),
 });

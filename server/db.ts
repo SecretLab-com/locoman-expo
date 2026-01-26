@@ -143,6 +143,46 @@ export async function getTrainers() {
   return db.select().from(users).where(eq(users.role, "trainer")).orderBy(desc(users.createdAt));
 }
 
+export async function getActiveTrainers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(users).where(
+    and(
+      eq(users.role, "trainer"),
+      eq(users.active, true)
+    )
+  ).orderBy(desc(users.createdAt));
+}
+
+export async function getPendingTrainers() {
+  const db = await getDb();
+  if (!db) return [];
+  // Get users who have applied to be trainers but aren't approved yet
+  // For now, return empty array as we don't have a trainerApplicationPending field
+  // This would need a schema update to track trainer applications
+  return [];
+}
+
+export async function getTrainerWithBundles(trainerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const trainer = await db.select().from(users).where(eq(users.id, trainerId)).limit(1);
+  if (trainer.length === 0) return undefined;
+  
+  const bundles = await db.select().from(bundleDrafts).where(
+    and(
+      eq(bundleDrafts.trainerId, trainerId),
+      eq(bundleDrafts.status, "published")
+    )
+  ).orderBy(desc(bundleDrafts.updatedAt));
+  
+  return {
+    ...trainer[0],
+    bundles,
+  };
+}
+
 export async function getAllUsers(limit = 100, offset = 0) {
   const db = await getDb();
   if (!db) return [];
@@ -182,6 +222,27 @@ export async function createBundleTemplate(data: InsertBundleTemplate) {
   if (!db) throw new Error("Database not available");
   const result = await db.insert(bundleTemplates).values(data);
   return result[0].insertId;
+}
+
+export async function updateBundleTemplate(id: number, data: Partial<InsertBundleTemplate>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(bundleTemplates).set(data).where(eq(bundleTemplates.id, id));
+}
+
+export async function deleteBundleTemplate(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(bundleTemplates).where(eq(bundleTemplates.id, id));
+}
+
+export async function getAllBundleTemplates(activeOnly: boolean = false) {
+  const db = await getDb();
+  if (!db) return [];
+  if (activeOnly) {
+    return db.select().from(bundleTemplates).where(eq(bundleTemplates.active, true)).orderBy(desc(bundleTemplates.createdAt));
+  }
+  return db.select().from(bundleTemplates).orderBy(desc(bundleTemplates.createdAt));
 }
 
 // ============================================================================
@@ -648,4 +709,257 @@ export async function logActivity(data: InsertActivityLog) {
   const db = await getDb();
   if (!db) return;
   await db.insert(activityLogs).values(data);
+}
+
+// ============================================================================
+// INVITATION OPERATIONS (Extended)
+// ============================================================================
+
+export async function updateInvitation(id: number, data: Partial<InsertInvitation>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(invitations).set(data).where(eq(invitations.id, id));
+}
+
+export async function acceptInvitation(token: string, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  
+  const result = await db.select().from(invitations).where(
+    and(
+      eq(invitations.token, token),
+      eq(invitations.status, "pending")
+    )
+  ).limit(1);
+  
+  if (result.length === 0) return undefined;
+  
+  const invitation = result[0];
+  
+  // Check if expired
+  if (invitation.expiresAt && new Date(invitation.expiresAt) < new Date()) {
+    return undefined;
+  }
+  
+  // Update invitation status
+  await db.update(invitations).set({
+    status: "accepted",
+    acceptedByUserId: userId,
+    acceptedAt: new Date(),
+  }).where(eq(invitations.id, invitation.id));
+  
+  // Create client relationship
+  await createClient({
+    trainerId: invitation.trainerId,
+    userId,
+    name: invitation.name || "Client",
+    email: invitation.email,
+    status: "active",
+  });
+  
+  return { id: invitation.id, trainerId: invitation.trainerId };
+}
+
+// ============================================================================
+// BUNDLE APPROVAL OPERATIONS
+// ============================================================================
+
+export async function getAllBundlesWithTrainer() {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const bundles = await db.select().from(bundleDrafts).orderBy(desc(bundleDrafts.updatedAt));
+  
+  // Get trainer info for each bundle
+  const bundlesWithTrainer = await Promise.all(
+    bundles.map(async (bundle) => {
+      const trainer = await getUserById(bundle.trainerId);
+      return {
+        ...bundle,
+        trainer: trainer ? {
+          id: trainer.id,
+          name: trainer.name,
+          photoUrl: trainer.photoUrl,
+        } : null,
+      };
+    })
+  );
+  
+  return bundlesWithTrainer;
+}
+
+export async function getPendingBundleReviews() {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const bundles = await db.select().from(bundleDrafts).where(
+    eq(bundleDrafts.status, "pending_review")
+  ).orderBy(asc(bundleDrafts.submittedForReviewAt));
+  
+  // Get trainer info for each bundle
+  const bundlesWithTrainer = await Promise.all(
+    bundles.map(async (bundle) => {
+      const trainer = await getUserById(bundle.trainerId);
+      return {
+        ...bundle,
+        trainer: trainer ? {
+          id: trainer.id,
+          name: trainer.name,
+          photoUrl: trainer.photoUrl,
+        } : null,
+      };
+    })
+  );
+  
+  return bundlesWithTrainer;
+}
+
+export async function approveBundleDraft(bundleId: number, reviewerId: number, notes?: string) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(bundleDrafts).set({
+    status: "published",
+    reviewedBy: reviewerId,
+    reviewedAt: new Date(),
+    reviewComments: notes,
+  }).where(eq(bundleDrafts.id, bundleId));
+}
+
+export async function rejectBundleDraft(bundleId: number, reviewerId: number, notes: string) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(bundleDrafts).set({
+    status: "rejected",
+    reviewedBy: reviewerId,
+    reviewedAt: new Date(),
+    rejectionReason: notes,
+  }).where(eq(bundleDrafts.id, bundleId));
+}
+
+export async function requestBundleChanges(bundleId: number, reviewerId: number, notes: string) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(bundleDrafts).set({
+    status: "changes_requested",
+    reviewedBy: reviewerId,
+    reviewedAt: new Date(),
+    reviewComments: notes,
+  }).where(eq(bundleDrafts.id, bundleId));
+}
+
+export async function getBundleReviewHistory(bundleId: number) {
+  // For now, return the current review info from the bundle
+  // A full implementation would have a separate review_history table
+  const bundle = await getBundleDraftById(bundleId);
+  if (!bundle) return [];
+  
+  if (bundle.reviewedBy && bundle.reviewedAt) {
+    const reviewer = await getUserById(bundle.reviewedBy);
+    return [{
+      id: 1,
+      bundleId,
+      reviewerId: bundle.reviewedBy,
+      reviewerName: reviewer?.name || "Unknown",
+      action: bundle.status,
+      notes: bundle.reviewComments || bundle.rejectionReason,
+      createdAt: bundle.reviewedAt,
+    }];
+  }
+  
+  return [];
+}
+
+// ============================================================================
+// JOIN REQUESTS
+// ============================================================================
+
+export async function createJoinRequest(data: { trainerId: number; userId: number; message?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Store join requests in the clients table with pending status
+  const result = await db.insert(clients).values({
+    trainerId: data.trainerId,
+    userId: data.userId,
+    name: "Pending Request",
+    notes: data.message,
+    status: "pending",
+  });
+  
+  return result[0].insertId;
+}
+
+export async function getJoinRequestsByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  return db.select().from(clients).where(
+    and(
+      eq(clients.userId, userId),
+      eq(clients.status, "pending")
+    )
+  ).orderBy(desc(clients.createdAt));
+}
+
+export async function getJoinRequestsByTrainer(trainerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const requests = await db.select().from(clients).where(
+    and(
+      eq(clients.trainerId, trainerId),
+      eq(clients.status, "pending")
+    )
+  ).orderBy(desc(clients.createdAt));
+  
+  // Get user info for each request
+  const requestsWithUser = await Promise.all(
+    requests.map(async (request) => {
+      const user = request.userId ? await getUserById(request.userId) : null;
+      return {
+        ...request,
+        user: user ? {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          photoUrl: user.photoUrl,
+        } : null,
+      };
+    })
+  );
+  
+  return requestsWithUser;
+}
+
+export async function approveJoinRequest(id: number, trainerId: number, notes?: string) {
+  const db = await getDb();
+  if (!db) return;
+  
+  // Get the request to get user info
+  const result = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+  if (result.length === 0) return;
+  
+  const request = result[0];
+  const user = request.userId ? await getUserById(request.userId) : null;
+  
+  // Update the client record to active
+  await db.update(clients).set({
+    status: "active",
+    name: user?.name || request.name || "Client",
+    email: user?.email || request.email,
+    notes: notes || request.notes,
+  }).where(eq(clients.id, id));
+}
+
+export async function rejectJoinRequest(id: number, trainerId: number, notes?: string) {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.update(clients).set({
+    status: "removed",
+    notes: notes,
+  }).where(eq(clients.id, id));
 }

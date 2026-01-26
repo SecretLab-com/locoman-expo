@@ -1,0 +1,81 @@
+CREATE TABLE `ad_earnings` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`trainerId` int NOT NULL,
+	`partnershipId` int NOT NULL,
+	`businessId` int NOT NULL,
+	`businessName` varchar(255),
+	`periodStart` timestamp NOT NULL,
+	`periodEnd` timestamp NOT NULL,
+	`monthlyFee` decimal(10,2) NOT NULL,
+	`commissionRate` decimal(5,4) NOT NULL,
+	`commissionEarned` decimal(10,2) NOT NULL,
+	`bonusPoints` int DEFAULT 0,
+	`status` enum('pending','confirmed','paid') DEFAULT 'pending',
+	`paidAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `ad_earnings_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `ad_partnerships` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`trainerId` int NOT NULL,
+	`businessId` int NOT NULL,
+	`packageTier` enum('bronze','silver','gold','platinum') NOT NULL,
+	`monthlyFee` decimal(10,2) NOT NULL,
+	`trainerCommissionRate` decimal(5,4) NOT NULL,
+	`bonusPointsAwarded` int DEFAULT 0,
+	`status` enum('pending','active','paused','cancelled','expired') DEFAULT 'pending',
+	`startDate` timestamp,
+	`endDate` timestamp,
+	`renewalDate` timestamp,
+	`autoRenew` boolean DEFAULT true,
+	`approvedBy` int,
+	`approvedAt` timestamp,
+	`notes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `ad_partnerships_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `ad_placements` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`partnershipId` int NOT NULL,
+	`businessId` int NOT NULL,
+	`placementType` enum('bundle_sidebar','vending_screen','trainer_profile','email_newsletter','receipt_confirmation') NOT NULL,
+	`locationId` int,
+	`trainerId` int,
+	`bundleId` int,
+	`headline` varchar(100),
+	`description` text,
+	`imageUrl` text,
+	`linkUrl` text,
+	`ctaText` varchar(50) DEFAULT 'Learn More',
+	`impressions` int DEFAULT 0,
+	`clicks` int DEFAULT 0,
+	`isActive` boolean DEFAULT true,
+	`priority` int DEFAULT 0,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `ad_placements_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `local_businesses` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`name` varchar(255) NOT NULL,
+	`email` varchar(320) NOT NULL,
+	`phone` varchar(50),
+	`website` varchar(500),
+	`address` text,
+	`city` varchar(100),
+	`category` enum('sports_nutrition','fitness_equipment','physiotherapy','healthy_food','sports_retail','wellness_recovery','gym_studio','health_insurance','sports_events','other') DEFAULT 'other',
+	`logoUrl` text,
+	`description` text,
+	`contactName` varchar(255),
+	`status` enum('pending','active','suspended','inactive') DEFAULT 'pending',
+	`referredByTrainerId` int,
+	`approvedBy` int,
+	`approvedAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `local_businesses_id` PRIMARY KEY(`id`)
+);

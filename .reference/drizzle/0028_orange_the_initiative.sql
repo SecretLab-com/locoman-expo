@@ -1,0 +1,1 @@
+ALTER TABLE `bundle_invitations` MODIFY COLUMN `status` enum('pending','viewed','accepted','declined','expired','revoked') DEFAULT 'pending';

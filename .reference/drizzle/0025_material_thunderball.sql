@@ -1,0 +1,20 @@
+CREATE TABLE `product_deliveries` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`orderId` int NOT NULL,
+	`orderItemId` int NOT NULL,
+	`trainerId` int NOT NULL,
+	`clientId` int NOT NULL,
+	`productName` varchar(255) NOT NULL,
+	`quantity` int NOT NULL DEFAULT 1,
+	`status` enum('pending','ready','delivered','confirmed','disputed') NOT NULL DEFAULT 'pending',
+	`scheduledDate` timestamp,
+	`deliveredAt` timestamp,
+	`confirmedAt` timestamp,
+	`trainerNotes` text,
+	`clientNotes` text,
+	`deliveryMethod` enum('in_person','locker','front_desk','shipped') DEFAULT 'in_person',
+	`trackingNumber` varchar(100),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `product_deliveries_id` PRIMARY KEY(`id`)
+);

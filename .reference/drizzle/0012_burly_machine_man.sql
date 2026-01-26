@@ -1,0 +1,1 @@
+ALTER TABLE `activity_logs` MODIFY COLUMN `entityId` bigint;

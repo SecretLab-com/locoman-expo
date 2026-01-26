@@ -1,0 +1,1 @@
+ALTER TABLE `bundle_drafts` ADD `imageSource` enum('ai','custom') DEFAULT 'ai';
