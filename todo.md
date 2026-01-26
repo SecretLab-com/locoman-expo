@@ -420,3 +420,7 @@
 - [x] Move profile/settings to FAB in top right corner
 - [x] Fix bottom nav switching issue with Discover More (created /browse screen)
 - [x] Hide profile tab from bottom nav (now accessed via FAB)
+
+
+## Bug Fixes - Manager Users Screen
+- [x] Fix role filter pills displaying as tall vertical rectangles instead of horizontal pills

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   TextInput,
   RefreshControl,
+  StyleSheet,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -83,6 +84,8 @@ export default function UsersScreen() {
       .slice(0, 2);
   };
 
+  const roles = ["all", "shopper", "client", "trainer", "manager", "coordinator"] as const;
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header */}
@@ -112,31 +115,39 @@ export default function UsersScreen() {
         </View>
       </View>
 
-      {/* Role Filter */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        className="px-4 mb-4"
-        contentContainerStyle={{ gap: 8 }}
-      >
-        {(["all", "shopper", "client", "trainer", "manager", "coordinator"] as const).map((role) => (
-          <TouchableOpacity
-            key={role}
-            onPress={() => setSelectedRole(role)}
-            className={`px-4 py-2 rounded-full ${
-              selectedRole === role ? "bg-primary" : "bg-surface border border-border"
-            }`}
-          >
-            <Text
-              className={`font-medium capitalize ${
-                selectedRole === role ? "text-white" : "text-foreground"
-              }`}
+      {/* Role Filter - Using inline styles to fix pill layout */}
+      <View style={styles.filterContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
+          {roles.map((role) => (
+            <TouchableOpacity
+              key={role}
+              onPress={() => setSelectedRole(role)}
+              style={[
+                styles.filterPill,
+                {
+                  backgroundColor: selectedRole === role ? colors.primary : colors.surface,
+                  borderColor: selectedRole === role ? colors.primary : colors.border,
+                },
+              ]}
             >
-              {role === "all" ? "All Roles" : role}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <Text
+                style={[
+                  styles.filterPillText,
+                  {
+                    color: selectedRole === role ? "#fff" : colors.foreground,
+                  },
+                ]}
+              >
+                {role === "all" ? "All Roles" : role.charAt(0).toUpperCase() + role.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Users List */}
       <ScrollView
@@ -201,3 +212,29 @@ export default function UsersScreen() {
     </ScreenContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  filterContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  filterScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  filterPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 36,
+  },
+  filterPillText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+});
