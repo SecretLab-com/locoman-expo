@@ -8,6 +8,7 @@ import {
   RefreshControl,
   Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
@@ -146,19 +147,26 @@ export default function ImpersonateScreen() {
   // Impersonate user
   const handleImpersonate = async (user: User) => {
     await haptics.medium();
-    Alert.alert(
-      "Impersonate User",
-      `You will now view the app as ${user.name || user.email} (${user.role}). Continue?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Impersonate",
-          onPress: () => {
-            impersonateMutation.mutate({ userId: user.id });
+    
+    // On web, impersonate directly without confirmation for better UX
+    // On native, show confirmation dialog
+    if (Platform.OS === "web") {
+      impersonateMutation.mutate({ userId: user.id });
+    } else {
+      Alert.alert(
+        "Impersonate User",
+        `You will now view the app as ${user.name || user.email} (${user.role}). Continue?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Impersonate",
+            onPress: () => {
+              impersonateMutation.mutate({ userId: user.id });
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   // End impersonation

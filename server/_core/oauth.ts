@@ -15,6 +15,7 @@ async function syncUser(userInfo: {
   email?: string | null;
   loginMethod?: string | null;
   platform?: string | null;
+  role?: "shopper" | "client" | "trainer" | "manager" | "coordinator" | null;
 }) {
   if (!userInfo.openId) {
     throw new Error("openId missing from user info");
@@ -27,6 +28,7 @@ async function syncUser(userInfo: {
     email: userInfo.email ?? null,
     loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
     lastSignedIn,
+    role: userInfo.role ?? undefined,
   });
   const saved = await getUserByOpenId(userInfo.openId);
   return (
@@ -249,6 +251,31 @@ export function registerOAuthRoutes(app: Express) {
         
         const savedUser = await getUserByOpenId(managerOpenId);
         res.json({ success: true, user: buildUserResponse(savedUser || managerUser) });
+        return;
+      }
+      
+      // Coordinator test account - has coordinator role for testing impersonation
+      if (email === "coordinator@secretlab.com" && password === "supertest") {
+        const coordinatorOpenId = "test_coordinator_account";
+        const coordinatorUser = {
+          openId: coordinatorOpenId,
+          name: "Test Coordinator",
+          email: email,
+          loginMethod: "email",
+          role: "coordinator" as const,
+        };
+        
+        await syncUser(coordinatorUser);
+        const sessionToken = await sdk.createSessionToken(coordinatorOpenId, {
+          name: coordinatorUser.name,
+          expiresInMs: ONE_YEAR_MS,
+        });
+        
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        
+        const savedUser = await getUserByOpenId(coordinatorOpenId);
+        res.json({ success: true, user: buildUserResponse(savedUser || coordinatorUser) });
         return;
       }
       

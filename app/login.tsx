@@ -83,11 +83,26 @@ export default function LoginScreen() {
 
       if (response.ok) {
         await haptics.success();
-        // Refresh auth state to pick up the new session
+        const data = await response.json();
+        const userRole = data.user?.role || "shopper";
+        
+        // Navigate to appropriate dashboard based on role
+        let targetRoute = "/(tabs)";
+        if (userRole === "trainer") {
+          targetRoute = "/(trainer)";
+        } else if (userRole === "client") {
+          targetRoute = "/(client)";
+        } else if (userRole === "manager") {
+          targetRoute = "/(manager)";
+        } else if (userRole === "coordinator") {
+          targetRoute = "/(coordinator)";
+        }
+        
+        // Navigate to the appropriate dashboard
         if (Platform.OS === "web" && typeof window !== "undefined") {
-          window.location.reload();
+          window.location.href = targetRoute;
         } else {
-          router.replace("/(tabs)");
+          router.replace(targetRoute as any);
         }
       } else {
         await haptics.error();
@@ -299,6 +314,12 @@ export default function LoginScreen() {
                   className="px-2 py-1 bg-primary/10 rounded"
                 >
                   <Text className="text-xs text-primary">Shopper</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setEmail("coordinator@secretlab.com"); setPassword("supertest"); }}
+                  className="px-2 py-1 bg-purple-500/10 rounded"
+                >
+                  <Text className="text-xs text-purple-500">Coordinator</Text>
                 </TouchableOpacity>
               </View>
             </View>

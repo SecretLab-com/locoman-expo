@@ -303,3 +303,10 @@
 - [x] Support system, light, and dark modes
 - [x] Add theme toggle to profile screen preferences
 - [x] Add theme toggle to trainer settings screenr to use persisted preference
+
+## Login Button Fix
+- [x] Add login button to landing page header for unauthenticated users
+- [x] Fix login button navigation and role-based redirect after login
+- [x] Add coordinator test account (coordinator@secretlab.com / supertest)
+- [x] Add coordinator quick-fill button to login screen
+- [x] Document impersonation feature usage
