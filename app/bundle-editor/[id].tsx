@@ -1295,12 +1295,13 @@ export default function BundleEditorScreen() {
 
               {/* Category Filter */}
               {uniqueProductTypes.length > 0 && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 16, gap: 8, flexDirection: 'row', alignItems: 'center' }}
-                  style={{ maxHeight: 44, marginBottom: 8 }}
-                >
+                <View style={{ paddingBottom: 12 }}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 8, flexDirection: 'row', alignItems: 'center' }}
+                    style={{ height: 44 }}
+                  >
                   <TouchableOpacity
                     onPress={() => setProductTypeFilter("all")}
                     style={{
@@ -1342,7 +1343,8 @@ export default function BundleEditorScreen() {
                       </Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                  </ScrollView>
+                </View>
               )}
 
               {/* Product List */}

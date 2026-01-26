@@ -396,3 +396,5 @@
 - [x] Set up Shopify environment variables for real store connection
 - [x] Add product quantity selector to bundle product selection
 - [x] Implement barcode scanner for SKU lookup
+
+- [x] Fix product selection modal filter bar hidden/cut off behind search bar
