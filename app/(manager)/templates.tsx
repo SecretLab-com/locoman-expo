@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import {
   View,
   Text,
@@ -128,7 +129,7 @@ export default function TemplatesScreen() {
         </View>
         <TouchableOpacity
           className="bg-primary px-4 py-2 rounded-xl flex-row items-center"
-          onPress={() => Alert.alert("Create Template", "Template creation coming soon")}
+          onPress={() => router.push("/template-editor/new")}
         >
           <IconSymbol name="plus" size={18} color="#fff" />
           <Text className="text-white font-semibold ml-1">New</Text>
@@ -152,9 +153,11 @@ export default function TemplatesScreen() {
           </View>
         ) : (
           templates.map((template) => (
-            <View
+            <TouchableOpacity
               key={template.id}
               className="bg-surface rounded-xl p-4 mb-4 border border-border"
+              onPress={() => router.push(`/template-editor/${template.id}`)}
+              activeOpacity={0.7}
             >
               {/* Header */}
               <View className="flex-row items-start justify-between mb-2">
@@ -233,7 +236,7 @@ export default function TemplatesScreen() {
                   <Text className="text-error font-medium">Delete</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         )}
 

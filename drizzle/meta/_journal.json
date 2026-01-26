@@ -22,6 +22,20 @@
       "when": 1769443205777,
       "tag": "0002_oval_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1769453108794,
+      "tag": "0003_round_the_captain",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1769455674639,
+      "tag": "0004_deep_landau",
+      "breakpoints": true
     }
   ]
 }

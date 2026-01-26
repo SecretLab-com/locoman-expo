@@ -127,8 +127,8 @@ export default function TrainersScreen() {
 
   return (
     <ScreenContainer className="flex-1">
-      {/* Header */}
-      <View className="px-4 pt-2 pb-4">
+      {/* Header - extra top padding for impersonation banner */}
+      <View className="px-4 pt-12 pb-4">
         <Text className="text-2xl font-bold text-foreground">Trainers</Text>
         <Text className="text-sm text-muted mt-1">
           {filteredTrainers.length} trainers
@@ -154,31 +154,42 @@ export default function TrainersScreen() {
         </View>
       </View>
 
-      {/* Status Filter */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        className="px-4 mb-4"
-        contentContainerStyle={{ gap: 8 }}
-      >
-        {(["all", "active", "pending", "inactive"] as const).map((status) => (
-          <TouchableOpacity
-            key={status}
-            onPress={() => setSelectedStatus(status)}
-            className={`px-4 py-2 rounded-full ${
-              selectedStatus === status ? "bg-primary" : "bg-surface border border-border"
-            }`}
-          >
-            <Text
-              className={`font-medium capitalize ${
-                selectedStatus === status ? "text-white" : "text-foreground"
-              }`}
+      {/* Status Filter - horizontal pills with fixed height */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+          style={{ maxHeight: 44 }}
+        >
+          {(["all", "active", "pending", "inactive"] as const).map((status) => (
+            <TouchableOpacity
+              key={status}
+              onPress={() => setSelectedStatus(status)}
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                borderRadius: 20,
+                backgroundColor: selectedStatus === status ? colors.primary : colors.surface,
+                borderWidth: selectedStatus === status ? 0 : 1,
+                borderColor: colors.border,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}
             >
-              {status === "all" ? "All Status" : status}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <Text
+                style={{
+                  fontWeight: '500',
+                  textTransform: 'capitalize',
+                  color: selectedStatus === status ? '#FFFFFF' : colors.foreground,
+                }}
+              >
+                {status === "all" ? "All Status" : status}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Trainers List */}
       <ScrollView

@@ -398,3 +398,12 @@
 - [x] Implement barcode scanner for SKU lookup
 
 - [x] Fix product selection modal filter bar hidden/cut off behind search bar
+
+
+## Bug Fixes - Manager Trainers Screen
+- [x] Fix top content overlapping with impersonation banner
+- [x] Fix status filter pills displaying as tall vertical rectangles instead of horizontal pills
+
+## Sprint 2 Implementation
+- [x] Create TemplateEditor screen for managers
+- [x] Implement bulk invite feature with CSV upload and manual entry

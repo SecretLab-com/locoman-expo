@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { router } from "expo-router";
+import { BulkInviteModal } from "@/components/bulk-invite-modal";
 import {
   Text,
   View,
@@ -114,6 +115,7 @@ export default function TrainerClientsScreen() {
   const colors = useColors();
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [showBulkInvite, setShowBulkInvite] = useState(false);
 
   const filteredClients = MOCK_CLIENTS.filter(
     (client) =>
@@ -138,8 +140,19 @@ export default function TrainerClientsScreen() {
     <ScreenContainer>
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Clients</Text>
-        <Text className="text-sm text-muted">{MOCK_CLIENTS.length} total clients</Text>
+        <View className="flex-row items-center justify-between">
+          <View>
+            <Text className="text-2xl font-bold text-foreground">Clients</Text>
+            <Text className="text-sm text-muted">{MOCK_CLIENTS.length} total clients</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => setShowBulkInvite(true)}
+            style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            <IconSymbol name="person.badge.plus" size={16} color="#FFFFFF" />
+            <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Bulk Invite</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Search Bar */}
         <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-3 mt-4">
@@ -198,6 +211,17 @@ export default function TrainerClientsScreen() {
           </View>
         }
         contentContainerStyle={{ paddingBottom: 20 }}
+      />
+
+      {/* Bulk Invite Modal */}
+      <BulkInviteModal
+        visible={showBulkInvite}
+        onClose={() => setShowBulkInvite(false)}
+        onSubmit={async (invites) => {
+          // TODO: Call API to send invitations
+          console.log('Sending invites:', invites);
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }}
       />
     </ScreenContainer>
   );
