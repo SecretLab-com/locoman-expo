@@ -166,7 +166,7 @@ export function ProfileFAB() {
                   {user.name || user.email}
                 </Text>
                 <Text style={[styles.userRole, { color: colors.muted }]}>
-                  {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                  {user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'User'}
                 </Text>
               </View>
             )}

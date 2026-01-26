@@ -502,3 +502,7 @@
 - [x] Show product recommendations based on same type
 - [x] Show product recommendations based on same vendor
 - [x] Make recommendations clickable to view their details
+
+
+## Bug Fix - ProfileFAB Crash
+- [x] Fix ProfileFAB crash when user.role is undefined (Cannot read property 'charAt' of undefined)
