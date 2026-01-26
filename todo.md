@@ -491,3 +491,14 @@
 - [x] Add product detail screen when clicking on image or product name
 - [x] Only toggle selection when clicking on checkbox area (right side)
 - [x] Separate click zones: left side for detail view, right side for selection
+
+
+## Product Detail Modal Enhancements
+- [x] Add quantity selector with +/- buttons in product detail modal
+- [x] Show current quantity if product already in bundle
+- [x] Update "Add to Bundle" button to show quantity
+- [x] Add barcode scan button in product detail modal header
+- [x] Navigate to matching product when barcode scanned
+- [x] Show product recommendations based on same type
+- [x] Show product recommendations based on same vendor
+- [x] Make recommendations clickable to view their details

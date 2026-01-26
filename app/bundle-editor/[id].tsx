@@ -138,6 +138,8 @@ export default function BundleEditorScreen() {
   // Product detail modal
   const [showProductDetail, setShowProductDetail] = useState(false);
   const [selectedProductDetail, setSelectedProductDetail] = useState<ProductItem | null>(null);
+  const [detailQuantity, setDetailQuantity] = useState(1);
+  const [showDetailBarcodeScanner, setShowDetailBarcodeScanner] = useState(false);
 
   // AI image generation mutation
   const generateImageMutation = trpc.ai.generateBundleImage.useMutation();
@@ -392,6 +394,37 @@ export default function BundleEditorScreen() {
       "products",
       form.products.map((p) => (p.id === productId ? { ...p, quantity } : p))
     );
+  };
+
+  // Add product with specific quantity (for detail modal)
+  const addProductWithQuantity = (product: ProductItem, quantity: number) => {
+    const isSelected = form.products.some((p) => p.id === product.id);
+    if (isSelected) {
+      // Update quantity if already selected
+      updateProductQuantity(product.id, quantity);
+    } else {
+      // Add new product with specified quantity
+      const productWithQuantity: BundleProductItem = {
+        ...product,
+        quantity: Math.max(1, quantity),
+      };
+      updateForm("products", [...form.products, productWithQuantity]);
+    }
+    haptics.light();
+  };
+
+  // Get recommended products based on current product
+  const getRecommendedProducts = (product: ProductItem) => {
+    if (!shopifyProducts) return [];
+    return shopifyProducts
+      .filter((p: ProductItem) => {
+        // Exclude current product and bundles
+        if (p.id === product.id) return false;
+        if (p.productType && p.productType.toLowerCase() === 'bundle') return false;
+        // Match by type or vendor
+        return p.productType === product.productType || p.vendor === product.vendor;
+      })
+      .slice(0, 4); // Limit to 4 recommendations
   };
 
   // Handle barcode scan
@@ -1642,17 +1675,31 @@ export default function BundleEditorScreen() {
           visible={showProductDetail}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={() => setShowProductDetail(false)}
+          onRequestClose={() => {
+            setShowProductDetail(false);
+            setDetailQuantity(1);
+          }}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
             <View className="flex-1 bg-background">
               {/* Header */}
               <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-                <TouchableOpacity onPress={() => setShowProductDetail(false)}>
+                <TouchableOpacity onPress={() => {
+                  setShowProductDetail(false);
+                  setDetailQuantity(1);
+                }}>
                   <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
                 </TouchableOpacity>
                 <Text className="text-lg font-semibold text-foreground">Product Details</Text>
-                <View style={{ width: 24 }} />
+                <TouchableOpacity 
+                  onPress={() => {
+                    setShowDetailBarcodeScanner(true);
+                    haptics.light();
+                  }}
+                  style={{ padding: 4 }}
+                >
+                  <IconSymbol name="barcode.viewfinder" size={24} color={colors.foreground} />
+                </TouchableOpacity>
               </View>
 
               {selectedProductDetail && (
@@ -1699,6 +1746,67 @@ export default function BundleEditorScreen() {
                       </View>
                     </View>
 
+                    {/* Quantity Selector */}
+                    <View className="bg-surface rounded-xl p-4 mb-4">
+                      <Text className="text-foreground font-semibold mb-3">Quantity</Text>
+                      <View className="flex-row items-center justify-between">
+                        <Text className="text-muted">How many to add to bundle?</Text>
+                        <View className="flex-row items-center">
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (detailQuantity > 1) {
+                                setDetailQuantity(detailQuantity - 1);
+                                haptics.light();
+                              }
+                            }}
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 18,
+                              backgroundColor: detailQuantity > 1 ? colors.primary : colors.border,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            disabled={detailQuantity <= 1}
+                          >
+                            <IconSymbol name="minus" size={18} color={detailQuantity > 1 ? colors.background : colors.muted} />
+                          </TouchableOpacity>
+                          <Text className="text-foreground text-xl font-bold mx-4" style={{ minWidth: 40, textAlign: 'center' }}>
+                            {detailQuantity}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (detailQuantity < selectedProductDetail.inventory || selectedProductDetail.inventory === 0) {
+                                setDetailQuantity(detailQuantity + 1);
+                                haptics.light();
+                              }
+                            }}
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 18,
+                              backgroundColor: colors.primary,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <IconSymbol name="plus" size={18} color={colors.background} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      {(() => {
+                        const existingProduct = form.products.find((p) => p.id === selectedProductDetail.id);
+                        if (existingProduct) {
+                          return (
+                            <Text className="text-primary text-sm mt-2">
+                              Currently in bundle: {existingProduct.quantity}
+                            </Text>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </View>
+
                     {/* Product Details */}
                     <View className="bg-surface rounded-xl p-4 mb-4">
                       <Text className="text-foreground font-semibold mb-3">Product Information</Text>
@@ -1733,33 +1841,195 @@ export default function BundleEditorScreen() {
                         </Text>
                       </View>
                     )}
+
+                    {/* Product Recommendations */}
+                    {(() => {
+                      const recommendations = getRecommendedProducts(selectedProductDetail);
+                      if (recommendations.length === 0) return null;
+                      return (
+                        <View className="mb-4">
+                          <Text className="text-foreground font-semibold mb-3">You Might Also Like</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            {recommendations.map((rec: ProductItem) => (
+                              <TouchableOpacity
+                                key={rec.id}
+                                onPress={() => {
+                                  setSelectedProductDetail(rec);
+                                  setDetailQuantity(1);
+                                  haptics.light();
+                                }}
+                                style={{
+                                  width: 140,
+                                  marginRight: 12,
+                                  backgroundColor: colors.surface,
+                                  borderRadius: 12,
+                                  overflow: 'hidden',
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                }}
+                              >
+                                <View style={{ width: 140, height: 100, backgroundColor: colors.border }}>
+                                  {rec.imageUrl ? (
+                                    <Image
+                                      source={{ uri: rec.imageUrl }}
+                                      style={{ width: 140, height: 100 }}
+                                      contentFit="cover"
+                                    />
+                                  ) : (
+                                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                      <IconSymbol name="bag.fill" size={24} color={colors.muted} />
+                                    </View>
+                                  )}
+                                </View>
+                                <View style={{ padding: 8 }}>
+                                  <Text className="text-foreground text-sm font-medium" numberOfLines={1}>
+                                    {rec.title}
+                                  </Text>
+                                  <Text className="text-primary text-sm font-semibold">
+                                    ${rec.price}
+                                  </Text>
+                                </View>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      );
+                    })()}
                   </View>
                 </ScrollView>
               )}
 
-              {/* Add to Bundle Button */}
+              {/* Add to Bundle Button with Quantity */}
               <SafeAreaView edges={["bottom"]} style={{ backgroundColor: colors.background }}>
                 <View className="p-4 border-t border-border">
                   {selectedProductDetail && (() => {
-                    const isSelected = form.products.some((p) => p.id === selectedProductDetail.id);
+                    const existingProduct = form.products.find((p) => p.id === selectedProductDetail.id);
+                    const isSelected = !!existingProduct;
                     return (
-                      <TouchableOpacity
-                        className={`rounded-xl py-4 items-center ${
-                          isSelected ? 'bg-error' : 'bg-primary'
-                        }`}
-                        onPress={() => {
-                          toggleProduct(selectedProductDetail);
-                          setShowProductDetail(false);
-                        }}
-                      >
-                        <Text className="text-background font-semibold">
-                          {isSelected ? 'Remove from Bundle' : 'Add to Bundle'}
-                        </Text>
-                      </TouchableOpacity>
+                      <View>
+                        <TouchableOpacity
+                          className="bg-primary rounded-xl py-4 items-center mb-2"
+                          onPress={() => {
+                            addProductWithQuantity(selectedProductDetail, detailQuantity);
+                            setShowProductDetail(false);
+                            setDetailQuantity(1);
+                          }}
+                        >
+                          <Text className="text-background font-semibold">
+                            {isSelected 
+                              ? `Update Quantity (${detailQuantity})` 
+                              : `Add ${detailQuantity} to Bundle`}
+                          </Text>
+                        </TouchableOpacity>
+                        {isSelected && (
+                          <TouchableOpacity
+                            className="bg-error rounded-xl py-4 items-center"
+                            onPress={() => {
+                              toggleProduct(selectedProductDetail);
+                              setShowProductDetail(false);
+                              setDetailQuantity(1);
+                            }}
+                          >
+                            <Text className="text-background font-semibold">
+                              Remove from Bundle
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     );
                   })()}
                 </View>
               </SafeAreaView>
+            </View>
+          </SafeAreaView>
+        </Modal>
+
+        {/* Detail Modal Barcode Scanner */}
+        <Modal
+          visible={showDetailBarcodeScanner}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowDetailBarcodeScanner(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={["top"]}>
+            <View style={{ flex: 1, backgroundColor: '#000' }}>
+              {/* Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                justifyContent: 'space-between', 
+                paddingHorizontal: 16, 
+                paddingVertical: 16,
+                backgroundColor: 'rgba(0,0,0,0.8)'
+              }}>
+                <TouchableOpacity onPress={() => setShowDetailBarcodeScanner(false)}>
+                  <IconSymbol name="xmark" size={24} color="#FFF" />
+                </TouchableOpacity>
+                <Text style={{ color: '#FFF', fontSize: 18, fontWeight: '600' }}>Scan Product</Text>
+                <View style={{ width: 24 }} />
+              </View>
+
+              {/* Camera */}
+              {cameraPermission?.granted ? (
+                <CameraView
+                  style={{ flex: 1 }}
+                  facing="back"
+                  barcodeScannerSettings={{
+                    barcodeTypes: ["qr", "ean13", "ean8", "upc_a", "upc_e", "code128", "code39"],
+                  }}
+                  onBarcodeScanned={(result) => {
+                    const scannedCode = result.data;
+                    if (shopifyProducts) {
+                      const matchedProduct = shopifyProducts.find(
+                        (p: ProductItem) => p.sku && p.sku.toLowerCase() === scannedCode.toLowerCase()
+                      );
+                      if (matchedProduct) {
+                        haptics.success();
+                        setSelectedProductDetail(matchedProduct);
+                        setDetailQuantity(1);
+                        setShowDetailBarcodeScanner(false);
+                      } else {
+                        haptics.error();
+                        platformAlert("Not Found", `No product found with SKU: ${scannedCode}`);
+                      }
+                    }
+                  }}
+                >
+                  {/* Scanning Frame Overlay */}
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{
+                      width: 250,
+                      height: 250,
+                      borderWidth: 2,
+                      borderColor: 'rgba(255,255,255,0.5)',
+                      borderRadius: 16,
+                    }} />
+                    <Text style={{ 
+                      color: '#FFF', 
+                      marginTop: 20, 
+                      fontSize: 14,
+                      textAlign: 'center',
+                    }}>
+                      Position barcode within frame
+                    </Text>
+                  </View>
+                </CameraView>
+              ) : (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#FFF', marginBottom: 16 }}>Camera permission required</Text>
+                  <TouchableOpacity
+                    onPress={requestCameraPermission}
+                    style={{
+                      backgroundColor: colors.primary,
+                      paddingHorizontal: 24,
+                      paddingVertical: 12,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ color: '#FFF', fontWeight: '600' }}>Grant Permission</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </SafeAreaView>
         </Modal>
