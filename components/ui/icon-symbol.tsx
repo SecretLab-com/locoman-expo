@@ -117,6 +117,9 @@ const MAPPING = {
   "barcode.viewfinder": "qr-code-scanner",
   "megaphone.fill": "campaign",
   "ellipsis.circle.fill": "more-horiz",
+  "gear": "settings",
+  "person.circle.fill": "account-circle",
+  "rectangle.portrait.and.arrow.right": "logout",
 } as const satisfies Record<string, MaterialIconName>;
 
 /**

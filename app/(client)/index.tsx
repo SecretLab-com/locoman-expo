@@ -188,7 +188,7 @@ export default function ClientDashboardScreen() {
         <View className="px-4 mb-8">
           <TouchableOpacity
             className="bg-surface border border-border rounded-xl p-4 flex-row items-center"
-            onPress={() => router.push("/(tabs)")}
+            onPress={() => router.push("/browse")}
           >
             <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center">
               <IconSymbol name="magnifyingglass" size={24} color={colors.primary} />

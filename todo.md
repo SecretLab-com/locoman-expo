@@ -413,3 +413,10 @@
 - [x] Connect bulk invite modal to clients.bulkInvite API
 - [x] Add template usage tracking when creating bundles from templates
 - [x] Create join requests management screen for trainers
+
+
+## Navigation Simplification
+- [x] Create Mermaid chart of current navigation structure
+- [x] Move profile/settings to FAB in top right corner
+- [x] Fix bottom nav switching issue with Discover More (created /browse screen)
+- [x] Hide profile tab from bottom nav (now accessed via FAB)
