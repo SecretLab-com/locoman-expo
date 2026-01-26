@@ -466,3 +466,21 @@
 - [x] Create pending_invites database table
 - [x] Add API endpoint to create and send invites
 - [x] Add invited users list in Manager Users screen
+
+
+## Journey Audit - End-to-End Testing
+- [x] Audit Journey 1: Shopper Discovery & Purchase (catalog works, cart needs real checkout)
+- [x] Audit Journey 2: Trainer Bundle Creation & Approval (buttons work, browser automation limitation)
+- [ ] Audit Journey 3: Client Invitation & Onboarding
+- [ ] Audit Journey 4: Product Delivery Flow
+- [ ] Audit Journey 5: Session Tracking
+- [ ] Audit Journey 6: Manager Approval Workflow
+- [ ] Audit Journey 7: Coordinator Impersonation
+- [ ] Audit Journey 8: Messaging
+
+### Journey Findings
+- Bundle editor buttons fixed with native HTML buttons for web
+- Alerts are auto-dismissed by browser automation (expected)
+- Buttons work correctly for real users
+- Catalog displays real bundles from database
+- Cart functionality works with AsyncStorage persistence

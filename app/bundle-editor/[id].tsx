@@ -3,6 +3,7 @@ import {
   Text,
   View,
   TouchableOpacity,
+  Pressable,
   TextInput,
   ScrollView,
   Alert,
@@ -162,17 +163,32 @@ export default function BundleEditorScreen() {
     { enabled: !isNewBundle && !!id }
   );
 
+  // Cross-platform alert helper (defined early for mutations)
+  const platformAlert = (title: string, message: string, buttons?: Array<{ text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void }>) => {
+    if (Platform.OS === 'web') {
+      if (buttons && buttons.length > 0) {
+        const confirmButton = buttons.find(b => b.text !== 'Cancel') || buttons[0];
+        window.alert(`${title}\n\n${message}`);
+        confirmButton?.onPress?.();
+      } else {
+        window.alert(`${title}\n\n${message}`);
+      }
+    } else {
+      Alert.alert(title, message, buttons);
+    }
+  };
+
   // Create bundle mutation
   const createBundleMutation = trpc.bundles.create.useMutation({
     onSuccess: () => {
       haptics.success();
-      Alert.alert("Success", "Bundle saved as draft", [
+      platformAlert("Success", "Bundle saved as draft", [
         { text: "OK", onPress: () => router.back() },
       ]);
     },
     onError: (error) => {
       haptics.error();
-      Alert.alert("Error", error.message);
+      platformAlert("Error", error.message);
     },
   });
 
@@ -180,13 +196,13 @@ export default function BundleEditorScreen() {
   const updateBundleMutation = trpc.bundles.update.useMutation({
     onSuccess: () => {
       haptics.success();
-      Alert.alert("Success", "Bundle updated", [
+      platformAlert("Success", "Bundle updated", [
         { text: "OK", onPress: () => refetchBundle() },
       ]);
     },
     onError: (error) => {
       haptics.error();
-      Alert.alert("Error", error.message);
+      platformAlert("Error", error.message);
     },
   });
 
@@ -194,13 +210,13 @@ export default function BundleEditorScreen() {
   const submitForReviewMutation = trpc.bundles.submitForReview.useMutation({
     onSuccess: () => {
       haptics.success();
-      Alert.alert("Success", "Bundle submitted for review! You'll be notified when it's approved.", [
+      platformAlert("Success", "Bundle submitted for review! You'll be notified when it's approved.", [
         { text: "OK", onPress: () => router.back() },
       ]);
     },
     onError: (error) => {
       haptics.error();
-      Alert.alert("Error", error.message);
+      platformAlert("Error", error.message);
     },
   });
 
@@ -387,7 +403,7 @@ export default function BundleEditorScreen() {
           // Increment quantity
           updateProductQuantity(matchedProduct.id, existingProduct.quantity + 1);
           haptics.success();
-          Alert.alert(
+          platformAlert(
             "Product Found",
             `Added another ${matchedProduct.title} (now ${existingProduct.quantity + 1} total)`,
             [{ text: "OK", onPress: () => {
@@ -403,7 +419,7 @@ export default function BundleEditorScreen() {
           };
           updateForm("products", [...form.products, productWithQuantity]);
           haptics.success();
-          Alert.alert(
+          platformAlert(
             "Product Added",
             `${matchedProduct.title} added to bundle`,
             [{ text: "OK", onPress: () => {
@@ -414,7 +430,7 @@ export default function BundleEditorScreen() {
         }
       } else {
         haptics.error();
-        Alert.alert(
+        platformAlert(
           "Product Not Found",
           `No product found with SKU: ${scannedCode}`,
           [{ text: "Scan Again", onPress: () => setBarcodeScanned(false) },
@@ -430,14 +446,14 @@ export default function BundleEditorScreen() {
   // Open barcode scanner
   const openBarcodeScanner = async () => {
     if (Platform.OS === "web") {
-      Alert.alert("Not Available", "Barcode scanning is not available on web. Please use the search function.");
+      platformAlert("Not Available", "Barcode scanning is not available on web. Please use the search function.");
       return;
     }
     
     if (!cameraPermission?.granted) {
       const result = await requestCameraPermission();
       if (!result.granted) {
-        Alert.alert("Permission Required", "Camera permission is required to scan barcodes.");
+        platformAlert("Permission Required", "Camera permission is required to scan barcodes.");
         return;
       }
     }
@@ -469,13 +485,30 @@ export default function BundleEditorScreen() {
   };
 
   // Validate form
+  // Cross-platform alert helper
+  const showAlert = (title: string, message: string, buttons?: Array<{ text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void }>) => {
+    if (Platform.OS === 'web') {
+      if (buttons && buttons.length > 1) {
+        // For confirmation dialogs
+        const confirmButton = buttons.find(b => b.text !== 'Cancel');
+        if (window.confirm(`${title}\n\n${message}`)) {
+          confirmButton?.onPress?.();
+        }
+      } else {
+        window.alert(`${title}\n\n${message}`);
+      }
+    } else {
+      Alert.alert(title, message, buttons);
+    }
+  };
+
   const validateForm = (): boolean => {
     if (!form.title.trim()) {
-      Alert.alert("Validation Error", "Please enter a bundle title");
+      showAlert("Validation Error", "Please enter a bundle title");
       return false;
     }
     if (!form.price || parseFloat(form.price) <= 0) {
-      Alert.alert("Validation Error", "Please add products or services to set a price");
+      showAlert("Validation Error", "Please add products or services to set a price");
       return false;
     }
     return true;
@@ -484,7 +517,7 @@ export default function BundleEditorScreen() {
   // Save as draft
   const handleSave = async () => {
     if (!form.title.trim()) {
-      Alert.alert("Validation Error", "Please enter a bundle title");
+      showAlert("Validation Error", "Please enter a bundle title");
       return;
     }
 
@@ -526,58 +559,60 @@ export default function BundleEditorScreen() {
     if (!validateForm()) return;
 
     if (form.products.length === 0 && form.services.length === 0) {
-      Alert.alert("Validation Error", "Please add at least one product or service");
+      showAlert("Validation Error", "Please add at least one product or service");
       return;
     }
 
-    Alert.alert(
+    const doSubmit = async () => {
+      setSaving(true);
+      try {
+        // First save the bundle
+        const bundleData = {
+          title: form.title,
+          description: form.description,
+          price: form.price,
+          cadence: form.cadence,
+          imageUrl: form.imageUrl || undefined,
+          imageSource: form.imageSource,
+          productsJson: form.products.map((p) => ({
+            id: p.id,
+            name: p.title,
+            price: p.price,
+            imageUrl: p.imageUrl,
+          })),
+          servicesJson: form.services,
+          goalsJson: form.goals,
+          suggestedGoal: form.suggestedGoal || undefined,
+        };
+
+        let bundleId = parseInt(id || "0");
+        if (isNewBundle) {
+          const result = await createBundleMutation.mutateAsync(bundleData);
+          if (result && typeof result === 'object' && 'id' in result) {
+            bundleId = (result as { id: number }).id;
+          }
+        } else {
+          await updateBundleMutation.mutateAsync({
+            id: bundleId,
+            ...bundleData,
+          });
+        }
+
+        // Then submit for review
+        await submitForReviewMutation.mutateAsync({ id: bundleId });
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    showAlert(
       "Submit for Review",
       "Your bundle will be reviewed by the admin team. You'll be notified once it's approved.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Submit",
-          onPress: async () => {
-            setSaving(true);
-            try {
-              // First save the bundle
-              const bundleData = {
-                title: form.title,
-                description: form.description,
-                price: form.price,
-                cadence: form.cadence,
-                imageUrl: form.imageUrl || undefined,
-                imageSource: form.imageSource,
-                productsJson: form.products.map((p) => ({
-                  id: p.id,
-                  name: p.title,
-                  price: p.price,
-                  imageUrl: p.imageUrl,
-                })),
-                servicesJson: form.services,
-                goalsJson: form.goals,
-                suggestedGoal: form.suggestedGoal || undefined,
-              };
-
-              let bundleId = parseInt(id || "0");
-              if (isNewBundle) {
-                const result = await createBundleMutation.mutateAsync(bundleData);
-                if (result && typeof result === 'object' && 'id' in result) {
-                  bundleId = (result as { id: number }).id;
-                }
-              } else {
-                await updateBundleMutation.mutateAsync({
-                  id: bundleId,
-                  ...bundleData,
-                });
-              }
-
-              // Then submit for review
-              await submitForReviewMutation.mutateAsync({ id: bundleId });
-            } finally {
-              setSaving(false);
-            }
-          },
+          onPress: doSubmit,
         },
       ]
     );
@@ -586,7 +621,7 @@ export default function BundleEditorScreen() {
   // Generate AI image
   const handleGenerateImage = async () => {
     if (!form.title.trim()) {
-      Alert.alert("Title Required", "Please enter a bundle title first to generate an image.");
+      showAlert("Title Required", "Please enter a bundle title first to generate an image.");
       return;
     }
 
@@ -605,7 +640,7 @@ export default function BundleEditorScreen() {
       }
     } catch (error) {
       console.error("Failed to generate image:", error);
-      Alert.alert("Error", "Failed to generate image. Please try again.");
+      platformAlert("Error", "Failed to generate image. Please try again.");
     } finally {
       setGeneratingImage(false);
     }
@@ -613,7 +648,13 @@ export default function BundleEditorScreen() {
 
   // Delete bundle
   const handleDelete = () => {
-    Alert.alert(
+    const doDelete = async () => {
+      // TODO: Implement delete mutation
+      haptics.success();
+      router.back();
+    };
+
+    platformAlert(
       "Delete Bundle",
       "Are you sure you want to delete this bundle? This action cannot be undone.",
       [
@@ -621,11 +662,7 @@ export default function BundleEditorScreen() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: async () => {
-            // TODO: Implement delete mutation
-            haptics.success();
-            router.back();
-          },
+          onPress: doDelete,
         },
       ]
     );
@@ -1174,29 +1211,92 @@ export default function BundleEditorScreen() {
 
         {/* Bottom Action Buttons */}
         <View className="p-4 border-t border-border bg-background">
-          <View className="flex-row gap-3">
-            <TouchableOpacity
-              className="flex-1 bg-surface border border-border rounded-xl py-4 items-center"
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color={colors.foreground} />
-              ) : (
-                <Text className="text-foreground font-semibold">Save Draft</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="flex-1 bg-primary rounded-xl py-4 items-center"
-              onPress={handleSubmitForReview}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color={colors.background} />
-              ) : (
-                <Text className="text-background font-semibold">Submit for Review</Text>
-              )}
-            </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            {Platform.OS === 'web' ? (
+              // Web: Use native button elements for reliable click handling
+              <>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.surface,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 12,
+                    padding: '16px 0',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.5 : 1,
+                    fontWeight: 600,
+                    color: colors.foreground,
+                    fontSize: 16,
+                  }}
+                >
+                  {saving ? 'Saving...' : 'Save Draft'}
+                </button>
+                <button
+                  onClick={handleSubmitForReview}
+                  disabled={saving}
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.primary,
+                    border: 'none',
+                    borderRadius: 12,
+                    padding: '16px 0',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.5 : 1,
+                    fontWeight: 600,
+                    color: colors.background,
+                    fontSize: 16,
+                  }}
+                >
+                  {saving ? 'Submitting...' : 'Submit for Review'}
+                </button>
+              </>
+            ) : (
+              // Native: Use TouchableOpacity
+              <>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 12,
+                    paddingVertical: 16,
+                    alignItems: 'center',
+                    opacity: saving ? 0.5 : 1,
+                  }}
+                  onPress={handleSave}
+                  disabled={saving}
+                  activeOpacity={0.7}
+                >
+                  {saving ? (
+                    <ActivityIndicator size="small" color={colors.foreground} />
+                  ) : (
+                    <Text style={{ color: colors.foreground, fontWeight: '600' }}>Save Draft</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.primary,
+                    borderRadius: 12,
+                    paddingVertical: 16,
+                    alignItems: 'center',
+                    opacity: saving ? 0.5 : 1,
+                  }}
+                  onPress={handleSubmitForReview}
+                  disabled={saving}
+                  activeOpacity={0.7}
+                >
+                  {saving ? (
+                    <ActivityIndicator size="small" color={colors.background} />
+                  ) : (
+                    <Text style={{ color: colors.background, fontWeight: '600' }}>Submit for Review</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
 

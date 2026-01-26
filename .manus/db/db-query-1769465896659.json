@@ -1,0 +1,34 @@
+{
+  "query": "SELECT id, name, email, role FROM users LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2QzfGuqHiBgZJ1M.d648e97afdf6 --database Zh3EDv2vowKBy5kswkzuFV --execute SELECT id, name, email, role FROM users LIMIT 10;",
+  "rows": [
+    {
+      "id": "1",
+      "name": "Jason Bright",
+      "email": "jason@secretlab.com",
+      "role": "coordinator"
+    },
+    {
+      "id": "30002",
+      "name": "Test Trainer",
+      "email": "trainer@secretlab.com",
+      "role": "trainer"
+    },
+    {
+      "id": "30081",
+      "name": "Test Manager",
+      "email": "manager@secretlab.com",
+      "role": "manager"
+    },
+    {
+      "id": "30091",
+      "name": "Test Coordinator",
+      "email": "coordinator@secretlab.com",
+      "role": "coordinator"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\trole\n1\tJason Bright\tjason@secretlab.com\tcoordinator\n30002\tTest Trainer\ttrainer@secretlab.com\ttrainer\n30081\tTest Manager\tmanager@secretlab.com\tmanager\n30091\tTest Coordinator\tcoordinator@secretlab.com\tcoordinator\n",
+  "stderr": "",
+  "execution_time_ms": 1532
+}
