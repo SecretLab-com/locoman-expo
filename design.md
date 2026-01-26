@@ -1,7 +1,5 @@
 # LocoMotivate Mobile App Design
 
-> **Note:** Based on initial React implementation at: https://github.com/SecretLab-com/locoman
-
 ## Overview
 
 LocoMotivate is a fitness and wellness platform connecting trainers with clients. This document outlines the mobile-first design for iOS, Android, and Web deployment, following Apple Human Interface Guidelines.

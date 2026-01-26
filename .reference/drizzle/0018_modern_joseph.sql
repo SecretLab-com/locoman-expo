@@ -1,1 +1,0 @@
-ALTER TABLE `bundle_drafts` ADD `imageAnalytics` json;

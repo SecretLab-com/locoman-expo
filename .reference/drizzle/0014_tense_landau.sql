@@ -1,1 +1,0 @@
-ALTER TABLE `bundle_publications` MODIFY COLUMN `syncStatus` enum('synced','pending','failed','conflict') DEFAULT 'pending';
