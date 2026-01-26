@@ -398,3 +398,9 @@
 - [x] Implement barcode scanner for SKU lookup
 
 - [x] Fix product selection modal filter bar hidden/cut off behind search bar
+
+## Documentation Migration
+- [x] Access locoman GitHub repository docs folder
+- [x] Download all documentation files
+- [x] Update technology references to Expo/React Native
+- [x] Verify documentation accuracy
