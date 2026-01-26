@@ -424,3 +424,11 @@
 
 ## Bug Fixes - Manager Users Screen
 - [x] Fix role filter pills displaying as tall vertical rectangles instead of horizontal pills
+
+
+## Manager Users Screen Enhancements
+- [x] Add user detail modal with full profile view
+- [x] Add role change action in user detail modal
+- [x] Add deactivate/activate user action
+- [x] Implement pagination/infinite scroll for user list
+- [x] Add CSV export functionality for user lists
