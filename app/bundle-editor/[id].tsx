@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -1080,104 +1081,168 @@ export default function BundleEditorScreen() {
           presentationStyle="pageSheet"
           onRequestClose={() => setShowProductModal(false)}
         >
-          <View className="flex-1 bg-background">
-            <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-              <Text className="text-lg font-semibold text-foreground">Select Products</Text>
-              <TouchableOpacity onPress={() => setShowProductModal(false)}>
-                <IconSymbol name="xmark" size={24} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Search Bar */}
-            <View className="px-4 py-3 border-b border-border">
-              <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-2">
-                <IconSymbol name="magnifyingglass" size={18} color={colors.muted} />
-                <TextInput
-                  className="flex-1 ml-2 text-foreground"
-                  placeholder="Search products..."
-                  placeholderTextColor={colors.muted}
-                  value={productSearch}
-                  onChangeText={setProductSearch}
-                />
-                {productSearch.length > 0 && (
-                  <TouchableOpacity onPress={() => setProductSearch("")}>
-                    <IconSymbol name="xmark" size={18} color={colors.muted} />
-                  </TouchableOpacity>
-                )}
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+            <View className="flex-1 bg-background">
+              {/* Header */}
+              <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
+                <Text className="text-lg font-semibold text-foreground">Select Products</Text>
+                <TouchableOpacity onPress={() => setShowProductModal(false)}>
+                  <IconSymbol name="xmark" size={24} color={colors.foreground} />
+                </TouchableOpacity>
               </View>
-            </View>
 
-            {/* Product List */}
-            {productsLoading ? (
-              <View className="flex-1 items-center justify-center">
-                <ActivityIndicator size="large" color={colors.primary} />
-              </View>
-            ) : (
-              <FlatList
-                data={filteredProducts}
-                keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={{ padding: 16 }}
-                renderItem={({ item }) => {
-                  const isSelected = form.products.some((p) => p.id === item.id);
-                  return (
-                    <TouchableOpacity
-                      className={`bg-surface border rounded-xl p-3 mb-2 flex-row items-center ${
-                        isSelected ? "border-primary" : "border-border"
-                      }`}
-                      onPress={() => toggleProduct(item)}
-                    >
-                      {item.imageUrl && (
-                        <Image
-                          source={{ uri: item.imageUrl }}
-                          className="w-14 h-14 rounded-lg mr-3"
-                          contentFit="cover"
-                        />
-                      )}
-                      <View className="flex-1">
-                        <Text className="text-foreground font-medium" numberOfLines={1}>
-                          {item.title}
-                        </Text>
-                        <Text className="text-muted text-sm">{item.vendor}</Text>
-                        <View className="flex-row items-center mt-1">
-                          <Text className="text-primary font-semibold">${item.price}</Text>
-                          <Text className="text-muted text-xs ml-2">
-                            {item.inventory > 0 ? `${item.inventory} in stock` : "Out of stock"}
-                          </Text>
-                        </View>
-                      </View>
-                      <View
-                        className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                          isSelected ? "bg-primary border-primary" : "border-border"
-                        }`}
-                      >
-                        {isSelected && (
-                          <IconSymbol name="checkmark" size={14} color={colors.background} />
-                        )}
-                      </View>
+              {/* Search Bar */}
+              <View className="px-4 py-3">
+                <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-2">
+                  <IconSymbol name="magnifyingglass" size={18} color={colors.muted} />
+                  <TextInput
+                    className="flex-1 ml-2 text-foreground"
+                    placeholder="Search products..."
+                    placeholderTextColor={colors.muted}
+                    value={productSearch}
+                    onChangeText={setProductSearch}
+                  />
+                  {productSearch.length > 0 && (
+                    <TouchableOpacity onPress={() => setProductSearch("")}>
+                      <IconSymbol name="xmark" size={18} color={colors.muted} />
                     </TouchableOpacity>
-                  );
-                }}
-                ListEmptyComponent={
-                  <View className="items-center py-8">
-                    <IconSymbol name="bag.fill" size={40} color={colors.muted} />
-                    <Text className="text-muted mt-2">No products found</Text>
-                  </View>
-                }
-              />
-            )}
+                  )}
+                </View>
+              </View>
 
-            {/* Done Button */}
-            <View className="p-4 border-t border-border">
-              <TouchableOpacity
-                className="bg-primary rounded-xl py-4 items-center"
-                onPress={() => setShowProductModal(false)}
-              >
-                <Text className="text-background font-semibold">
-                  Done ({form.products.length} selected)
-                </Text>
-              </TouchableOpacity>
+              {/* Category Filter */}
+              {uniqueProductTypes.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 8, flexDirection: 'row', alignItems: 'center' }}
+                  style={{ maxHeight: 44, marginBottom: 8 }}
+                >
+                  <TouchableOpacity
+                    onPress={() => setProductTypeFilter("all")}
+                    style={{
+                      paddingHorizontal: 16,
+                      paddingVertical: 8,
+                      borderRadius: 20,
+                      backgroundColor: productTypeFilter === "all" ? colors.primary : colors.surface,
+                      borderWidth: productTypeFilter === "all" ? 0 : 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <Text style={{
+                      fontSize: 14,
+                      color: productTypeFilter === "all" ? '#FFFFFF' : colors.foreground,
+                      fontWeight: productTypeFilter === "all" ? '600' : '400',
+                    }}>
+                      All Types
+                    </Text>
+                  </TouchableOpacity>
+                  {uniqueProductTypes.map((type) => (
+                    <TouchableOpacity
+                      key={type}
+                      onPress={() => setProductTypeFilter(type)}
+                      style={{
+                        paddingHorizontal: 16,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                        backgroundColor: productTypeFilter === type ? colors.primary : colors.surface,
+                        borderWidth: productTypeFilter === type ? 0 : 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      <Text style={{
+                        fontSize: 14,
+                        color: productTypeFilter === type ? '#FFFFFF' : colors.foreground,
+                        fontWeight: productTypeFilter === type ? '600' : '400',
+                      }}>
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Product List */}
+              {productsLoading ? (
+                <View className="flex-1 items-center justify-center">
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+              ) : (
+                <FlatList
+                  data={filteredProducts}
+                  keyExtractor={(item) => item.id.toString()}
+                  contentContainerStyle={{ padding: 16 }}
+                  renderItem={({ item }) => {
+                    const isSelected = form.products.some((p) => p.id === item.id);
+                    return (
+                      <TouchableOpacity
+                        className={`bg-surface border rounded-xl p-3 mb-2 flex-row items-center ${
+                          isSelected ? "border-primary" : "border-border"
+                        }`}
+                        onPress={() => toggleProduct(item)}
+                      >
+                        {/* Product Image - always show with placeholder fallback */}
+                        <View style={{ width: 56, height: 56, borderRadius: 8, marginRight: 12, backgroundColor: colors.surface, overflow: 'hidden' }}>
+                          {item.imageUrl ? (
+                            <Image
+                              source={{ uri: item.imageUrl }}
+                              style={{ width: 56, height: 56 }}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border }}>
+                              <IconSymbol name="bag.fill" size={24} color={colors.muted} />
+                            </View>
+                          )}
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-foreground font-medium" numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          <Text className="text-muted text-sm">{item.vendor}</Text>
+                          <View className="flex-row items-center mt-1">
+                            <Text className="text-primary font-semibold">${item.price}</Text>
+                            <Text className="text-muted text-xs ml-2">
+                              {item.inventory > 0 ? `${item.inventory} in stock` : "Out of stock"}
+                            </Text>
+                          </View>
+                        </View>
+                        <View
+                          className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                            isSelected ? "bg-primary border-primary" : "border-border"
+                          }`}
+                        >
+                          {isSelected && (
+                            <IconSymbol name="checkmark" size={14} color={colors.background} />
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <View className="items-center py-8">
+                      <IconSymbol name="bag.fill" size={40} color={colors.muted} />
+                      <Text className="text-muted mt-2">No products found</Text>
+                    </View>
+                  }
+                />
+              )}
+
+              {/* Done Button */}
+              <SafeAreaView edges={["bottom"]} style={{ backgroundColor: colors.background }}>
+                <View className="p-4 border-t border-border">
+                  <TouchableOpacity
+                    className="bg-primary rounded-xl py-4 items-center"
+                    onPress={() => setShowProductModal(false)}
+                  >
+                    <Text className="text-background font-semibold">
+                      Done ({form.products.length} selected)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </SafeAreaView>
             </View>
-          </View>
+          </SafeAreaView>
         </Modal>
       </KeyboardAvoidingView>
     </ScreenContainer>

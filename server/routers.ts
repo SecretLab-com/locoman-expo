@@ -817,7 +817,7 @@ export const appRouter = router({
   // SHOPIFY (Product sync and bundle publishing)
   // ============================================================================
   shopify: router({
-    products: managerProcedure.query(async () => {
+    products: trainerProcedure.query(async () => {
       const products = await shopify.fetchProducts();
       return products.map((p) => ({
         id: p.id,

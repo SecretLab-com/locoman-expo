@@ -388,3 +388,6 @@
 
 ## Bug Fixes
 - [x] Fix trainers screen specialty filter pills displaying as tall vertical rectangles instead of horizontal pills
+- [x] Fix product selection modal header overlapping with notch/Dynamic Island
+- [x] Display actual product images from Shopify sync instead of placeholders
+- [x] Add category filter to product selection modal
