@@ -7,7 +7,8 @@
 // Environment variables for Shopify
 const SHOPIFY_STORE_NAME = process.env.SHOPIFY_STORE_NAME || "bundle-dev-store-4";
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_API_ACCESS_TOKEN || "";
-const MOCK_SHOPIFY = process.env.MOCK_SHOPIFY !== "false"; // Default to mock mode
+// Default to real API if credentials are provided, otherwise use mock mode
+const MOCK_SHOPIFY = process.env.MOCK_SHOPIFY === "true" || (!SHOPIFY_STORE_NAME || !SHOPIFY_ACCESS_TOKEN);
 
 const SHOPIFY_API_VERSION = "2024-01";
 const SHOPIFY_BASE_URL = `https://${SHOPIFY_STORE_NAME}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}`;

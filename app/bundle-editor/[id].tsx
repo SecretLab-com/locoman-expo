@@ -15,6 +15,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -47,7 +48,11 @@ type ProductItem = {
   sku: string;
   inventory: number;
   imageUrl: string | null;
+  quantity?: number; // Quantity of this product in the bundle (optional, defaults to 1)
 };
+
+// Product item with quantity (for bundle products)
+type BundleProductItem = ProductItem & { quantity: number };
 
 // Bundle form state - matching original locoman
 type BundleFormState = {
@@ -58,7 +63,7 @@ type BundleFormState = {
   imageUrl: string;
   imageSource: "ai" | "custom";
   services: ServiceItem[];
-  products: ProductItem[];
+  products: BundleProductItem[];
   goals: string[];
   suggestedGoal: string;
   status: "draft" | "pending_review" | "changes_requested" | "published" | "rejected";
@@ -115,6 +120,11 @@ export default function BundleEditorScreen() {
   const [productSearch, setProductSearch] = useState("");
   const [productTypeFilter, setProductTypeFilter] = useState<string>("all");
   const [vendorFilter, setVendorFilter] = useState<string>("all");
+  
+  // Barcode scanner
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  const [barcodeScanned, setBarcodeScanned] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   
   // Service modal
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -215,10 +225,15 @@ export default function BundleEditorScreen() {
 
       // Match products from productsJson with Shopify products
       if (existingBundle.productsJson && shopifyProducts) {
-        const parsedProducts = existingBundle.productsJson as Array<{ id: number; name: string; price: string; imageUrl?: string }>;
-        const matchedProducts = parsedProducts.map((p) => {
+        const parsedProducts = existingBundle.productsJson as Array<{ id: number; name: string; price: string; imageUrl?: string; quantity?: number }>;
+        const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
           const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === p.id);
-          if (shopifyProduct) return shopifyProduct;
+          if (shopifyProduct) {
+            return {
+              ...shopifyProduct,
+              quantity: p.quantity || 1,
+            };
+          }
           return {
             id: p.id,
             title: p.name,
@@ -230,7 +245,8 @@ export default function BundleEditorScreen() {
             sku: "",
             inventory: 0,
             imageUrl: p.imageUrl || null,
-          } as ProductItem;
+            quantity: p.quantity || 1,
+          };
         });
         setForm((prev) => ({ ...prev, products: matchedProducts }));
       }
@@ -248,7 +264,7 @@ export default function BundleEditorScreen() {
 
   // Calculate product total
   const productTotal = useMemo(() => {
-    return form.products.reduce((sum, product) => sum + parseFloat(product.price || "0"), 0);
+    return form.products.reduce((sum, product) => sum + (parseFloat(product.price || "0") * product.quantity), 0);
   }, [form.products]);
 
   // Calculate services total
@@ -332,9 +348,102 @@ export default function BundleEditorScreen() {
         form.products.filter((p) => p.id !== product.id)
       );
     } else {
-      updateForm("products", [...form.products, product]);
+      // Add product with default quantity of 1
+      const productWithQuantity: BundleProductItem = {
+        ...product,
+        quantity: 1,
+      };
+      updateForm("products", [...form.products, productWithQuantity]);
     }
     haptics.light();
+  };
+
+  // Update product quantity
+  const updateProductQuantity = (productId: number, quantity: number) => {
+    if (quantity < 1) return;
+    updateForm(
+      "products",
+      form.products.map((p) => (p.id === productId ? { ...p, quantity } : p))
+    );
+  };
+
+  // Handle barcode scan
+  const handleBarcodeScan = (result: BarcodeScanningResult) => {
+    if (barcodeScanned) return; // Prevent double-fires
+    
+    setBarcodeScanned(true);
+    const scannedCode = result.data;
+    
+    // Search for product by SKU
+    if (shopifyProducts) {
+      const matchedProduct = shopifyProducts.find(
+        (p: ProductItem) => p.sku && p.sku.toLowerCase() === scannedCode.toLowerCase()
+      );
+      
+      if (matchedProduct) {
+        // Check if already added
+        const existingProduct = form.products.find((p) => p.id === matchedProduct.id);
+        if (existingProduct) {
+          // Increment quantity
+          updateProductQuantity(matchedProduct.id, existingProduct.quantity + 1);
+          haptics.success();
+          Alert.alert(
+            "Product Found",
+            `Added another ${matchedProduct.title} (now ${existingProduct.quantity + 1} total)`,
+            [{ text: "OK", onPress: () => {
+              setBarcodeScanned(false);
+              setShowBarcodeScanner(false);
+            }}]
+          );
+        } else {
+          // Add new product
+          const productWithQuantity: BundleProductItem = {
+            ...matchedProduct,
+            quantity: 1,
+          };
+          updateForm("products", [...form.products, productWithQuantity]);
+          haptics.success();
+          Alert.alert(
+            "Product Added",
+            `${matchedProduct.title} added to bundle`,
+            [{ text: "OK", onPress: () => {
+              setBarcodeScanned(false);
+              setShowBarcodeScanner(false);
+            }}]
+          );
+        }
+      } else {
+        haptics.error();
+        Alert.alert(
+          "Product Not Found",
+          `No product found with SKU: ${scannedCode}`,
+          [{ text: "Scan Again", onPress: () => setBarcodeScanned(false) },
+           { text: "Cancel", onPress: () => {
+             setBarcodeScanned(false);
+             setShowBarcodeScanner(false);
+           }}]
+        );
+      }
+    }
+  };
+
+  // Open barcode scanner
+  const openBarcodeScanner = async () => {
+    if (Platform.OS === "web") {
+      Alert.alert("Not Available", "Barcode scanning is not available on web. Please use the search function.");
+      return;
+    }
+    
+    if (!cameraPermission?.granted) {
+      const result = await requestCameraPermission();
+      if (!result.granted) {
+        Alert.alert("Permission Required", "Camera permission is required to scan barcodes.");
+        return;
+      }
+    }
+    
+    setBarcodeScanned(false);
+    setShowBarcodeScanner(true);
   };
 
   // Toggle goal
@@ -848,14 +957,26 @@ export default function BundleEditorScreen() {
                 Add products from the catalog to include with this bundle.
               </Text>
 
-              {/* Add Product Button */}
-              <TouchableOpacity
-                className="bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center mb-4"
-                onPress={() => setShowProductModal(true)}
-              >
-                <IconSymbol name="plus" size={20} color={colors.primary} />
-                <Text className="text-primary font-medium ml-2">Add Products</Text>
-              </TouchableOpacity>
+              {/* Add Product Buttons */}
+              <View className="flex-row gap-3 mb-4">
+                <TouchableOpacity
+                  className="flex-1 bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center"
+                  onPress={() => setShowProductModal(true)}
+                >
+                  <IconSymbol name="plus" size={20} color={colors.primary} />
+                  <Text className="text-primary font-medium ml-2">Browse</Text>
+                </TouchableOpacity>
+                
+                {Platform.OS !== "web" && (
+                  <TouchableOpacity
+                    className="flex-1 bg-surface border border-border rounded-xl p-4 flex-row items-center justify-center"
+                    onPress={openBarcodeScanner}
+                  >
+                    <IconSymbol name="barcode.viewfinder" size={20} color={colors.foreground} />
+                    <Text className="text-foreground font-medium ml-2">Scan</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
               {/* Selected Products */}
               {form.products.length === 0 ? (
@@ -869,28 +990,90 @@ export default function BundleEditorScreen() {
                   {form.products.map((product) => (
                     <View
                       key={product.id}
-                      className="bg-surface border border-border rounded-xl p-3 flex-row items-center"
+                      className="bg-surface border border-border rounded-xl p-3"
                     >
-                      {product.imageUrl && (
-                        <Image
-                          source={{ uri: product.imageUrl }}
-                          className="w-16 h-16 rounded-lg mr-3"
-                          contentFit="cover"
-                        />
-                      )}
-                      <View className="flex-1">
-                        <Text className="text-foreground font-medium" numberOfLines={1}>
-                          {product.title}
-                        </Text>
-                        <Text className="text-muted text-sm">{product.vendor}</Text>
-                        <Text className="text-primary font-semibold">${product.price}</Text>
+                      <View className="flex-row items-center">
+                        {/* Product Image */}
+                        <View style={{ width: 64, height: 64, borderRadius: 8, marginRight: 12, backgroundColor: colors.border, overflow: 'hidden' }}>
+                          {product.imageUrl ? (
+                            <Image
+                              source={{ uri: product.imageUrl }}
+                              style={{ width: 64, height: 64 }}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                              <IconSymbol name="bag.fill" size={24} color={colors.muted} />
+                            </View>
+                          )}
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-foreground font-medium" numberOfLines={1}>
+                            {product.title}
+                          </Text>
+                          <Text className="text-muted text-sm">{product.vendor}</Text>
+                          <Text className="text-primary font-semibold">${product.price}</Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => toggleProduct(product)}
+                          className="p-2"
+                        >
+                          <IconSymbol name="xmark.circle.fill" size={22} color={colors.error} />
+                        </TouchableOpacity>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => toggleProduct(product)}
-                        className="p-2"
-                      >
-                        <IconSymbol name="xmark.circle.fill" size={22} color={colors.error} />
-                      </TouchableOpacity>
+                      
+                      {/* Quantity Controls */}
+                      <View className="mt-3 pt-3 border-t border-border flex-row items-center justify-between">
+                        <Text className="text-muted text-sm">Quantity</Text>
+                        <View className="flex-row items-center gap-3">
+                          <TouchableOpacity
+                            onPress={() => updateProductQuantity(product.id, product.quantity - 1)}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor: product.quantity <= 1 ? colors.surface : colors.primary + '20',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderWidth: 1,
+                              borderColor: product.quantity <= 1 ? colors.border : colors.primary,
+                            }}
+                            disabled={product.quantity <= 1}
+                          >
+                            <IconSymbol 
+                              name="minus" 
+                              size={16} 
+                              color={product.quantity <= 1 ? colors.muted : colors.primary} 
+                            />
+                          </TouchableOpacity>
+                          <Text className="text-foreground font-semibold text-lg w-8 text-center">
+                            {product.quantity}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => updateProductQuantity(product.id, product.quantity + 1)}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor: colors.primary + '20',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderWidth: 1,
+                              borderColor: colors.primary,
+                            }}
+                          >
+                            <IconSymbol name="plus" size={16} color={colors.primary} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      
+                      {/* Subtotal */}
+                      <View className="mt-2 pt-2 border-t border-border flex-row justify-between">
+                        <Text className="text-muted text-sm">Subtotal</Text>
+                        <Text className="text-foreground font-medium">
+                          ${(parseFloat(product.price) * product.quantity).toFixed(2)}
+                        </Text>
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -1239,6 +1422,84 @@ export default function BundleEditorScreen() {
                       Done ({form.products.length} selected)
                     </Text>
                   </TouchableOpacity>
+                </View>
+              </SafeAreaView>
+            </View>
+          </SafeAreaView>
+        </Modal>
+
+        {/* Barcode Scanner Modal */}
+        <Modal
+          visible={showBarcodeScanner}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowBarcodeScanner(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={["top"]}>
+            <View style={{ flex: 1, backgroundColor: '#000' }}>
+              {/* Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                justifyContent: 'space-between', 
+                paddingHorizontal: 16, 
+                paddingVertical: 16,
+                backgroundColor: 'rgba(0,0,0,0.8)'
+              }}>
+                <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>Scan Product Barcode</Text>
+                <TouchableOpacity onPress={() => setShowBarcodeScanner(false)}>
+                  <IconSymbol name="xmark" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Camera View */}
+              <View style={{ flex: 1 }}>
+                <CameraView
+                  style={{ flex: 1 }}
+                  facing="back"
+                  barcodeScannerSettings={{
+                    barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'code93', 'codabar', 'itf14', 'qr'],
+                  }}
+                  onBarcodeScanned={barcodeScanned ? undefined : handleBarcodeScan}
+                />
+                
+                {/* Scan Overlay */}
+                <View style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <View style={{
+                    width: 280,
+                    height: 150,
+                    borderWidth: 2,
+                    borderColor: colors.primary,
+                    borderRadius: 12,
+                    backgroundColor: 'transparent',
+                  }} />
+                  <Text style={{ 
+                    color: '#fff', 
+                    marginTop: 20, 
+                    fontSize: 14,
+                    textAlign: 'center',
+                    paddingHorizontal: 40,
+                  }}>
+                    Position the barcode within the frame
+                  </Text>
+                </View>
+              </View>
+
+              {/* Instructions */}
+              <SafeAreaView edges={["bottom"]} style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
+                <View style={{ padding: 16 }}>
+                  <Text style={{ color: '#999', fontSize: 12, textAlign: 'center' }}>
+                    Scan product barcodes to quickly add items to your bundle.
+                    Products are matched by SKU.
+                  </Text>
                 </View>
               </SafeAreaView>
             </View>

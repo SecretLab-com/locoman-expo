@@ -391,3 +391,8 @@
 - [x] Fix product selection modal header overlapping with notch/Dynamic Island
 - [x] Display actual product images from Shopify sync instead of placeholders
 - [x] Add category filter to product selection modal
+
+## New Features
+- [x] Set up Shopify environment variables for real store connection
+- [x] Add product quantity selector to bundle product selection
+- [x] Implement barcode scanner for SKU lookup

@@ -114,6 +114,7 @@ const MAPPING = {
   "chart.line.uptrend.xyaxis": "trending-up",
   "arrow.triangle.2.circlepath": "sync",
   "barcode": "qr-code",
+  "barcode.viewfinder": "qr-code-scanner",
   "megaphone.fill": "campaign",
   "ellipsis.circle.fill": "more-horiz",
 } as const satisfies Record<string, MaterialIconName>;
