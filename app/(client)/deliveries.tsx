@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Text,
   View,
@@ -6,385 +6,416 @@ import {
   FlatList,
   RefreshControl,
   Alert,
+  Platform,
+  ActivityIndicator,
 } from "react-native";
-import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
-import { Platform } from "react-native";
+import { trpc } from "@/lib/trpc";
 
 // Types for product deliveries
-type DeliveryStatus = "pending" | "ready" | "in_transit" | "delivered" | "confirmed" | "issue_reported";
+type DeliveryStatus = "pending" | "ready" | "scheduled" | "out_for_delivery" | "delivered" | "confirmed" | "disputed" | "cancelled";
+type DeliveryMethod = "in_person" | "locker" | "front_desk" | "shipped";
 
-type ProductDelivery = {
+type Delivery = {
   id: number;
-  orderId: number;
+  orderId: number | null;
+  orderItemId: number | null;
+  trainerId: number;
+  clientId: number;
+  productId: number | null;
   productName: string;
-  productImage?: string;
   quantity: number;
-  trainerName: string;
-  trainerPhoto?: string;
-  fulfillmentType: "home_ship" | "trainer_delivery" | "vending" | "cafeteria";
-  status: DeliveryStatus;
-  scheduledDate: string;
-  deliveredDate?: string;
-  trackingNumber?: string;
-  notes?: string;
+  status: DeliveryStatus | null;
+  scheduledDate: Date | null;
+  deliveredAt: Date | null;
+  confirmedAt: Date | null;
+  deliveryMethod: DeliveryMethod | null;
+  trackingNumber: string | null;
+  notes: string | null;
+  clientNotes: string | null;
+  disputeReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
-// Mock data for client deliveries
-const MOCK_DELIVERIES: ProductDelivery[] = [
-  {
-    id: 1,
-    orderId: 1001,
-    productName: "Whey Protein - Chocolate",
-    productImage: "https://images.unsplash.com/photo-1593095948071-474c5cc2989d?w=200",
-    quantity: 2,
-    trainerName: "Sarah Johnson",
-    trainerPhoto: "https://i.pravatar.cc/150?img=1",
-    fulfillmentType: "trainer_delivery",
-    status: "ready",
-    scheduledDate: "2024-03-22",
-    notes: "Will be available at the gym front desk",
-  },
-  {
-    id: 2,
-    orderId: 1001,
-    productName: "Resistance Bands Set",
-    productImage: "https://images.unsplash.com/photo-1598289431512-b97b0917affc?w=200",
-    quantity: 1,
-    trainerName: "Sarah Johnson",
-    trainerPhoto: "https://i.pravatar.cc/150?img=1",
-    fulfillmentType: "home_ship",
-    status: "in_transit",
-    scheduledDate: "2024-03-24",
-    trackingNumber: "1Z999AA10123456784",
-  },
-  {
-    id: 3,
-    orderId: 1002,
-    productName: "Pre-Workout Energy",
-    productImage: "https://images.unsplash.com/photo-1579722821273-0f6c7d44362f?w=200",
-    quantity: 1,
-    trainerName: "Mike Chen",
-    trainerPhoto: "https://i.pravatar.cc/150?img=3",
-    fulfillmentType: "vending",
-    status: "pending",
-    scheduledDate: "2024-03-25",
-    notes: "Vending machine at Building A, 2nd floor",
-  },
-  {
-    id: 4,
-    orderId: 1000,
-    productName: "Yoga Mat Premium",
-    productImage: "https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=200",
-    quantity: 1,
-    trainerName: "Emma Wilson",
-    trainerPhoto: "https://i.pravatar.cc/150?img=5",
-    fulfillmentType: "trainer_delivery",
-    status: "confirmed",
-    scheduledDate: "2024-03-15",
-    deliveredDate: "2024-03-15",
-  },
-  {
-    id: 5,
-    orderId: 999,
-    productName: "BCAA Powder - Berry",
-    productImage: "https://images.unsplash.com/photo-1594381898411-846e7d193883?w=200",
-    quantity: 1,
-    trainerName: "Sarah Johnson",
-    trainerPhoto: "https://i.pravatar.cc/150?img=1",
-    fulfillmentType: "cafeteria",
-    status: "delivered",
-    scheduledDate: "2024-03-10",
-    deliveredDate: "2024-03-10",
-    notes: "Pick up at cafeteria counter",
-  },
+const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "pending", label: "Pending" },
+  { key: "ready", label: "Ready" },
+  { key: "delivered", label: "Delivered" },
+  { key: "confirmed", label: "Confirmed" },
 ];
 
-const STATUS_CONFIG: Record<DeliveryStatus, { label: string; color: string; bgColor: string }> = {
-  pending: { label: "Pending", color: "text-warning", bgColor: "bg-warning/20" },
-  ready: { label: "Ready for Pickup", color: "text-primary", bgColor: "bg-primary/20" },
-  in_transit: { label: "In Transit", color: "text-primary", bgColor: "bg-primary/20" },
-  delivered: { label: "Delivered", color: "text-success", bgColor: "bg-success/20" },
-  confirmed: { label: "Confirmed", color: "text-success", bgColor: "bg-success/20" },
-  issue_reported: { label: "Issue Reported", color: "text-error", bgColor: "bg-error/20" },
+const METHOD_LABELS: Record<DeliveryMethod, string> = {
+  in_person: "In Person",
+  locker: "Locker Pickup",
+  front_desk: "Front Desk",
+  shipped: "Shipped",
 };
 
-const FULFILLMENT_LABELS: Record<ProductDelivery["fulfillmentType"], { label: string; icon: string }> = {
-  home_ship: { label: "Home Shipping", icon: "shippingbox.fill" },
-  trainer_delivery: { label: "Trainer Delivery", icon: "person.fill" },
-  vending: { label: "Vending Machine", icon: "cube.fill" },
-  cafeteria: { label: "Cafeteria Pickup", icon: "fork.knife" },
-};
+const ISSUE_REASONS = [
+  "Product damaged",
+  "Wrong product received",
+  "Product not received",
+  "Quality issue",
+  "Other",
+];
 
-function DeliveryCard({ 
-  delivery, 
-  onConfirmReceipt, 
-  onReportIssue 
-}: { 
-  delivery: ProductDelivery;
-  onConfirmReceipt: () => void;
-  onReportIssue: () => void;
-}) {
+export default function ClientDeliveriesScreen() {
   const colors = useColors();
-  const statusConfig = STATUS_CONFIG[delivery.status];
-  const fulfillmentConfig = FULFILLMENT_LABELS[delivery.fulfillmentType];
-  const showActions = delivery.status === "delivered" || delivery.status === "ready";
+  const [activeTab, setActiveTab] = useState<DeliveryStatus | "all">("all");
+  const utils = trpc.useUtils();
 
-  return (
-    <View className="bg-surface rounded-xl mb-4 border border-border overflow-hidden">
-      <View className="flex-row p-4">
-        {/* Product Image */}
-        {delivery.productImage ? (
-          <Image
-            source={{ uri: delivery.productImage }}
-            className="w-20 h-20 rounded-lg"
-            contentFit="cover"
-          />
-        ) : (
-          <View className="w-20 h-20 rounded-lg bg-primary/20 items-center justify-center">
-            <IconSymbol name="bag.fill" size={28} color={colors.primary} />
-          </View>
-        )}
+  // Use real API
+  const { data: deliveries = [], isLoading, refetch, isRefetching } = trpc.deliveries.myDeliveries.useQuery();
+  const confirmReceiptMutation = trpc.deliveries.confirmReceipt.useMutation({
+    onSuccess: () => utils.deliveries.myDeliveries.invalidate(),
+  });
+  const reportIssueMutation = trpc.deliveries.reportIssue.useMutation({
+    onSuccess: () => utils.deliveries.myDeliveries.invalidate(),
+  });
+  const requestRescheduleMutation = trpc.deliveries.requestReschedule.useMutation({
+    onSuccess: () => utils.deliveries.myDeliveries.invalidate(),
+  });
 
-        <View className="flex-1 ml-4">
-          {/* Product Name & Quantity */}
-          <Text className="text-foreground font-semibold" numberOfLines={2}>
-            {delivery.productName}
-          </Text>
-          <Text className="text-muted text-sm">Qty: {delivery.quantity}</Text>
+  const filteredDeliveries = (deliveries as Delivery[]).filter(
+    (d) => activeTab === "all" || d.status === activeTab
+  );
 
-          {/* Trainer */}
-          <View className="flex-row items-center mt-2">
-            {delivery.trainerPhoto ? (
-              <Image
-                source={{ uri: delivery.trainerPhoto }}
-                className="w-5 h-5 rounded-full"
-                contentFit="cover"
-              />
-            ) : (
-              <View className="w-5 h-5 rounded-full bg-primary/20 items-center justify-center">
-                <Text className="text-primary text-xs font-bold">
-                  {delivery.trainerName.charAt(0)}
-                </Text>
-              </View>
-            )}
-            <Text className="text-muted text-sm ml-2">{delivery.trainerName}</Text>
-          </View>
+  const onRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  const handleConfirmReceipt = async (delivery: Delivery) => {
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+
+    if (Platform.OS === "web") {
+      if (window.confirm(`Confirm you received ${delivery.productName}?`)) {
+        await confirmReceiptMutation.mutateAsync({ id: delivery.id });
+      }
+    } else {
+      Alert.alert(
+        "Confirm Receipt",
+        `Confirm you received ${delivery.productName}?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Confirm",
+            onPress: async () => {
+              await confirmReceiptMutation.mutateAsync({ id: delivery.id });
+            },
+          },
+        ]
+      );
+    }
+  };
+
+  const handleReportIssue = async (delivery: Delivery) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+
+    if (Platform.OS === "web") {
+      const reason = window.prompt("Please describe the issue:", "");
+      if (reason) {
+        await reportIssueMutation.mutateAsync({ id: delivery.id, reason });
+      }
+    } else {
+      Alert.alert(
+        "Report Issue",
+        "What's wrong with this delivery?",
+        [
+          ...ISSUE_REASONS.map((reason) => ({
+            text: reason,
+            onPress: async () => {
+              await reportIssueMutation.mutateAsync({ id: delivery.id, reason });
+            },
+          })),
+          { text: "Cancel", style: "cancel" as const },
+        ]
+      );
+    }
+  };
+
+  const handleRequestReschedule = async (delivery: Delivery) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+
+    // For simplicity, request reschedule to 7 days from now
+    const newDate = new Date();
+    newDate.setDate(newDate.getDate() + 7);
+
+    if (Platform.OS === "web") {
+      const reason = window.prompt("Reason for reschedule (optional):", "");
+      if (reason !== null) {
+        await requestRescheduleMutation.mutateAsync({ 
+          id: delivery.id, 
+          requestedDate: newDate.toISOString(),
+          reason: reason || undefined,
+        });
+        alert("Reschedule request sent to trainer");
+      }
+    } else {
+      Alert.alert(
+        "Request Reschedule",
+        "Request to reschedule this delivery?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Request",
+            onPress: async () => {
+              await requestRescheduleMutation.mutateAsync({ 
+                id: delivery.id, 
+                requestedDate: newDate.toISOString(),
+              });
+              Alert.alert("Success", "Reschedule request sent to trainer");
+            },
+          },
+        ]
+      );
+    }
+  };
+
+  const getStatusColor = (status: DeliveryStatus | null) => {
+    switch (status) {
+      case "pending":
+        return colors.warning;
+      case "ready":
+      case "scheduled":
+        return colors.primary;
+      case "out_for_delivery":
+        return "#3B82F6";
+      case "delivered":
+        return colors.success;
+      case "confirmed":
+        return "#22C55E";
+      case "disputed":
+        return colors.error;
+      case "cancelled":
+        return colors.muted;
+      default:
+        return colors.muted;
+    }
+  };
+
+  const getStatusLabel = (status: DeliveryStatus | null) => {
+    switch (status) {
+      case "pending":
+        return "Preparing";
+      case "ready":
+        return "Ready for Pickup";
+      case "scheduled":
+        return "Scheduled";
+      case "out_for_delivery":
+        return "Out for Delivery";
+      case "delivered":
+        return "Delivered";
+      case "confirmed":
+        return "Confirmed";
+      case "disputed":
+        return "Issue Reported";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return "Unknown";
+    }
+  };
+
+  const formatDate = (date: Date | null) => {
+    if (!date) return "Not scheduled";
+    return new Date(date).toLocaleDateString();
+  };
+
+  const renderDelivery = ({ item }: { item: Delivery }) => (
+    <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
+      {/* Header */}
+      <View className="flex-row justify-between items-start mb-3">
+        <View className="flex-1">
+          <Text className="text-lg font-semibold text-foreground">{item.productName}</Text>
+          <Text className="text-sm text-muted">Quantity: {item.quantity}</Text>
         </View>
-
-        {/* Status Badge */}
-        <View className={`px-2 py-1 rounded-full h-6 ${statusConfig.bgColor}`}>
-          <Text className={`text-xs font-medium ${statusConfig.color}`}>
-            {statusConfig.label}
+        <View
+          className="px-3 py-1 rounded-full"
+          style={{ backgroundColor: `${getStatusColor(item.status)}20` }}
+        >
+          <Text
+            className="text-xs font-medium"
+            style={{ color: getStatusColor(item.status) }}
+          >
+            {getStatusLabel(item.status)}
           </Text>
         </View>
       </View>
 
       {/* Delivery Info */}
-      <View className="px-4 pb-4 gap-2">
-        {/* Fulfillment Type */}
-        <View className="flex-row items-center">
-          <IconSymbol name={fulfillmentConfig.icon as any} size={16} color={colors.muted} />
-          <Text className="text-muted text-sm ml-2">{fulfillmentConfig.label}</Text>
-        </View>
-
-        {/* Scheduled/Delivered Date */}
-        <View className="flex-row items-center">
+      <View className="bg-background rounded-lg p-3 mb-3">
+        <View className="flex-row items-center mb-2">
           <IconSymbol name="calendar" size={16} color={colors.muted} />
-          <Text className="text-muted text-sm ml-2">
-            {delivery.deliveredDate
-              ? `Delivered: ${new Date(delivery.deliveredDate).toLocaleDateString()}`
-              : `Scheduled: ${new Date(delivery.scheduledDate).toLocaleDateString()}`}
+          <Text className="text-foreground ml-2">
+            {item.status === "delivered" || item.status === "confirmed"
+              ? `Delivered: ${formatDate(item.deliveredAt)}`
+              : `Scheduled: ${formatDate(item.scheduledDate)}`}
           </Text>
         </View>
-
-        {/* Tracking Number */}
-        {delivery.trackingNumber && (
+        <View className="flex-row items-center mb-2">
+          <IconSymbol name="shippingbox.fill" size={16} color={colors.muted} />
+          <Text className="text-foreground ml-2">
+            {item.deliveryMethod ? METHOD_LABELS[item.deliveryMethod] : "Not set"}
+          </Text>
+        </View>
+        {item.trackingNumber && (
           <View className="flex-row items-center">
-            <IconSymbol name="shippingbox.fill" size={16} color={colors.muted} />
-            <Text className="text-muted text-sm ml-2">
-              Tracking: {delivery.trackingNumber}
-            </Text>
-          </View>
-        )}
-
-        {/* Notes */}
-        {delivery.notes && (
-          <View className="bg-background rounded-lg p-3 mt-2">
-            <Text className="text-muted text-sm">{delivery.notes}</Text>
+            <IconSymbol name="barcode" size={16} color={colors.muted} />
+            <Text className="text-foreground ml-2">{item.trackingNumber}</Text>
           </View>
         )}
       </View>
 
-      {/* Action Buttons */}
-      {showActions && (
-        <View className="flex-row border-t border-border">
-          <TouchableOpacity
-            className="flex-1 flex-row items-center justify-center py-3 border-r border-border"
-            onPress={onConfirmReceipt}
-          >
-            <IconSymbol name="checkmark.circle.fill" size={18} color={colors.success} />
-            <Text className="text-success font-medium ml-2">Confirm Receipt</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            className="flex-1 flex-row items-center justify-center py-3"
-            onPress={onReportIssue}
-          >
-            <IconSymbol name="exclamationmark.triangle.fill" size={18} color={colors.error} />
-            <Text className="text-error font-medium ml-2">Report Issue</Text>
-          </TouchableOpacity>
+      {/* Notes */}
+      {item.notes && (
+        <View className="bg-primary/10 rounded-lg p-3 mb-3">
+          <Text className="text-foreground text-sm">{item.notes}</Text>
         </View>
       )}
+
+      {/* Reschedule Request Pending */}
+      {item.clientNotes?.includes("Reschedule requested") && (
+        <View className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3">
+          <Text className="text-warning font-medium">Reschedule Requested</Text>
+          <Text className="text-muted text-sm">Waiting for trainer approval</Text>
+        </View>
+      )}
+
+      {/* Dispute Info */}
+      {item.status === "disputed" && item.disputeReason && (
+        <View className="bg-error/10 border border-error/30 rounded-lg p-3 mb-3">
+          <Text className="text-error font-medium">Issue Reported</Text>
+          <Text className="text-muted text-sm">{item.disputeReason}</Text>
+        </View>
+      )}
+
+      {/* Action Buttons */}
+      <View className="flex-row gap-2">
+        {item.status === "delivered" && (
+          <>
+            <TouchableOpacity
+              className="flex-1 bg-success py-3 rounded-lg items-center"
+              onPress={() => handleConfirmReceipt(item)}
+              disabled={confirmReceiptMutation.isPending}
+            >
+              {confirmReceiptMutation.isPending ? (
+                <ActivityIndicator color={colors.background} size="small" />
+              ) : (
+                <Text className="text-background font-semibold">Confirm Receipt</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="flex-1 bg-error py-3 rounded-lg items-center"
+              onPress={() => handleReportIssue(item)}
+              disabled={reportIssueMutation.isPending}
+            >
+              {reportIssueMutation.isPending ? (
+                <ActivityIndicator color={colors.background} size="small" />
+              ) : (
+                <Text className="text-background font-semibold">Report Issue</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
+        {(item.status === "pending" || item.status === "ready" || item.status === "scheduled") && 
+         !item.clientNotes?.includes("Reschedule requested") && (
+          <TouchableOpacity
+            className="flex-1 bg-surface border border-border py-3 rounded-lg items-center"
+            onPress={() => handleRequestReschedule(item)}
+            disabled={requestRescheduleMutation.isPending}
+          >
+            {requestRescheduleMutation.isPending ? (
+              <ActivityIndicator color={colors.foreground} size="small" />
+            ) : (
+              <Text className="text-foreground font-medium">Request Reschedule</Text>
+            )}
+          </TouchableOpacity>
+        )}
+        {item.status === "confirmed" && (
+          <View className="flex-1 bg-success/10 border border-success/30 py-3 rounded-lg items-center">
+            <Text className="text-success font-medium">Receipt Confirmed</Text>
+          </View>
+        )}
+      </View>
     </View>
   );
-}
 
-export default function ClientDeliveriesScreen() {
-  const colors = useColors();
-  const [deliveries, setDeliveries] = useState(MOCK_DELIVERIES);
-  const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<"all" | "pending" | "completed">("all");
-
-  const filteredDeliveries = deliveries.filter((delivery) => {
-    if (filter === "all") return true;
-    if (filter === "pending") {
-      return ["pending", "ready", "in_transit", "delivered"].includes(delivery.status);
-    }
-    return ["confirmed", "issue_reported"].includes(delivery.status);
-  });
-
-  const pendingCount = deliveries.filter((d) => 
-    ["pending", "ready", "in_transit", "delivered"].includes(d.status)
-  ).length;
-  const completedCount = deliveries.filter((d) => 
-    ["confirmed", "issue_reported"].includes(d.status)
-  ).length;
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    // TODO: Fetch from API
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
-  };
-
-  const handleConfirmReceipt = (deliveryId: number) => {
-    Alert.alert(
-      "Confirm Receipt",
-      "Have you received this item?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes, Received",
-          onPress: () => {
-            if (Platform.OS !== "web") {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            }
-            setDeliveries((prev) =>
-              prev.map((d) =>
-                d.id === deliveryId
-                  ? { ...d, status: "confirmed" as DeliveryStatus, deliveredDate: new Date().toISOString().split("T")[0] }
-                  : d
-              )
-            );
-            // TODO: API call to confirm
-          },
-        },
-      ]
+  if (isLoading) {
+    return (
+      <ScreenContainer className="flex-1 items-center justify-center">
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-4">Loading deliveries...</Text>
+      </ScreenContainer>
     );
-  };
-
-  const handleReportIssue = (deliveryId: number) => {
-    Alert.alert(
-      "Report Issue",
-      "What's the problem with this delivery?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Item Damaged",
-          onPress: () => reportIssue(deliveryId, "damaged"),
-        },
-        {
-          text: "Wrong Item",
-          onPress: () => reportIssue(deliveryId, "wrong_item"),
-        },
-        {
-          text: "Not Received",
-          onPress: () => reportIssue(deliveryId, "not_received"),
-        },
-      ]
-    );
-  };
-
-  const reportIssue = (deliveryId: number, issueType: string) => {
-    if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    }
-    setDeliveries((prev) =>
-      prev.map((d) =>
-        d.id === deliveryId
-          ? { ...d, status: "issue_reported" as DeliveryStatus }
-          : d
-      )
-    );
-    Alert.alert(
-      "Issue Reported",
-      "Your trainer has been notified and will contact you shortly."
-    );
-    // TODO: API call to report issue
-  };
+  }
 
   return (
     <ScreenContainer>
       {/* Header */}
-      <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Deliveries</Text>
-        <Text className="text-sm text-muted">
-          {pendingCount} pending · {completedCount} completed
-        </Text>
+      <View className="px-4 pt-4 pb-2">
+        <Text className="text-2xl font-bold text-foreground">My Deliveries</Text>
+        <Text className="text-muted">Track your product deliveries</Text>
+      </View>
 
-        {/* Filter Tabs */}
-        <View className="flex-row bg-surface rounded-xl p-1 mt-4">
-          {(["all", "pending", "completed"] as const).map((filterOption) => (
+      {/* Status Tabs */}
+      <View className="px-4 py-2">
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={STATUS_TABS}
+          keyExtractor={(item) => item.key}
+          renderItem={({ item }) => (
             <TouchableOpacity
-              key={filterOption}
-              className={`flex-1 py-2 rounded-lg ${filter === filterOption ? "bg-primary" : ""}`}
-              onPress={() => setFilter(filterOption)}
+              className={`px-4 py-2 mr-2 rounded-full ${
+                activeTab === item.key ? "bg-primary" : "bg-surface border border-border"
+              }`}
+              onPress={() => setActiveTab(item.key)}
             >
               <Text
-                className={`text-center font-medium capitalize ${
-                  filter === filterOption ? "text-background" : "text-muted"
+                className={`font-medium ${
+                  activeTab === item.key ? "text-background" : "text-foreground"
                 }`}
               >
-                {filterOption}
+                {item.label}
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
+          )}
+        />
       </View>
 
       {/* Deliveries List */}
       <FlatList
         data={filteredDeliveries}
         keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <DeliveryCard
-            delivery={item}
-            onConfirmReceipt={() => handleConfirmReceipt(item.id)}
-            onReportIssue={() => handleReportIssue(item.id)}
-          />
-        )}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-        showsVerticalScrollIndicator={false}
+        renderItem={renderDelivery}
+        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+          />
         }
         ListEmptyComponent={
           <View className="items-center py-12">
             <IconSymbol name="shippingbox.fill" size={48} color={colors.muted} />
-            <Text className="text-muted text-center mt-4">No deliveries found</Text>
+            <Text className="text-muted mt-4 text-center">
+              No deliveries yet
+            </Text>
+            <Text className="text-muted text-sm text-center mt-1">
+              When you purchase bundles with products, deliveries will appear here
+            </Text>
           </View>
         }
       />

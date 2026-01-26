@@ -102,11 +102,11 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
       expect(fs.existsSync(deliveriesPath)).toBe(true);
       
       const content = fs.readFileSync(deliveriesPath, "utf-8");
-      expect(content).toContain("ProductDelivery");
+      expect(content).toContain("Delivery");
       expect(content).toContain("DeliveryStatus");
       expect(content).toContain("pending");
       expect(content).toContain("ready");
-      expect(content).toContain("in_transit");
+      expect(content).toContain("out_for_delivery"); // Updated from in_transit
       expect(content).toContain("delivered");
       expect(content).toContain("confirmed");
     });

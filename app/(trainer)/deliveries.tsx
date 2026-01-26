@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Alert,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -14,22 +15,29 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
 import { trpc } from "@/lib/trpc";
 
-type DeliveryStatus = "pending" | "ready" | "delivered" | "confirmed" | "disputed";
+type DeliveryStatus = "pending" | "ready" | "scheduled" | "out_for_delivery" | "delivered" | "confirmed" | "disputed" | "cancelled";
 type DeliveryMethod = "in_person" | "locker" | "front_desk" | "shipped";
 
 type Delivery = {
   id: number;
-  clientName: string;
-  clientEmail: string;
+  orderId: number | null;
+  orderItemId: number | null;
+  trainerId: number;
+  clientId: number;
+  productId: number | null;
   productName: string;
   quantity: number;
-  status: DeliveryStatus;
-  method: DeliveryMethod;
-  scheduledDate: string;
-  trackingNumber?: string;
-  rescheduleRequested: boolean;
-  rescheduleDate?: string;
-  notes?: string;
+  status: DeliveryStatus | null;
+  scheduledDate: Date | null;
+  deliveredAt: Date | null;
+  confirmedAt: Date | null;
+  deliveryMethod: DeliveryMethod | null;
+  trackingNumber: string | null;
+  notes: string | null;
+  clientNotes: string | null;
+  disputeReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
@@ -47,91 +55,58 @@ const METHOD_LABELS: Record<DeliveryMethod, string> = {
   shipped: "Shipped",
 };
 
-// Mock data - replace with real API
-const MOCK_DELIVERIES: Delivery[] = [
-  {
-    id: 1,
-    clientName: "John Doe",
-    clientEmail: "john@example.com",
-    productName: "Protein Powder",
-    quantity: 2,
-    status: "pending",
-    method: "in_person",
-    scheduledDate: "2026-01-26",
-    rescheduleRequested: false,
-  },
-  {
-    id: 2,
-    clientName: "Jane Smith",
-    clientEmail: "jane@example.com",
-    productName: "Pre-Workout",
-    quantity: 1,
-    status: "ready",
-    method: "locker",
-    scheduledDate: "2026-01-25",
-    rescheduleRequested: true,
-    rescheduleDate: "2026-01-28",
-  },
-  {
-    id: 3,
-    clientName: "Mike Johnson",
-    clientEmail: "mike@example.com",
-    productName: "BCAA",
-    quantity: 3,
-    status: "delivered",
-    method: "shipped",
-    scheduledDate: "2026-01-24",
-    trackingNumber: "1Z999AA10123456784",
-    rescheduleRequested: false,
-  },
-];
-
 export default function TrainerDeliveriesScreen() {
   const colors = useColors();
   const [activeTab, setActiveTab] = useState<DeliveryStatus | "all">("all");
-  const [refreshing, setRefreshing] = useState(false);
-  const [deliveries, setDeliveries] = useState<Delivery[]>(MOCK_DELIVERIES);
+  const utils = trpc.useUtils();
 
-  // Uncomment to use real API
-  // const { data: deliveriesData, refetch } = trpc.deliveries.getTrainerDeliveries.useQuery();
-  // const markReadyMutation = trpc.deliveries.markReady.useMutation();
-  // const markDeliveredMutation = trpc.deliveries.markDelivered.useMutation();
-  // const approveRescheduleMutation = trpc.deliveries.approveReschedule.useMutation();
-  // const rejectRescheduleMutation = trpc.deliveries.rejectReschedule.useMutation();
+  // Use real API
+  const { data: deliveries = [], isLoading, refetch, isRefetching } = trpc.deliveries.list.useQuery();
+  const markReadyMutation = trpc.deliveries.markReady.useMutation({
+    onSuccess: () => utils.deliveries.list.invalidate(),
+  });
+  const markDeliveredMutation = trpc.deliveries.markDelivered.useMutation({
+    onSuccess: () => utils.deliveries.list.invalidate(),
+  });
+  const approveRescheduleMutation = trpc.deliveries.approveReschedule.useMutation({
+    onSuccess: () => utils.deliveries.list.invalidate(),
+  });
+  const rejectRescheduleMutation = trpc.deliveries.rejectReschedule.useMutation({
+    onSuccess: () => utils.deliveries.list.invalidate(),
+  });
 
-  const filteredDeliveries = deliveries.filter(
+  const filteredDeliveries = (deliveries as Delivery[]).filter(
     (d) => activeTab === "all" || d.status === activeTab
   );
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    // await refetch();
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    await refetch();
+  }, [refetch]);
 
   const handleMarkReady = async (delivery: Delivery) => {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
-    Alert.alert(
-      "Mark as Ready",
-      `Mark delivery for ${delivery.clientName} as ready for pickup?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Mark Ready",
-          onPress: async () => {
-            // await markReadyMutation.mutateAsync({ deliveryId: delivery.id });
-            setDeliveries((prev) =>
-              prev.map((d) =>
-                d.id === delivery.id ? { ...d, status: "ready" as DeliveryStatus } : d
-              )
-            );
+    if (Platform.OS === "web") {
+      if (window.confirm(`Mark delivery for Client #${delivery.clientId} as ready for pickup?`)) {
+        await markReadyMutation.mutateAsync({ id: delivery.id });
+      }
+    } else {
+      Alert.alert(
+        "Mark as Ready",
+        `Mark delivery for Client #${delivery.clientId} as ready for pickup?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Mark Ready",
+            onPress: async () => {
+              await markReadyMutation.mutateAsync({ id: delivery.id });
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const handleMarkDelivered = async (delivery: Delivery) => {
@@ -139,24 +114,25 @@ export default function TrainerDeliveriesScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
 
-    Alert.alert(
-      "Mark as Delivered",
-      `Confirm that ${delivery.productName} has been delivered to ${delivery.clientName}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Mark Delivered",
-          onPress: async () => {
-            // await markDeliveredMutation.mutateAsync({ deliveryId: delivery.id });
-            setDeliveries((prev) =>
-              prev.map((d) =>
-                d.id === delivery.id ? { ...d, status: "delivered" as DeliveryStatus } : d
-              )
-            );
+    if (Platform.OS === "web") {
+      if (window.confirm(`Confirm that ${delivery.productName} has been delivered?`)) {
+        await markDeliveredMutation.mutateAsync({ id: delivery.id });
+      }
+    } else {
+      Alert.alert(
+        "Mark as Delivered",
+        `Confirm that ${delivery.productName} has been delivered?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Mark Delivered",
+            onPress: async () => {
+              await markDeliveredMutation.mutateAsync({ id: delivery.id });
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const handleApproveReschedule = async (delivery: Delivery) => {
@@ -164,31 +140,35 @@ export default function TrainerDeliveriesScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
 
-    Alert.alert(
-      "Approve Reschedule",
-      `Approve reschedule to ${delivery.rescheduleDate} for ${delivery.clientName}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Approve",
-          onPress: async () => {
-            // await approveRescheduleMutation.mutateAsync({ deliveryId: delivery.id });
-            setDeliveries((prev) =>
-              prev.map((d) =>
-                d.id === delivery.id
-                  ? {
-                      ...d,
-                      scheduledDate: d.rescheduleDate || d.scheduledDate,
-                      rescheduleRequested: false,
-                      rescheduleDate: undefined,
-                    }
-                  : d
-              )
-            );
+    // For now, approve with current scheduled date + 7 days as new date
+    const newDate = new Date();
+    newDate.setDate(newDate.getDate() + 7);
+
+    if (Platform.OS === "web") {
+      if (window.confirm(`Approve reschedule request?`)) {
+        await approveRescheduleMutation.mutateAsync({ 
+          id: delivery.id, 
+          newDate: newDate.toISOString() 
+        });
+      }
+    } else {
+      Alert.alert(
+        "Approve Reschedule",
+        `Approve reschedule request?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Approve",
+            onPress: async () => {
+              await approveRescheduleMutation.mutateAsync({ 
+                id: delivery.id, 
+                newDate: newDate.toISOString() 
+              });
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const handleRejectReschedule = async (delivery: Delivery) => {
@@ -196,44 +176,57 @@ export default function TrainerDeliveriesScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
 
-    Alert.alert(
-      "Reject Reschedule",
-      `Reject reschedule request from ${delivery.clientName}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reject",
-          style: "destructive",
-          onPress: async () => {
-            // await rejectRescheduleMutation.mutateAsync({ deliveryId: delivery.id });
-            setDeliveries((prev) =>
-              prev.map((d) =>
-                d.id === delivery.id
-                  ? { ...d, rescheduleRequested: false, rescheduleDate: undefined }
-                  : d
-              )
-            );
+    if (Platform.OS === "web") {
+      if (window.confirm(`Reject reschedule request?`)) {
+        await rejectRescheduleMutation.mutateAsync({ id: delivery.id });
+      }
+    } else {
+      Alert.alert(
+        "Reject Reschedule",
+        `Reject reschedule request?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Reject",
+            style: "destructive",
+            onPress: async () => {
+              await rejectRescheduleMutation.mutateAsync({ id: delivery.id });
+            },
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
-  const getStatusColor = (status: DeliveryStatus) => {
+  const getStatusColor = (status: DeliveryStatus | null) => {
     switch (status) {
       case "pending":
         return colors.warning;
       case "ready":
+      case "scheduled":
         return colors.primary;
+      case "out_for_delivery":
+        return "#3B82F6";
       case "delivered":
         return colors.success;
       case "confirmed":
         return "#22C55E";
       case "disputed":
         return colors.error;
+      case "cancelled":
+        return colors.muted;
       default:
         return colors.muted;
     }
+  };
+
+  const formatDate = (date: Date | null) => {
+    if (!date) return "Not scheduled";
+    return new Date(date).toLocaleDateString();
+  };
+
+  const hasRescheduleRequest = (delivery: Delivery) => {
+    return delivery.clientNotes?.includes("Reschedule requested");
   };
 
   const renderDelivery = ({ item }: { item: Delivery }) => (
@@ -241,8 +234,8 @@ export default function TrainerDeliveriesScreen() {
       {/* Header */}
       <View className="flex-row justify-between items-start mb-3">
         <View className="flex-1">
-          <Text className="text-lg font-semibold text-foreground">{item.clientName}</Text>
-          <Text className="text-sm text-muted">{item.clientEmail}</Text>
+          <Text className="text-lg font-semibold text-foreground">Client #{item.clientId}</Text>
+          <Text className="text-sm text-muted">Order #{item.orderId || "N/A"}</Text>
         </View>
         <View
           className="px-3 py-1 rounded-full"
@@ -252,7 +245,7 @@ export default function TrainerDeliveriesScreen() {
             className="text-xs font-medium capitalize"
             style={{ color: getStatusColor(item.status) }}
           >
-            {item.status}
+            {item.status || "pending"}
           </Text>
         </View>
       </View>
@@ -263,11 +256,13 @@ export default function TrainerDeliveriesScreen() {
         <Text className="text-muted text-sm">Quantity: {item.quantity}</Text>
         <View className="flex-row items-center mt-1">
           <IconSymbol name="calendar" size={14} color={colors.muted} />
-          <Text className="text-muted text-sm ml-1">{item.scheduledDate}</Text>
+          <Text className="text-muted text-sm ml-1">{formatDate(item.scheduledDate)}</Text>
         </View>
         <View className="flex-row items-center mt-1">
           <IconSymbol name="shippingbox.fill" size={14} color={colors.muted} />
-          <Text className="text-muted text-sm ml-1">{METHOD_LABELS[item.method]}</Text>
+          <Text className="text-muted text-sm ml-1">
+            {item.deliveryMethod ? METHOD_LABELS[item.deliveryMethod] : "Not set"}
+          </Text>
         </View>
         {item.trackingNumber && (
           <View className="flex-row items-center mt-1">
@@ -278,26 +273,33 @@ export default function TrainerDeliveriesScreen() {
       </View>
 
       {/* Reschedule Request */}
-      {item.rescheduleRequested && (
+      {hasRescheduleRequest(item) && (
         <View className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3">
           <Text className="text-warning font-medium mb-1">Reschedule Requested</Text>
-          <Text className="text-muted text-sm">
-            Client wants to reschedule to: {item.rescheduleDate}
-          </Text>
+          <Text className="text-muted text-sm">{item.clientNotes}</Text>
           <View className="flex-row gap-2 mt-2">
             <TouchableOpacity
               className="flex-1 bg-primary py-2 rounded-lg items-center"
               onPress={() => handleApproveReschedule(item)}
+              disabled={approveRescheduleMutation.isPending}
             >
               <Text className="text-background font-medium">Approve</Text>
             </TouchableOpacity>
             <TouchableOpacity
               className="flex-1 bg-error py-2 rounded-lg items-center"
               onPress={() => handleRejectReschedule(item)}
+              disabled={rejectRescheduleMutation.isPending}
             >
               <Text className="text-background font-medium">Reject</Text>
             </TouchableOpacity>
           </View>
+        </View>
+      )}
+
+      {/* Notes */}
+      {item.notes && (
+        <View className="bg-background rounded-lg p-3 mb-3">
+          <Text className="text-muted text-sm">{item.notes}</Text>
         </View>
       )}
 
@@ -307,16 +309,26 @@ export default function TrainerDeliveriesScreen() {
           <TouchableOpacity
             className="flex-1 bg-primary py-3 rounded-lg items-center"
             onPress={() => handleMarkReady(item)}
+            disabled={markReadyMutation.isPending}
           >
-            <Text className="text-background font-semibold">Mark Ready</Text>
+            {markReadyMutation.isPending ? (
+              <ActivityIndicator color={colors.background} size="small" />
+            ) : (
+              <Text className="text-background font-semibold">Mark Ready</Text>
+            )}
           </TouchableOpacity>
         )}
-        {item.status === "ready" && (
+        {(item.status === "ready" || item.status === "scheduled" || item.status === "out_for_delivery") && (
           <TouchableOpacity
             className="flex-1 bg-success py-3 rounded-lg items-center"
             onPress={() => handleMarkDelivered(item)}
+            disabled={markDeliveredMutation.isPending}
           >
-            <Text className="text-background font-semibold">Mark Delivered</Text>
+            {markDeliveredMutation.isPending ? (
+              <ActivityIndicator color={colors.background} size="small" />
+            ) : (
+              <Text className="text-background font-semibold">Mark Delivered</Text>
+            )}
           </TouchableOpacity>
         )}
         {(item.status === "delivered" || item.status === "confirmed") && (
@@ -326,81 +338,70 @@ export default function TrainerDeliveriesScreen() {
             </Text>
           </View>
         )}
+        {item.status === "disputed" && (
+          <View className="flex-1 bg-error/10 border border-error/30 py-3 rounded-lg items-center">
+            <Text className="text-error font-medium">Disputed</Text>
+            {item.disputeReason && (
+              <Text className="text-error text-xs mt-1">{item.disputeReason}</Text>
+            )}
+          </View>
+        )}
       </View>
     </View>
   );
 
-  // Stats
-  const stats = {
-    pending: deliveries.filter((d) => d.status === "pending").length,
-    ready: deliveries.filter((d) => d.status === "ready").length,
-    delivered: deliveries.filter((d) => d.status === "delivered").length,
-    rescheduleRequests: deliveries.filter((d) => d.rescheduleRequested).length,
-  };
+  if (isLoading) {
+    return (
+      <ScreenContainer className="flex-1 items-center justify-center">
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-4">Loading deliveries...</Text>
+      </ScreenContainer>
+    );
+  }
 
   return (
-    <ScreenContainer className="px-4">
+    <ScreenContainer>
       {/* Header */}
-      <View className="flex-row items-center justify-between py-4">
+      <View className="px-4 pt-4 pb-2">
         <Text className="text-2xl font-bold text-foreground">Deliveries</Text>
-        <View className="flex-row items-center">
-          {stats.rescheduleRequests > 0 && (
-            <View className="bg-warning px-2 py-1 rounded-full mr-2">
-              <Text className="text-background text-xs font-medium">
-                {stats.rescheduleRequests} reschedule
-              </Text>
-            </View>
-          )}
-        </View>
+        <Text className="text-muted">Manage product deliveries to clients</Text>
       </View>
 
-      {/* Stats Row */}
-      <View className="flex-row gap-2 mb-4">
-        <View className="flex-1 bg-warning/10 rounded-lg p-3 items-center">
-          <Text className="text-2xl font-bold text-warning">{stats.pending}</Text>
-          <Text className="text-xs text-muted">Pending</Text>
-        </View>
-        <View className="flex-1 bg-primary/10 rounded-lg p-3 items-center">
-          <Text className="text-2xl font-bold text-primary">{stats.ready}</Text>
-          <Text className="text-xs text-muted">Ready</Text>
-        </View>
-        <View className="flex-1 bg-success/10 rounded-lg p-3 items-center">
-          <Text className="text-2xl font-bold text-success">{stats.delivered}</Text>
-          <Text className="text-xs text-muted">Delivered</Text>
-        </View>
-      </View>
-
-      {/* Tabs */}
-      <View className="flex-row mb-4">
-        {STATUS_TABS.map((tab) => (
-          <TouchableOpacity
-            key={tab.key}
-            className={`flex-1 py-2 items-center border-b-2 ${
-              activeTab === tab.key ? "border-primary" : "border-transparent"
-            }`}
-            onPress={() => setActiveTab(tab.key)}
-          >
-            <Text
-              className={`text-sm font-medium ${
-                activeTab === tab.key ? "text-primary" : "text-muted"
+      {/* Status Tabs */}
+      <View className="px-4 py-2">
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={STATUS_TABS}
+          keyExtractor={(item) => item.key}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              className={`px-4 py-2 mr-2 rounded-full ${
+                activeTab === item.key ? "bg-primary" : "bg-surface border border-border"
               }`}
+              onPress={() => setActiveTab(item.key)}
             >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Text
+                className={`font-medium ${
+                  activeTab === item.key ? "text-background" : "text-foreground"
+                }`}
+              >
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
       </View>
 
       {/* Deliveries List */}
       <FlatList
         data={filteredDeliveries}
-        renderItem={renderDelivery}
         keyExtractor={(item) => item.id.toString()}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        renderItem={renderDelivery}
+        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
+            refreshing={isRefetching}
             onRefresh={onRefresh}
             tintColor={colors.primary}
           />
@@ -408,7 +409,12 @@ export default function TrainerDeliveriesScreen() {
         ListEmptyComponent={
           <View className="items-center py-12">
             <IconSymbol name="shippingbox.fill" size={48} color={colors.muted} />
-            <Text className="text-muted mt-4">No deliveries found</Text>
+            <Text className="text-muted mt-4 text-center">
+              No deliveries found
+            </Text>
+            <Text className="text-muted text-sm text-center mt-1">
+              Deliveries will appear here when clients purchase bundles with products
+            </Text>
           </View>
         }
       />

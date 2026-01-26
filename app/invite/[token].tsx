@@ -7,11 +7,16 @@ import {
   Alert,
   Share,
   Platform,
+  TextInput,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import * as Haptics from "expo-haptics";
+import { trpc } from "@/lib/trpc";
 
 type InvitationData = {
   id: number;
@@ -38,7 +43,7 @@ type InvitationData = {
   status: "pending" | "accepted" | "expired" | "declined";
 };
 
-// Mock invitation data
+// Mock invitation data for testing
 const MOCK_INVITATION: InvitationData = {
   id: 1,
   token: "abc123",
@@ -75,7 +80,15 @@ export default function InvitationScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const [invitation, setInvitation] = useState<InvitationData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [accepting, setAccepting] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  
+  // Mock payment form state
+  const [cardNumber, setCardNumber] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
+  const [cvv, setCvv] = useState("");
+  const [cardholderName, setCardholderName] = useState("");
 
   // Load invitation data
   useEffect(() => {
@@ -88,25 +101,68 @@ export default function InvitationScreen() {
     loadInvitation();
   }, [token]);
 
-  // Accept invitation
-  const handleAccept = async () => {
-    if (!invitation) return;
+  // Format card number with spaces
+  const formatCardNumber = (text: string) => {
+    const cleaned = text.replace(/\s/g, "").replace(/\D/g, "");
+    const groups = cleaned.match(/.{1,4}/g);
+    return groups ? groups.join(" ").slice(0, 19) : "";
+  };
 
-    setAccepting(true);
-    // TODO: Call API to accept invitation
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setAccepting(false);
+  // Format expiry date
+  const formatExpiryDate = (text: string) => {
+    const cleaned = text.replace(/\D/g, "");
+    if (cleaned.length >= 2) {
+      return cleaned.slice(0, 2) + "/" + cleaned.slice(2, 4);
+    }
+    return cleaned;
+  };
 
-    Alert.alert(
-      "Invitation Accepted!",
-      `You've joined ${invitation.trainerName}'s ${invitation.bundleTitle}. You'll be redirected to your dashboard.`,
-      [
-        {
-          text: "Go to Dashboard",
-          onPress: () => router.replace("/(client)" as any),
-        },
-      ]
+  // Validate payment form
+  const isPaymentValid = () => {
+    return (
+      cardNumber.replace(/\s/g, "").length === 16 &&
+      expiryDate.length === 5 &&
+      cvv.length >= 3 &&
+      cardholderName.trim().length > 0
     );
+  };
+
+  // Handle accept - show payment modal
+  const handleAccept = () => {
+    if (!invitation) return;
+    setShowPaymentModal(true);
+  };
+
+  // Process mock payment
+  const handleProcessPayment = async () => {
+    if (!invitation || !isPaymentValid()) return;
+
+    setProcessingPayment(true);
+
+    // Simulate payment processing
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+
+    setProcessingPayment(false);
+    setPaymentSuccess(true);
+
+    // Show success for a moment, then redirect
+    setTimeout(() => {
+      setShowPaymentModal(false);
+      Alert.alert(
+        "Payment Successful!",
+        `You've joined ${invitation.trainerName}'s ${invitation.bundleTitle}. Your trainer has been notified and will be in touch soon.`,
+        [
+          {
+            text: "Go to Dashboard",
+            onPress: () => router.replace("/(client)" as any),
+          },
+        ]
+      );
+    }, 1500);
   };
 
   // Decline invitation
@@ -163,7 +219,8 @@ export default function InvitationScreen() {
   if (loading) {
     return (
       <ScreenContainer className="flex-1 items-center justify-center">
-        <Text className="text-muted">Loading invitation...</Text>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-4">Loading invitation...</Text>
       </ScreenContainer>
     );
   }
@@ -328,14 +385,9 @@ export default function InvitationScreen() {
         <View className="px-4 pb-8">
           <TouchableOpacity
             onPress={handleAccept}
-            disabled={accepting}
-            className={`bg-primary py-4 rounded-xl items-center mb-3 ${
-              accepting ? "opacity-50" : ""
-            }`}
+            className="bg-primary py-4 rounded-xl items-center mb-3"
           >
-            <Text className="text-white font-bold text-lg">
-              {accepting ? "Accepting..." : "Accept Invitation"}
-            </Text>
+            <Text className="text-white font-bold text-lg">Accept & Pay ${invitation.bundlePrice}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleDecline}
@@ -345,6 +397,161 @@ export default function InvitationScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Mock Payment Modal */}
+      <Modal
+        visible={showPaymentModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => !processingPayment && setShowPaymentModal(false)}
+      >
+        <View className="flex-1 bg-background">
+          {/* Modal Header */}
+          <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
+            <TouchableOpacity
+              onPress={() => !processingPayment && setShowPaymentModal(false)}
+              disabled={processingPayment}
+            >
+              <Text className={`text-primary font-medium ${processingPayment ? "opacity-50" : ""}`}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+            <Text className="text-lg font-semibold text-foreground">Payment</Text>
+            <View style={{ width: 50 }} />
+          </View>
+
+          {paymentSuccess ? (
+            // Success State
+            <View className="flex-1 items-center justify-center p-8">
+              <View className="w-24 h-24 rounded-full bg-success/20 items-center justify-center mb-6">
+                <IconSymbol name="checkmark.circle.fill" size={64} color={colors.success} />
+              </View>
+              <Text className="text-2xl font-bold text-foreground mb-2">Payment Successful!</Text>
+              <Text className="text-muted text-center">
+                Your trainer has been notified and will be in touch soon.
+              </Text>
+            </View>
+          ) : (
+            // Payment Form
+            <ScrollView className="flex-1 p-4">
+              {/* Order Summary */}
+              <View className="bg-surface rounded-xl p-4 mb-6 border border-border">
+                <Text className="text-sm font-semibold text-muted mb-2">ORDER SUMMARY</Text>
+                <View className="flex-row justify-between items-center">
+                  <Text className="text-foreground font-medium">{invitation?.bundleTitle}</Text>
+                  <Text className="text-foreground font-bold">${invitation?.bundlePrice}</Text>
+                </View>
+                <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-border">
+                  <Text className="text-foreground font-semibold">Total</Text>
+                  <Text className="text-primary text-xl font-bold">${invitation?.bundlePrice}</Text>
+                </View>
+              </View>
+
+              {/* Test Mode Banner */}
+              <View className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-6 flex-row items-center">
+                <IconSymbol name="exclamationmark.triangle.fill" size={20} color={colors.warning} />
+                <Text className="text-warning ml-2 flex-1 text-sm">
+                  Test Mode - No real payment will be processed. Use any card details.
+                </Text>
+              </View>
+
+              {/* Card Details */}
+              <Text className="text-lg font-semibold text-foreground mb-4">Card Details</Text>
+
+              {/* Cardholder Name */}
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Cardholder Name</Text>
+                <TextInput
+                  value={cardholderName}
+                  onChangeText={setCardholderName}
+                  placeholder="John Doe"
+                  placeholderTextColor={colors.muted}
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  autoCapitalize="words"
+                  editable={!processingPayment}
+                />
+              </View>
+
+              {/* Card Number */}
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Card Number</Text>
+                <TextInput
+                  value={cardNumber}
+                  onChangeText={(text) => setCardNumber(formatCardNumber(text))}
+                  placeholder="4242 4242 4242 4242"
+                  placeholderTextColor={colors.muted}
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  keyboardType="numeric"
+                  maxLength={19}
+                  editable={!processingPayment}
+                />
+              </View>
+
+              {/* Expiry and CVV */}
+              <View className="flex-row gap-4 mb-6">
+                <View className="flex-1">
+                  <Text className="text-sm font-medium text-foreground mb-2">Expiry Date</Text>
+                  <TextInput
+                    value={expiryDate}
+                    onChangeText={(text) => setExpiryDate(formatExpiryDate(text))}
+                    placeholder="MM/YY"
+                    placeholderTextColor={colors.muted}
+                    className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                    keyboardType="numeric"
+                    maxLength={5}
+                    editable={!processingPayment}
+                  />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-medium text-foreground mb-2">CVV</Text>
+                  <TextInput
+                    value={cvv}
+                    onChangeText={(text) => setCvv(text.replace(/\D/g, "").slice(0, 4))}
+                    placeholder="123"
+                    placeholderTextColor={colors.muted}
+                    className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                    keyboardType="numeric"
+                    maxLength={4}
+                    secureTextEntry
+                    editable={!processingPayment}
+                  />
+                </View>
+              </View>
+
+              {/* Pay Button */}
+              <TouchableOpacity
+                onPress={handleProcessPayment}
+                disabled={!isPaymentValid() || processingPayment}
+                className={`py-4 rounded-xl items-center flex-row justify-center ${
+                  isPaymentValid() && !processingPayment ? "bg-primary" : "bg-muted/30"
+                }`}
+              >
+                {processingPayment ? (
+                  <>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text className="text-white font-bold text-lg ml-2">Processing...</Text>
+                  </>
+                ) : (
+                  <>
+                    <IconSymbol name="lock.fill" size={18} color="#fff" />
+                    <Text className="text-white font-bold text-lg ml-2">
+                      Pay ${invitation?.bundlePrice}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Security Note */}
+              <View className="flex-row items-center justify-center mt-4">
+                <IconSymbol name="lock.fill" size={16} color={colors.muted} />
+                <Text className="text-muted text-sm ml-2">
+                  Your payment is secure and encrypted
+                </Text>
+              </View>
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }

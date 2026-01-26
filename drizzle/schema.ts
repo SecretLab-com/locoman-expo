@@ -87,7 +87,7 @@ export const bundleDrafts = mysqlTable("bundle_drafts", {
   productsJson: json("productsJson"),
   goalsJson: json("goalsJson"),
   suggestedGoal: varchar("suggestedGoal", { length: 100 }),
-  status: mysqlEnum("status", ["draft", "validating", "ready", "pending_review", "pending_update", "publishing", "published", "failed", "rejected"])
+  status: mysqlEnum("status", ["draft", "validating", "ready", "pending_review", "changes_requested", "pending_update", "publishing", "published", "failed", "rejected"])
     .default("draft")
     .notNull(),
   shopifyProductId: bigint("shopifyProductId", { mode: "number" }),
@@ -99,6 +99,7 @@ export const bundleDrafts = mysqlTable("bundle_drafts", {
   reviewedAt: timestamp("reviewedAt"),
   reviewedBy: int("reviewedBy"),
   rejectionReason: text("rejectionReason"),
+  reviewComments: text("reviewComments"),
   version: int("version").default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

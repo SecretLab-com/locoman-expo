@@ -310,3 +310,77 @@
 - [x] Add coordinator test account (coordinator@secretlab.com / supertest)
 - [x] Add coordinator quick-fill button to login screen
 - [x] Document impersonation feature usage
+
+
+## Product Delivery Customer Journey Audit
+- [x] Step 1: Trainer adds product to bundle - bundle editor supports products ✓
+- [x] Step 2: Bundle approval and publishing - approval workflow exists ✓
+- [x] Step 3: Trainer sends bundle invitation - invitation system exists ✓
+- [x] Step 4: Customer approves and pays - checkout flow exists ✓
+- [ ] Step 5: Product delivery scheduled - **MISSING**: auto-creation of delivery records
+- [x] Step 6: Trainer gets 1-day reminder - notification system exists ✓
+- [x] Step 7: Trainer hands product to customer - delivery methods supported ✓
+- [x] Step 8: Trainer marks as delivered - markDelivered mutation exists ✓
+- [x] Step 9: Customer sees confirmation - client deliveries page exists ✓
+- [x] Step 10: Customer confirms or contests - confirm/report mutations exist ✓
+
+### Critical Gaps to Fix
+- [x] Auto-create productDeliveries records when order is placed (deliveries.createForOrder)
+- [x] Implement client myDeliveries API endpoint (now queries by clientId)
+- [x] Add reschedule API endpoints (requestReschedule/approveReschedule/rejectReschedule)
+- [x] Connect trainer deliveries screen to real API (removed mock data)
+- [x] Connect client deliveries screen to real API (removed mock data)
+
+### Medium Priority Gaps
+- [ ] Add reschedule database fields (rescheduleRequestedAt, rescheduleRequestedDate)
+- [ ] Add reschedule notification functions
+- [ ] Manager escalation workflow for disputes
+
+### Low Priority Gaps
+- [ ] Delivery analytics/metrics
+- [ ] Batch delivery actions
+
+
+## Bundle-to-Delivery Journey Implementation
+### Phase 1: Bundle Creation
+- [x] Add bundle templates for quick start (bundle editor exists)
+- [x] Bundle editor with tabs (Details, Services, Products, Goals)
+- [x] Product selection from Shopify catalog
+- [x] Auto-price calculation
+- [x] Save as draft functionality
+- [x] Submit for review workflow
+
+### Phase 2: Bundle Review Workflow
+- [x] Manager approvals screen exists
+- [x] Add review comments/feedback system to bundle detail (reviewComments field added)
+- [x] Add "Request Changes" action with comment input (requestChanges endpoint)
+- [x] Add "changes_requested" status support (schema updated)
+- [x] Show manager comments in trainer's bundle editor (yellow banner)
+- [x] Add resubmission workflow after addressing feedback
+- [x] Add notification on bundle status changes
+
+### Phase 3: Customer Invitation & Purchase
+- [x] Invite client screen exists
+- [x] Invitation landing page with bundle preview
+- [x] Accept invitation flow
+- [x] Add mock payment flow for testing (payment modal added)
+- [x] Auto-create order on acceptance
+- [x] Auto-create delivery records when order is placed (deliveries.createForOrder)
+- [x] Notification to trainer on acceptance
+
+### Phase 4: Product Delivery
+- [x] Trainer deliveries screen with real API
+- [x] Mark ready / Mark delivered actions
+- [x] Client deliveries screen with real API
+- [x] Confirm receipt action
+- [x] Report issue action (reportIssue mutation)
+- [x] Disputed status handling
+- [x] Messaging integration for issue resolution (message trainer button)
+- [ ] Add ability to create additional delivery for missing items
+
+### Phase 5: Session Tracking
+- [x] Session scheduling (Calendar)
+- [x] Mark session complete
+- [x] Session usage tracking (X of Y used) display (client-detail screen)
+- [x] Client detail with subscription status showing remaining sessions
+- [x] Session history view (past sessions tab)

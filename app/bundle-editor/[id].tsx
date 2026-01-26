@@ -60,8 +60,9 @@ type BundleFormState = {
   products: ProductItem[];
   goals: string[];
   suggestedGoal: string;
-  status: "draft" | "pending_review" | "published" | "rejected";
+  status: "draft" | "pending_review" | "changes_requested" | "published" | "rejected";
   rejectionReason?: string;
+  reviewComments?: string;
 };
 
 const CADENCE_OPTIONS = [
@@ -208,6 +209,7 @@ export default function BundleEditorScreen() {
         suggestedGoal: (existingBundle.suggestedGoal as string) || "",
         status: (existingBundle.status as BundleFormState["status"]) || "draft",
         rejectionReason: existingBundle.rejectionReason || undefined,
+        reviewComments: (existingBundle as any).reviewComments || undefined,
       });
 
       // Match products from productsJson with Shopify products
@@ -556,6 +558,17 @@ export default function BundleEditorScreen() {
           <View className="mx-4 mt-3 bg-warning/10 border border-warning/30 rounded-xl p-3 flex-row items-center">
             <IconSymbol name="clock.fill" size={18} color={colors.warning} />
             <Text className="text-warning ml-2 flex-1">Pending Review - Your bundle is being reviewed by the admin team.</Text>
+          </View>
+        )}
+
+        {form.status === "changes_requested" && form.reviewComments && (
+          <View className="mx-4 mt-3 bg-orange-500/10 border border-orange-500/30 rounded-xl p-3">
+            <View className="flex-row items-center">
+              <IconSymbol name="exclamationmark.triangle.fill" size={18} color="#F97316" />
+              <Text className="font-medium ml-2" style={{ color: "#F97316" }}>Changes Requested</Text>
+            </View>
+            <Text className="text-foreground mt-2 text-sm">{form.reviewComments}</Text>
+            <Text className="text-muted mt-2 text-xs">Please address the feedback above and resubmit for review.</Text>
           </View>
         )}
 

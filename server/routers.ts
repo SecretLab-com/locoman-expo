@@ -360,8 +360,9 @@ export const appRouter = router({
   deliveries: router({
     // Client gets their deliveries
     myDeliveries: protectedProcedure.query(async ({ ctx }) => {
-      // Would need client lookup
-      return [];
+      // Get client ID from user (client's trainerId links to their trainer)
+      // For clients, we query by clientId which is the user's ID
+      return db.getDeliveriesByClient(ctx.user.id);
     }),
     
     // Trainer gets deliveries they need to fulfill
@@ -407,6 +408,81 @@ export const appRouter = router({
           disputeReason: input.reason,
         });
         return { success: true };
+      }),
+    
+    // Client requests reschedule
+    requestReschedule: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        requestedDate: z.string(),
+        reason: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateDelivery(input.id, {
+          clientNotes: input.reason ? `Reschedule requested: ${input.reason}` : "Reschedule requested",
+        });
+        // Note: In a full implementation, we'd add rescheduleRequestedDate field
+        return { success: true };
+      }),
+    
+    // Trainer approves reschedule
+    approveReschedule: trainerProcedure
+      .input(z.object({
+        id: z.number(),
+        newDate: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateDelivery(input.id, {
+          scheduledDate: new Date(input.newDate),
+          clientNotes: null, // Clear the reschedule request
+        });
+        return { success: true };
+      }),
+    
+    // Trainer rejects reschedule
+    rejectReschedule: trainerProcedure
+      .input(z.object({
+        id: z.number(),
+        reason: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateDelivery(input.id, {
+          notes: input.reason ? `Reschedule rejected: ${input.reason}` : "Reschedule rejected",
+          clientNotes: null, // Clear the reschedule request
+        });
+        return { success: true };
+      }),
+    
+    // Create delivery records for an order (called after order is placed)
+    createForOrder: trainerProcedure
+      .input(z.object({
+        orderId: z.number(),
+        clientId: z.number(),
+        products: z.array(z.object({
+          productId: z.number().optional(),
+          productName: z.string(),
+          quantity: z.number(),
+        })),
+        scheduledDate: z.string().optional(),
+        deliveryMethod: z.enum(["in_person", "locker", "front_desk", "shipped"]).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const deliveryIds: number[] = [];
+        for (const product of input.products) {
+          const id = await db.createDelivery({
+            orderId: input.orderId,
+            trainerId: ctx.user.id,
+            clientId: input.clientId,
+            productId: product.productId,
+            productName: product.productName,
+            quantity: product.quantity,
+            status: "pending",
+            scheduledDate: input.scheduledDate ? new Date(input.scheduledDate) : undefined,
+            deliveryMethod: input.deliveryMethod || "in_person",
+          });
+          deliveryIds.push(id);
+        }
+        return { success: true, deliveryIds };
       }),
   }),
 
@@ -578,6 +654,21 @@ export const appRouter = router({
           reviewedAt: new Date(),
           reviewedBy: ctx.user.id,
           rejectionReason: input.reason,
+        });
+        return { success: true };
+      }),
+    
+    requestChanges: managerProcedure
+      .input(z.object({
+        id: z.number(),
+        comments: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.updateBundleDraft(input.id, {
+          status: "changes_requested",
+          reviewedAt: new Date(),
+          reviewedBy: ctx.user.id,
+          reviewComments: input.comments,
         });
         return { success: true };
       }),
