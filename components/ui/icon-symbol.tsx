@@ -120,6 +120,10 @@ const MAPPING = {
   "gear": "settings",
   "person.circle.fill": "account-circle",
   "rectangle.portrait.and.arrow.right": "logout",
+  "person.2": "people",
+  "clock.arrow.circlepath": "history",
+  "person.crop.circle.badge.checkmark": "verified-user",
+  "clock": "schedule",
 } as const satisfies Record<string, MaterialIconName>;
 
 /**

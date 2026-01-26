@@ -449,3 +449,20 @@
 - [x] Add bulk selection mode with checkboxes
 - [x] Add bulk action bar (change role, activate/deactivate)
 - [x] Add select all / deselect all functionality
+
+
+## Manager Users - Advanced Features
+- [x] Create user impersonation feature (become any user for testing)
+- [x] Add "Impersonate" button in user detail modal
+- [x] Store original manager session for returning from impersonation
+- [x] Add impersonation banner showing current impersonated user
+- [x] Add "Return to Manager" button to exit impersonation
+- [x] Create activity_log database table for user actions
+- [x] Add API endpoint to log user actions (role change, status update, etc.)
+- [x] Add API endpoint to fetch activity log for a user
+- [x] Display activity log in user detail modal
+- [x] Create user invite system with email input
+- [x] Add role selection for invited users
+- [x] Create pending_invites database table
+- [x] Add API endpoint to create and send invites
+- [x] Add invited users list in Manager Users screen

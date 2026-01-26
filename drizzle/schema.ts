@@ -429,3 +429,52 @@ export const invitations = mysqlTable("invitations", {
 
 export type Invitation = typeof invitations.$inferSelect;
 export type InsertInvitation = typeof invitations.$inferInsert;
+
+// ============================================================================
+// USER INVITATIONS (Manager invites new users with role)
+// ============================================================================
+
+export const userInvitations = mysqlTable("user_invitations", {
+  id: int("id").autoincrement().primaryKey(),
+  invitedBy: int("invitedBy").notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  role: mysqlEnum("role", ["shopper", "client", "trainer", "manager", "coordinator"])
+    .default("shopper")
+    .notNull(),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  status: mysqlEnum("status", ["pending", "accepted", "expired", "revoked"]).default("pending"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  acceptedAt: timestamp("acceptedAt"),
+  acceptedByUserId: int("acceptedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type UserInvitation = typeof userInvitations.$inferSelect;
+export type InsertUserInvitation = typeof userInvitations.$inferInsert;
+
+// ============================================================================
+// USER ACTIVITY LOGS (Admin actions on users)
+// ============================================================================
+
+export const userActivityLogs = mysqlTable("user_activity_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  targetUserId: int("targetUserId").notNull(),
+  performedBy: int("performedBy").notNull(),
+  action: mysqlEnum("action", [
+    "role_changed",
+    "status_changed",
+    "impersonation_started",
+    "impersonation_ended",
+    "profile_updated",
+    "invited",
+    "deleted",
+  ]).notNull(),
+  previousValue: varchar("previousValue", { length: 100 }),
+  newValue: varchar("newValue", { length: 100 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type UserActivityLog = typeof userActivityLogs.$inferSelect;
+export type InsertUserActivityLog = typeof userActivityLogs.$inferInsert;

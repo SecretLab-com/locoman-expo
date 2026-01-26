@@ -772,6 +772,96 @@ export const appRouter = router({
           createdBy: ctx.user.id,
         });
       }),
+    
+    // User Activity Logs
+    getUserActivityLogs: managerProcedure
+      .input(z.object({ userId: z.number(), limit: z.number().default(50) }))
+      .query(async ({ input }) => {
+        return db.getUserActivityLogs(input.userId, input.limit);
+      }),
+    
+    getRecentActivityLogs: managerProcedure
+      .input(z.object({ limit: z.number().default(100) }))
+      .query(async ({ input }) => {
+        return db.getRecentActivityLogs(input.limit);
+      }),
+    
+    logUserAction: managerProcedure
+      .input(z.object({
+        targetUserId: z.number(),
+        action: z.enum(["role_changed", "status_changed", "impersonation_started", "impersonation_ended", "profile_updated", "invited", "deleted"]),
+        previousValue: z.string().optional(),
+        newValue: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.logUserActivity({
+          targetUserId: input.targetUserId,
+          performedBy: ctx.user.id,
+          action: input.action,
+          previousValue: input.previousValue,
+          newValue: input.newValue,
+          notes: input.notes,
+        });
+        return { success: true };
+      }),
+    
+    // User Impersonation
+    getUserForImpersonation: managerProcedure
+      .input(z.object({ userId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getUserById(input.userId);
+      }),
+    
+    // User Invitations
+    createUserInvitation: managerProcedure
+      .input(z.object({
+        email: z.string().email(),
+        name: z.string().optional(),
+        role: z.enum(["shopper", "client", "trainer", "manager", "coordinator"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const token = crypto.randomUUID().replace(/-/g, "");
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7); // Expires in 7 days
+        
+        const id = await db.createUserInvitation({
+          invitedBy: ctx.user.id,
+          email: input.email,
+          name: input.name,
+          role: input.role,
+          token,
+          expiresAt,
+        });
+        
+        // Log the invitation
+        await db.logUserActivity({
+          targetUserId: 0, // No target user yet
+          performedBy: ctx.user.id,
+          action: "invited",
+          newValue: input.role,
+          notes: `Invited ${input.email} as ${input.role}`,
+        });
+        
+        return { success: true, id, token };
+      }),
+    
+    getUserInvitations: managerProcedure
+      .input(z.object({
+        limit: z.number().default(20),
+        offset: z.number().default(0),
+        status: z.enum(["pending", "accepted", "expired", "revoked"]).optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.getUserInvitations(input);
+      }),
+    
+    revokeUserInvitation: managerProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.revokeUserInvitation(input.id);
+        return { success: true };
+      }),
   }),
 
   // ============================================================================

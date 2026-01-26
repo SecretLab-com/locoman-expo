@@ -17,6 +17,8 @@ import {
   activityLogs,
   invitations,
   productDeliveries,
+  userInvitations,
+  userActivityLogs,
   InsertBundleTemplate,
   InsertBundleDraft,
   InsertClient,
@@ -31,6 +33,8 @@ import {
   InsertInvitation,
   InsertProductDelivery,
   InsertTrainerEarning,
+  InsertUserInvitation,
+  InsertUserActivityLog,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -738,4 +742,100 @@ export async function logActivity(data: InsertActivityLog) {
   const db = await getDb();
   if (!db) return;
   await db.insert(activityLogs).values(data);
+}
+
+
+// ============================================================================
+// USER INVITATIONS (Manager-created invites)
+// ============================================================================
+
+export async function createUserInvitation(data: InsertUserInvitation) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(userInvitations).values(data);
+  return result[0].insertId;
+}
+
+export async function getUserInvitationByToken(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(userInvitations).where(eq(userInvitations.token, token)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserInvitations(options: {
+  limit?: number;
+  offset?: number;
+  status?: "pending" | "accepted" | "expired" | "revoked";
+}) {
+  const db = await getDb();
+  if (!db) return { invitations: [], total: 0 };
+  
+  const { limit = 20, offset = 0, status } = options;
+  
+  const conditions = [];
+  if (status) {
+    conditions.push(eq(userInvitations.status, status));
+  }
+  
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  
+  const countResult = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(userInvitations)
+    .where(whereClause);
+  const total = countResult[0]?.count ?? 0;
+  
+  const invitationList = await db
+    .select()
+    .from(userInvitations)
+    .where(whereClause)
+    .orderBy(desc(userInvitations.createdAt))
+    .limit(limit)
+    .offset(offset);
+  
+  return { invitations: invitationList, total };
+}
+
+export async function updateUserInvitation(id: number, data: Partial<InsertUserInvitation>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(userInvitations).set(data).where(eq(userInvitations.id, id));
+}
+
+export async function revokeUserInvitation(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(userInvitations).set({ status: "revoked" }).where(eq(userInvitations.id, id));
+}
+
+// ============================================================================
+// USER ACTIVITY LOGS (Admin actions on users)
+// ============================================================================
+
+export async function logUserActivity(data: InsertUserActivityLog) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(userActivityLogs).values(data);
+}
+
+export async function getUserActivityLogs(targetUserId: number, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(userActivityLogs)
+    .where(eq(userActivityLogs.targetUserId, targetUserId))
+    .orderBy(desc(userActivityLogs.createdAt))
+    .limit(limit);
+}
+
+export async function getRecentActivityLogs(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(userActivityLogs)
+    .orderBy(desc(userActivityLogs.createdAt))
+    .limit(limit);
 }
