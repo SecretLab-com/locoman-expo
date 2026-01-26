@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, sql, inArray, like, or } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, like, or, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -147,6 +147,88 @@ export async function getAllUsers(limit = 100, offset = 0) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(users).orderBy(desc(users.createdAt)).limit(limit).offset(offset);
+}
+
+export async function getUsersWithFilters(options: {
+  limit?: number;
+  offset?: number;
+  role?: string;
+  status?: "active" | "inactive";
+  search?: string;
+  joinedAfter?: Date;
+  joinedBefore?: Date;
+}) {
+  const db = await getDb();
+  if (!db) return { users: [], total: 0 };
+  
+  const { limit = 20, offset = 0, role, status, search, joinedAfter, joinedBefore } = options;
+  
+  const conditions = [];
+  
+  if (role && role !== "all") {
+    conditions.push(eq(users.role, role as any));
+  }
+  
+  if (status === "active") {
+    conditions.push(eq(users.active, true));
+  } else if (status === "inactive") {
+    conditions.push(eq(users.active, false));
+  }
+  
+  if (search) {
+    conditions.push(
+      or(
+        like(users.name, `%${search}%`),
+        like(users.email, `%${search}%`)
+      )!
+    );
+  }
+  
+  if (joinedAfter) {
+    conditions.push(gte(users.createdAt, joinedAfter));
+  }
+  
+  if (joinedBefore) {
+    conditions.push(lte(users.createdAt, joinedBefore));
+  }
+  
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  
+  // Get total count
+  const countResult = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(users)
+    .where(whereClause);
+  const total = countResult[0]?.count ?? 0;
+  
+  // Get paginated users
+  const userList = await db
+    .select()
+    .from(users)
+    .where(whereClause)
+    .orderBy(desc(users.createdAt))
+    .limit(limit)
+    .offset(offset);
+  
+  return { users: userList, total };
+}
+
+export async function updateUserStatus(userId: number, active: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ active }).where(eq(users.id, userId));
+}
+
+export async function bulkUpdateUserRole(userIds: number[], role: InsertUser["role"]) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ role }).where(inArray(users.id, userIds));
+}
+
+export async function bulkUpdateUserStatus(userIds: number[], active: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ active }).where(inArray(users.id, userIds));
 }
 
 export async function searchUsers(query: string) {

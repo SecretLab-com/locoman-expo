@@ -36,12 +36,12 @@ describe("Manager Users Screen Enhancements", () => {
       expect(usersScreenContent).toContain("selectedUser.email");
     });
 
-    it("should show user status in modal", () => {
-      expect(usersScreenContent).toContain("selectedUser.status");
+    it("should show user active status in modal", () => {
+      expect(usersScreenContent).toContain("selectedUser.active");
     });
 
-    it("should show last active time", () => {
-      expect(usersScreenContent).toContain("lastActive");
+    it("should show last signed in time", () => {
+      expect(usersScreenContent).toContain("lastSignedIn");
       expect(usersScreenContent).toContain("formatRelativeTime");
     });
   });
@@ -57,9 +57,8 @@ describe("Manager Users Screen Enhancements", () => {
       expect(usersScreenContent).toContain("roleOption");
     });
 
-    it("should update user role in state", () => {
-      expect(usersScreenContent).toContain("setUsers");
-      expect(usersScreenContent).toContain("role: newRole");
+    it("should use tRPC mutation for role update", () => {
+      expect(usersScreenContent).toContain("updateRoleMutation");
     });
 
     it("should show success alert after role change", () => {
@@ -82,36 +81,31 @@ describe("Manager Users Screen Enhancements", () => {
       expect(usersScreenContent).toContain("STATUS_COLORS");
     });
 
-    it("should update user status in state", () => {
-      expect(usersScreenContent).toContain("status: newStatus");
+    it("should use tRPC mutation for status update", () => {
+      expect(usersScreenContent).toContain("updateStatusMutation");
     });
   });
 
-  describe("Pagination/Infinite Scroll", () => {
+  describe("Pagination with Real API", () => {
     it("should have PAGE_SIZE constant", () => {
       expect(usersScreenContent).toContain("PAGE_SIZE");
     });
 
-    it("should have displayCount state", () => {
-      expect(usersScreenContent).toContain("displayCount");
-      expect(usersScreenContent).toContain("setDisplayCount");
+    it("should have offset state for pagination", () => {
+      expect(usersScreenContent).toContain("offset");
+      expect(usersScreenContent).toContain("setOffset");
     });
 
     it("should have loadMore function", () => {
       expect(usersScreenContent).toContain("loadMore");
     });
 
-    it("should have loadingMore state", () => {
-      expect(usersScreenContent).toContain("loadingMore");
-      expect(usersScreenContent).toContain("setLoadingMore");
+    it("should use tRPC query for users", () => {
+      expect(usersScreenContent).toContain("trpc.admin.usersWithFilters");
     });
 
     it("should have hasMore computed value", () => {
       expect(usersScreenContent).toContain("hasMore");
-    });
-
-    it("should have displayedUsers computed value", () => {
-      expect(usersScreenContent).toContain("displayedUsers");
     });
 
     it("should handle scroll event for infinite scroll", () => {
@@ -126,6 +120,91 @@ describe("Manager Users Screen Enhancements", () => {
 
     it("should show end of list message", () => {
       expect(usersScreenContent).toContain("Showing all");
+    });
+  });
+
+  describe("Status and Date Filters", () => {
+    it("should have selectedStatus state", () => {
+      expect(usersScreenContent).toContain("selectedStatus");
+      expect(usersScreenContent).toContain("setSelectedStatus");
+    });
+
+    it("should have date filter states", () => {
+      expect(usersScreenContent).toContain("joinedAfter");
+      expect(usersScreenContent).toContain("joinedBefore");
+    });
+
+    it("should have status filter UI", () => {
+      expect(usersScreenContent).toContain("All Status");
+      expect(usersScreenContent).toContain("statusPill");
+    });
+
+    it("should have date filter toggle", () => {
+      expect(usersScreenContent).toContain("showDateFilter");
+      expect(usersScreenContent).toContain("dateFilterRow");
+    });
+
+    it("should have clear date filters function", () => {
+      expect(usersScreenContent).toContain("clearDateFilters");
+    });
+  });
+
+  describe("Bulk Selection and Actions", () => {
+    it("should have selectionMode state", () => {
+      expect(usersScreenContent).toContain("selectionMode");
+      expect(usersScreenContent).toContain("setSelectionMode");
+    });
+
+    it("should have selectedUserIds state", () => {
+      expect(usersScreenContent).toContain("selectedUserIds");
+      expect(usersScreenContent).toContain("setSelectedUserIds");
+    });
+
+    it("should have toggleUserSelection function", () => {
+      expect(usersScreenContent).toContain("toggleUserSelection");
+    });
+
+    it("should have toggleSelectAll function", () => {
+      expect(usersScreenContent).toContain("toggleSelectAll");
+    });
+
+    it("should have exitSelectionMode function", () => {
+      expect(usersScreenContent).toContain("exitSelectionMode");
+    });
+
+    it("should have bulkChangeRole function", () => {
+      expect(usersScreenContent).toContain("bulkChangeRole");
+    });
+
+    it("should have bulkChangeStatus function", () => {
+      expect(usersScreenContent).toContain("bulkChangeStatus");
+    });
+
+    it("should use tRPC mutations for bulk operations", () => {
+      expect(usersScreenContent).toContain("bulkUpdateRoleMutation");
+      expect(usersScreenContent).toContain("bulkUpdateStatusMutation");
+    });
+
+    it("should have bulk action modal", () => {
+      expect(usersScreenContent).toContain("bulkActionModalVisible");
+      expect(usersScreenContent).toContain("Bulk Actions");
+    });
+
+    it("should show checkbox in selection mode", () => {
+      expect(usersScreenContent).toContain("checkbox");
+      expect(usersScreenContent).toContain("selectionMode");
+    });
+
+    it("should have Select button in header", () => {
+      expect(usersScreenContent).toContain("Select");
+    });
+
+    it("should have Activate All Selected button", () => {
+      expect(usersScreenContent).toContain("Activate All Selected");
+    });
+
+    it("should have Deactivate All Selected button", () => {
+      expect(usersScreenContent).toContain("Deactivate All Selected");
     });
   });
 
@@ -200,25 +279,17 @@ describe("Manager Users Screen Enhancements", () => {
     });
   });
 
-  describe("Extended Mock Data", () => {
-    it("should have more than 6 mock users for pagination demo", () => {
-      expect(usersScreenContent).toContain("generateMockUsers");
-      // Check that there are at least 10 users in the mock data
-      const userMatches = usersScreenContent.match(/id: \d+, name:/g);
-      expect(userMatches).not.toBeNull();
-      expect(userMatches!.length).toBeGreaterThanOrEqual(10);
-    });
-
+  describe("User Type Definition", () => {
     it("should have phone field in user type", () => {
       expect(usersScreenContent).toContain("phone?:");
     });
 
-    it("should have lastActive field in user type", () => {
-      expect(usersScreenContent).toContain("lastActive?:");
+    it("should have lastSignedIn field in user type", () => {
+      expect(usersScreenContent).toContain("lastSignedIn?:");
     });
 
-    it("should have status field in user type", () => {
-      expect(usersScreenContent).toContain('status: UserStatus');
+    it("should have active field in user type", () => {
+      expect(usersScreenContent).toContain("active: boolean");
     });
   });
 });

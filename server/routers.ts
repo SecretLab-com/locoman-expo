@@ -643,6 +643,28 @@ export const appRouter = router({
       return db.getAllUsers();
     }),
     
+    usersWithFilters: managerProcedure
+      .input(z.object({
+        limit: z.number().min(1).max(100).default(20),
+        offset: z.number().min(0).default(0),
+        role: z.string().optional(),
+        status: z.enum(["active", "inactive"]).optional(),
+        search: z.string().optional(),
+        joinedAfter: z.string().optional(),
+        joinedBefore: z.string().optional(),
+      }))
+      .query(async ({ input }) => {
+        return db.getUsersWithFilters({
+          limit: input.limit,
+          offset: input.offset,
+          role: input.role,
+          status: input.status,
+          search: input.search,
+          joinedAfter: input.joinedAfter ? new Date(input.joinedAfter) : undefined,
+          joinedBefore: input.joinedBefore ? new Date(input.joinedBefore) : undefined,
+        });
+      }),
+    
     searchUsers: managerProcedure
       .input(z.object({ query: z.string() }))
       .query(async ({ input }) => {
@@ -657,6 +679,36 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await db.updateUserRole(input.userId, input.role);
         return { success: true };
+      }),
+    
+    updateUserStatus: managerProcedure
+      .input(z.object({
+        userId: z.number(),
+        active: z.boolean(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateUserStatus(input.userId, input.active);
+        return { success: true };
+      }),
+    
+    bulkUpdateRole: managerProcedure
+      .input(z.object({
+        userIds: z.array(z.number()).min(1),
+        role: z.enum(["shopper", "client", "trainer", "manager", "coordinator"]),
+      }))
+      .mutation(async ({ input }) => {
+        await db.bulkUpdateUserRole(input.userIds, input.role);
+        return { success: true, count: input.userIds.length };
+      }),
+    
+    bulkUpdateStatus: managerProcedure
+      .input(z.object({
+        userIds: z.array(z.number()).min(1),
+        active: z.boolean(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.bulkUpdateUserStatus(input.userIds, input.active);
+        return { success: true, count: input.userIds.length };
       }),
     
     pendingBundles: managerProcedure.query(async () => {

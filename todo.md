@@ -432,3 +432,20 @@
 - [x] Add deactivate/activate user action
 - [x] Implement pagination/infinite scroll for user list
 - [x] Add CSV export functionality for user lists
+
+
+## Manager Users - Real API & Advanced Features
+- [x] Create tRPC users.list endpoint with pagination support
+- [x] Add role filter to users.list endpoint
+- [x] Add status filter (active/inactive) to users.list endpoint
+- [x] Add date range filter (joined date) to users.list endpoint
+- [x] Create tRPC users.updateRole endpoint
+- [x] Create tRPC users.updateStatus endpoint
+- [x] Create tRPC users.bulkUpdateRole endpoint
+- [x] Create tRPC users.bulkUpdateStatus endpoint
+- [x] Update Manager Users screen to use real tRPC API
+- [x] Add status filter UI (Active/Inactive toggle)
+- [x] Add date range filter UI for joined date
+- [x] Add bulk selection mode with checkboxes
+- [x] Add bulk action bar (change role, activate/deactivate)
+- [x] Add select all / deselect all functionality
