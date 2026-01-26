@@ -407,3 +407,9 @@
 ## Sprint 2 Implementation
 - [x] Create TemplateEditor screen for managers
 - [x] Implement bulk invite feature with CSV upload and manual entry
+
+
+## Follow-up Features - Sprint 3
+- [x] Connect bulk invite modal to clients.bulkInvite API
+- [x] Add template usage tracking when creating bundles from templates
+- [x] Create join requests management screen for trainers

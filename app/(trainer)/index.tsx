@@ -212,9 +212,9 @@ export default function TrainerDashboardScreen() {
           </View>
           <View className="flex-row">
             <QuickAction
-              title="Partnerships"
-              icon="megaphone.fill"
-              onPress={() => router.push("/(trainer)/partnerships" as any)}
+              title="Join Requests"
+              icon="person.badge.plus"
+              onPress={() => router.push("/(trainer)/join-requests" as any)}
             />
             <QuickAction
               title="Orders"

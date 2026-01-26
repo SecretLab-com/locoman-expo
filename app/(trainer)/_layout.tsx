@@ -101,6 +101,12 @@ export default function TrainerTabLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="join-requests"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

@@ -60,6 +60,7 @@ export const bundleTemplates = mysqlTable("bundle_templates", {
   defaultServices: json("defaultServices"),
   defaultProducts: json("defaultProducts"),
   active: boolean("active").default(true).notNull(),
+  usageCount: int("usageCount").default(0).notNull(),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

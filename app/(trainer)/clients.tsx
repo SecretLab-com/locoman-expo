@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import { BulkInviteModal } from "@/components/bulk-invite-modal";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Text,
   View,
@@ -113,9 +115,12 @@ function ClientCard({ client, onPress }: { client: Client; onPress: () => void }
 
 export default function TrainerClientsScreen() {
   const colors = useColors();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [showBulkInvite, setShowBulkInvite] = useState(false);
+
+  const bulkInviteMutation = trpc.clients.bulkInvite.useMutation();
 
   const filteredClients = MOCK_CLIENTS.filter(
     (client) =>
@@ -218,9 +223,13 @@ export default function TrainerClientsScreen() {
         visible={showBulkInvite}
         onClose={() => setShowBulkInvite(false)}
         onSubmit={async (invites) => {
-          // TODO: Call API to send invitations
-          console.log('Sending invites:', invites);
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          if (!user?.id) return;
+          await bulkInviteMutation.mutateAsync({
+            invitations: invites.map((invite) => ({
+              email: invite.email,
+              name: invite.name,
+            })),
+          });
         }}
       />
     </ScreenContainer>

@@ -184,6 +184,14 @@ export async function createBundleTemplate(data: InsertBundleTemplate) {
   return result[0].insertId;
 }
 
+export async function incrementTemplateUsage(templateId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(bundleTemplates)
+    .set({ usageCount: sql`${bundleTemplates.usageCount} + 1` })
+    .where(eq(bundleTemplates.id, templateId));
+}
+
 // ============================================================================
 // BUNDLE DRAFTS
 // ============================================================================

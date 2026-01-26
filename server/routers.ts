@@ -83,6 +83,10 @@ export const appRouter = router({
         productsJson: z.any().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // Increment template usage count if creating from template
+        if (input.templateId) {
+          await db.incrementTemplateUsage(input.templateId);
+        }
         return db.createBundleDraft({
           trainerId: ctx.user.id,
           title: input.title,
@@ -201,6 +205,33 @@ export const appRouter = router({
     invitations: trainerProcedure.query(async ({ ctx }) => {
       return db.getInvitationsByTrainer(ctx.user.id);
     }),
+
+    bulkInvite: trainerProcedure
+      .input(z.object({
+        invitations: z.array(z.object({
+          email: z.string().email(),
+          name: z.string().optional(),
+        })),
+        bundleDraftId: z.number().optional(),
+        message: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const results = [];
+        for (const invite of input.invitations) {
+          const token = crypto.randomUUID();
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+          await db.createInvitation({
+            trainerId: ctx.user.id,
+            email: invite.email,
+            name: invite.name,
+            token,
+            bundleDraftId: input.bundleDraftId,
+            expiresAt,
+          });
+          results.push({ email: invite.email, token, success: true });
+        }
+        return { sent: results.length, results };
+      }),
   }),
 
   // ============================================================================
