@@ -384,3 +384,7 @@
 - [x] Session usage tracking (X of Y used) display (client-detail screen)
 - [x] Client detail with subscription status showing remaining sessions
 - [x] Session history view (past sessions tab)
+
+
+## Bug Fixes
+- [x] Fix trainers screen specialty filter pills displaying as tall vertical rectangles instead of horizontal pills

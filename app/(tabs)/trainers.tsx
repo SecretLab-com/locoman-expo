@@ -123,25 +123,28 @@ export default function TrainersScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        className="px-4 mb-4"
-        contentContainerStyle={{ gap: 8 }}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, flexDirection: 'row', alignItems: 'center' }}
+        style={{ maxHeight: 44, marginBottom: 16 }}
       >
         {SPECIALTIES.map((specialty) => (
           <TouchableOpacity
             key={specialty.value}
             onPress={() => setSelectedSpecialty(specialty.value)}
-            className={`px-4 py-2 rounded-full ${
-              selectedSpecialty === specialty.value
-                ? "bg-primary"
-                : "bg-surface border border-border"
-            }`}
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 20,
+              backgroundColor: selectedSpecialty === specialty.value ? colors.primary : colors.surface,
+              borderWidth: selectedSpecialty === specialty.value ? 0 : 1,
+              borderColor: colors.border,
+            }}
           >
             <Text
-              className={`text-sm ${
-                selectedSpecialty === specialty.value
-                  ? "text-white font-semibold"
-                  : "text-foreground"
-              }`}
+              style={{
+                fontSize: 14,
+                color: selectedSpecialty === specialty.value ? '#FFFFFF' : colors.foreground,
+                fontWeight: selectedSpecialty === specialty.value ? '600' : '400',
+              }}
             >
               {specialty.label}
             </Text>
