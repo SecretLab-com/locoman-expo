@@ -484,3 +484,10 @@
 - Buttons work correctly for real users
 - Catalog displays real bundles from database
 - Cart functionality works with AsyncStorage persistence
+
+
+## Product Selection Modal Fixes
+- [x] Remove "Bundle" from filter options (bundles cannot contain other bundles)
+- [x] Add product detail screen when clicking on image or product name
+- [x] Only toggle selection when clicking on checkbox area (right side)
+- [x] Separate click zones: left side for detail view, right side for selection

@@ -135,6 +135,10 @@ export default function BundleEditorScreen() {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [customGoal, setCustomGoal] = useState("");
 
+  // Product detail modal
+  const [showProductDetail, setShowProductDetail] = useState(false);
+  const [selectedProductDetail, setSelectedProductDetail] = useState<ProductItem | null>(null);
+
   // AI image generation mutation
   const generateImageMutation = trpc.ai.generateBundleImage.useMutation();
 
@@ -294,10 +298,13 @@ export default function BundleEditorScreen() {
     updateForm("price", total.toFixed(2));
   }, [productTotal, servicesTotal, updateForm]);
 
-  // Filter products for modal
+  // Filter products for modal (excluding bundles - bundles cannot contain other bundles)
   const filteredProducts = useMemo(() => {
     if (!shopifyProducts) return [];
     return shopifyProducts.filter((product: ProductItem) => {
+      // Exclude bundles from selection
+      if (product.productType && product.productType.toLowerCase() === 'bundle') return false;
+      
       const matchesSearch = !productSearch ||
         product.title.toLowerCase().includes(productSearch.toLowerCase()) ||
         (product.vendor && product.vendor.toLowerCase().includes(productSearch.toLowerCase())) ||
@@ -308,10 +315,14 @@ export default function BundleEditorScreen() {
     });
   }, [shopifyProducts, productSearch, productTypeFilter, vendorFilter]);
 
-  // Extract unique product types and vendors
+  // Extract unique product types and vendors (excluding Bundle type)
   const uniqueProductTypes = useMemo(() => {
     if (!shopifyProducts) return [];
-    const types = new Set(shopifyProducts.map((p: ProductItem) => p.productType).filter(Boolean));
+    const types = new Set(
+      shopifyProducts
+        .map((p: ProductItem) => p.productType)
+        .filter((type): type is string => Boolean(type) && type.toLowerCase() !== 'bundle')
+    );
     return Array.from(types).sort();
   }, [shopifyProducts]);
 
@@ -1460,48 +1471,66 @@ export default function BundleEditorScreen() {
                   renderItem={({ item }) => {
                     const isSelected = form.products.some((p) => p.id === item.id);
                     return (
-                      <TouchableOpacity
+                      <View
                         className={`bg-surface border rounded-xl p-3 mb-2 flex-row items-center ${
                           isSelected ? "border-primary" : "border-border"
                         }`}
-                        onPress={() => toggleProduct(item)}
                       >
-                        {/* Product Image - always show with placeholder fallback */}
-                        <View style={{ width: 56, height: 56, borderRadius: 8, marginRight: 12, backgroundColor: colors.surface, overflow: 'hidden' }}>
-                          {item.imageUrl ? (
-                            <Image
-                              source={{ uri: item.imageUrl }}
-                              style={{ width: 56, height: 56 }}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border }}>
-                              <IconSymbol name="bag.fill" size={24} color={colors.muted} />
-                            </View>
-                          )}
-                        </View>
-                        <View className="flex-1">
-                          <Text className="text-foreground font-medium" numberOfLines={1}>
-                            {item.title}
-                          </Text>
-                          <Text className="text-muted text-sm">{item.vendor}</Text>
-                          <View className="flex-row items-center mt-1">
-                            <Text className="text-primary font-semibold">${item.price}</Text>
-                            <Text className="text-muted text-xs ml-2">
-                              {item.inventory > 0 ? `${item.inventory} in stock` : "Out of stock"}
-                            </Text>
-                          </View>
-                        </View>
-                        <View
-                          className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                            isSelected ? "bg-primary border-primary" : "border-border"
-                          }`}
+                        {/* Left side - clickable for detail view */}
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                          onPress={() => {
+                            setSelectedProductDetail(item);
+                            setShowProductDetail(true);
+                            haptics.light();
+                          }}
+                          activeOpacity={0.7}
                         >
-                          {isSelected && (
-                            <IconSymbol name="checkmark" size={14} color={colors.background} />
-                          )}
-                        </View>
-                      </TouchableOpacity>
+                          {/* Product Image - always show with placeholder fallback */}
+                          <View style={{ width: 56, height: 56, borderRadius: 8, marginRight: 12, backgroundColor: colors.surface, overflow: 'hidden' }}>
+                            {item.imageUrl ? (
+                              <Image
+                                source={{ uri: item.imageUrl }}
+                                style={{ width: 56, height: 56 }}
+                                contentFit="cover"
+                              />
+                            ) : (
+                              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border }}>
+                                <IconSymbol name="bag.fill" size={24} color={colors.muted} />
+                              </View>
+                            )}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text className="text-foreground font-medium" numberOfLines={1}>
+                              {item.title}
+                            </Text>
+                            <Text className="text-muted text-sm">{item.vendor}</Text>
+                            <View className="flex-row items-center mt-1">
+                              <Text className="text-primary font-semibold">${item.price}</Text>
+                              <Text className="text-muted text-xs ml-2">
+                                {item.inventory > 0 ? `${item.inventory} in stock` : "Out of stock"}
+                              </Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                        
+                        {/* Right side - checkbox for selection */}
+                        <TouchableOpacity
+                          style={{ padding: 12, marginRight: -8 }}
+                          onPress={() => toggleProduct(item)}
+                          activeOpacity={0.7}
+                        >
+                          <View
+                            className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                              isSelected ? "bg-primary border-primary" : "border-border"
+                            }`}
+                          >
+                            {isSelected && (
+                              <IconSymbol name="checkmark" size={14} color={colors.background} />
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      </View>
                     );
                   }}
                   ListEmptyComponent={
@@ -1602,6 +1631,133 @@ export default function BundleEditorScreen() {
                     Scan product barcodes to quickly add items to your bundle.
                     Products are matched by SKU.
                   </Text>
+                </View>
+              </SafeAreaView>
+            </View>
+          </SafeAreaView>
+        </Modal>
+
+        {/* Product Detail Modal */}
+        <Modal
+          visible={showProductDetail}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowProductDetail(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+            <View className="flex-1 bg-background">
+              {/* Header */}
+              <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
+                <TouchableOpacity onPress={() => setShowProductDetail(false)}>
+                  <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+                </TouchableOpacity>
+                <Text className="text-lg font-semibold text-foreground">Product Details</Text>
+                <View style={{ width: 24 }} />
+              </View>
+
+              {selectedProductDetail && (
+                <ScrollView className="flex-1">
+                  {/* Product Image */}
+                  <View style={{ width: '100%', height: 300, backgroundColor: colors.surface }}>
+                    {selectedProductDetail.imageUrl ? (
+                      <Image
+                        source={{ uri: selectedProductDetail.imageUrl }}
+                        style={{ width: '100%', height: 300 }}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border }}>
+                        <IconSymbol name="bag.fill" size={64} color={colors.muted} />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Product Info */}
+                  <View className="p-4">
+                    <Text className="text-2xl font-bold text-foreground mb-1">
+                      {selectedProductDetail.title}
+                    </Text>
+                    <Text className="text-muted text-base mb-4">
+                      {selectedProductDetail.vendor}
+                    </Text>
+
+                    {/* Price and Stock */}
+                    <View className="flex-row items-center mb-4">
+                      <Text className="text-2xl font-bold text-primary">
+                        ${selectedProductDetail.price}
+                      </Text>
+                      <View className={`ml-3 px-3 py-1 rounded-full ${
+                        selectedProductDetail.inventory > 0 ? 'bg-success/20' : 'bg-error/20'
+                      }`}>
+                        <Text className={`text-sm font-medium ${
+                          selectedProductDetail.inventory > 0 ? 'text-success' : 'text-error'
+                        }`}>
+                          {selectedProductDetail.inventory > 0 
+                            ? `${selectedProductDetail.inventory} in stock` 
+                            : 'Out of stock'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Product Details */}
+                    <View className="bg-surface rounded-xl p-4 mb-4">
+                      <Text className="text-foreground font-semibold mb-3">Product Information</Text>
+                      
+                      <View className="flex-row justify-between py-2 border-b border-border">
+                        <Text className="text-muted">Type</Text>
+                        <Text className="text-foreground">{selectedProductDetail.productType || 'N/A'}</Text>
+                      </View>
+                      
+                      <View className="flex-row justify-between py-2 border-b border-border">
+                        <Text className="text-muted">SKU</Text>
+                        <Text className="text-foreground">{selectedProductDetail.sku || 'N/A'}</Text>
+                      </View>
+                      
+                      <View className="flex-row justify-between py-2 border-b border-border">
+                        <Text className="text-muted">Vendor</Text>
+                        <Text className="text-foreground">{selectedProductDetail.vendor || 'N/A'}</Text>
+                      </View>
+                      
+                      <View className="flex-row justify-between py-2">
+                        <Text className="text-muted">Status</Text>
+                        <Text className="text-foreground capitalize">{selectedProductDetail.status || 'active'}</Text>
+                      </View>
+                    </View>
+
+                    {/* Description */}
+                    {selectedProductDetail.description && (
+                      <View className="mb-4">
+                        <Text className="text-foreground font-semibold mb-2">Description</Text>
+                        <Text className="text-muted leading-6">
+                          {selectedProductDetail.description}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </ScrollView>
+              )}
+
+              {/* Add to Bundle Button */}
+              <SafeAreaView edges={["bottom"]} style={{ backgroundColor: colors.background }}>
+                <View className="p-4 border-t border-border">
+                  {selectedProductDetail && (() => {
+                    const isSelected = form.products.some((p) => p.id === selectedProductDetail.id);
+                    return (
+                      <TouchableOpacity
+                        className={`rounded-xl py-4 items-center ${
+                          isSelected ? 'bg-error' : 'bg-primary'
+                        }`}
+                        onPress={() => {
+                          toggleProduct(selectedProductDetail);
+                          setShowProductDetail(false);
+                        }}
+                      >
+                        <Text className="text-background font-semibold">
+                          {isSelected ? 'Remove from Bundle' : 'Add to Bundle'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })()}
                 </View>
               </SafeAreaView>
             </View>
