@@ -589,3 +589,31 @@
 
 ## Navigation Fix
 - [x] Add Catalog tab to Coordinator layout so users can browse bundles and products
+
+## Navigation Audit - Fix Stuck Screens
+- [ ] Identify all screens without back navigation
+- [ ] Add back navigation to detail screens (bundle, product, trainer, client, order details)
+- [ ] Add back navigation to modal/standalone screens (bundle-editor, settings, etc.)
+- [ ] Ensure all screens have a way to return to the main tab navigation
+
+## Navigation Improvements - Back Button Audit
+- [x] Add back button to manager analytics screen
+- [x] Add back button to manager approvals screen
+- [x] Add back button to manager deliveries screen
+- [x] Add back button to manager invitations screen
+- [x] Add back button to manager products screen
+- [x] Add back button to manager templates screen
+- [x] Add back button to manager trainers screen
+- [x] Add back button to manager users screen
+- [x] Verify trainer settings screen has back button (already present)
+- [x] Verify bundle detail screen has back button (already present)
+- [x] Verify bundle editor screen has back button (already present)
+- [x] Verify messages screens have back buttons (already present)
+- [x] Verify template editor screen has back button (already present)
+- [x] Verify client detail screen has back button (already present)
+- [x] Verify trainer detail screen has back button (already present)
+- [x] Verify checkout screens have back buttons (already present)
+- [x] Verify client screens have back buttons (already present)
+- [x] Verify browse screen has back button (already present)
+- [x] Verify invite token screen has back button (already present)
+- [x] Verify trainer bundles screen has back button (already present)

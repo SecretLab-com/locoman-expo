@@ -571,11 +571,19 @@ export default function UsersScreen() {
     <ScreenContainer className="flex-1">
       {/* Header with Export Button */}
       <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
-        <View>
-          <Text className="text-2xl font-bold text-foreground">Users</Text>
-          <Text className="text-sm text-muted mt-1">
-            {totalCount} users found
-          </Text>
+        <View className="flex-row items-center">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <View>
+            <Text className="text-2xl font-bold text-foreground">Users</Text>
+            <Text className="text-sm text-muted mt-1">
+              {totalCount} users found
+            </Text>
+          </View>
         </View>
         <View style={styles.headerButtons}>
           {selectionMode ? (

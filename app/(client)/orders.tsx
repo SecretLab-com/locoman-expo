@@ -156,8 +156,18 @@ export default function ClientOrdersScreen() {
     <ScreenContainer>
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">My Orders</Text>
-        <Text className="text-sm text-muted">{MOCK_ORDERS.length} total orders</Text>
+        <View className="flex-row items-center">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <View>
+            <Text className="text-2xl font-bold text-foreground">My Orders</Text>
+            <Text className="text-sm text-muted">{MOCK_ORDERS.length} total orders</Text>
+          </View>
+        </View>
 
         {/* Filter Tabs */}
         <View className="flex-row bg-surface rounded-xl p-1 mt-4">

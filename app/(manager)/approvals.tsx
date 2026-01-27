@@ -335,8 +335,18 @@ export default function ManagerApprovalsScreen() {
     <ScreenContainer className="px-4">
       {/* Header */}
       <View className="py-4">
-        <Text className="text-2xl font-bold text-foreground">Bundle Approvals</Text>
-        <Text className="text-muted">Review and approve trainer bundles</Text>
+        <View className="flex-row items-center">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <View>
+            <Text className="text-2xl font-bold text-foreground">Bundle Approvals</Text>
+            <Text className="text-muted">Review and approve trainer bundles</Text>
+          </View>
+        </View>
       </View>
 
       {/* Stats */}

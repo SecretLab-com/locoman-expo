@@ -183,9 +183,17 @@ export default function TrainerBundlesScreen() {
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center justify-between mb-4">
-          <View>
-            <Text className="text-2xl font-bold text-foreground">My Bundles</Text>
-            <Text className="text-sm text-muted">{bundles.length} total bundles</Text>
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            >
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <View>
+              <Text className="text-2xl font-bold text-foreground">My Bundles</Text>
+              <Text className="text-sm text-muted">{bundles.length} total bundles</Text>
+            </View>
           </View>
           <TouchableOpacity
             className="bg-primary px-4 py-2 rounded-full flex-row items-center"

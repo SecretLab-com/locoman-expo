@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
 } from "react-native";
+import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -297,7 +298,15 @@ export default function ManagerProductsScreen() {
       {/* Header */}
       <View className="px-4 pt-4 pb-2">
         <View className="flex-row justify-between items-center mb-4">
-          <Text className="text-2xl font-bold text-foreground">Products</Text>
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            >
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <Text className="text-2xl font-bold text-foreground">Products</Text>
+          </View>
           <View className="flex-row gap-2">
             <TouchableOpacity
               className="bg-surface border border-border px-3 py-2 rounded-xl flex-row items-center"

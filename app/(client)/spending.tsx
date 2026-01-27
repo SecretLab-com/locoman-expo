@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Dimensions,
 } from "react-native";
+import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
@@ -114,8 +115,18 @@ export default function SpendingScreen() {
     <ScreenContainer className="flex-1">
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Spending</Text>
-        <Text className="text-sm text-muted mt-1">Track your fitness investments</Text>
+        <View className="flex-row items-center">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <View>
+            <Text className="text-2xl font-bold text-foreground">Spending</Text>
+            <Text className="text-sm text-muted mt-1">Track your fitness investments</Text>
+          </View>
+        </View>
       </View>
 
       <ScrollView

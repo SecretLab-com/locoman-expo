@@ -127,12 +127,22 @@ export default function TrainersScreen() {
 
   return (
     <ScreenContainer className="flex-1">
-      {/* Header - extra top padding for impersonation banner */}
-      <View className="px-4 pt-12 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Trainers</Text>
-        <Text className="text-sm text-muted mt-1">
-          {filteredTrainers.length} trainers
-        </Text>
+      {/* Header */}
+      <View className="px-4 pt-2 pb-4">
+        <View className="flex-row items-center">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <View>
+            <Text className="text-2xl font-bold text-foreground">Trainers</Text>
+            <Text className="text-sm text-muted mt-1">
+              {filteredTrainers.length} trainers
+            </Text>
+          </View>
+        </View>
       </View>
 
       {/* Search */}
