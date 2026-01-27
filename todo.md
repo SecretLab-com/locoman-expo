@@ -576,3 +576,4 @@
 - [x] Make Settings page section titles white instead of dark blue
 - [ ] Fix login not working on Expo Go - testuser@secretlab.com with password supertest shows no error but doesn't login
 - [x] Update testuser@secretlab.com to coordinator (super user) role
+- [x] Fix Profile screen section titles (YOUR DASHBOARD, ACCOUNT, TRAINER ACTIONS) to be white
