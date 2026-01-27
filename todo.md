@@ -574,3 +574,5 @@
 - [x] Fix bottom navigation bar still too light - changed to colors.background (#0A0A14) to match main screen
 - [x] Fix bottom nav to use pure black color (#000000)
 - [x] Make Settings page section titles white instead of dark blue
+- [ ] Fix login not working on Expo Go - testuser@secretlab.com with password supertest shows no error but doesn't login
+- [x] Update testuser@secretlab.com to coordinator (super user) role

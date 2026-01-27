@@ -33,12 +33,12 @@ describe("Test Accounts and OAuth Fixes", () => {
       expect(content).toContain("test_manager_account");
     });
 
-    it("should have default shopper test account configured", () => {
+    it("should have default coordinator test account configured", () => {
       const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
       const content = fs.readFileSync(oauthPath, "utf-8");
       
       expect(content).toContain("testuser@secretlab.com");
-      expect(content).toContain("test_user_shopper");
+      expect(content).toContain("test_user_coordinator");
     });
 
     it("should use same password for all test accounts", () => {

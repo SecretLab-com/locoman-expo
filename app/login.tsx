@@ -75,6 +75,8 @@ export default function LoginScreen() {
 
       // Call login API with correct base URL
       const apiBaseUrl = getApiBaseUrl();
+      console.log("[Login] API base URL:", apiBaseUrl);
+      console.log("[Login] Attempting login for:", email);
       const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -82,10 +84,14 @@ export default function LoginScreen() {
         credentials: "include",
       });
 
+      console.log("[Login] Response status:", response.status, response.ok);
+      
       if (response.ok) {
         await haptics.success();
         const data = await response.json();
+        console.log("[Login] Response data:", JSON.stringify(data));
         const userRole = data.user?.role || "shopper";
+        console.log("[Login] User role:", userRole);
         
         // Store session token and user info for native apps
         if (Platform.OS !== "web" && data.sessionToken) {
@@ -130,10 +136,13 @@ export default function LoginScreen() {
         }
         
         // Navigate to the appropriate dashboard
+        console.log("[Login] Navigating to:", targetRoute, "Platform:", Platform.OS);
         if (Platform.OS === "web" && typeof window !== "undefined") {
           window.location.href = targetRoute;
         } else {
+          console.log("[Login] Calling router.replace for native...");
           router.replace(targetRoute as any);
+          console.log("[Login] router.replace called");
         }
       } else {
         await haptics.error();

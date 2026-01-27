@@ -154,15 +154,16 @@ export function registerOAuthRoutes(app: Express) {
     try {
       const { email, password } = req.body;
       
-      // Test user credentials - default shopper role
+      // Test user credentials - coordinator (super user) role
       if (email === "testuser@secretlab.com" && password === "supertest") {
-        // Create a test user session
-        const testOpenId = "test_user_shopper";
+        // Create a test user session with coordinator role
+        const testOpenId = "test_user_coordinator";
         const testUser = {
           openId: testOpenId,
           name: "Test User",
           email: email,
           loginMethod: "email",
+          role: "coordinator" as const,
         };
         
         await syncUser(testUser);
