@@ -8,8 +8,9 @@ describe("LocoMotivate App", () => {
 
       expect(themeColors).toBeDefined();
       expect(themeColors.primary).toBeDefined();
-      expect(themeColors.primary.light).toBe("#10B981");
-      expect(themeColors.primary.dark).toBe("#34D399");
+      // Bright Express inspired blue theme
+      expect(themeColors.primary.light).toBe("#3B82F6");
+      expect(themeColors.primary.dark).toBe("#60A5FA");
       expect(themeColors.background).toBeDefined();
       expect(themeColors.foreground).toBeDefined();
       expect(themeColors.surface).toBeDefined();

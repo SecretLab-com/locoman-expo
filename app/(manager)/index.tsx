@@ -267,7 +267,7 @@ export default function ManagerDashboardScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => handleAlertTrainer(item)}
-                    className="flex-1 bg-warning py-2 rounded-lg items-center"
+                    className="flex-1 bg-gradient-to-r from-warning to-warning/80 py-2.5 rounded-full items-center shadow-sm"
                   >
                     <Text className="text-white font-medium">Alert Trainer</Text>
                   </TouchableOpacity>

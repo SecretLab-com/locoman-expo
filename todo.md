@@ -546,3 +546,16 @@
 ## Bug Fixes
 - [x] Fix tRPC validation error (id: NaN) by adding proper id validation in trainer profile and bundle editor screens
 - [ ] Fix Manager Dashboard notch overlap - content overlaps with status bar area
+
+## Design Update - Match Bright Express Style
+- [ ] Analyze shop.bright.express design (colors, typography, spacing, components)
+- [ ] Update theme.config.js with new color palette
+- [ ] Update component styles to match Bright Express aesthetic
+- [ ] Test updated design across all screens
+
+
+## Design Update - Match Bright Express Style
+- [x] Update theme colors to match Bright Express dark theme (navy background, blue accents)
+- [x] Set dark mode as default
+- [x] Update button styles to use rounded-full pill shape
+- [x] Update splash screen and Android icon background colors to dark navy

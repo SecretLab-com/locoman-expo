@@ -20,8 +20,9 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useSystemColorScheme() ?? "light";
-  const [themePreference, setThemePreferenceState] = useState<ThemePreference>("system");
-  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(systemScheme);
+  // Default to dark mode to match Bright Express style
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>("dark");
+  const [colorScheme, setColorSchemeState] = useState<ColorScheme>("dark");
   const [isInitialized, setIsInitialized] = useState(false);
 
   // Load saved theme preference on mount

@@ -280,7 +280,7 @@ export default function LoginScreen() {
 
             {/* Login Button */}
             <TouchableOpacity
-              className="bg-primary rounded-xl py-4 items-center mb-4"
+              className="bg-primary rounded-full py-4 items-center mb-4"
               onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.8}
@@ -294,7 +294,7 @@ export default function LoginScreen() {
 
             {/* Manus OAuth Login Button */}
             <TouchableOpacity
-              className="bg-surface border border-border rounded-xl py-4 items-center mb-6"
+              className="bg-surface border border-border rounded-full py-4 items-center mb-6"
               onPress={handleOAuthLogin}
               disabled={loading}
               activeOpacity={0.8}

@@ -446,7 +446,7 @@ describe("LocoMotivate Expo App - Complete Feature Test Suite", () => {
       expect(fs.existsSync(themePath)).toBe(true);
       const content = fs.readFileSync(themePath, "utf-8");
       expect(content).toContain("primary");
-      expect(content).toContain("10B981"); // Emerald green
+      expect(content).toContain("3B82F6"); // Bright Express blue
     });
 
     it("should have app icon", () => {
