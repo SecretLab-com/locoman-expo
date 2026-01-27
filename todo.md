@@ -579,3 +579,4 @@
 - [x] Fix Profile screen section titles (YOUR DASHBOARD, ACCOUNT, TRAINER ACTIONS) to be white
 - [x] Add subtle opacity to section titles (text-white/80 in dark, text-foreground/70 in light) for softer appearance
 - [x] Make section titles work in both light and dark themes with conditional styling using SectionTitle component
+- [x] Fix Edit Profile menu item title visibility - all menu item titles now use primary (blue) color

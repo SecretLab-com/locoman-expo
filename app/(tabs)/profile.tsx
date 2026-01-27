@@ -20,7 +20,8 @@ type MenuItemProps = {
 
 function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger = false, highlight = false }: MenuItemProps) {
   const colors = useColors();
-  const textColor = danger ? colors.error : highlight ? colors.primary : colors.foreground;
+  // All menu item titles should be blue (primary color) for better visibility on dark theme
+  const textColor = danger ? colors.error : colors.primary;
   const bgColor = highlight ? "bg-primary/10" : "bg-surface";
 
   return (
