@@ -194,7 +194,7 @@ export default function ProfileScreen() {
           {/* Role-Based Dashboard Access */}
           {dashboardInfo && (
             <>
-              <Text className="text-sm font-semibold text-muted uppercase mb-2 mt-4">
+              <Text className="text-sm font-semibold text-foreground/70 uppercase tracking-wider mb-2 mt-4">
                 Your Dashboard
               </Text>
               <View className="bg-surface rounded-xl px-4">
@@ -210,7 +210,7 @@ export default function ProfileScreen() {
           )}
 
           {/* Account Section */}
-          <Text className="text-sm font-semibold text-muted uppercase mb-2 mt-6">
+          <Text className="text-sm font-semibold text-foreground/70 uppercase tracking-wider mb-2 mt-6">
             Account
           </Text>
           <View className="bg-surface rounded-xl px-4">
@@ -243,7 +243,7 @@ export default function ProfileScreen() {
           {/* Trainer Quick Actions */}
           {isTrainer && (
             <>
-              <Text className="text-sm font-semibold text-muted uppercase mb-2 mt-6">
+              <Text className="text-sm font-semibold text-foreground/70 uppercase tracking-wider mb-2 mt-6">
                 Trainer Actions
               </Text>
               <View className="bg-surface rounded-xl px-4">
@@ -272,7 +272,7 @@ export default function ProfileScreen() {
           {/* Manager Quick Actions */}
           {isManager && (
             <>
-              <Text className="text-sm font-semibold text-muted uppercase mb-2 mt-6">
+              <Text className="text-sm font-semibold text-foreground/70 uppercase tracking-wider mb-2 mt-6">
                 Manager Actions
               </Text>
               <View className="bg-surface rounded-xl px-4">
@@ -293,7 +293,7 @@ export default function ProfileScreen() {
           )}
 
           {/* Preferences Section */}
-          <Text className="text-sm font-semibold text-muted uppercase mb-2 mt-6">
+          <Text className="text-sm font-semibold text-foreground/70 uppercase tracking-wider mb-2 mt-6">
             Preferences
           </Text>
           <View className="bg-surface rounded-xl px-4">

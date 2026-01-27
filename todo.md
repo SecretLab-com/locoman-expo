@@ -566,3 +566,6 @@
 - [ ] Add gradient backgrounds to bundle cards
 - [ ] Add gradient backgrounds to product cards
 - [x] Add gradient backgrounds to quick action buttons (Manager, Trainer)
+
+## Bug Fixes
+- [x] Fix invisible section titles on Profile screen - changed from text-muted to text-foreground/70 for better visibility
