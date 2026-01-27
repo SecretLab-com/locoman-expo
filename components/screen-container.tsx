@@ -2,6 +2,7 @@ import { View, type ViewProps } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 
 import { cn } from "@/lib/utils";
+import { useAuthContext } from "@/contexts/auth-context";
 
 export interface ScreenContainerProps extends ViewProps {
   /**
@@ -47,6 +48,15 @@ export function ScreenContainer({
   style,
   ...props
 }: ScreenContainerProps) {
+  // Check if impersonation banner is visible - if so, skip top safe area
+  // since the banner already handles it
+  const { isImpersonating, impersonatedUser } = useAuthContext();
+  const isBannerVisible = isImpersonating && !!impersonatedUser;
+  
+  // Filter out "top" edge if banner is visible
+  const effectiveEdges = isBannerVisible
+    ? edges.filter((edge) => edge !== "top")
+    : edges;
   return (
     <View
       className={cn(
@@ -57,7 +67,7 @@ export function ScreenContainer({
       {...props}
     >
       <SafeAreaView
-        edges={edges}
+        edges={effectiveEdges}
         className={cn("flex-1", safeAreaClassName)}
         style={style}
       >

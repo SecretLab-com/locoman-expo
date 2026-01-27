@@ -403,6 +403,7 @@
 ## Bug Fixes - Manager Trainers Screen
 - [x] Fix top content overlapping with impersonation banner
 - [x] Fix status filter pills displaying as tall vertical rectangles instead of horizontal pills
+- [x] Fix Manager Dashboard notch overlap - impersonation banner now uses SafeAreaView
 
 ## Sprint 2 Implementation
 - [x] Create TemplateEditor screen for managers
@@ -544,3 +545,4 @@
 
 ## Bug Fixes
 - [x] Fix tRPC validation error (id: NaN) by adding proper id validation in trainer profile and bundle editor screens
+- [ ] Fix Manager Dashboard notch overlap - content overlaps with status bar area
