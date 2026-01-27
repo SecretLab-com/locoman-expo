@@ -23,7 +23,7 @@ export default function ManagerTabLayout() {
           paddingTop: 8,
           paddingBottom: bottomPadding,
           height: tabBarHeight,
-          backgroundColor: colors.background,
+          backgroundColor: '#000000',
           borderTopColor: colors.border,
           borderTopWidth: 0.5,
         },

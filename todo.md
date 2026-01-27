@@ -572,3 +572,5 @@
 - [x] Fix bottom navigation bar - changed from background to surface color for darker appearance
 - [x] Fix invisible section titles on Settings screen - changed text-muted to text-foreground/60 for better visibility
 - [x] Fix bottom navigation bar still too light - changed to colors.background (#0A0A14) to match main screen
+- [x] Fix bottom nav to use pure black color (#000000)
+- [x] Make Settings page section titles white instead of dark blue
