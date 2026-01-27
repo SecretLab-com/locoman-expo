@@ -559,3 +559,10 @@
 - [x] Set dark mode as default
 - [x] Update button styles to use rounded-full pill shape
 - [x] Update splash screen and Android icon background colors to dark navy
+
+## Gradient Cards Enhancement
+- [x] Create reusable GradientCard component using expo-linear-gradient
+- [x] Add gradient backgrounds to stat cards on dashboards (Manager, Trainer, Client)
+- [ ] Add gradient backgrounds to bundle cards
+- [ ] Add gradient backgrounds to product cards
+- [x] Add gradient backgrounds to quick action buttons (Manager, Trainer)

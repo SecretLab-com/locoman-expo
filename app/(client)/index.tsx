@@ -6,6 +6,7 @@ import {
   ScrollView,
   RefreshControl,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
@@ -118,17 +119,31 @@ export default function ClientDashboardScreen() {
 
         {/* Quick Stats */}
         <View className="flex-row px-4 mb-6">
-          <View className="flex-1 bg-primary/10 rounded-xl p-4 mr-2">
-            <IconSymbol name="bag.fill" size={24} color={colors.primary} />
-            <Text className="text-2xl font-bold text-foreground mt-2">
-              {MOCK_ACTIVE_BUNDLES.length}
-            </Text>
-            <Text className="text-sm text-muted">Active Bundles</Text>
+          <View className="flex-1 rounded-xl overflow-hidden mr-2">
+            <LinearGradient
+              colors={["#1E3A5F", "#0F2744"] as const}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              className="p-4"
+            >
+              <IconSymbol name="bag.fill" size={24} color={colors.primary} />
+              <Text className="text-2xl font-bold text-foreground mt-2">
+                {MOCK_ACTIVE_BUNDLES.length}
+              </Text>
+              <Text className="text-sm text-muted">Active Bundles</Text>
+            </LinearGradient>
           </View>
-          <View className="flex-1 bg-success/10 rounded-xl p-4 ml-2">
-            <IconSymbol name="checkmark.circle.fill" size={24} color={colors.success} />
-            <Text className="text-2xl font-bold text-foreground mt-2">12</Text>
-            <Text className="text-sm text-muted">Completed</Text>
+          <View className="flex-1 rounded-xl overflow-hidden ml-2">
+            <LinearGradient
+              colors={["#065F46", "#047857"] as const}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              className="p-4"
+            >
+              <IconSymbol name="checkmark.circle.fill" size={24} color={colors.success} />
+              <Text className="text-2xl font-bold text-foreground mt-2">12</Text>
+              <Text className="text-sm text-muted">Completed</Text>
+            </LinearGradient>
           </View>
         </View>
 

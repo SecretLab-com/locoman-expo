@@ -1,11 +1,12 @@
+import { useState } from "react";
 import { Text, View, TouchableOpacity, ScrollView, RefreshControl, ActivityIndicator } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "@/contexts/auth-context";
-
 type StatCardProps = {
   title: string;
   value: string | number;
@@ -18,16 +19,34 @@ function StatCard({ title, value, icon, color, onPress }: StatCardProps) {
   const colors = useColors();
   const iconColor = color || colors.primary;
 
+  // Gradient colors based on the icon color
+  const getGradientColors = (): readonly [string, string] => {
+    if (color === colors.success) {
+      return ["#065F46", "#047857"] as const; // Green gradient
+    }
+    if (color === colors.warning) {
+      return ["#4A3728", "#2D2118"] as const; // Amber gradient
+    }
+    return ["#1E293B", "#0F172A"] as const; // Default dark slate gradient
+  };
+
   const content = (
-    <View className="bg-surface rounded-xl p-4 flex-1 min-w-[140px]">
-      <View className="flex-row items-center justify-between mb-2">
-        <IconSymbol name={icon} size={24} color={iconColor} />
-        {onPress && (
-          <IconSymbol name="chevron.right" size={16} color={colors.muted} />
-        )}
-      </View>
-      <Text className="text-2xl font-bold text-foreground">{value}</Text>
-      <Text className="text-sm text-muted mt-1">{title}</Text>
+    <View className="rounded-xl overflow-hidden flex-1 min-w-[140px]">
+      <LinearGradient
+        colors={getGradientColors()}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        className="p-4"
+      >
+        <View className="flex-row items-center justify-between mb-2">
+          <IconSymbol name={icon} size={24} color={iconColor} />
+          {onPress && (
+            <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+          )}
+        </View>
+        <Text className="text-2xl font-bold text-foreground">{value}</Text>
+        <Text className="text-sm text-muted mt-1">{title}</Text>
+      </LinearGradient>
     </View>
   );
 
@@ -53,14 +72,21 @@ function QuickAction({ title, icon, onPress }: QuickActionProps) {
 
   return (
     <TouchableOpacity
-      className="bg-surface rounded-xl p-4 items-center flex-1 mx-1"
+      className="rounded-xl overflow-hidden flex-1 mx-1"
       onPress={onPress}
       activeOpacity={0.8}
     >
-      <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
-        <IconSymbol name={icon} size={24} color={colors.primary} />
-      </View>
-      <Text className="text-sm font-medium text-foreground text-center">{title}</Text>
+      <LinearGradient
+        colors={["#1E3A5F", "#0F2744"] as const}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        className="p-4 items-center"
+      >
+        <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+          <IconSymbol name={icon} size={24} color={colors.primary} />
+        </View>
+        <Text className="text-sm font-medium text-foreground text-center">{title}</Text>
+      </LinearGradient>
     </TouchableOpacity>
   );
 }

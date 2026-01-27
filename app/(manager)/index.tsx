@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Alert,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -47,14 +48,29 @@ function StatCard({ title, value, icon, color, onPress }: StatCardProps) {
   const colors = useColors();
   const iconColor = color || colors.primary;
 
+  // Gradient colors based on the icon color
+  const getGradientColors = (): readonly [string, string] => {
+    if (color === colors.success) {
+      return ["#065F46", "#047857"] as const; // Green gradient
+    }
+    return ["#1E293B", "#0F172A"] as const; // Default dark slate gradient
+  };
+
   const content = (
-    <View className="bg-surface rounded-xl p-4 flex-1 min-w-[140px]">
-      <View className="flex-row items-center justify-between mb-2">
-        <IconSymbol name={icon} size={24} color={iconColor} />
-        {onPress && <IconSymbol name="chevron.right" size={16} color={colors.muted} />}
-      </View>
-      <Text className="text-2xl font-bold text-foreground">{value}</Text>
-      <Text className="text-sm text-muted mt-1">{title}</Text>
+    <View className="rounded-xl overflow-hidden flex-1 min-w-[140px]">
+      <LinearGradient
+        colors={getGradientColors()}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        className="p-4"
+      >
+        <View className="flex-row items-center justify-between mb-2">
+          <IconSymbol name={icon} size={24} color={iconColor} />
+          {onPress && <IconSymbol name="chevron.right" size={16} color={colors.muted} />}
+        </View>
+        <Text className="text-2xl font-bold text-foreground">{value}</Text>
+        <Text className="text-sm text-muted mt-1">{title}</Text>
+      </LinearGradient>
     </View>
   );
 
@@ -173,59 +189,101 @@ export default function ManagerDashboardScreen() {
           <View className="flex-row gap-3 mb-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/templates" as any)}
-              className="flex-1 bg-surface rounded-xl p-4 items-center"
+              className="flex-1 rounded-xl overflow-hidden"
             >
-              <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
-                <IconSymbol name="doc.text.fill" size={24} color={colors.primary} />
-              </View>
-              <Text className="text-sm font-medium text-foreground">Templates</Text>
+              <LinearGradient
+                colors={["#1E3A5F", "#0F2744"] as const}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+                  <IconSymbol name="doc.text.fill" size={24} color={colors.primary} />
+                </View>
+                <Text className="text-sm font-medium text-foreground">Templates</Text>
+              </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/invitations" as any)}
-              className="flex-1 bg-surface rounded-xl p-4 items-center"
+              className="flex-1 rounded-xl overflow-hidden"
             >
-              <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
-                <IconSymbol name="envelope.fill" size={24} color={colors.primary} />
-              </View>
-              <Text className="text-sm font-medium text-foreground">Invitations</Text>
+              <LinearGradient
+                colors={["#1E3A5F", "#0F2744"] as const}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+                  <IconSymbol name="envelope.fill" size={24} color={colors.primary} />
+                </View>
+                <Text className="text-sm font-medium text-foreground">Invitations</Text>
+              </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/analytics" as any)}
-              className="flex-1 bg-surface rounded-xl p-4 items-center"
+              className="flex-1 rounded-xl overflow-hidden"
             >
-              <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
-                <IconSymbol name="chart.bar.fill" size={24} color={colors.primary} />
-              </View>
-              <Text className="text-sm font-medium text-foreground">Analytics</Text>
+              <LinearGradient
+                colors={["#1E3A5F", "#0F2744"] as const}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+                  <IconSymbol name="chart.bar.fill" size={24} color={colors.primary} />
+                </View>
+                <Text className="text-sm font-medium text-foreground">Analytics</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
           <View className="flex-row gap-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/deliveries" as any)}
-              className="flex-1 bg-surface rounded-xl p-4 items-center"
+              className="flex-1 rounded-xl overflow-hidden"
             >
-              <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
-                <IconSymbol name="shippingbox.fill" size={24} color={colors.primary} />
-              </View>
-              <Text className="text-sm font-medium text-foreground">Deliveries</Text>
+              <LinearGradient
+                colors={["#1E3A5F", "#0F2744"] as const}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+                  <IconSymbol name="shippingbox.fill" size={24} color={colors.primary} />
+                </View>
+                <Text className="text-sm font-medium text-foreground">Deliveries</Text>
+              </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/products" as any)}
-              className="flex-1 bg-surface rounded-xl p-4 items-center"
+              className="flex-1 rounded-xl overflow-hidden"
             >
-              <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center mb-2">
-                <IconSymbol name="bag.fill" size={24} color={colors.primary} />
-              </View>
-              <Text className="text-sm font-medium text-foreground">Products</Text>
+              <LinearGradient
+                colors={["#1E3A5F", "#0F2744"] as const}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+                  <IconSymbol name="bag.fill" size={24} color={colors.primary} />
+                </View>
+                <Text className="text-sm font-medium text-foreground">Products</Text>
+              </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/approvals" as any)}
-              className="flex-1 bg-surface rounded-xl p-4 items-center"
+              className="flex-1 rounded-xl overflow-hidden"
             >
-              <View className="w-12 h-12 rounded-full bg-warning/10 items-center justify-center mb-2">
-                <IconSymbol name="checkmark.circle.fill" size={24} color={colors.warning} />
-              </View>
-              <Text className="text-sm font-medium text-foreground">Approvals</Text>
+              <LinearGradient
+                colors={["#4A3728", "#2D2118"] as const}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-warning/20 items-center justify-center mb-2">
+                  <IconSymbol name="checkmark.circle.fill" size={24} color={colors.warning} />
+                </View>
+                <Text className="text-sm font-medium text-foreground">Approvals</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </View>
