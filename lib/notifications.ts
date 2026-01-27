@@ -81,13 +81,25 @@ export async function registerForPushNotificationsAsync(): Promise<string | unde
   // Get Expo push token
   try {
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    
+    // Skip push token registration if no projectId is configured
+    // This happens in development with Expo Go when EAS is not set up
+    if (!projectId) {
+      console.log("[Push Notifications] No EAS projectId configured - skipping push token registration");
+      console.log("[Push Notifications] To enable push notifications, configure EAS Build for your project");
+      return undefined;
+    }
+    
     const pushToken = await Notifications.getExpoPushTokenAsync({
       projectId,
     });
     token = pushToken.data;
     console.log("Expo push token:", token);
   } catch (error) {
-    console.error("Error getting push token:", error);
+    // Log gracefully without showing error toast to user
+    console.log("[Push Notifications] Could not get push token:", error instanceof Error ? error.message : error);
+    console.log("[Push Notifications] Push notifications will not be available in this session");
+    return undefined;
   }
 
   return token;

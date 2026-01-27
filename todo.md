@@ -531,3 +531,8 @@
 - [x] Implement Shopify API integration (already implemented)
 - [x] Create product sync endpoint (shopify.sync mutation exists)
 - [x] Sync products from remote Shopify store (250 products synced successfully)
+
+
+## Bug Fix - Push Notification projectId Error
+- [x] Fix "No projectId found" error in Expo Go
+- [x] Make push notification registration graceful when not configured (skip registration if no EAS projectId)
