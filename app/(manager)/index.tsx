@@ -200,7 +200,7 @@ export default function ManagerDashboardScreen() {
                 <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
                   <IconSymbol name="doc.text.fill" size={24} color={colors.primary} />
                 </View>
-                <Text className="text-sm font-medium text-foreground">Templates</Text>
+                <Text className="text-sm font-medium text-primary">Templates</Text>
               </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
@@ -216,7 +216,7 @@ export default function ManagerDashboardScreen() {
                 <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
                   <IconSymbol name="envelope.fill" size={24} color={colors.primary} />
                 </View>
-                <Text className="text-sm font-medium text-foreground">Invitations</Text>
+                <Text className="text-sm font-medium text-primary">Invitations</Text>
               </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
@@ -232,7 +232,7 @@ export default function ManagerDashboardScreen() {
                 <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
                   <IconSymbol name="chart.bar.fill" size={24} color={colors.primary} />
                 </View>
-                <Text className="text-sm font-medium text-foreground">Analytics</Text>
+                <Text className="text-sm font-medium text-primary">Analytics</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -250,7 +250,7 @@ export default function ManagerDashboardScreen() {
                 <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
                   <IconSymbol name="shippingbox.fill" size={24} color={colors.primary} />
                 </View>
-                <Text className="text-sm font-medium text-foreground">Deliveries</Text>
+                <Text className="text-sm font-medium text-primary">Deliveries</Text>
               </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
@@ -266,7 +266,7 @@ export default function ManagerDashboardScreen() {
                 <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
                   <IconSymbol name="bag.fill" size={24} color={colors.primary} />
                 </View>
-                <Text className="text-sm font-medium text-foreground">Products</Text>
+                <Text className="text-sm font-medium text-primary">Products</Text>
               </LinearGradient>
             </TouchableOpacity>
             <TouchableOpacity
@@ -282,7 +282,7 @@ export default function ManagerDashboardScreen() {
                 <View className="w-12 h-12 rounded-full bg-warning/20 items-center justify-center mb-2">
                   <IconSymbol name="checkmark.circle.fill" size={24} color={colors.warning} />
                 </View>
-                <Text className="text-sm font-medium text-foreground">Approvals</Text>
+                <Text className="text-sm font-medium text-warning">Approvals</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>

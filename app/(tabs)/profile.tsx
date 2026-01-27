@@ -1,4 +1,4 @@
-import { Text, View, TouchableOpacity, ScrollView, Alert } from "react-native";
+import { Text, View, TouchableOpacity, ScrollView, Alert, Pressable } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
@@ -25,10 +25,18 @@ function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger =
   const bgColor = highlight ? "bg-primary/10" : "bg-surface";
 
   return (
-    <TouchableOpacity
-      className={`flex-row items-center py-4 border-b border-border ${highlight ? "bg-primary/5" : ""}`}
+    <Pressable
       onPress={onPress}
-      activeOpacity={0.7}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        backgroundColor: pressed 
+          ? (highlight ? "rgba(59, 130, 246, 0.15)" : "rgba(59, 130, 246, 0.08)") 
+          : (highlight ? "rgba(59, 130, 246, 0.05)" : "transparent"),
+      })}
     >
       <View className={`w-10 h-10 rounded-full ${bgColor} items-center justify-center mr-4`}>
         <IconSymbol name={icon} size={20} color={danger ? colors.error : highlight ? colors.primary : colors.primary} />
@@ -42,7 +50,7 @@ function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger =
       {showChevron && (
         <IconSymbol name="chevron.right" size={20} color={highlight ? colors.primary : colors.muted} />
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -333,13 +341,16 @@ export default function ProfileScreen() {
 
           {/* Logout */}
           <View className="mt-6 mb-8">
-            <TouchableOpacity
-              className="bg-error/10 border border-error rounded-xl py-4 items-center"
-              onPress={handleLogout}
-              activeOpacity={0.8}
-            >
-              <Text className="text-error font-semibold">Logout</Text>
-            </TouchableOpacity>
+            <View className="bg-surface rounded-xl px-4">
+              <MenuItem
+                icon="rectangle.portrait.and.arrow.right"
+                title="Logout"
+                subtitle="Sign out of your account"
+                onPress={handleLogout}
+                showChevron={false}
+                danger
+              />
+            </View>
           </View>
         </View>
       </ScrollView>

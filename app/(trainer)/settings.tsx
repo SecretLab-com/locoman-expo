@@ -245,7 +245,7 @@ export default function SettingsScreen() {
           <View className="bg-surface rounded-xl p-4 border border-border">
             <View className="flex-row items-center justify-between">
               <View className="flex-1">
-                <Text className="text-base font-medium text-foreground">
+                <Text className="text-base font-medium text-primary">
                   Accepting New Clients
                 </Text>
                 <Text className="text-sm text-foreground/60">
@@ -325,7 +325,7 @@ export default function SettingsScreen() {
             {/* Email Notifications */}
             <View className="flex-row items-center justify-between p-4">
               <View className="flex-1">
-                <Text className="text-base font-medium text-foreground">
+                <Text className="text-base font-medium text-primary">
                   Email Notifications
                 </Text>
                 <Text className="text-sm text-foreground/60">
@@ -343,7 +343,7 @@ export default function SettingsScreen() {
             {/* Push Notifications */}
             <View className="flex-row items-center justify-between p-4">
               <View className="flex-1">
-                <Text className="text-base font-medium text-foreground">
+                <Text className="text-base font-medium text-primary">
                   Push Notifications
                 </Text>
                 <Text className="text-sm text-foreground/60">
@@ -361,7 +361,7 @@ export default function SettingsScreen() {
             {/* Order Alerts */}
             <View className="flex-row items-center justify-between p-4">
               <View className="flex-1">
-                <Text className="text-base font-medium text-foreground">
+                <Text className="text-base font-medium text-primary">
                   Order Alerts
                 </Text>
                 <Text className="text-sm text-foreground/60">
@@ -379,7 +379,7 @@ export default function SettingsScreen() {
             {/* Session Reminders */}
             <View className="flex-row items-center justify-between p-4">
               <View className="flex-1">
-                <Text className="text-base font-medium text-foreground">
+                <Text className="text-base font-medium text-primary">
                   Session Reminders
                 </Text>
                 <Text className="text-sm text-foreground/60">
