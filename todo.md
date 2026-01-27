@@ -506,3 +506,9 @@
 
 ## Bug Fix - ProfileFAB Crash
 - [x] Fix ProfileFAB crash when user.role is undefined (Cannot read property 'charAt' of undefined)
+
+
+## Bug Fix - Login Failure in Manus Preview
+- [x] Investigate login state not updating after successful login
+- [x] Check cookie/session persistence in Manus preview environment
+- [x] Fix authentication state synchronization (fixed cookie domain extraction for Manus preview)

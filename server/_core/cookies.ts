@@ -21,8 +21,15 @@ function isSecureRequest(req: Request) {
 
 /**
  * Extract parent domain for cookie sharing across subdomains.
- * e.g., "3000-xxx.manuspre.computer" -> ".manuspre.computer"
- * This allows cookies set by 3000-xxx to be read by 8081-xxx
+ * 
+ * Manus preview domain structure:
+ * - Metro: 8081-sandboxid-hash.region.manus.computer
+ * - API: 3000-sandboxid-hash.region.manus.computer
+ * 
+ * The cookie domain should be ".region.manus.computer" to allow sharing
+ * between the 8081 and 3000 subdomains.
+ * 
+ * For other domains like "3000-xxx.manuspre.computer", use ".manuspre.computer"
  */
 function getParentDomain(hostname: string): string | undefined {
   // Don't set domain for localhost or IP addresses
@@ -33,14 +40,20 @@ function getParentDomain(hostname: string): string | undefined {
   // Split hostname into parts
   const parts = hostname.split(".");
 
-  // Need at least 3 parts for a subdomain (e.g., "3000-xxx.manuspre.computer")
-  // For "manuspre.computer", we can't set a parent domain
+  // Need at least 3 parts for a subdomain
   if (parts.length < 3) {
     return undefined;
   }
 
-  // Return parent domain with leading dot (e.g., ".manuspre.computer")
-  // This allows cookie to be shared across all subdomains
+  // Check for Manus preview pattern: PORT-sandboxid-hash.region.manus.computer
+  // This has 4 parts after splitting: [PORT-sandboxid-hash, region, manus, computer]
+  // We need to return ".region.manus.computer" (last 3 parts)
+  if (parts.length >= 4 && parts[parts.length - 1] === "computer" && parts[parts.length - 2] === "manus") {
+    // Return last 3 parts: .region.manus.computer
+    return "." + parts.slice(-3).join(".");
+  }
+
+  // For other domains, use last 2 parts (e.g., ".manuspre.computer")
   return "." + parts.slice(-2).join(".");
 }
 
@@ -49,6 +62,8 @@ export function getSessionCookieOptions(
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
   const hostname = req.hostname;
   const domain = getParentDomain(hostname);
+
+  console.log("[Cookies] getSessionCookieOptions:", { hostname, domain });
 
   return {
     domain,
