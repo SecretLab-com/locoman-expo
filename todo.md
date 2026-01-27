@@ -524,3 +524,10 @@
 - [x] Check if products exist in database (products table was empty)
 - [x] Seeded 10 sample products (protein, pre-workout, recovery, vitamins, etc.)
 - [x] Products now available in bundle builder
+
+
+## Shopify Product Sync
+- [x] Review old locoman repo for Shopify sync code (already exists in server/shopify.ts)
+- [x] Implement Shopify API integration (already implemented)
+- [x] Create product sync endpoint (shopify.sync mutation exists)
+- [x] Sync products from remote Shopify store (250 products synced successfully)
