@@ -110,6 +110,10 @@ export default function BundleEditorScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const isNewBundle = id === "new";
+  
+  // Parse id safely - return 0 if invalid
+  const bundleIdParam = (id && id !== "new") ? parseInt(id, 10) : 0;
+  const isValidBundleId = !isNaN(bundleIdParam) && bundleIdParam > 0;
 
   const [loading, setLoading] = useState(!isNewBundle);
   const [saving, setSaving] = useState(false);
@@ -165,8 +169,8 @@ export default function BundleEditorScreen() {
 
   // Fetch existing bundle if editing
   const { data: existingBundle, refetch: refetchBundle } = trpc.bundles.get.useQuery(
-    { id: parseInt(id || "0") },
-    { enabled: !isNewBundle && !!id }
+    { id: bundleIdParam },
+    { enabled: !isNewBundle && isValidBundleId }
   );
 
   // Cross-platform alert helper (defined early for mutations)
@@ -589,7 +593,7 @@ export default function BundleEditorScreen() {
         await createBundleMutation.mutateAsync(bundleData);
       } else {
         await updateBundleMutation.mutateAsync({
-          id: parseInt(id || "0"),
+          id: bundleIdParam,
           ...bundleData,
         });
       }
@@ -629,7 +633,7 @@ export default function BundleEditorScreen() {
           suggestedGoal: form.suggestedGoal || undefined,
         };
 
-        let bundleId = parseInt(id || "0");
+        let bundleId = bundleIdParam;
         if (isNewBundle) {
           const result = await createBundleMutation.mutateAsync(bundleData);
           if (result && typeof result === 'object' && 'id' in result) {

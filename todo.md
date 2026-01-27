@@ -536,3 +536,11 @@
 ## Bug Fix - Push Notification projectId Error
 - [x] Fix "No projectId found" error in Expo Go
 - [x] Make push notification registration graceful when not configured (skip registration if no EAS projectId)
+
+
+## Bug Fix - tRPC NaN ID Error
+- [ ] Find API call passing NaN as id parameter
+- [ ] Fix validation to handle invalid/missing IDs
+
+## Bug Fixes
+- [x] Fix tRPC validation error (id: NaN) by adding proper id validation in trainer profile and bundle editor screens

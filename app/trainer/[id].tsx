@@ -34,10 +34,14 @@ export default function TrainerProfileScreen() {
   const { user } = useAuthContext();
   const [requestSent, setRequestSent] = useState(false);
 
+  // Parse id safely - return 0 if invalid
+  const trainerId = id ? parseInt(id, 10) : 0;
+  const isValidId = !isNaN(trainerId) && trainerId > 0;
+
   // Fetch trainer profile
   const { data: trainer, isLoading } = trpc.catalog.trainerProfile.useQuery(
-    { id: parseInt(id || "0") },
-    { enabled: !!id }
+    { id: trainerId },
+    { enabled: isValidId }
   );
 
   // Fetch trainer's bundles
@@ -45,7 +49,7 @@ export default function TrainerProfileScreen() {
 
   // Filter bundles by this trainer
   const trainerBundles = bundles?.filter(
-    (b: any) => b.trainerId === parseInt(id || "0")
+    (b: any) => b.trainerId === trainerId
   ) || [];
 
   // Handle join request
