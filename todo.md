@@ -586,3 +586,6 @@
 - [x] Apply blue title styling to Manager Dashboard menu items
 - [x] Add hover/press states with lighter blue tint to menu items (Profile screen)
 - [x] Update logout button to use card style like other menu items
+
+## Navigation Fix
+- [x] Add Catalog tab to Coordinator layout so users can browse bundles and products

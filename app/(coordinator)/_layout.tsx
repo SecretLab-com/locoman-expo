@@ -30,6 +30,13 @@ export default function CoordinatorTabLayout() {
       }}
     >
       <Tabs.Screen
+        name="catalog"
+        options={{
+          title: "Catalog",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="rectangle.grid.2x2.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="index"
         options={{
           title: "Impersonate",
