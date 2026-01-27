@@ -518,3 +518,9 @@
 - [x] Investigate database connection from Expo app
 - [x] Check API endpoints for data fetching (found auth issue - token not stored for native)
 - [x] Fix session token storage for native apps (login now stores token in SecureStore)
+
+
+## Bug Fix - No Products in Bundle Builder
+- [x] Check if products exist in database (products table was empty)
+- [x] Seeded 10 sample products (protein, pre-workout, recovery, vitamins, etc.)
+- [x] Products now available in bundle builder
