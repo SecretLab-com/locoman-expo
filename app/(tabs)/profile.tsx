@@ -45,6 +45,20 @@ function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger =
   );
 }
 
+function SectionTitle({ children }: { children: string }) {
+  const { colorScheme } = useThemeContext();
+  // Use dark text in light mode, light text with opacity in dark mode
+  const textClass = colorScheme === "dark" 
+    ? "text-white/80" 
+    : "text-foreground/70";
+  
+  return (
+    <Text className={`text-sm font-semibold ${textClass} uppercase tracking-wider mb-2 mt-6`}>
+      {children}
+    </Text>
+  );
+}
+
 function RoleBadge({ role }: { role: string }) {
   const colors = useColors();
   
@@ -194,7 +208,7 @@ export default function ProfileScreen() {
           {/* Role-Based Dashboard Access */}
           {dashboardInfo && (
             <>
-              <Text className="text-sm font-semibold text-white uppercase tracking-wider mb-2 mt-4">
+              <Text className={`text-sm font-semibold ${colorScheme === "dark" ? "text-white/80" : "text-foreground/70"} uppercase tracking-wider mb-2 mt-4`}>
                 Your Dashboard
               </Text>
               <View className="bg-surface rounded-xl px-4">
@@ -210,9 +224,7 @@ export default function ProfileScreen() {
           )}
 
           {/* Account Section */}
-          <Text className="text-sm font-semibold text-white uppercase tracking-wider mb-2 mt-6">
-            Account
-          </Text>
+          <SectionTitle>Account</SectionTitle>
           <View className="bg-surface rounded-xl px-4">
             <MenuItem
               icon="person.fill"
@@ -243,9 +255,7 @@ export default function ProfileScreen() {
           {/* Trainer Quick Actions */}
           {isTrainer && (
             <>
-              <Text className="text-sm font-semibold text-white uppercase tracking-wider mb-2 mt-6">
-                Trainer Actions
-              </Text>
+              <SectionTitle>Trainer Actions</SectionTitle>
               <View className="bg-surface rounded-xl px-4">
                 <MenuItem
                   icon="plus.circle.fill"
@@ -272,9 +282,7 @@ export default function ProfileScreen() {
           {/* Manager Quick Actions */}
           {isManager && (
             <>
-              <Text className="text-sm font-semibold text-white uppercase tracking-wider mb-2 mt-6">
-                Manager Actions
-              </Text>
+              <SectionTitle>Manager Actions</SectionTitle>
               <View className="bg-surface rounded-xl px-4">
                 <MenuItem
                   icon="checkmark.circle.fill"
@@ -293,9 +301,7 @@ export default function ProfileScreen() {
           )}
 
           {/* Preferences Section */}
-          <Text className="text-sm font-semibold text-white uppercase tracking-wider mb-2 mt-6">
-            Preferences
-          </Text>
+          <SectionTitle>Preferences</SectionTitle>
           <View className="bg-surface rounded-xl px-4">
             <MenuItem
               icon={getThemeIcon()}
