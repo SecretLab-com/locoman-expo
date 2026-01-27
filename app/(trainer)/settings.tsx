@@ -111,7 +111,7 @@ export default function SettingsScreen() {
 
           {/* Username */}
           <View className="mb-4">
-            <Text className="text-sm font-medium text-foreground mb-1">Username</Text>
+            <Text className="text-sm font-medium text-foreground/80 mb-1">Username</Text>
             <TextInput
               value={username}
               onChangeText={setUsername}
@@ -119,14 +119,14 @@ export default function SettingsScreen() {
               placeholderTextColor={colors.muted}
               className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
             />
-            <Text className="text-xs text-muted mt-1">
+            <Text className="text-xs text-foreground/50 mt-1">
               This will be your public profile URL: locomotivate.com/t/{username.replace("@", "")}
             </Text>
           </View>
 
           {/* Bio */}
           <View className="mb-4">
-            <Text className="text-sm font-medium text-foreground mb-1">Bio</Text>
+            <Text className="text-sm font-medium text-foreground/80 mb-1">Bio</Text>
             <TextInput
               value={bio}
               onChangeText={setBio}
@@ -137,7 +137,7 @@ export default function SettingsScreen() {
               textAlignVertical="top"
               className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground min-h-[100px]"
             />
-            <Text className="text-xs text-muted mt-1">
+            <Text className="text-xs text-foreground/50 mt-1">
               {bio.length}/500 characters
             </Text>
           </View>
@@ -146,7 +146,7 @@ export default function SettingsScreen() {
         {/* Specialties Section */}
         <View className="mb-6">
           <Text className="text-lg font-semibold text-foreground mb-1">Specialties</Text>
-          <Text className="text-sm text-muted mb-3">Select up to 5 specialties</Text>
+          <Text className="text-sm text-foreground/60 mb-3">Select up to 5 specialties</Text>
           
           <View className="flex-row flex-wrap gap-2">
             {SPECIALTIES.map((specialty) => {
@@ -180,9 +180,9 @@ export default function SettingsScreen() {
           
           {/* Instagram */}
           <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground mb-1">Instagram</Text>
+            <Text className="text-sm font-medium text-foreground/80 mb-1">Instagram</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-muted">instagram.com/</Text>
+              <Text className="text-foreground/50">instagram.com/</Text>
               <TextInput
                 value={instagram}
                 onChangeText={setInstagram}
@@ -195,9 +195,9 @@ export default function SettingsScreen() {
 
           {/* Twitter */}
           <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground mb-1">Twitter</Text>
+            <Text className="text-sm font-medium text-foreground/80 mb-1">Twitter</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-muted">twitter.com/</Text>
+              <Text className="text-foreground/50">twitter.com/</Text>
               <TextInput
                 value={twitter}
                 onChangeText={setTwitter}
@@ -210,9 +210,9 @@ export default function SettingsScreen() {
 
           {/* LinkedIn */}
           <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground mb-1">LinkedIn</Text>
+            <Text className="text-sm font-medium text-foreground/80 mb-1">LinkedIn</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-muted">linkedin.com/in/</Text>
+              <Text className="text-foreground/50">linkedin.com/in/</Text>
               <TextInput
                 value={linkedin}
                 onChangeText={setLinkedin}
@@ -225,7 +225,7 @@ export default function SettingsScreen() {
 
           {/* Website */}
           <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground mb-1">Website</Text>
+            <Text className="text-sm font-medium text-foreground/80 mb-1">Website</Text>
             <TextInput
               value={website}
               onChangeText={setWebsite}
@@ -248,7 +248,7 @@ export default function SettingsScreen() {
                 <Text className="text-base font-medium text-foreground">
                   Accepting New Clients
                 </Text>
-                <Text className="text-sm text-muted">
+                <Text className="text-sm text-foreground/60">
                   Show your profile in the trainer directory
                 </Text>
               </View>
@@ -299,7 +299,7 @@ export default function SettingsScreen() {
                       />
                       <Text
                         className={`text-sm mt-1 font-medium ${
-                          isSelected ? "text-primary" : "text-muted"
+                          isSelected ? "text-primary" : "text-foreground/60"
                         }`}
                       >
                         {labels[option]}
@@ -308,7 +308,7 @@ export default function SettingsScreen() {
                   );
                 })}
               </View>
-              <Text className="text-xs text-muted mt-2 text-center">
+              <Text className="text-xs text-foreground/50 mt-2 text-center">
                 {themePreference === "system"
                   ? `Following system preference (currently ${colorScheme})`
                   : `Using ${themePreference} mode`}
@@ -328,7 +328,7 @@ export default function SettingsScreen() {
                 <Text className="text-base font-medium text-foreground">
                   Email Notifications
                 </Text>
-                <Text className="text-sm text-muted">
+                <Text className="text-sm text-foreground/60">
                   Receive updates via email
                 </Text>
               </View>
@@ -346,7 +346,7 @@ export default function SettingsScreen() {
                 <Text className="text-base font-medium text-foreground">
                   Push Notifications
                 </Text>
-                <Text className="text-sm text-muted">
+                <Text className="text-sm text-foreground/60">
                   Receive push notifications on your device
                 </Text>
               </View>
@@ -364,7 +364,7 @@ export default function SettingsScreen() {
                 <Text className="text-base font-medium text-foreground">
                   Order Alerts
                 </Text>
-                <Text className="text-sm text-muted">
+                <Text className="text-sm text-foreground/60">
                   Get notified when clients place orders
                 </Text>
               </View>
@@ -382,7 +382,7 @@ export default function SettingsScreen() {
                 <Text className="text-base font-medium text-foreground">
                   Session Reminders
                 </Text>
-                <Text className="text-sm text-muted">
+                <Text className="text-sm text-foreground/60">
                   Get reminders before scheduled sessions
                 </Text>
               </View>

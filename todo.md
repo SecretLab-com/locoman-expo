@@ -570,3 +570,4 @@
 ## Bug Fixes
 - [x] Fix invisible section titles on Profile screen - changed from text-muted to text-foreground/70 for better visibility
 - [x] Fix bottom navigation bar - changed from background to surface color for darker appearance
+- [x] Fix invisible section titles on Settings screen - changed text-muted to text-foreground/60 for better visibility
