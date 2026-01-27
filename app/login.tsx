@@ -18,6 +18,7 @@ import { startOAuthLogin, getApiBaseUrl } from "@/constants/oauth";
 import { OAuthButtons } from "@/components/oauth-buttons";
 import { haptics } from "@/hooks/use-haptics";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import * as Auth from "@/lib/_core/auth";
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
@@ -85,6 +86,36 @@ export default function LoginScreen() {
         await haptics.success();
         const data = await response.json();
         const userRole = data.user?.role || "shopper";
+        
+        // Store session token and user info for native apps
+        if (Platform.OS !== "web" && data.sessionToken) {
+          console.log("[Login] Storing session token for native app...");
+          await Auth.setSessionToken(data.sessionToken);
+          if (data.user) {
+            const userInfo: Auth.User = {
+              id: data.user.id,
+              openId: data.user.openId,
+              name: data.user.name ?? null,
+              email: data.user.email ?? null,
+              phone: data.user.phone ?? null,
+              photoUrl: data.user.photoUrl ?? null,
+              loginMethod: data.user.loginMethod ?? null,
+              role: data.user.role ?? "shopper",
+              username: data.user.username ?? null,
+              bio: data.user.bio ?? null,
+              specialties: data.user.specialties ?? null,
+              socialLinks: data.user.socialLinks ?? null,
+              trainerId: data.user.trainerId ?? null,
+              active: data.user.active ?? true,
+              metadata: data.user.metadata ?? null,
+              createdAt: data.user.createdAt ? new Date(data.user.createdAt) : new Date(),
+              updatedAt: data.user.updatedAt ? new Date(data.user.updatedAt) : new Date(),
+              lastSignedIn: data.user.lastSignedIn ? new Date(data.user.lastSignedIn) : new Date(),
+            };
+            await Auth.setUserInfo(userInfo);
+            console.log("[Login] User info stored for native app");
+          }
+        }
         
         // Navigate to appropriate dashboard based on role
         let targetRoute = "/(tabs)";

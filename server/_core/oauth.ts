@@ -175,7 +175,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(testOpenId);
-        res.json({ success: true, user: buildUserResponse(savedUser || testUser) });
+        res.json({ success: true, user: buildUserResponse(savedUser || testUser), sessionToken });
         return;
       }
       
@@ -200,7 +200,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(trainerOpenId);
-        res.json({ success: true, user: buildUserResponse(savedUser || trainerUser) });
+        res.json({ success: true, user: buildUserResponse(savedUser || trainerUser), sessionToken });
         return;
       }
       
@@ -225,7 +225,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(clientOpenId);
-        res.json({ success: true, user: buildUserResponse(savedUser || clientUser) });
+        res.json({ success: true, user: buildUserResponse(savedUser || clientUser), sessionToken });
         return;
       }
       
@@ -250,7 +250,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(managerOpenId);
-        res.json({ success: true, user: buildUserResponse(savedUser || managerUser) });
+        res.json({ success: true, user: buildUserResponse(savedUser || managerUser), sessionToken });
         return;
       }
       
@@ -275,7 +275,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(coordinatorOpenId);
-        res.json({ success: true, user: buildUserResponse(savedUser || coordinatorUser) });
+        res.json({ success: true, user: buildUserResponse(savedUser || coordinatorUser), sessionToken });
         return;
       }
       

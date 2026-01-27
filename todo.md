@@ -512,3 +512,9 @@
 - [x] Investigate login state not updating after successful login
 - [x] Check cookie/session persistence in Manus preview environment
 - [x] Fix authentication state synchronization (fixed cookie domain extraction for Manus preview)
+
+
+## Bug Fix - Expo App Not Loading SQL Data
+- [x] Investigate database connection from Expo app
+- [x] Check API endpoints for data fetching (found auth issue - token not stored for native)
+- [x] Fix session token storage for native apps (login now stores token in SecureStore)
