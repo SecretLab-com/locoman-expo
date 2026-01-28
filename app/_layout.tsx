@@ -25,6 +25,7 @@ import { OfflineProvider } from "@/contexts/offline-context";
 import { OfflineIndicator } from "@/components/offline-indicator";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
 import { ProfileFAB } from "@/components/profile-fab";
+import { BadgeProvider } from "@/contexts/badge-context";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
@@ -92,6 +93,7 @@ export default function RootLayout() {
           <AuthProvider>
             <NotificationProvider>
               <CartProvider>
+                <BadgeProvider>
                 <OfflineProvider>
                   <View style={{ flex: 1 }}>
                     <ImpersonationBanner />
@@ -140,6 +142,7 @@ export default function RootLayout() {
                     </View>
                   </View>
                 </OfflineProvider>
+                </BadgeProvider>
               </CartProvider>
             </NotificationProvider>
           </AuthProvider>

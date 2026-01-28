@@ -693,3 +693,25 @@
 - [x] Add Home tab to trainer tab layout
 - [x] Add Home tab to manager tab layout
 - [x] Add Home tab to coordinator tab layout
+
+
+## Badge Indicators and Pull-to-Refresh
+- [ ] Add badge indicators to tab icons (pending deliveries, unread messages, etc.)
+- [ ] Add pull-to-refresh to shopper Home hub screen
+- [ ] Add pull-to-refresh to client Home hub screen
+- [ ] Add pull-to-refresh to trainer Home hub screen
+- [ ] Add pull-to-refresh to manager Home hub screen
+- [ ] Add pull-to-refresh to coordinator Home hub screen
+
+
+## Badge Indicators and Pull-to-Refresh (Completed)
+- [x] Create badge counts hook for fetching notification counts
+- [x] Create BadgeIcon component for tab bar badges
+- [x] Create BadgeContext for sharing badge state
+- [x] Add badge to Deliveries tab for trainers and clients
+- [x] Add badge to Approvals tab for managers
+- [x] Add pull-to-refresh to shopper home screen
+- [x] Add pull-to-refresh to trainer home screen
+- [x] Add pull-to-refresh to client home screen
+- [x] Add pull-to-refresh to manager home screen
+- [x] Add pull-to-refresh to coordinator home screen

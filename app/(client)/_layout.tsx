@@ -3,12 +3,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { BadgeIcon } from "@/components/badge-icon";
 import { Platform } from "react-native";
 import { useColors } from "@/hooks/use-colors";
+import { useBadgeContext } from "@/contexts/badge-context";
 
 export default function ClientTabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { counts } = useBadgeContext();
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
   const tabBarHeight = 56 + bottomPadding;
 
@@ -54,7 +57,7 @@ export default function ClientTabLayout() {
         name="deliveries"
         options={{
           title: "Deliveries",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="shippingbox.fill" color={color} />,
+          tabBarIcon: ({ color }) => <BadgeIcon size={28} name="shippingbox.fill" color={color} badge={counts.pendingDeliveries} />,
         }}
       />
       <Tabs.Screen

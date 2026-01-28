@@ -1,8 +1,10 @@
-import { Text, View, TouchableOpacity, ScrollView } from "react-native";
+import { Text, View, TouchableOpacity, ScrollView, RefreshControl } from "react-native";
 import { router } from "expo-router";
+import { useState, useCallback } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useBadgeContext } from "@/contexts/badge-context";
 import { haptics } from "@/hooks/use-haptics";
 
 type QuickActionProps = {
@@ -40,10 +42,28 @@ function QuickAction({ icon, title, subtitle, onPress }: QuickActionProps) {
 
 export default function CoordinatorHomeScreen() {
   const colors = useColors();
+  const { refetch } = useBadgeContext();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  }, [refetch]);
 
   return (
     <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
         {/* Header */}
         <View className="px-4 pt-2 pb-6">
           <Text className="text-2xl font-bold text-foreground">Coordinator Hub</Text>
