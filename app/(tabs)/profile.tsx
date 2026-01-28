@@ -232,6 +232,22 @@ export default function ProfileScreen() {
             </>
           )}
 
+          {/* My Trainers Section - Only for clients */}
+          {isClient && (
+            <>
+              <SectionTitle>My Trainers</SectionTitle>
+              <View className="bg-surface rounded-xl px-4">
+                <MenuItem
+                  icon="person.2.fill"
+                  title="My Trainers"
+                  subtitle="View and manage your trainers"
+                  onPress={() => router.push("/my-trainers" as any)}
+                  highlight
+                />
+              </View>
+            </>
+          )}
+
           {/* Account Section */}
           <SectionTitle>Account</SectionTitle>
           <View className="bg-surface rounded-xl px-4">

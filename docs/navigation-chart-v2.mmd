@@ -1,0 +1,186 @@
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#0a7ea4', 'primaryTextColor': '#fff', 'primaryBorderColor': '#0a7ea4', 'lineColor': '#9BA1A6', 'secondaryColor': '#1e2022', 'tertiaryColor': '#151718'}}}%%
+flowchart TB
+    subgraph Entry["Entry Points"]
+        START((App Start))
+        LOGIN[Login Screen]
+        REGISTER[Register Screen]
+        OAUTH[OAuth Callback]
+        INVITE_LINK["Invitation Link"]
+    end
+
+    subgraph Auth["Authentication Flow"]
+        START --> |Unauthenticated| GUEST_CHECK{Has Trainer Invite?}
+        GUEST_CHECK --> |Yes| INVITE_PAGE
+        GUEST_CHECK --> |No| SHOPPER_TABS
+        
+        LOGIN --> |Success| ROLE_CHECK{Check User Role}
+        REGISTER --> |Success| ROLE_CHECK
+        OAUTH --> |Success| ROLE_CHECK
+        
+        INVITE_PAGE --> |Accept| REGISTER
+        INVITE_PAGE --> |Has Account| LOGIN
+    end
+
+    subgraph RoleRouting["Role-Based Routing"]
+        ROLE_CHECK --> |No Trainer| SHOPPER_TABS
+        ROLE_CHECK --> |Has Trainer| CLIENT_TABS
+        ROLE_CHECK --> |Is Trainer| TRAINER_TABS
+        ROLE_CHECK --> |Is Manager| MANAGER_TABS
+        ROLE_CHECK --> |Is Coordinator| COORD_TABS
+    end
+
+    subgraph ShopperFlow["New User - No Trainer Yet"]
+        subgraph SHOPPER_TABS["Bottom Tabs"]
+            S_DISCOVER[Discover]
+            S_CART[Cart]
+        end
+        
+        S_DISCOVER --> |Browse Bundles| BUNDLE_DETAIL
+        S_DISCOVER --> |Browse Trainers| TRAINER_PROFILE
+        S_DISCOVER --> |Browse Products| PRODUCT_SHEET
+        S_CART --> |Checkout| CHECKOUT
+        
+        TRAINER_PROFILE --> |Request to Join| JOIN_REQUEST
+        JOIN_REQUEST --> |Approved| CLIENT_TABS
+        
+        S_PROFILE_NEW[Profile Menu]
+        S_DISCOVER --> |Profile Icon| S_PROFILE_NEW
+        S_PROFILE_NEW --> |Login| LOGIN
+        S_PROFILE_NEW --> |Register| REGISTER
+    end
+
+    subgraph ClientFlow["Client - Has Trainer - Loyalty Protected"]
+        subgraph CLIENT_TABS["Bottom Tabs"]
+            C_PROGRAM[My Program]
+            C_DELIVERIES[Deliveries]
+        end
+        
+        C_PROGRAM --> |View Bundle| BUNDLE_DETAIL
+        C_PROGRAM --> |Message Trainer| MESSAGES
+        C_PROGRAM --> |Join Session| SESSION_VIEW
+        
+        C_DELIVERIES --> |Confirm Receipt| C_DELIVERIES
+        C_DELIVERIES --> |Report Issue| C_DELIVERIES
+        
+        C_PROFILE[Profile Menu]
+        C_PROGRAM --> |Profile Icon| C_PROFILE
+        
+        subgraph ProfileSettings["Profile Settings"]
+            C_PROFILE --> MY_TRAINERS[My Trainers]
+            C_PROFILE --> SPENDING[Spending History]
+            C_PROFILE --> SETTINGS[Account Settings]
+            C_PROFILE --> LOGOUT[Logout]
+            
+            MY_TRAINERS --> |View Trainer| TRAINER_DETAIL
+            MY_TRAINERS --> |Add Trainer| TRAINER_DISCOVERY
+            
+            TRAINER_DISCOVERY[Find New Trainer]
+            TRAINER_DISCOVERY --> |Browse| TRAINER_PROFILE
+            TRAINER_DISCOVERY --> |Search| TRAINER_PROFILE
+        end
+    end
+
+    subgraph TrainerFlow["Trainer Experience"]
+        subgraph TRAINER_TABS["Bottom Tabs"]
+            T_TODAY[Today]
+            T_CALENDAR[Calendar]
+            T_CLIENTS[Clients]
+            T_DELIVERIES[Deliveries]
+            T_EARNINGS[Earnings]
+        end
+        
+        T_TODAY --> |Mark Delivered| T_TODAY
+        T_TODAY --> |Request Payout| PAYOUT_SHEET
+        T_TODAY --> |Invite Client| INVITE_FLOW
+        
+        T_CLIENTS --> |View Client| CLIENT_DETAIL
+        T_CLIENTS --> |Invite New| INVITE_FLOW
+        
+        T_MENU[Menu]
+        T_TODAY --> |Menu Icon| T_MENU
+        T_MENU --> T_BUNDLES[My Bundles]
+        T_MENU --> T_SETTINGS[Settings]
+        T_MENU --> T_POINTS[Points]
+        T_MENU --> T_PARTNERSHIPS[Partnerships]
+        
+        T_BUNDLES --> |Create| BUNDLE_EDITOR
+        T_BUNDLES --> |Edit| BUNDLE_EDITOR
+        
+        INVITE_FLOW[Invite Client Flow]
+        INVITE_FLOW --> |Generate Link| SHARE_LINK
+        SHARE_LINK --> |Client Opens| INVITE_PAGE
+    end
+
+    subgraph ManagerFlow["Manager Experience"]
+        subgraph MANAGER_TABS["Bottom Tabs"]
+            M_COMMAND[Command Center]
+            M_PEOPLE[People]
+            M_REVENUE[Revenue]
+        end
+        
+        M_COMMAND --> |Swipe Approve| M_COMMAND
+        M_COMMAND --> |View Bundle| BUNDLE_DETAIL
+        M_COMMAND --> |Alert Trainer| M_COMMAND
+        
+        M_PEOPLE --> |View User| USER_DETAIL
+        M_PEOPLE --> |View Trainer| TRAINER_ADMIN
+    end
+
+    subgraph CoordFlow["Coordinator Experience"]
+        subgraph COORD_TABS["Bottom Tabs"]
+            CO_CATALOG[Catalog]
+            CO_IMPERSONATE[Impersonate]
+            CO_LOGS[Logs]
+        end
+        
+        CO_IMPERSONATE --> |Select User| ROLE_CHECK
+    end
+
+    subgraph SharedScreens["Shared Screens"]
+        BUNDLE_DETAIL[Bundle Detail]
+        BUNDLE_EDITOR[Bundle Editor]
+        TRAINER_PROFILE[Trainer Profile]
+        TRAINER_DETAIL[My Trainer Detail]
+        MESSAGES[Messages]
+        MSG_THREAD[Message Thread]
+        CHECKOUT[Checkout Sheet]
+        CONFIRMATION[Order Confirmed]
+        PRODUCT_SHEET[Product Sheet]
+        INVITE_PAGE[Invitation Page]
+        SESSION_VIEW[Session View]
+        PAYOUT_SHEET[Payout Request]
+        SHARE_LINK[Share Invite Link]
+        CLIENT_DETAIL[Client Detail]
+        USER_DETAIL[User Detail]
+        TRAINER_ADMIN[Trainer Admin View]
+        
+        MESSAGES --> |Tap| MSG_THREAD
+        CHECKOUT --> |Complete| CONFIRMATION
+        CONFIRMATION --> |Continue| C_PROGRAM
+    end
+
+    subgraph DeepLinks["Deep Links"]
+        DL_INVITE["invite/token"]
+        DL_BUNDLE["bundle/id"]
+        
+        DL_INVITE --> INVITE_PAGE
+        DL_BUNDLE --> BUNDLE_DETAIL
+    end
+
+    %% Styling
+    classDef entry fill:#22C55E,stroke:#22C55E,color:#000
+    classDef auth fill:#F59E0B,stroke:#F59E0B,color:#000
+    classDef tabs fill:#0a7ea4,stroke:#0a7ea4,color:#fff
+    classDef screen fill:#1e2022,stroke:#334155,color:#ECEDEE
+    classDef shared fill:#8B5CF6,stroke:#8B5CF6,color:#fff
+    classDef deeplink fill:#EF4444,stroke:#EF4444,color:#fff
+    classDef loyalty fill:#10B981,stroke:#10B981,color:#fff
+    classDef hidden fill:#374151,stroke:#4B5563,color:#9CA3AF
+    
+    class START entry
+    class LOGIN,REGISTER,OAUTH,ROLE_CHECK,GUEST_CHECK auth
+    class S_DISCOVER,S_CART,C_PROGRAM,C_DELIVERIES,T_TODAY,T_CALENDAR,T_CLIENTS,T_DELIVERIES,T_EARNINGS,M_COMMAND,M_PEOPLE,M_REVENUE,CO_CATALOG,CO_IMPERSONATE,CO_LOGS tabs
+    class BUNDLE_DETAIL,BUNDLE_EDITOR,TRAINER_PROFILE,MESSAGES,MSG_THREAD,CHECKOUT,CONFIRMATION,PRODUCT_SHEET,INVITE_PAGE,SESSION_VIEW,PAYOUT_SHEET shared
+    class DL_INVITE,DL_BUNDLE deeplink
+    class MY_TRAINERS,TRAINER_DISCOVERY,TRAINER_DETAIL loyalty
+    class SPENDING,SETTINGS hidden

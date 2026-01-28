@@ -13,6 +13,7 @@ import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { haptics } from "@/hooks/use-haptics";
 import * as Haptics from "expo-haptics";
 
 type Message = {
@@ -239,10 +240,22 @@ export default function MessageThreadScreen() {
 
   return (
     <ScreenContainer edges={["top", "left", "right"]}>
-      {/* Header */}
+      {/* Header with back and home buttons */}
       <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-          <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+        <TouchableOpacity 
+          onPress={() => { haptics.light(); router.back(); }} 
+          className="p-2 -ml-2"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <IconSymbol name="chevron.left" size={24} color={colors.primary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={() => { haptics.light(); router.replace("/(tabs)" as any); }} 
+          className="p-2"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <IconSymbol name="house.fill" size={20} color={colors.primary} />
         </TouchableOpacity>
 
         <TouchableOpacity className="flex-row items-center flex-1 ml-2">

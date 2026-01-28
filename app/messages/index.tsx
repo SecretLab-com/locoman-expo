@@ -10,6 +10,7 @@ import {
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 
@@ -169,25 +170,21 @@ export default function MessagesScreen() {
   };
 
   return (
-    <ScreenContainer>
-      {/* Header */}
-      <View className="px-4 pt-2 pb-4 border-b border-border">
-        <View className="flex-row items-center justify-between mb-4">
-          <View className="flex-row items-center">
-            <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2 mr-2">
-              <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
-            </TouchableOpacity>
-            <View>
-              <Text className="text-2xl font-bold text-foreground">Messages</Text>
-              {totalUnread > 0 && (
-                <Text className="text-sm text-primary">{totalUnread} unread</Text>
-              )}
-            </View>
-          </View>
-          <TouchableOpacity className="p-2">
-            <IconSymbol name="pencil" size={22} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
+    <ScreenContainer edges={["left", "right"]}>
+      {/* Header with home button */}
+      <NavigationHeader
+        title="Messages"
+        subtitle={totalUnread > 0 ? `${totalUnread} unread` : undefined}
+        showBack
+        showHome
+        rightAction={{
+          icon: "pencil",
+          onPress: () => {},
+        }}
+      />
+
+      {/* Search Section */}
+      <View className="px-4 pb-4 border-b border-border">
 
         {/* Search Bar */}
         <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-3">

@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 import * as Haptics from "expo-haptics";
 import { Platform } from "react-native";
 import Animated, {
@@ -17,6 +18,7 @@ import Animated, {
 
 export default function OrderConfirmationScreen() {
   const colors = useColors();
+  const { isClient } = useAuthContext();
   
   const checkScale = useSharedValue(0);
   const textOpacity = useSharedValue(0);
@@ -47,8 +49,22 @@ export default function OrderConfirmationScreen() {
     opacity: buttonsTranslateY.value === 50 ? 0 : 1,
   }));
 
-  const handleViewOrders = () => {
-    router.replace("/(client)/orders" as any);
+  const handleViewProgram = () => {
+    // Navigate to client's program if they're a client, otherwise to orders
+    if (isClient) {
+      router.replace("/(client)" as any);
+    } else {
+      router.replace("/(client)/orders" as any);
+    }
+  };
+
+  const handleGoHome = () => {
+    // Navigate to the appropriate home based on user state
+    if (isClient) {
+      router.replace("/(client)" as any);
+    } else {
+      router.replace("/(tabs)" as any);
+    }
   };
 
   const handleContinueShopping = () => {
@@ -88,20 +104,26 @@ export default function OrderConfirmationScreen() {
         </Text>
       </Animated.View>
 
-      {/* Action Buttons */}
+      {/* Action Buttons - Clear escape paths */}
       <Animated.View style={buttonsAnimatedStyle} className="w-full mt-8 gap-3">
+        {/* Primary CTA - Go to program/home */}
         <TouchableOpacity
-          className="bg-primary py-4 rounded-xl"
-          onPress={handleViewOrders}
+          className="bg-primary py-4 rounded-xl flex-row items-center justify-center"
+          onPress={handleViewProgram}
         >
-          <Text className="text-background font-semibold text-center">View My Orders</Text>
+          <IconSymbol name="house.fill" size={20} color={colors.background} />
+          <Text className="text-background font-semibold ml-2">
+            {isClient ? "View My Program" : "Go Home"}
+          </Text>
         </TouchableOpacity>
 
+        {/* Secondary CTA - Continue shopping */}
         <TouchableOpacity
-          className="bg-surface border border-border py-4 rounded-xl"
+          className="bg-surface border border-border py-4 rounded-xl flex-row items-center justify-center"
           onPress={handleContinueShopping}
         >
-          <Text className="text-foreground font-semibold text-center">Continue Shopping</Text>
+          <IconSymbol name="magnifyingglass" size={20} color={colors.foreground} />
+          <Text className="text-foreground font-semibold ml-2">Browse More Programs</Text>
         </TouchableOpacity>
       </Animated.View>
 

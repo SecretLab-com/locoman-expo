@@ -1,0 +1,162 @@
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#0a7ea4', 'primaryTextColor': '#fff', 'primaryBorderColor': '#0a7ea4', 'lineColor': '#9BA1A6', 'secondaryColor': '#1e2022', 'tertiaryColor': '#151718'}}}%%
+flowchart TB
+    subgraph Legend["Navigation Legend"]
+        direction LR
+        L1[Tab Screen] --> L2[Stack Screen]
+        L2 -.->|Back| L1
+        L3[Modal Sheet] -.->|Dismiss| L1
+    end
+
+    subgraph Entry["Entry Points"]
+        START((App Start))
+        INVITE_LINK["Deep Link: invite/token"]
+        BUNDLE_LINK["Deep Link: bundle/id"]
+    end
+
+    subgraph Auth["Authentication - No Tab Bar"]
+        LOGIN[Login]
+        REGISTER[Register]
+        INVITE_PAGE[Invitation Page]
+        
+        LOGIN -.->|Back| PREV_SCREEN
+        REGISTER -.->|Back| LOGIN
+        INVITE_PAGE -->|Accept| REGISTER
+        INVITE_PAGE -->|Has Account| LOGIN
+        INVITE_PAGE -->|Decline| SHOPPER_TABS
+    end
+
+    START --> |Unauthenticated| SHOPPER_TABS
+    START --> |Has Trainer| CLIENT_TABS
+    START --> |Is Trainer| TRAINER_TABS
+    START --> |Is Manager| MANAGER_TABS
+    INVITE_LINK --> INVITE_PAGE
+    BUNDLE_LINK --> BUNDLE_DETAIL
+
+    subgraph ShopperFlow["Shopper - Tab Bar Always Visible"]
+        subgraph SHOPPER_TABS["Bottom Tabs - Primary Escape"]
+            S_DISCOVER[Discover]
+            S_CART[Cart]
+        end
+        
+        S_DISCOVER --> BUNDLE_DETAIL
+        S_DISCOVER --> TRAINER_PROFILE
+        S_DISCOVER --> PRODUCT_SHEET
+        S_CART --> CHECKOUT_SHEET
+        
+        BUNDLE_DETAIL -.->|Back| S_DISCOVER
+        TRAINER_PROFILE -.->|Back| S_DISCOVER
+        PRODUCT_SHEET -.->|Dismiss| S_DISCOVER
+        CHECKOUT_SHEET -.->|Dismiss| S_CART
+        CHECKOUT_SHEET --> CONFIRMATION
+        CONFIRMATION -->|Go Home| S_DISCOVER
+        CONFIRMATION -->|View Order| CLIENT_TABS
+    end
+
+    subgraph ClientFlow["Client - Tab Bar Always Visible"]
+        subgraph CLIENT_TABS["Bottom Tabs - Primary Escape"]
+            C_PROGRAM[My Program]
+            C_DELIVERIES[Deliveries]
+        end
+        
+        C_PROGRAM --> C_BUNDLE_DETAIL[Bundle Detail]
+        C_PROGRAM --> C_MESSAGES[Messages]
+        C_PROGRAM --> C_SESSION[Session View]
+        C_PROGRAM --> C_PROFILE[Profile Menu]
+        
+        C_BUNDLE_DETAIL -.->|Back| C_PROGRAM
+        C_MESSAGES -.->|Back| C_PROGRAM
+        C_MESSAGES --> C_MSG_THREAD[Message Thread]
+        C_MSG_THREAD -.->|Back| C_MESSAGES
+        
+        C_SESSION -.->|Leave Session| C_PROGRAM
+        
+        C_PROFILE --> MY_TRAINERS[My Trainers]
+        C_PROFILE --> SPENDING[Spending]
+        C_PROFILE --> SETTINGS[Settings]
+        C_PROFILE -.->|Close| C_PROGRAM
+        
+        MY_TRAINERS -.->|Back| C_PROFILE
+        MY_TRAINERS --> TRAINER_DETAIL[Trainer Detail]
+        MY_TRAINERS --> FIND_TRAINER[Find New Trainer]
+        
+        TRAINER_DETAIL -.->|Back| MY_TRAINERS
+        FIND_TRAINER -.->|Back| MY_TRAINERS
+        FIND_TRAINER -->|Home Button| C_PROGRAM
+        FIND_TRAINER --> NEW_TRAINER_PROFILE[Trainer Profile]
+        NEW_TRAINER_PROFILE -.->|Back| FIND_TRAINER
+    end
+
+    subgraph TrainerFlow["Trainer - Tab Bar Always Visible"]
+        subgraph TRAINER_TABS["Bottom Tabs - Primary Escape"]
+            T_TODAY[Today]
+            T_CALENDAR[Calendar]
+            T_CLIENTS[Clients]
+            T_DELIVERIES[Deliveries]
+            T_EARNINGS[Earnings]
+        end
+        
+        T_TODAY --> PAYOUT_SHEET[Payout Sheet]
+        T_TODAY --> INVITE_FLOW[Invite Flow]
+        T_TODAY --> T_MENU[Menu]
+        
+        PAYOUT_SHEET -.->|Dismiss| T_TODAY
+        INVITE_FLOW --> SHARE_SHEET[Share Sheet]
+        SHARE_SHEET -.->|Done| T_TODAY
+        
+        T_CLIENTS --> T_CLIENT_DETAIL[Client Detail]
+        T_CLIENT_DETAIL -.->|Back| T_CLIENTS
+        T_CLIENT_DETAIL --> T_CLIENT_MSG[Messages]
+        T_CLIENT_MSG -.->|Back| T_CLIENT_DETAIL
+        
+        T_MENU --> T_BUNDLES[My Bundles]
+        T_MENU --> T_SETTINGS[Settings]
+        T_MENU --> T_POINTS[Points]
+        T_MENU -.->|Close| T_TODAY
+        
+        T_BUNDLES -.->|Back| T_MENU
+        T_BUNDLES --> BUNDLE_EDITOR[Bundle Editor]
+        BUNDLE_EDITOR -.->|Cancel with Confirm| T_BUNDLES
+        BUNDLE_EDITOR -->|Home Button| T_TODAY
+    end
+
+    subgraph ManagerFlow["Manager - Tab Bar Always Visible"]
+        subgraph MANAGER_TABS["Bottom Tabs - Primary Escape"]
+            M_COMMAND[Command Center]
+            M_PEOPLE[People]
+            M_REVENUE[Revenue]
+        end
+        
+        M_COMMAND --> M_BUNDLE_DETAIL[Bundle Detail]
+        M_BUNDLE_DETAIL -.->|Back| M_COMMAND
+        
+        M_PEOPLE --> USER_DETAIL[User Detail]
+        M_PEOPLE --> TRAINER_ADMIN[Trainer Admin]
+        USER_DETAIL -.->|Back| M_PEOPLE
+        TRAINER_ADMIN -.->|Back| M_PEOPLE
+    end
+
+    subgraph CoordFlow["Coordinator - Exit Banner Always Visible"]
+        subgraph COORD_TABS["Bottom Tabs"]
+            CO_CATALOG[Catalog]
+            CO_IMPERSONATE[Impersonate]
+            CO_LOGS[Logs]
+        end
+        
+        CO_IMPERSONATE --> IMPERSONATE_USER[Viewing as User]
+        IMPERSONATE_USER -->|Exit Banner| CO_IMPERSONATE
+    end
+
+    %% Styling
+    classDef tabs fill:#0a7ea4,stroke:#0a7ea4,color:#fff
+    classDef stack fill:#1e2022,stroke:#334155,color:#ECEDEE
+    classDef modal fill:#8B5CF6,stroke:#8B5CF6,color:#fff
+    classDef auth fill:#F59E0B,stroke:#F59E0B,color:#000
+    classDef escape fill:#22C55E,stroke:#22C55E,color:#000
+    classDef deep fill:#EF4444,stroke:#EF4444,color:#fff
+    
+    class S_DISCOVER,S_CART,C_PROGRAM,C_DELIVERIES,T_TODAY,T_CALENDAR,T_CLIENTS,T_DELIVERIES,T_EARNINGS,M_COMMAND,M_PEOPLE,M_REVENUE,CO_CATALOG,CO_IMPERSONATE,CO_LOGS tabs
+    class BUNDLE_DETAIL,TRAINER_PROFILE,C_BUNDLE_DETAIL,C_MESSAGES,C_MSG_THREAD,MY_TRAINERS,SPENDING,SETTINGS,TRAINER_DETAIL,T_CLIENT_DETAIL,T_CLIENT_MSG,T_MENU,T_BUNDLES,T_SETTINGS,T_POINTS,M_BUNDLE_DETAIL,USER_DETAIL,TRAINER_ADMIN stack
+    class PRODUCT_SHEET,CHECKOUT_SHEET,PAYOUT_SHEET,SHARE_SHEET modal
+    class LOGIN,REGISTER,INVITE_PAGE auth
+    class CONFIRMATION escape
+    class FIND_TRAINER,NEW_TRAINER_PROFILE,BUNDLE_EDITOR deep

@@ -1,0 +1,179 @@
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#0a7ea4', 'primaryTextColor': '#fff', 'primaryBorderColor': '#0a7ea4', 'lineColor': '#9BA1A6', 'secondaryColor': '#1e2022', 'tertiaryColor': '#151718'}}}%%
+flowchart TB
+    subgraph Entry["Entry Points"]
+        START((App Start))
+        LOGIN[Login Screen]
+        REGISTER[Register Screen]
+        OAUTH[OAuth Callback]
+    end
+
+    subgraph Auth["Authentication"]
+        START --> |Unauthenticated| LOGIN
+        LOGIN --> |Sign Up| REGISTER
+        REGISTER --> |Back| LOGIN
+        LOGIN --> |OAuth| OAUTH
+        OAUTH --> |Success| ROLE_CHECK{Check User Role}
+        LOGIN --> |Success| ROLE_CHECK
+        REGISTER --> |Success| ROLE_CHECK
+    end
+
+    subgraph RoleRouting["Role-Based Routing"]
+        ROLE_CHECK --> |Shopper| SHOPPER_TABS
+        ROLE_CHECK --> |Client| CLIENT_TABS
+        ROLE_CHECK --> |Trainer| TRAINER_TABS
+        ROLE_CHECK --> |Manager| MANAGER_TABS
+        ROLE_CHECK --> |Coordinator| COORD_TABS
+    end
+
+    subgraph ShopperFlow["Shopper Experience"]
+        subgraph SHOPPER_TABS["Bottom Tabs"]
+            S_BUNDLES[Bundles]
+            S_PRODUCTS[Products]
+            S_TRAINERS[Trainers]
+            S_CART[Cart]
+        end
+        
+        S_PROFILE[Profile]
+        S_BUNDLES --> |FAB| S_PROFILE
+        S_PRODUCTS --> |FAB| S_PROFILE
+        S_TRAINERS --> |FAB| S_PROFILE
+        S_CART --> |FAB| S_PROFILE
+        
+        S_BUNDLES --> |Tap Bundle| BUNDLE_DETAIL
+        S_PRODUCTS --> |Tap Product| PRODUCT_SHEET
+        S_TRAINERS --> |Tap Trainer| TRAINER_PROFILE
+        S_CART --> |Checkout| CHECKOUT
+        
+        CHECKOUT --> |Place Order| CONFIRMATION
+        CONFIRMATION --> |Continue| S_BUNDLES
+        
+        S_PROFILE --> |Logout| LOGIN
+        S_PROFILE --> |Messages| MESSAGES
+    end
+
+    subgraph ClientFlow["Client Experience"]
+        subgraph CLIENT_TABS["Bottom Tabs"]
+            C_HOME[Home]
+            C_PROGRAMS[Programs]
+            C_DELIVERIES[Deliveries]
+            C_SPENDING[Spending]
+        end
+        
+        C_HOME --> |View Orders| C_ORDERS
+        C_HOME --> |View Program| BUNDLE_DETAIL
+        C_PROGRAMS --> |Tap Subscription| BUNDLE_DETAIL
+        C_ORDERS[Orders]
+        C_ORDERS --> |Tap Order| BUNDLE_DETAIL
+    end
+
+    subgraph TrainerFlow["Trainer Experience"]
+        subgraph TRAINER_TABS["Bottom Tabs"]
+            T_DASH[Dashboard]
+            T_CALENDAR[Calendar]
+            T_CLIENTS[Clients]
+            T_DELIVERIES[Deliveries]
+            T_EARNINGS[Earnings]
+        end
+        
+        T_DASH --> |My Bundles| T_BUNDLES
+        T_DASH --> |Orders| T_ORDERS
+        T_DASH --> |Settings| T_SETTINGS
+        T_DASH --> |Points| T_POINTS
+        T_DASH --> |Partnerships| T_PARTNERSHIPS
+        T_DASH --> |Join Requests| T_JOIN_REQ
+        
+        T_BUNDLES[My Bundles]
+        T_ORDERS[Orders]
+        T_SETTINGS[Settings]
+        T_POINTS[Points and Status]
+        T_PARTNERSHIPS[Partnerships]
+        T_JOIN_REQ[Join Requests]
+        T_INVITE[Invite Client]
+        
+        T_BUNDLES --> |Create or Edit| BUNDLE_EDITOR
+        T_BUNDLES --> |View| BUNDLE_DETAIL
+        T_CLIENTS --> |Tap Client| CLIENT_DETAIL
+        T_CLIENTS --> |Invite| T_INVITE
+        
+        CLIENT_DETAIL[Client Detail]
+        CLIENT_DETAIL --> |Message| MESSAGES
+    end
+
+    subgraph ManagerFlow["Manager Experience"]
+        subgraph MANAGER_TABS["Bottom Tabs"]
+            M_DASH[Dashboard]
+            M_APPROVALS[Approvals]
+            M_USERS[Users]
+            M_ANALYTICS[Analytics]
+        end
+        
+        M_DASH --> |Trainers| M_TRAINERS
+        M_DASH --> |Templates| M_TEMPLATES
+        M_DASH --> |Invitations| M_INVITATIONS
+        M_DASH --> |Deliveries| M_DELIVERIES
+        M_DASH --> |Products| M_PRODUCTS
+        
+        M_TRAINERS[Trainers]
+        M_TEMPLATES[Templates]
+        M_INVITATIONS[Invitations]
+        M_DELIVERIES[Manager Deliveries]
+        M_PRODUCTS[Manager Products]
+        
+        M_TEMPLATES --> |Edit| TEMPLATE_EDITOR
+        M_APPROVALS --> |View Bundle| BUNDLE_DETAIL
+    end
+
+    subgraph CoordFlow["Coordinator Experience"]
+        subgraph COORD_TABS["Bottom Tabs"]
+            CO_CATALOG[Catalog]
+            CO_IMPERSONATE[Impersonate]
+            CO_LOGS[Logs]
+        end
+        
+        CO_IMPERSONATE --> |Select User| ROLE_CHECK
+        CO_CATALOG --> |View Bundle| BUNDLE_DETAIL
+    end
+
+    subgraph SharedScreens["Shared Screens"]
+        BUNDLE_DETAIL[Bundle Detail]
+        BUNDLE_EDITOR[Bundle Editor]
+        TEMPLATE_EDITOR[Template Editor]
+        TRAINER_PROFILE[Trainer Profile]
+        MESSAGES[Messages]
+        MSG_THREAD[Message Thread]
+        CHECKOUT[Checkout]
+        CONFIRMATION[Order Confirmed]
+        PRODUCT_SHEET[Product Sheet]
+        INVITE_PAGE[Invitation Page]
+        BROWSE[Browse All]
+        
+        MESSAGES --> |Tap Conversation| MSG_THREAD
+        TRAINER_PROFILE --> |Request to Join| TRAINER_PROFILE
+        TRAINER_PROFILE --> |View Bundle| BUNDLE_DETAIL
+        BUNDLE_DETAIL --> |Add to Cart| S_CART
+        BUNDLE_DETAIL --> |Message Trainer| MESSAGES
+    end
+
+    subgraph DeepLinks["Deep Links"]
+        DL_INVITE["invite/token"]
+        DL_BUNDLE["bundle/id"]
+        DL_TRAINER["trainer/id"]
+        
+        DL_INVITE --> INVITE_PAGE
+        DL_BUNDLE --> BUNDLE_DETAIL
+        DL_TRAINER --> TRAINER_PROFILE
+    end
+
+    %% Styling
+    classDef entry fill:#22C55E,stroke:#22C55E,color:#000
+    classDef auth fill:#F59E0B,stroke:#F59E0B,color:#000
+    classDef tabs fill:#0a7ea4,stroke:#0a7ea4,color:#fff
+    classDef screen fill:#1e2022,stroke:#334155,color:#ECEDEE
+    classDef shared fill:#8B5CF6,stroke:#8B5CF6,color:#fff
+    classDef deeplink fill:#EF4444,stroke:#EF4444,color:#fff
+    
+    class START entry
+    class LOGIN,REGISTER,OAUTH,ROLE_CHECK auth
+    class S_BUNDLES,S_PRODUCTS,S_TRAINERS,S_CART,C_HOME,C_PROGRAMS,C_DELIVERIES,C_SPENDING,T_DASH,T_CALENDAR,T_CLIENTS,T_DELIVERIES,T_EARNINGS,M_DASH,M_APPROVALS,M_USERS,M_ANALYTICS,CO_CATALOG,CO_IMPERSONATE,CO_LOGS tabs
+    class BUNDLE_DETAIL,BUNDLE_EDITOR,TEMPLATE_EDITOR,TRAINER_PROFILE,MESSAGES,MSG_THREAD,CHECKOUT,CONFIRMATION,PRODUCT_SHEET,INVITE_PAGE,BROWSE shared
+    class DL_INVITE,DL_BUNDLE,DL_TRAINER deeplink

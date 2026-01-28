@@ -18,6 +18,7 @@ import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
@@ -731,22 +732,22 @@ export default function BundleEditorScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
       >
-        {/* Header */}
-        <View className="flex-row items-center justify-between px-4 py-3 border-b border-border">
-          <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-            <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
-          </TouchableOpacity>
-          <Text className="text-lg font-semibold text-foreground">
-            {isNewBundle ? "Create Bundle" : "Edit Bundle"}
-          </Text>
-          <View className="flex-row items-center gap-2">
-            {!isNewBundle && (
-              <TouchableOpacity onPress={handleDelete} className="p-2">
-                <IconSymbol name="trash.fill" size={20} color={colors.error} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
+        {/* Header with confirmation for unsaved changes */}
+        <NavigationHeader
+          title={isNewBundle ? "Create Bundle" : "Edit Bundle"}
+          showBack
+          showHome
+          confirmBack={{
+            title: "Discard Changes?",
+            message: "You have unsaved changes. Are you sure you want to leave?",
+            confirmText: "Discard",
+            cancelText: "Keep Editing",
+          }}
+          rightAction={!isNewBundle ? {
+            icon: "trash.fill",
+            onPress: handleDelete,
+          } : undefined}
+        />
 
         {/* Status Badges */}
         {form.status === "pending_review" && (

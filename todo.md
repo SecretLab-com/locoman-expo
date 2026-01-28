@@ -617,3 +617,26 @@
 - [x] Verify browse screen has back button (already present)
 - [x] Verify invite token screen has back button (already present)
 - [x] Verify trainer bundles screen has back button (already present)
+
+## Trainer Loyalty Navigation Update
+- [x] Hide trainer shopping/discovery for clients with assigned trainer
+- [x] Move trainer discovery to Profile > My Trainers section
+- [x] Show "Add Trainer" option in My Trainers that leads to discovery
+- [x] Update navigation diagram to reflect conditional flows
+
+## Navigation Dead-End Audit
+- [x] Audit all screens for back navigation paths
+- [x] Document escape hatch strategy for each screen type
+- [x] Update navigation diagram with back paths
+
+## Navigation Implementation
+- [x] Implement trainer loyalty routing - hide trainer discovery for clients with trainers
+- [x] Create My Trainers screen in profile settings
+- [x] Add Find New Trainer screen accessible from My Trainers
+- [x] Add persistent back buttons to all stack screens
+- [x] Add home button to deeply nested screens (3+ levels)
+- [x] Add Exit Impersonation banner for coordinators (already exists)
+- [x] Update Order Confirmation with Go Home and View Program CTAs
+- [ ] Add Leave Session button to Session View
+- [x] Add confirmation dialog to Bundle Editor back navigation
+- [x] Ensure tab bar stays visible on stack screens

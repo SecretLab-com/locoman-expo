@@ -13,6 +13,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { NavigationHeader } from "@/components/navigation-header";
 import * as Haptics from "expo-haptics";
 
 type GoalType = "weight_loss" | "strength" | "longevity" | "power";
@@ -147,22 +148,24 @@ export default function TemplateEditorScreen() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1 bg-background">
-      <SafeAreaView className="flex-1" edges={["top", "left", "right"]}>
-        {/* Header */}
-        <View className="flex-row items-center justify-between px-4 py-3 border-b border-border">
-          <TouchableOpacity onPress={() => router.back()} className="flex-row items-center">
-            <IconSymbol name="chevron.left" size={20} color={colors.primary} />
-            <Text className="text-primary ml-1">Back</Text>
-          </TouchableOpacity>
-          <Text className="text-lg font-semibold text-foreground">{isNew ? "New Template" : "Edit Template"}</Text>
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={isSaving}
-            style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, opacity: isSaving ? 0.6 : 1 }}
-          >
-            <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>{isSaving ? "Saving..." : "Save"}</Text>
-          </TouchableOpacity>
-        </View>
+      <SafeAreaView className="flex-1" edges={["left", "right"]}>
+        {/* Header with confirmation for unsaved changes */}
+        <NavigationHeader
+          title={isNew ? "New Template" : "Edit Template"}
+          showBack
+          showHome
+          confirmBack={{
+            title: "Discard Changes?",
+            message: "You have unsaved changes. Are you sure you want to leave?",
+            confirmText: "Discard",
+            cancelText: "Keep Editing",
+          }}
+          rightAction={{
+            icon: "checkmark",
+            onPress: handleSave,
+            label: isSaving ? "Saving..." : "Save",
+          }}
+        />
 
         {/* Tab Bar */}
         <View className="flex-row border-b border-border">
