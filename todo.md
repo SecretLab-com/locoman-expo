@@ -640,3 +640,11 @@
 - [ ] Add Leave Session button to Session View
 - [x] Add confirmation dialog to Bundle Editor back navigation
 - [x] Ensure tab bar stays visible on stack screens
+
+## Swipe-Back Gesture Navigation
+- [x] Enable swipe-back gesture on all stack screens
+- [x] Configure gesture settings in root layout
+- [x] Ensure gesture works on iOS and Android
+- [x] Handle screens that should disable gesture (e.g., checkout confirmation)
+- [x] Create SwipeBackContainer component for web support
+- [x] Create useSwipeBackGesture hook for custom implementations

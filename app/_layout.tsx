@@ -101,7 +101,20 @@ export default function RootLayout() {
                       {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
                       {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
                       {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
-                      <Stack screenOptions={{ headerShown: false }}>
+                      {/* Enable swipe-back gesture globally for native iOS/Android feel */}
+                      <Stack 
+                        screenOptions={{ 
+                          headerShown: false,
+                          // Enable swipe-back gesture on all screens by default
+                          gestureEnabled: true,
+                          // iOS: Full-width swipe from left edge
+                          fullScreenGestureEnabled: true,
+                          // Animation configuration for smooth transitions
+                          animation: "slide_from_right",
+                          // Gesture direction for swipe-back
+                          gestureDirection: "horizontal",
+                        }}
+                      >
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
                     <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
@@ -109,7 +122,7 @@ export default function RootLayout() {
                     <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card" }} />
                     <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
                     <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false }} />
+                    <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false, animation: "fade" }} />
                     <Stack.Screen name="messages/index" options={{ presentation: "card" }} />
                     <Stack.Screen name="messages/[id]" options={{ presentation: "card" }} />
                     <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
