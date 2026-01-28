@@ -76,7 +76,7 @@ describe("User Journey Validation", () => {
       const layoutPath = path.join(projectRoot, "app/(trainer)/_layout.tsx");
       const content = fs.readFileSync(layoutPath, "utf-8");
       
-      expect(content).toContain("Dashboard");
+      expect(content).toContain("Home"); // Home tab goes to Dashboard (index)
       expect(content).toContain("Calendar");
       expect(content).toContain("Clients");
       expect(content).toContain("Deliveries");
@@ -143,7 +143,7 @@ describe("User Journey Validation", () => {
       const layoutPath = path.join(projectRoot, "app/(manager)/_layout.tsx");
       const content = fs.readFileSync(layoutPath, "utf-8");
       
-      expect(content).toContain("Dashboard");
+      expect(content).toContain("Home"); // Home tab goes to Dashboard (index)
       expect(content).toContain("Approvals");
       expect(content).toContain("Users");
       expect(content).toContain("Analytics");

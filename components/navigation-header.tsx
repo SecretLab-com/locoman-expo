@@ -198,22 +198,23 @@ export function NavigationHeader({
 
 /**
  * Determine the default home path based on current pathname
+ * Routes to the Dashboard/index screen for each role
  */
 function getDefaultHomePath(pathname: string): string {
   if (pathname.startsWith("/(trainer)") || pathname.includes("/bundle-editor") || pathname.includes("/template-editor")) {
-    return "/(trainer)/home";
+    return "/(trainer)";
   }
   if (pathname.startsWith("/(client)") || pathname.includes("/my-trainers")) {
-    return "/(client)/home";
+    return "/(client)";
   }
   if (pathname.startsWith("/(manager)")) {
-    return "/(manager)/home";
+    return "/(manager)";
   }
   if (pathname.startsWith("/(coordinator)")) {
-    return "/(coordinator)/home";
+    return "/(coordinator)";
   }
-  // Default to shopper tabs home
-  return "/(tabs)/home";
+  // Default to shopper tabs (Discover/Bundles)
+  return "/(tabs)";
 }
 
 const styles = StyleSheet.create({

@@ -720,3 +720,12 @@
 ## Settings Home Button Fix
 - [x] Fix home button on settings page to navigate to home screen
 - [x] Fix NavigationHeader getDefaultHomePath to navigate to /home tabs
+
+
+## Home Button to Dashboard Fix
+- [x] Update trainer tab layout - Home goes to Dashboard (index)
+- [x] Update client tab layout - Home goes to Dashboard (index)
+- [x] Update manager tab layout - Home goes to Dashboard (index)
+- [x] Update coordinator tab layout - Home goes to Dashboard (index)
+- [x] Update shopper tab layout - Home goes to Discover (index)
+- [x] Update NavigationHeader getDefaultHomePath to use index routes

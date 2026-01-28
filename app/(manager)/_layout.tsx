@@ -33,17 +33,17 @@ export default function ManagerTabLayout() {
       }}
     >
       <Tabs.Screen
-        name="home"
+        name="index"
         options={{
           title: "Home",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
+      {/* Home hub screen - hidden, accessible via navigation */}
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chart.bar.fill" color={color} />,
+          href: null,
         }}
       />
       <Tabs.Screen

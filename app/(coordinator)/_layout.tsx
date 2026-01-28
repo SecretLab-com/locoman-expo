@@ -30,10 +30,17 @@ export default function CoordinatorTabLayout() {
       }}
     >
       <Tabs.Screen
-        name="home"
+        name="index"
         options={{
           title: "Home",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+        }}
+      />
+      {/* Home hub screen - hidden, accessible via navigation */}
+      <Tabs.Screen
+        name="home"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -41,13 +48,6 @@ export default function CoordinatorTabLayout() {
         options={{
           title: "Catalog",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="rectangle.grid.2x2.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Impersonate",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.badge.key.fill" color={color} />,
         }}
       />
       <Tabs.Screen

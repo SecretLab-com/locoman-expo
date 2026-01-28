@@ -91,7 +91,7 @@ export default function SettingsScreen() {
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => router.replace("/(trainer)/home")}
+            onPress={() => router.replace("/(trainer)")}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
           >
             <IconSymbol name="house.fill" size={20} color={colors.foreground} />
