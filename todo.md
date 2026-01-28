@@ -729,3 +729,7 @@
 - [x] Update coordinator tab layout - Home goes to Dashboard (index)
 - [x] Update shopper tab layout - Home goes to Discover (index)
 - [x] Update NavigationHeader getDefaultHomePath to use index routes
+
+
+## Profile Home Button Fix
+- [x] Add Home button to Profile screen (FAB) that navigates to Dashboard

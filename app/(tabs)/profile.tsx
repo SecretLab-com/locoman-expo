@@ -100,6 +100,21 @@ export default function ProfileScreen() {
   const { user, isAuthenticated, logout, loading, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
 
+  const handleGoHome = async () => {
+    await haptics.light();
+    if (isCoordinator) {
+      router.replace("/(coordinator)" as any);
+    } else if (isManager) {
+      router.replace("/(manager)" as any);
+    } else if (isTrainer) {
+      router.replace("/(trainer)" as any);
+    } else if (isClient) {
+      router.replace("/(client)" as any);
+    } else {
+      router.replace("/(tabs)" as any);
+    }
+  };
+
   const cycleTheme = async () => {
     await haptics.light();
     const themes = ["system", "light", "dark"] as const;
@@ -188,6 +203,18 @@ export default function ProfileScreen() {
   return (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Home Button Header */}
+        <View className="flex-row items-center justify-between px-4 py-3 border-b border-border">
+          <TouchableOpacity
+            onPress={handleGoHome}
+            className="flex-row items-center bg-primary/10 px-4 py-2 rounded-full"
+          >
+            <IconSymbol name="house.fill" size={18} color={colors.primary} />
+            <Text className="text-primary font-semibold ml-2">Go to Dashboard</Text>
+          </TouchableOpacity>
+          <Text className="text-lg font-semibold text-foreground">My Profile</Text>
+        </View>
+
         {/* Profile Header */}
         <View className="items-center py-6 px-4">
           <View className="w-24 h-24 rounded-full bg-primary items-center justify-center mb-4">
