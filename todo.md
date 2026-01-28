@@ -733,3 +733,10 @@
 
 ## Profile Home Button Fix
 - [x] Add Home button to Profile screen (FAB) that navigates to Dashboard
+
+
+## Home Button Consistency Fix
+- [x] Update NavigationHeader home button to go to Dashboard
+- [x] Update messages detail screen home button to use role-based navigation
+- [x] Update checkout confirmation home button to use role-based navigation
+- [x] Verify all home navigation paths are consistent

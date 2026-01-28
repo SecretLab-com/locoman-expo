@@ -18,7 +18,7 @@ import Animated, {
 
 export default function OrderConfirmationScreen() {
   const colors = useColors();
-  const { isClient } = useAuthContext();
+  const { isClient, isTrainer, isManager, isCoordinator } = useAuthContext();
   
   const checkScale = useSharedValue(0);
   const textOpacity = useSharedValue(0);
@@ -59,8 +59,14 @@ export default function OrderConfirmationScreen() {
   };
 
   const handleGoHome = () => {
-    // Navigate to the appropriate home based on user state
-    if (isClient) {
+    // Navigate to the appropriate dashboard based on user role
+    if (isCoordinator) {
+      router.replace("/(coordinator)" as any);
+    } else if (isManager) {
+      router.replace("/(manager)" as any);
+    } else if (isTrainer) {
+      router.replace("/(trainer)" as any);
+    } else if (isClient) {
       router.replace("/(client)" as any);
     } else {
       router.replace("/(tabs)" as any);

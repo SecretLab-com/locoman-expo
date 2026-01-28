@@ -14,6 +14,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
+import { useAuthContext } from "@/contexts/auth-context";
 import * as Haptics from "expo-haptics";
 
 type Message = {
@@ -160,8 +161,9 @@ function MessageBubble({ message }: { message: Message }) {
   );
 }
 
-export default function MessageThreadScreen() {
+export default function MessageDetailScreen() {
   const colors = useColors();
+  const { isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [messages, setMessages] = useState(MOCK_MESSAGES);
   const [inputText, setInputText] = useState("");
@@ -251,7 +253,21 @@ export default function MessageThreadScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          onPress={() => { haptics.light(); router.replace("/(tabs)" as any); }} 
+          onPress={() => { 
+            haptics.light(); 
+            // Navigate to role-specific dashboard
+            if (isCoordinator) {
+              router.replace("/(coordinator)" as any);
+            } else if (isManager) {
+              router.replace("/(manager)" as any);
+            } else if (isTrainer) {
+              router.replace("/(trainer)" as any);
+            } else if (isClient) {
+              router.replace("/(client)" as any);
+            } else {
+              router.replace("/(tabs)" as any);
+            }
+          }} 
           className="p-2"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >

@@ -138,7 +138,7 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
       expect(fs.existsSync(threadPath)).toBe(true);
       
       const content = fs.readFileSync(threadPath, "utf-8");
-      expect(content).toContain("MessageThreadScreen");
+      expect(content).toContain("MessageDetailScreen");
       expect(content).toContain("MessageBubble");
       expect(content).toContain("handleSend");
       expect(content).toContain("inputText");
