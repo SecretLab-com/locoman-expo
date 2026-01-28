@@ -671,3 +671,12 @@
 
 ## Profile Navigation Fix
 - [x] Add back/home navigation to Profile screen
+
+
+## Tab Screen Navigation Audit
+- [x] Audit shopper tabs (index, bundles, products, trainers, cart, profile)
+- [x] Audit client tabs (index, programs, deliveries, spending)
+- [x] Audit trainer tabs (index, calendar, clients, deliveries, earnings)
+- [x] Audit manager tabs (index, approvals, users, analytics)
+- [x] Audit coordinator tabs (catalog, impersonate, logs)
+- [x] Add NavigationHeader to screens missing back/home navigation

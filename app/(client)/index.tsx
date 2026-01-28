@@ -10,6 +10,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 
@@ -105,17 +106,18 @@ export default function ClientDashboardScreen() {
 
   return (
     <ScreenContainer>
+      <NavigationHeader 
+        title="Welcome Back!" 
+        showBack={true}
+        showHome={true}
+        subtitle="Let's continue your fitness journey"
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Header */}
-        <View className="px-4 pt-2 pb-4">
-          <Text className="text-2xl font-bold text-foreground">Welcome Back!</Text>
-          <Text className="text-sm text-muted">Let's continue your fitness journey</Text>
-        </View>
 
         {/* Quick Stats */}
         <View className="flex-row px-4 mb-6">

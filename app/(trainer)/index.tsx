@@ -3,6 +3,7 @@ import { Text, View, TouchableOpacity, ScrollView, RefreshControl, ActivityIndic
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
@@ -140,25 +141,23 @@ export default function TrainerDashboardScreen() {
 
   return (
     <ScreenContainer>
+      <NavigationHeader 
+        title="Dashboard" 
+        showBack={true}
+        showHome={true}
+        subtitle={`Welcome back, ${user?.name || "Trainer"}!`}
+        rightAction={{
+          icon: "gearshape.fill",
+          onPress: () => router.push("/(trainer)/settings" as any),
+          label: "Settings"
+        }}
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Header */}
-        <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
-          <View>
-            <Text className="text-2xl font-bold text-foreground">Dashboard</Text>
-            <Text className="text-sm text-muted">Welcome back, {user?.name || "Trainer"}!</Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => router.push("/(trainer)/settings" as any)}
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center"
-          >
-            <IconSymbol name="gearshape.fill" size={22} color={colors.foreground} />
-          </TouchableOpacity>
-        </View>
 
         {/* Status Tier Banner */}
         <TouchableOpacity

@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
@@ -91,13 +92,12 @@ export default function TrainersScreen() {
 
   return (
     <ScreenContainer className="flex-1">
-      {/* Hero Section */}
-      <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Find Your Trainer</Text>
-        <Text className="text-sm text-muted mt-1">
-          Connect with certified wellness professionals
-        </Text>
-      </View>
+      <NavigationHeader 
+        title="Find Your Trainer" 
+        showBack={true}
+        showHome={true}
+        subtitle="Connect with certified wellness professionals"
+      />
 
       {/* Search Bar */}
       <View className="px-4 mb-3">

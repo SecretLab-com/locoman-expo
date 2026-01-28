@@ -13,6 +13,7 @@ import {
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useAuthContext, UserRole } from "@/contexts/auth-context";
@@ -224,6 +225,12 @@ export default function ImpersonateScreen() {
 
   return (
     <ScreenContainer className="flex-1">
+      <NavigationHeader 
+        title="Impersonate" 
+        showBack={true}
+        showHome={true}
+        subtitle="View the app as any user for testing"
+      />
       {/* Impersonation Banner */}
       {isImpersonating && impersonatedUser && (
         <View className="bg-warning/20 border-b border-warning px-4 py-3">
@@ -243,14 +250,6 @@ export default function ImpersonateScreen() {
           </View>
         </View>
       )}
-
-      {/* Header */}
-      <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Impersonate</Text>
-        <Text className="text-sm text-muted mt-1">
-          View the app as any user for testing
-        </Text>
-      </View>
 
       {isLoading ? (
         <View className="flex-1 items-center justify-center">

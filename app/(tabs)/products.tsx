@@ -12,6 +12,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
@@ -124,11 +125,12 @@ export default function ProductsScreen() {
 
   return (
     <ScreenContainer className="flex-1">
-      {/* Header */}
-      <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Products</Text>
-        <Text className="text-sm text-muted mt-1">Browse wellness products</Text>
-      </View>
+      <NavigationHeader 
+        title="Products" 
+        showBack={true}
+        showHome={true}
+        subtitle="Browse wellness products"
+      />
 
       {/* Search Bar */}
       <View className="px-4 mb-3">
