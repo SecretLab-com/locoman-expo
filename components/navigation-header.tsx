@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Pressable, StyleSheet, Platform, Alert } from "react-native";
 import { router, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -65,34 +65,41 @@ export function NavigationHeader({
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
 
-  const handleBack = async () => {
-    await haptics.light();
+  const handleBack = () => {
+    // Fire haptics without awaiting (don't block navigation)
+    haptics.light();
     
-    if (confirmBack) {
-      Alert.alert(
-        confirmBack.title,
-        confirmBack.message,
-        [
-          { text: confirmBack.cancelText || "Cancel", style: "cancel" },
-          {
-            text: confirmBack.confirmText || "Discard",
-            style: "destructive",
-            onPress: () => {
-              if (onBack) {
-                onBack();
-              } else {
-                router.back();
-              }
-            },
-          },
-        ]
-      );
-    } else {
+    const doBack = () => {
       if (onBack) {
         onBack();
       } else {
         router.back();
       }
+    };
+    
+    if (confirmBack) {
+      // Use window.confirm on web since Alert.alert doesn't work properly
+      if (Platform.OS === "web") {
+        const confirmed = window.confirm(`${confirmBack.title}\n\n${confirmBack.message}`);
+        if (confirmed) {
+          doBack();
+        }
+      } else {
+        Alert.alert(
+          confirmBack.title,
+          confirmBack.message,
+          [
+            { text: confirmBack.cancelText || "Cancel", style: "cancel" },
+            {
+              text: confirmBack.confirmText || "Discard",
+              style: "destructive",
+              onPress: doBack,
+            },
+          ]
+        );
+      }
+    } else {
+      doBack();
     }
   };
 
@@ -120,14 +127,18 @@ export function NavigationHeader({
         {/* Left side - Back button */}
         <View style={styles.leftSection}>
           {showBack && (
-            <TouchableOpacity
+            <Pressable
               onPress={handleBack}
-              style={styles.iconButton}
-              activeOpacity={0.7}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && { opacity: 0.6 },
+              ]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
             >
               <IconSymbol name="chevron.left" size={24} color={colors.primary} />
-            </TouchableOpacity>
+            </Pressable>
           )}
         </View>
 
@@ -152,24 +163,32 @@ export function NavigationHeader({
         {/* Right side - Home button or custom action */}
         <View style={styles.rightSection}>
           {showHome && (
-            <TouchableOpacity
+            <Pressable
               onPress={handleHome}
-              style={styles.iconButton}
-              activeOpacity={0.7}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && { opacity: 0.6 },
+              ]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Go to home"
             >
               <IconSymbol name="house.fill" size={22} color={colors.primary} />
-            </TouchableOpacity>
+            </Pressable>
           )}
           {rightAction && (
-            <TouchableOpacity
+            <Pressable
               onPress={rightAction.onPress}
-              style={styles.iconButton}
-              activeOpacity={0.7}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && { opacity: 0.6 },
+              ]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel={rightAction.label || "Action"}
             >
               <IconSymbol name={rightAction.icon} size={22} color={colors.primary} />
-            </TouchableOpacity>
+            </Pressable>
           )}
         </View>
       </View>

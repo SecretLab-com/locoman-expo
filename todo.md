@@ -648,3 +648,11 @@
 - [x] Handle screens that should disable gesture (e.g., checkout confirmation)
 - [x] Create SwipeBackContainer component for web support
 - [x] Create useSwipeBackGesture hook for custom implementations
+
+
+## Navigation Verification - Jan 28, 2026
+- [x] Back button works correctly on Messages screen
+- [x] Home button works correctly on Messages screen
+- [x] Back button with confirmation dialog works on Bundle Editor (web uses window.confirm)
+- [x] Swipe-back gesture enabled in root layout
+- [x] All 381 tests pass
