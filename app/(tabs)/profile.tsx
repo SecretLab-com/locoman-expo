@@ -2,6 +2,7 @@ import { Text, View, TouchableOpacity, ScrollView, Alert, Pressable } from "reac
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { useAuthContext } from "@/contexts/auth-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -187,6 +188,11 @@ export default function ProfileScreen() {
 
   return (
     <ScreenContainer>
+      <NavigationHeader 
+        title="Profile" 
+        showBack 
+        showHome 
+      />
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
         <View className="items-center py-6 px-4">

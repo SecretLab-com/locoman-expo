@@ -667,3 +667,7 @@
 - [x] Implement request to join trainer flow
 - [x] Show pending join requests status
 - [x] Add trainer profile quick view from My Trainers
+
+
+## Profile Navigation Fix
+- [x] Add back/home navigation to Profile screen
