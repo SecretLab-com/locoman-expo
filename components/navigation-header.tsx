@@ -200,20 +200,20 @@ export function NavigationHeader({
  * Determine the default home path based on current pathname
  */
 function getDefaultHomePath(pathname: string): string {
-  if (pathname.startsWith("/(trainer)") || pathname.includes("/bundle-editor")) {
-    return "/(trainer)";
+  if (pathname.startsWith("/(trainer)") || pathname.includes("/bundle-editor") || pathname.includes("/template-editor")) {
+    return "/(trainer)/home";
   }
-  if (pathname.startsWith("/(client)")) {
-    return "/(client)";
+  if (pathname.startsWith("/(client)") || pathname.includes("/my-trainers")) {
+    return "/(client)/home";
   }
   if (pathname.startsWith("/(manager)")) {
-    return "/(manager)";
+    return "/(manager)/home";
   }
   if (pathname.startsWith("/(coordinator)")) {
-    return "/(coordinator)";
+    return "/(coordinator)/home";
   }
-  // Default to shopper tabs
-  return "/(tabs)";
+  // Default to shopper tabs home
+  return "/(tabs)/home";
 }
 
 const styles = StyleSheet.create({

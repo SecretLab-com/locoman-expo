@@ -715,3 +715,8 @@
 - [x] Add pull-to-refresh to client home screen
 - [x] Add pull-to-refresh to manager home screen
 - [x] Add pull-to-refresh to coordinator home screen
+
+
+## Settings Home Button Fix
+- [x] Fix home button on settings page to navigate to home screen
+- [x] Fix NavigationHeader getDefaultHomePath to navigate to /home tabs
