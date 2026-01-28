@@ -680,3 +680,16 @@
 - [x] Audit manager tabs (index, approvals, users, analytics)
 - [x] Audit coordinator tabs (catalog, impersonate, logs)
 - [x] Add NavigationHeader to screens missing back/home navigation
+
+
+## Navigation Cleanup - Remove Headers, Add Home Tab
+- [x] Remove NavigationHeader from shopper tabs (index, products, trainers, cart, profile)
+- [x] Remove NavigationHeader from client tabs (index)
+- [x] Remove NavigationHeader from trainer tabs (index)
+- [x] Remove NavigationHeader from manager tabs (index)
+- [x] Remove NavigationHeader from coordinator tabs (index)
+- [x] Add Home tab to shopper tab layout
+- [x] Add Home tab to client tab layout
+- [x] Add Home tab to trainer tab layout
+- [x] Add Home tab to manager tab layout
+- [x] Add Home tab to coordinator tab layout

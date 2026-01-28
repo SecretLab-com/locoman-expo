@@ -8,7 +8,6 @@ import {
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
-import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/hooks/use-auth";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -150,12 +149,11 @@ export default function CartScreen() {
 
   return (
     <ScreenContainer>
-      <NavigationHeader 
-        title="Your Cart" 
-        showBack={true}
-        showHome={true}
-        subtitle={`${items.length} items`}
-      />
+      {/* Header */}
+      <View className="px-4 pt-2 pb-4">
+        <Text className="text-2xl font-bold text-foreground">Your Cart</Text>
+        <Text className="text-sm text-muted">{items.length} items</Text>
+      </View>
 
       {/* Cart Items */}
       <FlatList

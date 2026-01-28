@@ -10,7 +10,6 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { NavigationHeader } from "@/components/navigation-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 
@@ -139,18 +138,17 @@ export default function ManagerDashboardScreen() {
 
   return (
     <ScreenContainer>
-      <NavigationHeader 
-        title="Manager Dashboard" 
-        showBack={true}
-        showHome={true}
-        subtitle="Platform overview and management"
-      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
+        {/* Header */}
+        <View className="px-4 pt-2 pb-4">
+          <Text className="text-2xl font-bold text-foreground">Manager Dashboard</Text>
+          <Text className="text-sm text-muted">Platform overview and management</Text>
+        </View>
 
         {/* Stats Grid */}
         <View className="px-4 mb-6">

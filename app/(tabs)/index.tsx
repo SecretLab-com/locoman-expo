@@ -11,7 +11,6 @@ import {
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
-import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { useAuth } from "@/hooks/use-auth";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -184,17 +183,13 @@ export default function CatalogScreen() {
 
   return (
     <ScreenContainer>
-      <NavigationHeader 
-        title="Discover" 
-        showBack={true}
-        showHome={true}
-        subtitle="Find your perfect fitness program"
-      />
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center justify-between mb-4">
           <View>
+            <Text className="text-2xl font-bold text-foreground">Discover</Text>
             <View className="flex-row items-center">
+              <Text className="text-sm text-muted">Find your perfect fitness program</Text>
               {usingCache && <View className="ml-2"><OfflineBadge /></View>}
             </View>
           </View>
