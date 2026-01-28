@@ -839,3 +839,284 @@ export async function getRecentActivityLogs(limit = 100) {
     .orderBy(desc(userActivityLogs.createdAt))
     .limit(limit);
 }
+
+
+// ============================================================================
+// CLIENT-TRAINER RELATIONSHIPS (My Trainers feature)
+// ============================================================================
+
+/**
+ * Get all trainers that a client is currently working with
+ * Returns trainers where the user has an active client relationship
+ */
+export async function getMyTrainers(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // Find all client records where this user is linked
+  const clientRecords = await db
+    .select()
+    .from(clients)
+    .where(
+      and(
+        eq(clients.userId, userId),
+        inArray(clients.status, ["active", "pending"])
+      )
+    );
+  
+  if (clientRecords.length === 0) return [];
+  
+  // Get trainer IDs
+  const trainerIds = clientRecords.map(c => c.trainerId);
+  
+  // Get trainer details
+  const trainers = await db
+    .select()
+    .from(users)
+    .where(inArray(users.id, trainerIds));
+  
+  // Combine trainer info with relationship info
+  return trainers.map(trainer => {
+    const clientRecord = clientRecords.find(c => c.trainerId === trainer.id);
+    return {
+      ...trainer,
+      relationshipId: clientRecord?.id,
+      relationshipStatus: clientRecord?.status,
+      joinedDate: clientRecord?.acceptedAt || clientRecord?.createdAt,
+      isPrimary: clientRecord?.id === clientRecords[0]?.id, // First trainer is primary
+    };
+  });
+}
+
+/**
+ * Get active bundles count for a client-trainer relationship
+ */
+export async function getActiveBundlesCount(trainerId: number, clientUserId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  // Find the client record
+  const clientRecord = await db
+    .select()
+    .from(clients)
+    .where(
+      and(
+        eq(clients.trainerId, trainerId),
+        eq(clients.userId, clientUserId)
+      )
+    )
+    .limit(1);
+  
+  if (clientRecord.length === 0) return 0;
+  
+  // Count active subscriptions
+  const subs = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.clientId, clientRecord[0].id),
+        eq(subscriptions.status, "active")
+      )
+    );
+  
+  return subs[0]?.count ?? 0;
+}
+
+/**
+ * Remove a trainer from client's roster (soft delete - marks as removed)
+ */
+export async function removeTrainerFromClient(trainerId: number, clientUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  await db
+    .update(clients)
+    .set({ status: "removed" })
+    .where(
+      and(
+        eq(clients.trainerId, trainerId),
+        eq(clients.userId, clientUserId)
+      )
+    );
+}
+
+/**
+ * Get trainers available for discovery (not already connected to user)
+ */
+export async function getAvailableTrainers(userId: number, search?: string, specialty?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // Get IDs of trainers already connected to this user
+  const existingConnections = await db
+    .select({ trainerId: clients.trainerId })
+    .from(clients)
+    .where(
+      and(
+        eq(clients.userId, userId),
+        inArray(clients.status, ["active", "pending"])
+      )
+    );
+  
+  const connectedTrainerIds = existingConnections.map(c => c.trainerId);
+  
+  // Build conditions for trainer search
+  const conditions = [eq(users.role, "trainer"), eq(users.active, true)];
+  
+  // Exclude already connected trainers
+  if (connectedTrainerIds.length > 0) {
+    conditions.push(sql`${users.id} NOT IN (${connectedTrainerIds.join(",")})`);
+  }
+  
+  // Add search filter
+  if (search) {
+    conditions.push(
+      or(
+        like(users.name, `%${search}%`),
+        like(users.bio, `%${search}%`),
+        like(users.username, `%${search}%`)
+      )!
+    );
+  }
+  
+  return db
+    .select()
+    .from(users)
+    .where(and(...conditions))
+    .orderBy(desc(users.createdAt))
+    .limit(50);
+}
+
+/**
+ * Create a join request from client to trainer
+ */
+export async function createJoinRequest(trainerId: number, userId: number, message?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Check if relationship already exists
+  const existing = await db
+    .select()
+    .from(clients)
+    .where(
+      and(
+        eq(clients.trainerId, trainerId),
+        eq(clients.userId, userId)
+      )
+    )
+    .limit(1);
+  
+  if (existing.length > 0) {
+    // Reactivate if previously removed
+    if (existing[0].status === "removed") {
+      await db
+        .update(clients)
+        .set({ status: "pending", notes: message })
+        .where(eq(clients.id, existing[0].id));
+      return existing[0].id;
+    }
+    throw new Error("Already connected to this trainer");
+  }
+  
+  // Get user info for the client record
+  const user = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  
+  if (user.length === 0) throw new Error("User not found");
+  
+  // Create new pending client record
+  const result = await db.insert(clients).values({
+    trainerId,
+    userId,
+    name: user[0].name || "Unknown",
+    email: user[0].email,
+    phone: user[0].phone,
+    photoUrl: user[0].photoUrl,
+    status: "pending",
+    notes: message,
+    invitedAt: new Date(),
+  });
+  
+  return result[0].insertId;
+}
+
+/**
+ * Get pending join requests for a user (requests they've sent)
+ */
+export async function getPendingJoinRequests(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const pending = await db
+    .select()
+    .from(clients)
+    .where(
+      and(
+        eq(clients.userId, userId),
+        eq(clients.status, "pending")
+      )
+    );
+  
+  if (pending.length === 0) return [];
+  
+  // Get trainer details
+  const trainerIds = pending.map(p => p.trainerId);
+  const trainers = await db
+    .select()
+    .from(users)
+    .where(inArray(users.id, trainerIds));
+  
+  return pending.map(request => ({
+    ...request,
+    trainer: trainers.find(t => t.id === request.trainerId),
+  }));
+}
+
+/**
+ * Cancel a pending join request
+ */
+export async function cancelJoinRequest(requestId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Verify the request belongs to this user
+  const request = await db
+    .select()
+    .from(clients)
+    .where(
+      and(
+        eq(clients.id, requestId),
+        eq(clients.userId, userId),
+        eq(clients.status, "pending")
+      )
+    )
+    .limit(1);
+  
+  if (request.length === 0) throw new Error("Request not found");
+  
+  await db.delete(clients).where(eq(clients.id, requestId));
+}
+
+/**
+ * Get trainer's published bundles count
+ */
+export async function getTrainerBundleCount(trainerId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(bundleDrafts)
+    .where(
+      and(
+        eq(bundleDrafts.trainerId, trainerId),
+        eq(bundleDrafts.status, "published")
+      )
+    );
+  
+  return result[0]?.count ?? 0;
+}

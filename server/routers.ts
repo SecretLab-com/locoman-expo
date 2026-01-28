@@ -636,6 +636,92 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // MY TRAINERS (Client's trainer relationships)
+  // ============================================================================
+  myTrainers: router({
+    // Get all trainers the current user is working with
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const trainers = await db.getMyTrainers(ctx.user.id);
+      
+      // Enrich with active bundles count
+      const enrichedTrainers = await Promise.all(
+        trainers.map(async (trainer) => {
+          const activeBundles = await db.getActiveBundlesCount(trainer.id, ctx.user.id);
+          return {
+            ...trainer,
+            activeBundles,
+          };
+        })
+      );
+      
+      return enrichedTrainers;
+    }),
+    
+    // Remove a trainer from the client's roster
+    remove: protectedProcedure
+      .input(z.object({ trainerId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await db.removeTrainerFromClient(input.trainerId, ctx.user.id);
+        return { success: true };
+      }),
+    
+    // Get available trainers for discovery (not already connected)
+    discover: protectedProcedure
+      .input(z.object({
+        search: z.string().optional(),
+        specialty: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const trainers = await db.getAvailableTrainers(
+          ctx.user.id,
+          input?.search,
+          input?.specialty
+        );
+        
+        // Enrich with bundle count
+        const enrichedTrainers = await Promise.all(
+          trainers.map(async (trainer) => {
+            const bundleCount = await db.getTrainerBundleCount(trainer.id);
+            return {
+              ...trainer,
+              bundleCount,
+            };
+          })
+        );
+        
+        return enrichedTrainers;
+      }),
+    
+    // Send a join request to a trainer
+    requestToJoin: protectedProcedure
+      .input(z.object({
+        trainerId: z.number(),
+        message: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const requestId = await db.createJoinRequest(
+          input.trainerId,
+          ctx.user.id,
+          input.message
+        );
+        return { success: true, requestId };
+      }),
+    
+    // Get pending join requests (requests the user has sent)
+    pendingRequests: protectedProcedure.query(async ({ ctx }) => {
+      return db.getPendingJoinRequests(ctx.user.id);
+    }),
+    
+    // Cancel a pending join request
+    cancelRequest: protectedProcedure
+      .input(z.object({ requestId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await db.cancelJoinRequest(input.requestId, ctx.user.id);
+        return { success: true };
+      }),
+  }),
+
+  // ============================================================================
   // ADMIN (Manager/Coordinator features)
   // ============================================================================
   admin: router({

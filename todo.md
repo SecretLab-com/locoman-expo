@@ -656,3 +656,14 @@
 - [x] Back button with confirmation dialog works on Bundle Editor (web uses window.confirm)
 - [x] Swipe-back gesture enabled in root layout
 - [x] All 381 tests pass
+
+
+## My Trainers Feature Implementation
+- [x] Create trainer relationship API endpoints (getMyTrainers, removeTrainer, requestToJoin)
+- [x] Build My Trainers list screen with trainer cards
+- [x] Add remove trainer functionality with confirmation
+- [x] Build Find New Trainer discovery screen
+- [x] Add search and filter functionality to trainer discovery
+- [x] Implement request to join trainer flow
+- [x] Show pending join requests status
+- [x] Add trainer profile quick view from My Trainers
