@@ -766,3 +766,8 @@
 - [x] Fix Home button on Coordinator/Impersonate screen - Home tab now correctly shows the Impersonate screen (which IS the home for coordinators)
 - [x] Fix initial landing page to match user's role - added role-based redirect in (tabs)/_layout.tsx
 - [x] Updated Profile screen to use consistent "Home" label instead of "Dashboard" labels
+
+## ESM Compatibility Fix
+- [x] Fix app.config.ts ESM/CommonJS compatibility error when running on external server
+  - Converted scripts/load-env.js from ESM to CommonJS syntax
+  - Changed app.config.ts to use require() instead of import for load-env.js
