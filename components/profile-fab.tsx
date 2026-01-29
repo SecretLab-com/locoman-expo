@@ -7,7 +7,7 @@ import {
   Pressable,
   StyleSheet,
 } from "react-native";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/use-colors";
@@ -28,6 +28,13 @@ export function ProfileFAB() {
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated, logout, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const [menuVisible, setMenuVisible] = useState(false);
+  const pathname = usePathname();
+
+  // Hide FAB on profile screen since it's redundant there
+  const isOnProfileScreen = pathname === "/profile" || pathname.startsWith("/profile/");
+  if (isOnProfileScreen) {
+    return null;
+  }
 
   const handlePress = () => {
     if (Platform.OS !== "web") {

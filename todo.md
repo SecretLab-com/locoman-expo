@@ -751,3 +751,6 @@
 
 ## Profile Screen Notch Fix
 - [x] Fix Profile screen header overlap with notch - removed overlapping "My Profile" title and added right padding for ProfileFAB
+
+## ProfileFAB Visibility
+- [x] Hide ProfileFAB on Profile screen since it's redundant
