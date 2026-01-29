@@ -745,3 +745,6 @@
 ## Impersonate Screen Home Button Fix
 - [ ] Fix home button on Impersonate screen to navigate to Dashboard
 - [x] Fix Profile/Settings showing wrong role tabs when accessed from Coordinator view (created shared /profile screen that opens as card overlay)
+
+## Settings Screen Header Fix
+- [x] Fix overlapping buttons at top of Settings screen (moved Save button to sticky footer, added padding for ProfileFAB)

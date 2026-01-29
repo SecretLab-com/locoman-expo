@@ -81,9 +81,9 @@ export default function SettingsScreen() {
 
   return (
     <ScreenContainer className="flex-1">
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-4 pt-2 pb-4">
-        <View className="flex-row items-center">
+      {/* Header - leave space on right for ProfileFAB */}
+      <View className="px-4 pt-2 pb-4">
+        <View className="flex-row items-center pr-12">
           <TouchableOpacity
             onPress={() => router.back()}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-2"
@@ -98,15 +98,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
           <Text className="text-2xl font-bold text-foreground">Settings</Text>
         </View>
-        <TouchableOpacity
-          onPress={handleSave}
-          disabled={isSaving}
-          className={`px-4 py-2 rounded-lg ${isSaving ? "bg-muted" : "bg-primary"}`}
-        >
-          <Text className="text-white font-semibold">
-            {isSaving ? "Saving..." : "Save"}
-          </Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
@@ -438,9 +429,22 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Bottom padding */}
-        <View className="h-24" />
+        {/* Bottom padding for save button */}
+        <View className="h-32" />
       </ScrollView>
+
+      {/* Sticky Save Button */}
+      <View className="absolute bottom-0 left-0 right-0 p-4 bg-background border-t border-border">
+        <TouchableOpacity
+          onPress={handleSave}
+          disabled={isSaving}
+          className={`w-full py-4 rounded-xl items-center ${isSaving ? "bg-muted" : "bg-primary"}`}
+        >
+          <Text className="text-white font-semibold text-lg">
+            {isSaving ? "Saving..." : "Save Changes"}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </ScreenContainer>
   );
 }
