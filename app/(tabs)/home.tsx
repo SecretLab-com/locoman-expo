@@ -1,5 +1,6 @@
 import { Text, View, TouchableOpacity, ScrollView, RefreshControl } from "react-native";
 import { router } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
 import { useState, useCallback } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -55,15 +56,7 @@ export default function ShopperHomeScreen() {
 
   const handleDashboardPress = async () => {
     await haptics.light();
-    if (isCoordinator) {
-      router.push("/(coordinator)" as any);
-    } else if (isManager) {
-      router.push("/(manager)" as any);
-    } else if (isTrainer) {
-      router.push("/(trainer)" as any);
-    } else if (isClient) {
-      router.push("/(client)" as any);
-    }
+    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
   const getDashboardInfo = () => {

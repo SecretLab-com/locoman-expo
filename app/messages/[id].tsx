@@ -9,6 +9,7 @@ import {
   Platform,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -255,18 +256,7 @@ export default function MessageDetailScreen() {
         <TouchableOpacity 
           onPress={() => { 
             haptics.light(); 
-            // Navigate to role-specific dashboard
-            if (isCoordinator) {
-              router.replace("/(coordinator)" as any);
-            } else if (isManager) {
-              router.replace("/(manager)" as any);
-            } else if (isTrainer) {
-              router.replace("/(trainer)" as any);
-            } else if (isClient) {
-              router.replace("/(client)" as any);
-            } else {
-              router.replace("/(tabs)" as any);
-            }
+            navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
           }} 
           className="p-2"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

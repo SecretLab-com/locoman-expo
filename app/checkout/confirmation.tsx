@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Text, View, TouchableOpacity } from "react-native";
 import { router } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -59,18 +60,8 @@ export default function OrderConfirmationScreen() {
   };
 
   const handleGoHome = () => {
-    // Navigate to the appropriate dashboard based on user role
-    if (isCoordinator) {
-      router.replace("/(coordinator)" as any);
-    } else if (isManager) {
-      router.replace("/(manager)" as any);
-    } else if (isTrainer) {
-      router.replace("/(trainer)" as any);
-    } else if (isClient) {
-      router.replace("/(client)" as any);
-    } else {
-      router.replace("/(tabs)" as any);
-    }
+    // Navigate to the user's home (initial landing page)
+    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
   const handleContinueShopping = () => {

@@ -1,5 +1,6 @@
 import { Text, View, TouchableOpacity, ScrollView, Alert, Pressable } from "react-native";
 import { router } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -102,17 +103,7 @@ export default function ProfileScreen() {
 
   const handleGoHome = async () => {
     await haptics.light();
-    if (isCoordinator) {
-      router.replace("/(coordinator)" as any);
-    } else if (isManager) {
-      router.replace("/(manager)" as any);
-    } else if (isTrainer) {
-      router.replace("/(trainer)" as any);
-    } else if (isClient) {
-      router.replace("/(client)" as any);
-    } else {
-      router.replace("/(tabs)" as any);
-    }
+    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
   const cycleTheme = async () => {
@@ -154,15 +145,7 @@ export default function ProfileScreen() {
 
   const handleDashboardPress = async () => {
     await haptics.light();
-    if (isCoordinator) {
-      router.push("/(coordinator)" as any);
-    } else if (isManager) {
-      router.push("/(manager)" as any);
-    } else if (isTrainer) {
-      router.push("/(trainer)" as any);
-    } else if (isClient) {
-      router.push("/(client)" as any);
-    }
+    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
   const getDashboardLabel = () => {
@@ -210,7 +193,7 @@ export default function ProfileScreen() {
             className="flex-row items-center bg-primary/10 px-4 py-2 rounded-full"
           >
             <IconSymbol name="house.fill" size={18} color={colors.primary} />
-            <Text className="text-primary font-semibold ml-2">Go to Dashboard</Text>
+            <Text className="text-primary font-semibold ml-2">Home</Text>
           </TouchableOpacity>
           <Text className="text-lg font-semibold text-foreground">My Profile</Text>
         </View>

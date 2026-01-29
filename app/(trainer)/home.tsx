@@ -78,7 +78,7 @@ export default function TrainerHomeScreen() {
           
           <QuickAction
             icon="chart.bar.fill"
-            title="Dashboard"
+            title="Home"
             subtitle="View your stats and overview"
             onPress={() => router.push("/(trainer)" as any)}
           />

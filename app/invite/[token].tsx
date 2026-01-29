@@ -12,6 +12,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
+import { useAuthContext } from "@/contexts/auth-context";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
@@ -157,8 +159,8 @@ export default function InvitationScreen() {
         `You've joined ${invitation.trainerName}'s ${invitation.bundleTitle}. Your trainer has been notified and will be in touch soon.`,
         [
           {
-            text: "Go to Dashboard",
-            onPress: () => router.replace("/(client)" as any),
+            text: "Home",
+            onPress: () => navigateToHome({ isClient: true }),
           },
         ]
       );

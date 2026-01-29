@@ -76,7 +76,7 @@ export default function ManagerHomeScreen() {
           
           <QuickAction
             icon="chart.bar.fill"
-            title="Dashboard"
+            title="Home"
             subtitle="View platform overview and stats"
             onPress={() => router.push("/(manager)" as any)}
           />

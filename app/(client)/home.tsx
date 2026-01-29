@@ -76,7 +76,7 @@ export default function ClientHomeScreen() {
           
           <QuickAction
             icon="chart.bar.fill"
-            title="Dashboard"
+            title="Home"
             subtitle="View your progress and stats"
             onPress={() => router.push("/(client)" as any)}
           />

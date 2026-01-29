@@ -10,6 +10,8 @@ import {
   Switch,
 } from "react-native";
 import { router } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
+import { useAuthContext } from "@/contexts/auth-context";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
@@ -29,6 +31,7 @@ const SPECIALTIES = [
 export default function SettingsScreen() {
   const colors = useColors();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
+  const { isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   
   // Profile settings
   const [username, setUsername] = useState("@fitcoach");
@@ -91,7 +94,7 @@ export default function SettingsScreen() {
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => router.replace("/(trainer)")}
+            onPress={() => navigateToHome({ isCoordinator, isManager, isTrainer, isClient })}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
           >
             <IconSymbol name="house.fill" size={20} color={colors.foreground} />

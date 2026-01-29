@@ -754,3 +754,10 @@
 
 ## ProfileFAB Visibility
 - [x] Hide ProfileFAB on Profile screen since it's redundant
+
+## Navigation Unification
+- [x] Audit all navigation paths (Dashboard, Home, Back to Dashboard)
+- [x] Unify all home/dashboard buttons to navigate to the same role-based initial landing page
+- [x] Ensure predictable navigation behavior across all screens
+- [x] Created centralized navigation utility at lib/navigation.ts
+- [x] Updated all screens to use consistent "Home" label instead of "Dashboard" or "Go to Dashboard"

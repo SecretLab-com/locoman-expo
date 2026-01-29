@@ -1,5 +1,6 @@
 import { Text, View, TouchableOpacity, ScrollView, Alert, Pressable, Platform } from "react-native";
 import { router } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -100,20 +101,10 @@ export default function SharedProfileScreen() {
   const { user, isAuthenticated, logout, loading, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
 
-  // Navigate back to the user's role-specific dashboard
+  // Navigate back to the user's role-specific home (initial landing page)
   const handleGoHome = async () => {
     await haptics.light();
-    if (isCoordinator) {
-      router.replace("/(coordinator)" as any);
-    } else if (isManager) {
-      router.replace("/(manager)" as any);
-    } else if (isTrainer) {
-      router.replace("/(trainer)" as any);
-    } else if (isClient) {
-      router.replace("/(client)" as any);
-    } else {
-      router.replace("/(tabs)" as any);
-    }
+    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
   // Go back to previous screen
@@ -170,17 +161,10 @@ export default function SharedProfileScreen() {
     }
   };
 
+  // Navigate to home - same as handleGoHome for consistency
   const handleDashboardPress = async () => {
     await haptics.light();
-    if (isCoordinator) {
-      router.replace("/(coordinator)" as any);
-    } else if (isManager) {
-      router.replace("/(manager)" as any);
-    } else if (isTrainer) {
-      router.replace("/(trainer)" as any);
-    } else if (isClient) {
-      router.replace("/(client)" as any);
-    }
+    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
   const getDashboardLabel = () => {
@@ -234,7 +218,7 @@ export default function SharedProfileScreen() {
             className="flex-row items-center bg-primary/10 px-4 py-2 rounded-full"
           >
             <IconSymbol name="house.fill" size={18} color={colors.primary} />
-            <Text className="text-primary font-semibold ml-2">Go to Dashboard</Text>
+            <Text className="text-primary font-semibold ml-2">Home</Text>
           </TouchableOpacity>
         </View>
 
