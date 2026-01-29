@@ -761,3 +761,8 @@
 - [x] Ensure predictable navigation behavior across all screens
 - [x] Created centralized navigation utility at lib/navigation.ts
 - [x] Updated all screens to use consistent "Home" label instead of "Dashboard" or "Go to Dashboard"
+
+## Critical Navigation Fixes
+- [x] Fix Home button on Coordinator/Impersonate screen - Home tab now correctly shows the Impersonate screen (which IS the home for coordinators)
+- [x] Fix initial landing page to match user's role - added role-based redirect in (tabs)/_layout.tsx
+- [x] Updated Profile screen to use consistent "Home" label instead of "Dashboard" labels

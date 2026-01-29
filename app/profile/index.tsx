@@ -168,10 +168,10 @@ export default function SharedProfileScreen() {
   };
 
   const getDashboardLabel = () => {
-    if (isCoordinator) return { title: "Coordinator Dashboard", subtitle: "Manage all aspects of the platform" };
-    if (isManager) return { title: "Manager Dashboard", subtitle: "Review bundles and manage trainers" };
-    if (isTrainer) return { title: "Trainer Dashboard", subtitle: "Manage clients, bundles, and earnings" };
-    if (isClient) return { title: "Client Dashboard", subtitle: "View subscriptions and deliveries" };
+    if (isCoordinator) return { title: "Home", subtitle: "Coordinator dashboard" };
+    if (isManager) return { title: "Home", subtitle: "Manager dashboard" };
+    if (isTrainer) return { title: "Home", subtitle: "Trainer dashboard" };
+    if (isClient) return { title: "Home", subtitle: "Client dashboard" };
     return null;
   };
 
@@ -252,7 +252,7 @@ export default function SharedProfileScreen() {
           {dashboardInfo && (
             <>
               <Text className={`text-sm font-semibold ${colorScheme === "dark" ? "text-white/80" : "text-foreground/70"} uppercase tracking-wider mb-2 mt-4`}>
-                Your Dashboard
+                Your Home
               </Text>
               <View className="bg-surface rounded-xl px-4">
                 <MenuItem
