@@ -221,24 +221,21 @@ export default function SharedProfileScreen() {
   return (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Navigation Header */}
-        <View className="flex-row items-center justify-between px-4 py-3 border-b border-border">
-          <View className="flex-row items-center">
-            <TouchableOpacity
-              onPress={handleBack}
-              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-2"
-            >
-              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleGoHome}
-              className="flex-row items-center bg-primary/10 px-4 py-2 rounded-full"
-            >
-              <IconSymbol name="house.fill" size={18} color={colors.primary} />
-              <Text className="text-primary font-semibold ml-2">Go to Dashboard</Text>
-            </TouchableOpacity>
-          </View>
-          <Text className="text-lg font-semibold text-foreground">My Profile</Text>
+        {/* Navigation Header - leave space on right for ProfileFAB */}
+        <View className="flex-row items-center px-4 py-3 border-b border-border pr-14">
+          <TouchableOpacity
+            onPress={handleBack}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-2"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleGoHome}
+            className="flex-row items-center bg-primary/10 px-4 py-2 rounded-full"
+          >
+            <IconSymbol name="house.fill" size={18} color={colors.primary} />
+            <Text className="text-primary font-semibold ml-2">Go to Dashboard</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Profile Header */}

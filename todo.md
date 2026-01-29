@@ -748,3 +748,6 @@
 
 ## Settings Screen Header Fix
 - [x] Fix overlapping buttons at top of Settings screen (moved Save button to sticky footer, added padding for ProfileFAB)
+
+## Profile Screen Notch Fix
+- [x] Fix Profile screen header overlap with notch - removed overlapping "My Profile" title and added right padding for ProfileFAB
