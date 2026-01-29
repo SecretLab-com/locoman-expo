@@ -131,6 +131,7 @@ export default function RootLayout() {
                     <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
                     <Stack.Screen name="my-trainers/index" options={{ presentation: "card" }} />
                     <Stack.Screen name="my-trainers/find" options={{ presentation: "card" }} />
+                    <Stack.Screen name="profile/index" options={{ presentation: "card" }} />
                     <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
                     <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
                     <Stack.Screen name="(client)" options={{ headerShown: false }} />

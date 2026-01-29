@@ -740,3 +740,8 @@
 - [x] Update messages detail screen home button to use role-based navigation
 - [x] Update checkout confirmation home button to use role-based navigation
 - [x] Verify all home navigation paths are consistent
+
+
+## Impersonate Screen Home Button Fix
+- [ ] Fix home button on Impersonate screen to navigate to Dashboard
+- [x] Fix Profile/Settings showing wrong role tabs when accessed from Coordinator view (created shared /profile screen that opens as card overlay)

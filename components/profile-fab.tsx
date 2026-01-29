@@ -26,7 +26,7 @@ type MenuItem = {
 export function ProfileFAB() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, isAuthenticated, logout } = useAuthContext();
+  const { user, isAuthenticated, logout, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const [menuVisible, setMenuVisible] = useState(false);
 
   const handlePress = () => {
@@ -43,34 +43,32 @@ export function ProfileFAB() {
     setTimeout(onPress, 100);
   };
 
+  // Navigate to the shared profile screen - this is presented as a card/modal
+  // so it doesn't switch the bottom tab navigation
+  const navigateToProfile = () => {
+    router.push("/profile" as any);
+  };
+
+  // Navigate to settings - for trainers use their settings, others use profile
+  const navigateToSettings = () => {
+    if (isTrainer) {
+      router.push("/(trainer)/settings" as any);
+    } else {
+      router.push("/profile" as any);
+    }
+  };
+
   const menuItems: MenuItem[] = isAuthenticated
     ? [
         {
           icon: "person.fill",
           label: "My Profile",
-          onPress: () => {
-            // Navigate based on role
-            if (user?.role === "trainer") {
-              router.push("/(trainer)/settings" as any);
-            } else if (user?.role === "manager") {
-              router.push("/(manager)" as any);
-            } else if (user?.role === "coordinator") {
-              router.push("/(coordinator)" as any);
-            } else {
-              router.push("/(tabs)/profile" as any);
-            }
-          },
+          onPress: navigateToProfile,
         },
         {
           icon: "gear",
           label: "Settings",
-          onPress: () => {
-            if (user?.role === "trainer") {
-              router.push("/(trainer)/settings" as any);
-            } else {
-              router.push("/(tabs)/profile" as any);
-            }
-          },
+          onPress: navigateToSettings,
         },
         {
           icon: "message.fill",
