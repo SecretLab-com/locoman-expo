@@ -1,0 +1,8 @@
+# Memory Bank Rules
+
+## Project Intelligence
+- This project uses Expo Router with multiple app groups.
+- Maintain Memory Bank files in `memory-bank/`.
+
+## User Preferences
+- Use single quotes in static CLI parameters.

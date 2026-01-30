@@ -1,0 +1,40 @@
+{
+  "query": "SELECT * FROM bundle_drafts;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2QzfGuqHiBgZJ1M.d648e97afdf6 --database Zh3EDv2vowKBy5kswkzuFV --execute SELECT * FROM bundle_drafts;",
+  "rows": [
+    {
+      "id": "1",
+      "trainerId": "1",
+      "templateId": "NULL",
+      "title": "whammo",
+      "description": "blam blam blam",
+      "imageUrl": "NULL",
+      "imageSource": "ai",
+      "price": "355.48",
+      "cadence": "monthly",
+      "selectionsJson": "NULL",
+      "servicesJson": "[{\"count\": 1, \"duration\": 60, \"id\": \"1769459751413\", \"name\": \"Custom Workout\", \"price\": 11, \"type\": \"Custom Workout\", \"unit\": \"per session\"}]",
+      "productsJson": "[{\"id\": 9984764379422, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/sOS9uGHFBP.webp?v=1769122933\", \"name\": \"123 Product\", \"price\": \"1.00\"}, {\"id\": 9984760185118, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/1hrPitchTime.png?v=1769122802\", \"name\": \"1 Hour Session Pitch Hire\", \"price\": \"30.00\"}, {\"id\": 9984769065246, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/ProductImageProcessing_2.png?v=1769123075\", \"name\": \"ABE Energy + Performance\", \"price\": \"2.50\"}, {\"id\": 9984763003166, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/Untitleddesign_3_a82df729-7471-49f0-8d30-11bab4c17fc7.png?v=1769122894\", \"name\": \"Beats by Dre Solo3 Wireless Headphones\", \"price\": \"104.99\"}, {\"id\": 9984770900254, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/5_d491258b-0516-4cea-86b3-3e07da025e7e.png?v=1769123130\", \"name\": \"Butlin's All–Action Pass\", \"price\": \"20.00\"}]",
+      "goalsJson": "[\"Weight Loss\", \"Muscle Building\"]",
+      "suggestedGoal": "NULL",
+      "status": "draft",
+      "shopifyProductId": "NULL",
+      "shopifyVariantId": "NULL",
+      "viewCount": "0",
+      "salesCount": "0",
+      "totalRevenue": "0.00",
+      "submittedForReviewAt": "NULL",
+      "reviewedAt": "NULL",
+      "reviewedBy": "NULL",
+      "rejectionReason": "NULL",
+      "version": "1",
+      "createdAt": "2026-01-26 20:36:31",
+      "updatedAt": "2026-01-26 20:36:31",
+      "reviewComments": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttrainerId\ttemplateId\ttitle\tdescription\timageUrl\timageSource\tprice\tcadence\tselectionsJson\tservicesJson\tproductsJson\tgoalsJson\tsuggestedGoal\tstatus\tshopifyProductId\tshopifyVariantId\tviewCount\tsalesCount\ttotalRevenue\tsubmittedForReviewAt\treviewedAt\treviewedBy\trejectionReason\tversion\tcreatedAt\tupdatedAt\treviewComments\n1\t1\tNULL\twhammo\tblam blam blam\tNULL\tai\t355.48\tmonthly\tNULL\t[{\"count\": 1, \"duration\": 60, \"id\": \"1769459751413\", \"name\": \"Custom Workout\", \"price\": 11, \"type\": \"Custom Workout\", \"unit\": \"per session\"}]\t[{\"id\": 9984764379422, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/sOS9uGHFBP.webp?v=1769122933\", \"name\": \"123 Product\", \"price\": \"1.00\"}, {\"id\": 9984760185118, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/1hrPitchTime.png?v=1769122802\", \"name\": \"1 Hour Session Pitch Hire\", \"price\": \"30.00\"}, {\"id\": 9984769065246, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/ProductImageProcessing_2.png?v=1769123075\", \"name\": \"ABE Energy + Performance\", \"price\": \"2.50\"}, {\"id\": 9984763003166, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/Untitleddesign_3_a82df729-7471-49f0-8d30-11bab4c17fc7.png?v=1769122894\", \"name\": \"Beats by Dre Solo3 Wireless Headphones\", \"price\": \"104.99\"}, {\"id\": 9984770900254, \"imageUrl\": \"https://cdn.shopify.com/s/files/1/0904/0527/3886/files/5_d491258b-0516-4cea-86b3-3e07da025e7e.png?v=1769123130\", \"name\": \"Butlin's All–Action Pass\", \"price\": \"20.00\"}]\t[\"Weight Loss\", \"Muscle Building\"]\tNULL\tdraft\tNULL\tNULL\t0\t0\t0.00\tNULL\tNULL\tNULL\tNULL\t1\t2026-01-26 20:36:31\t2026-01-26 20:36:31\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 1534
+}

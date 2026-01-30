@@ -1,0 +1,14 @@
+{
+  "query": "SELECT COUNT(*) as total, COUNT(shopifyProductId) as from_shopify FROM products;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2QzfGuqHiBgZJ1M.d648e97afdf6 --database Zh3EDv2vowKBy5kswkzuFV --execute SELECT COUNT(*) as total, COUNT(shopifyProductId) as from_shopify FROM products;",
+  "rows": [
+    {
+      "total": "260",
+      "from_shopify": "250"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\tfrom_shopify\n260\t250\n",
+  "stderr": "",
+  "execution_time_ms": 1531
+}
