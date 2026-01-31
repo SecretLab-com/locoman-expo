@@ -40,11 +40,7 @@ export default function TabLayout() {
       }
       
       // Use replace to prevent back navigation to (tabs)
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        window.location.href = targetRoute;
-      } else {
-        router.replace(targetRoute as any);
-      }
+      router.replace(targetRoute as any);
     }
   }, [isAuthenticated, role, loading]);
 
