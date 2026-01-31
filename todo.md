@@ -813,3 +813,17 @@
 - [x] Implement message read receipts
 - [x] Show double checkmarks for read messages
 - [x] Update message status in real-time (polling every 3 seconds)
+
+## Advanced Messaging Features
+- [x] Implement WebSocket real-time messaging infrastructure
+- [x] Replace polling with WebSocket for instant message delivery
+- [x] Add real-time typing indicators via WebSocket
+- [x] Add message reactions with emoji picker (8 common emojis)
+- [x] Display reactions on message bubbles with counts
+- [x] Implement image attachments in chat (expo-image-picker)
+- [x] Implement file attachments in chat (expo-document-picker)
+- [x] Add attachment preview and download functionality
+- [x] Add emoji picker modal with long-press gesture
+- [x] Add attachment picker modal for images and files
+- [x] Store reactions in database with user tracking
+- [x] Add file upload endpoint to server storage

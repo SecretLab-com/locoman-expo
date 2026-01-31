@@ -12,6 +12,7 @@ import {
   orders,
   orderItems,
   messages,
+  messageReactions,
   calendarEvents,
   trainerEarnings,
   activityLogs,
@@ -25,6 +26,7 @@ import {
   InsertSubscription,
   InsertSession,
   InsertMessage,
+  InsertMessageReaction,
   InsertCalendarEvent,
   InsertProduct,
   InsertOrder,
@@ -645,6 +647,70 @@ export async function markMessageRead(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(messages).set({ readAt: new Date() }).where(eq(messages.id, id));
+}
+
+// ============================================================================
+// MESSAGE REACTIONS
+// ============================================================================
+
+export async function getMessageReactions(messageId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select()
+    .from(messageReactions)
+    .where(eq(messageReactions.messageId, messageId));
+}
+
+export async function addMessageReaction(data: InsertMessageReaction) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  // Check if reaction already exists
+  const existing = await db.select()
+    .from(messageReactions)
+    .where(
+      and(
+        eq(messageReactions.messageId, data.messageId),
+        eq(messageReactions.userId, data.userId),
+        eq(messageReactions.reaction, data.reaction)
+      )
+    );
+  
+  if (existing.length > 0) {
+    return existing[0];
+  }
+  
+  const result = await db.insert(messageReactions).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function removeMessageReaction(messageId: number, userId: number, reaction: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(messageReactions).where(
+    and(
+      eq(messageReactions.messageId, messageId),
+      eq(messageReactions.userId, userId),
+      eq(messageReactions.reaction, reaction)
+    )
+  );
+}
+
+export async function getConversationReactions(conversationId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  // Get all message IDs in the conversation
+  const conversationMessages = await db.select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId));
+  
+  if (conversationMessages.length === 0) return [];
+  
+  const messageIds = conversationMessages.map(m => m.id);
+  return db.select()
+    .from(messageReactions)
+    .where(inArray(messageReactions.messageId, messageIds));
 }
 
 // ============================================================================

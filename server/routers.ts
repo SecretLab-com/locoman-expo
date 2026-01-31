@@ -6,6 +6,7 @@ import { publicProcedure, protectedProcedure, trainerProcedure, managerProcedure
 import { generateImage } from "./_core/imageGeneration";
 import * as shopify from "./shopify";
 import * as db from "./db";
+import { storagePut } from "./storage";
 
 export const appRouter = router({
   system: systemRouter,
@@ -555,6 +556,95 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await db.markMessageRead(input.id);
         return { success: true };
+      }),
+    
+    // Send message with attachment
+    sendWithAttachment: protectedProcedure
+      .input(z.object({
+        receiverId: z.number(),
+        content: z.string(),
+        conversationId: z.string().optional(),
+        messageType: z.enum(["text", "image", "file"]).default("text"),
+        attachmentUrl: z.string().optional(),
+        attachmentName: z.string().optional(),
+        attachmentSize: z.number().optional(),
+        attachmentMimeType: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const conversationId = input.conversationId || 
+          [ctx.user.id, input.receiverId].sort().join("-");
+        
+        return db.createMessage({
+          senderId: ctx.user.id,
+          receiverId: input.receiverId,
+          conversationId,
+          content: input.content,
+          messageType: input.messageType,
+          attachmentUrl: input.attachmentUrl,
+          attachmentName: input.attachmentName,
+          attachmentSize: input.attachmentSize,
+          attachmentMimeType: input.attachmentMimeType,
+        });
+      }),
+    
+    // Get reactions for a message
+    getReactions: protectedProcedure
+      .input(z.object({ messageId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getMessageReactions(input.messageId);
+      }),
+    
+    // Add reaction to a message
+    addReaction: protectedProcedure
+      .input(z.object({
+        messageId: z.number(),
+        reaction: z.string().max(32),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return db.addMessageReaction({
+          messageId: input.messageId,
+          userId: ctx.user.id,
+          reaction: input.reaction,
+        });
+      }),
+    
+    // Remove reaction from a message
+    removeReaction: protectedProcedure
+      .input(z.object({
+        messageId: z.number(),
+        reaction: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.removeMessageReaction(input.messageId, ctx.user.id, input.reaction);
+        return { success: true };
+      }),
+    
+    // Get all reactions for messages in a conversation
+    getConversationReactions: protectedProcedure
+      .input(z.object({ conversationId: z.string() }))
+      .query(async ({ input }) => {
+        return db.getConversationReactions(input.conversationId);
+      }),
+    
+    // Upload attachment for message
+    uploadAttachment: protectedProcedure
+      .input(z.object({
+        fileName: z.string(),
+        fileData: z.string(), // Base64 encoded
+        mimeType: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Generate unique key with user ID and timestamp
+        const timestamp = Date.now();
+        const randomSuffix = Math.random().toString(36).substring(2, 8);
+        const ext = input.fileName.split(".").pop() || "bin";
+        const key = `messages/${ctx.user.id}/${timestamp}-${randomSuffix}.${ext}`;
+        
+        // Decode base64 and upload
+        const buffer = Buffer.from(input.fileData, "base64");
+        const { url } = await storagePut(key, buffer, input.mimeType);
+        
+        return { url, key };
       }),
   }),
 

@@ -338,12 +338,30 @@ export const messages = mysqlTable("messages", {
   content: text("content").notNull(),
   messageType: mysqlEnum("messageType", ["text", "image", "file", "system"]).default("text"),
   attachmentUrl: text("attachmentUrl"),
+  attachmentName: varchar("attachmentName", { length: 255 }),
+  attachmentSize: int("attachmentSize"),
+  attachmentMimeType: varchar("attachmentMimeType", { length: 100 }),
   readAt: timestamp("readAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = typeof messages.$inferInsert;
+
+// ============================================================================
+// MESSAGE REACTIONS
+// ============================================================================
+
+export const messageReactions = mysqlTable("message_reactions", {
+  id: int("id").autoincrement().primaryKey(),
+  messageId: int("messageId").notNull(),
+  userId: int("userId").notNull(),
+  reaction: varchar("reaction", { length: 32 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type MessageReaction = typeof messageReactions.$inferSelect;
+export type InsertMessageReaction = typeof messageReactions.$inferInsert;
 
 // ============================================================================
 // CALENDAR EVENTS
