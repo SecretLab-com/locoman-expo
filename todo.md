@@ -771,3 +771,18 @@
 - [x] Fix app.config.ts ESM/CommonJS compatibility error when running on external server
   - Converted scripts/load-env.js from ESM to CommonJS syntax
   - Changed app.config.ts to use require() instead of import for load-env.js
+
+## Navigation Consolidation
+- [x] Consolidate bottom navigation to use global nav bar per role instead of per-page navigation
+- [x] Stabilize bottom navigation - create unified nav that doesn't change during customer journey
+- [x] Move SafeAreaView to root app container for global handling
+- [x] Implement unified bottom navigation with 5 stable tabs (Home, Discover, Activity, Messages, Profile)
+
+## Navigation Consolidation (Unified Tab Bar)
+- [x] Remove (client)/_layout.tsx tab navigator - convert screens to Stack
+- [x] Remove (trainer)/_layout.tsx tab navigator - convert screens to Stack
+- [x] Remove (manager)/_layout.tsx tab navigator - convert screens to Stack
+- [x] Remove (coordinator)/_layout.tsx tab navigator - convert screens to Stack
+- [x] Update navigation utility to always route to /(tabs)
+- [x] Update role dashboards to use Stack navigation for role-specific screens
+- [x] Test all navigation flows work correctly

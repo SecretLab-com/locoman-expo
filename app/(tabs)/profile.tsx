@@ -1,6 +1,6 @@
 import { Text, View, TouchableOpacity, ScrollView, Alert, Pressable } from "react-native";
 import { router } from "expo-router";
-import { navigateToHome } from "@/lib/navigation";
+
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -101,10 +101,6 @@ export default function ProfileScreen() {
   const { user, isAuthenticated, logout, loading, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
 
-  const handleGoHome = async () => {
-    await haptics.light();
-    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
-  };
 
   const cycleTheme = async () => {
     await haptics.light();
@@ -143,20 +139,7 @@ export default function ProfileScreen() {
     );
   };
 
-  const handleDashboardPress = async () => {
-    await haptics.light();
-    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
-  };
 
-  const getDashboardLabel = () => {
-    if (isCoordinator) return { title: "Coordinator Dashboard", subtitle: "Manage all aspects of the platform" };
-    if (isManager) return { title: "Manager Dashboard", subtitle: "Review bundles and manage trainers" };
-    if (isTrainer) return { title: "Trainer Dashboard", subtitle: "Manage clients, bundles, and earnings" };
-    if (isClient) return { title: "Client Dashboard", subtitle: "View subscriptions and deliveries" };
-    return null;
-  };
-
-  const dashboardInfo = getDashboardLabel();
 
   if (!isAuthenticated) {
     return (
@@ -186,16 +169,10 @@ export default function ProfileScreen() {
   return (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Home Button Header */}
-        <View className="flex-row items-center justify-between px-4 py-3 border-b border-border">
-          <TouchableOpacity
-            onPress={handleGoHome}
-            className="flex-row items-center bg-primary/10 px-4 py-2 rounded-full"
-          >
-            <IconSymbol name="house.fill" size={18} color={colors.primary} />
-            <Text className="text-primary font-semibold ml-2">Home</Text>
-          </TouchableOpacity>
-          <Text className="text-lg font-semibold text-foreground">My Profile</Text>
+        {/* Header */}
+        <View className="px-4 pt-2 pb-4">
+          <Text className="text-2xl font-bold text-foreground">Profile</Text>
+          <Text className="text-sm text-muted">Manage your account</Text>
         </View>
 
         {/* Profile Header */}
@@ -224,23 +201,6 @@ export default function ProfileScreen() {
 
         {/* Menu Sections */}
         <View className="px-4">
-          {/* Role-Based Dashboard Access */}
-          {dashboardInfo && (
-            <>
-              <Text className={`text-sm font-semibold ${colorScheme === "dark" ? "text-white/80" : "text-foreground/70"} uppercase tracking-wider mb-2 mt-4`}>
-                Your Dashboard
-              </Text>
-              <View className="bg-surface rounded-xl px-4">
-                <MenuItem
-                  icon={isCoordinator ? "person.badge.key.fill" : isManager ? "chart.bar.fill" : isTrainer ? "dumbbell.fill" : "person.fill"}
-                  title={dashboardInfo.title}
-                  subtitle={dashboardInfo.subtitle}
-                  onPress={handleDashboardPress}
-                  highlight
-                />
-              </View>
-            </>
-          )}
 
           {/* My Trainers Section - Only for clients */}
           {isClient && (

@@ -1,48 +1,39 @@
-import { useEffect, useRef } from "react";
-import { Tabs, router } from "expo-router";
+import { Tabs } from "expo-router";
+import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { Platform } from "react-native";
+import { BadgeIcon } from "@/components/badge-icon";
 import { useColors } from "@/hooks/use-colors";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useBadgeContext } from "@/contexts/badge-context";
 
-export default function TabLayout() {
+/**
+ * Unified Tab Layout
+ * 
+ * This provides a STABLE bottom navigation that doesn't change based on role.
+ * All users see the same 5 tabs:
+ * - Home: Role-adaptive dashboard
+ * - Discover: Browse products, trainers, bundles
+ * - Activity: Orders, deliveries, notifications
+ * - Messages: Conversations
+ * - Profile: Settings, account
+ * 
+ * Role-specific features are accessed from the Home dashboard via cards/buttons,
+ * not separate tabs. This creates a consistent, predictable navigation experience.
+ */
+export default function UnifiedTabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { isAuthenticated } = useAuthContext();
+  const { counts } = useBadgeContext();
+  
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
   const tabBarHeight = 56 + bottomPadding;
-  
-  // Get auth context for role-based redirection
-  const { isAuthenticated, role, loading } = useAuthContext();
-  const hasRedirected = useRef(false);
 
-  // Redirect authenticated users to their role-specific dashboard
-  useEffect(() => {
-    // Don't redirect if still loading, not authenticated, or already redirected
-    if (loading || !isAuthenticated || hasRedirected.current) return;
-    
-    // Only redirect non-shopper roles to their dashboards
-    // Shoppers stay on the main (tabs) view
-    if (role && role !== "shopper") {
-      hasRedirected.current = true;
-      
-      let targetRoute = "/(tabs)";
-      if (role === "trainer") {
-        targetRoute = "/(trainer)";
-      } else if (role === "client") {
-        targetRoute = "/(client)";
-      } else if (role === "manager") {
-        targetRoute = "/(manager)";
-      } else if (role === "coordinator") {
-        targetRoute = "/(coordinator)";
-      }
-      
-      // Use replace to prevent back navigation to (tabs)
-      router.replace(targetRoute as any);
-    }
-  }, [isAuthenticated, role, loading]);
+  // Calculate total activity badge (deliveries + orders pending)
+  const activityBadge = (counts.pendingDeliveries || 0) + (counts.pendingApprovals || 0);
 
   return (
     <Tabs
@@ -61,6 +52,7 @@ export default function TabLayout() {
         },
       }}
     >
+      {/* Home - Role-adaptive dashboard */}
       <Tabs.Screen
         name="index"
         options={{
@@ -68,41 +60,50 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
-      {/* Home hub screen - hidden, accessible via navigation */}
+      
+      {/* Discover - Browse products, trainers, bundles */}
       <Tabs.Screen
-        name="home"
+        name="discover"
         options={{
-          href: null,
+          title: "Discover",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,
         }}
       />
+      
+      {/* Activity - Orders, deliveries, notifications */}
       <Tabs.Screen
-        name="products"
+        name="activity"
         options={{
-          title: "Products",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="cube.box.fill" color={color} />,
+          title: "Activity",
+          tabBarIcon: ({ color }) => (
+            <BadgeIcon size={28} name="bell.fill" color={color} badge={activityBadge} />
+          ),
         }}
       />
+      
+      {/* Messages - Conversations */}
       <Tabs.Screen
-        name="trainers"
+        name="messages"
         options={{
-          title: "Trainers",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
+          title: "Messages",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="message.fill" color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="cart"
-        options={{
-          title: "Cart",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="cart.fill" color={color} />,
-        }}
-      />
-      {/* Profile is now accessed via the ProfileFAB in top-right corner */}
+      
+      {/* Profile - Settings, account */}
       <Tabs.Screen
         name="profile"
         options={{
-          href: null, // Hide from tab bar
+          title: "Profile",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
         }}
       />
+      
+      {/* Hidden screens - accessible via navigation but not in tab bar */}
+      <Tabs.Screen name="home" options={{ href: null }} />
+      <Tabs.Screen name="products" options={{ href: null }} />
+      <Tabs.Screen name="trainers" options={{ href: null }} />
+      <Tabs.Screen name="cart" options={{ href: null }} />
     </Tabs>
   );
 }
