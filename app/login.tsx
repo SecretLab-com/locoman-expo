@@ -295,13 +295,16 @@ export default function LoginScreen() {
 
             {/* Login Button */}
             <TouchableOpacity
-              className="bg-primary rounded-full py-4 items-center mb-4"
+              className={`bg-primary rounded-full py-4 items-center mb-4 ${loading ? 'opacity-80' : ''}`}
               onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.8}
             >
               {loading ? (
-                <ActivityIndicator color={colors.background} />
+                <View className="flex-row items-center">
+                  <ActivityIndicator color={colors.background} size="small" />
+                  <Text className="text-background font-semibold text-lg ml-2">Signing In...</Text>
+                </View>
               ) : (
                 <Text className="text-background font-semibold text-lg">Sign In</Text>
               )}

@@ -836,3 +836,10 @@
 - [x] Fix login state not updating on Expo Go after signing in (added triggerAuthRefresh)
 - [x] Investigate session token storage and retrieval on native platforms
 - [x] Fix button borders too thin on Manager Dashboard Quick Actions (added border-2 border-primary/30)
+
+## UI Improvements
+- [x] Apply consistent border styling to trainer dashboard buttons
+- [x] Apply consistent border styling to client dashboard buttons
+- [x] Apply consistent border styling to coordinator dashboard buttons
+- [x] Add loading state with spinner to login button (shows spinner + 'Signing In...' text)
+- [x] Test and verify logout flow on Expo Go (redirects to /login after logout)
