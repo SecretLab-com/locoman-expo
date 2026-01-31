@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   ScrollView,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
@@ -12,32 +13,62 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { haptics } from "@/hooks/use-haptics";
+import { trpc } from "@/lib/trpc";
 
-type ActivityTab = "all" | "orders" | "deliveries";
+type ActivityTab = "all" | "orders" | "deliveries" | "notifications";
 
-// Mock data - in production, this would come from tRPC queries
-const MOCK_ORDERS = [
-  { id: 1, bundleTitle: "Full Body Transformation", status: "active", date: "Jan 15", amount: "$149.99" },
-  { id: 2, bundleTitle: "Yoga for Beginners", status: "completed", date: "Dec 28", amount: "$79.99" },
-  { id: 3, bundleTitle: "HIIT Bootcamp", status: "pending", date: "Jan 28", amount: "$199.99" },
-];
-
-const MOCK_DELIVERIES = [
-  { id: 1, item: "Week 8 Workout Plan", bundleTitle: "Full Body Transformation", status: "pending", date: "Mar 22" },
-  { id: 2, item: "Meditation Guide", bundleTitle: "Yoga for Beginners", status: "delivered", date: "Mar 20" },
-  { id: 3, item: "Nutrition Checklist", bundleTitle: "Full Body Transformation", status: "pending", date: "Mar 25" },
-];
-
+/**
+ * Activity Screen
+ * 
+ * Shows orders, deliveries, and notifications based on user role:
+ * - Clients: Their orders and incoming deliveries
+ * - Trainers: Client orders and outgoing deliveries
+ * - Managers: Platform-wide activity overview
+ */
 export default function ActivityScreen() {
   const colors = useColors();
-  const { isAuthenticated, effectiveRole } = useAuthContext();
+  const { isAuthenticated, effectiveRole, isTrainer, isClient, isManager } = useAuthContext();
   const [activeTab, setActiveTab] = useState<ActivityTab>("all");
-  const [refreshing, setRefreshing] = useState(false);
+
+  // Fetch data based on role
+  const { 
+    data: clientDeliveries, 
+    isLoading: deliveriesLoading,
+    refetch: refetchDeliveries,
+    isRefetching: isRefetchingDeliveries,
+  } = trpc.deliveries.myDeliveries.useQuery(undefined, {
+    enabled: isAuthenticated && (isClient || effectiveRole === "shopper"),
+  });
+
+  const {
+    data: trainerDeliveries,
+    isLoading: trainerDeliveriesLoading,
+    refetch: refetchTrainerDeliveries,
+    isRefetching: isRefetchingTrainerDeliveries,
+  } = trpc.deliveries.list.useQuery(undefined, {
+    enabled: isAuthenticated && isTrainer,
+  });
+
+  const {
+    data: trainerOrders,
+    isLoading: trainerOrdersLoading,
+    refetch: refetchTrainerOrders,
+    isRefetching: isRefetchingTrainerOrders,
+  } = trpc.orders.list.useQuery(undefined, {
+    enabled: isAuthenticated && isTrainer,
+  });
+
+  const isLoading = deliveriesLoading || trainerDeliveriesLoading || trainerOrdersLoading;
+  const isRefetching = isRefetchingDeliveries || isRefetchingTrainerDeliveries || isRefetchingTrainerOrders;
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
+    await haptics.light();
+    if (isClient || effectiveRole === "shopper") {
+      await refetchDeliveries();
+    }
+    if (isTrainer) {
+      await Promise.all([refetchTrainerDeliveries(), refetchTrainerOrders()]);
+    }
   };
 
   const handleLoginPress = async () => {
@@ -50,19 +81,35 @@ export default function ActivityScreen() {
     switch (status) {
       case "active":
       case "delivered":
+      case "completed":
         return colors.success;
       case "pending":
+      case "processing":
         return colors.warning;
-      case "completed":
+      case "ready":
         return colors.primary;
+      case "disputed":
+      case "cancelled":
+        return colors.error;
       default:
         return colors.muted;
     }
   };
 
+  // Determine which data to show based on role
+  const deliveries = isTrainer ? (trainerDeliveries || []) : (clientDeliveries || []);
+  const orders = trainerOrders || [];
+
   // Filter items based on active tab
-  const filteredOrders = activeTab === "deliveries" ? [] : MOCK_ORDERS;
-  const filteredDeliveries = activeTab === "orders" ? [] : MOCK_DELIVERIES;
+  const filteredOrders = activeTab === "deliveries" || activeTab === "notifications" ? [] : orders;
+  const filteredDeliveries = activeTab === "orders" || activeTab === "notifications" ? [] : deliveries;
+
+  // Format date
+  const formatDate = (date: string | Date | null) => {
+    if (!date) return "TBD";
+    const d = new Date(date);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
 
   if (!isAuthenticated) {
     return (
@@ -86,18 +133,29 @@ export default function ActivityScreen() {
     );
   }
 
+  if (isLoading) {
+    return (
+      <ScreenContainer className="items-center justify-center">
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-4">Loading activity...</Text>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
         {/* Header */}
         <View className="px-4 pt-2 pb-4">
           <Text className="text-2xl font-bold text-foreground">Activity</Text>
-          <Text className="text-sm text-muted">Your orders and deliveries</Text>
+          <Text className="text-sm text-muted">
+            {isTrainer ? "Manage orders and deliveries" : "Your orders and deliveries"}
+          </Text>
         </View>
 
         {/* Tab Selector */}
@@ -107,7 +165,10 @@ export default function ActivityScreen() {
               <TouchableOpacity
                 key={tab}
                 className={`flex-1 py-2 rounded-lg ${activeTab === tab ? "bg-primary" : ""}`}
-                onPress={() => setActiveTab(tab)}
+                onPress={async () => {
+                  await haptics.light();
+                  setActiveTab(tab);
+                }}
               >
                 <Text className={`text-center font-medium capitalize ${activeTab === tab ? "text-white" : "text-muted"}`}>
                   {tab}
@@ -117,33 +178,73 @@ export default function ActivityScreen() {
           </View>
         </View>
 
+        {/* Quick Stats for Trainers */}
+        {isTrainer && (
+          <View className="px-4 mb-4">
+            <View className="flex-row gap-3">
+              <View className="flex-1 bg-surface rounded-xl p-4 border border-border">
+                <View className="flex-row items-center mb-2">
+                  <IconSymbol name="bag.fill" size={20} color={colors.warning} />
+                  <Text className="text-warning font-semibold ml-2">
+                    {orders.filter((o: any) => o.status === "pending").length}
+                  </Text>
+                </View>
+                <Text className="text-sm text-muted">Pending Orders</Text>
+              </View>
+              <View className="flex-1 bg-surface rounded-xl p-4 border border-border">
+                <View className="flex-row items-center mb-2">
+                  <IconSymbol name="shippingbox.fill" size={20} color={colors.primary} />
+                  <Text className="text-primary font-semibold ml-2">
+                    {deliveries.filter((d: any) => d.status === "pending" || d.status === "ready").length}
+                  </Text>
+                </View>
+                <Text className="text-sm text-muted">Pending Deliveries</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Orders Section */}
         {filteredOrders.length > 0 && (
           <View className="px-4 mb-6">
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-lg font-semibold text-foreground">Orders</Text>
-              <TouchableOpacity>
-                <Text className="text-primary font-medium">View All</Text>
-              </TouchableOpacity>
+              {isTrainer && (
+                <TouchableOpacity onPress={() => router.push("/(trainer)/orders" as any)}>
+                  <Text className="text-primary font-medium">View All</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <View className="bg-surface rounded-xl border border-border">
-              {filteredOrders.map((order, index) => (
+              {filteredOrders.slice(0, 5).map((order: any, index: number) => (
                 <TouchableOpacity
                   key={order.id}
                   className={`flex-row items-center p-4 ${
-                    index < filteredOrders.length - 1 ? "border-b border-border" : ""
+                    index < Math.min(filteredOrders.length, 5) - 1 ? "border-b border-border" : ""
                   }`}
                   activeOpacity={0.7}
+                  onPress={async () => {
+                    await haptics.light();
+                    if (isTrainer) {
+                      router.push("/(trainer)/orders" as any);
+                    }
+                  }}
                 >
                   <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
                     <IconSymbol name="bag.fill" size={20} color={colors.primary} />
                   </View>
                   <View className="flex-1 ml-3">
-                    <Text className="text-foreground font-medium">{order.bundleTitle}</Text>
-                    <Text className="text-sm text-muted">{order.date}</Text>
+                    <Text className="text-foreground font-medium" numberOfLines={1}>
+                      {order.bundleTitle || `Order #${order.id}`}
+                    </Text>
+                    <Text className="text-sm text-muted">
+                      {order.clientName || formatDate(order.createdAt)}
+                    </Text>
                   </View>
                   <View className="items-end">
-                    <Text className="text-foreground font-semibold">{order.amount}</Text>
+                    <Text className="text-foreground font-semibold">
+                      ${parseFloat(order.totalAmount || order.amount || "0").toFixed(2)}
+                    </Text>
                     <View
                       className="px-2 py-0.5 rounded-full mt-1"
                       style={{ backgroundColor: `${getStatusColor(order.status)}20` }}
@@ -167,28 +268,56 @@ export default function ActivityScreen() {
           <View className="px-4 mb-6">
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-lg font-semibold text-foreground">Deliveries</Text>
-              <TouchableOpacity>
-                <Text className="text-primary font-medium">View All</Text>
-              </TouchableOpacity>
+              {isTrainer && (
+                <TouchableOpacity onPress={() => router.push("/(trainer)/deliveries" as any)}>
+                  <Text className="text-primary font-medium">View All</Text>
+                </TouchableOpacity>
+              )}
+              {isClient && (
+                <TouchableOpacity onPress={() => router.push("/(client)/deliveries" as any)}>
+                  <Text className="text-primary font-medium">View All</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <View className="bg-surface rounded-xl border border-border">
-              {filteredDeliveries.map((delivery, index) => (
+              {filteredDeliveries.slice(0, 5).map((delivery: any, index: number) => (
                 <TouchableOpacity
                   key={delivery.id}
                   className={`flex-row items-center p-4 ${
-                    index < filteredDeliveries.length - 1 ? "border-b border-border" : ""
+                    index < Math.min(filteredDeliveries.length, 5) - 1 ? "border-b border-border" : ""
                   }`}
                   activeOpacity={0.7}
+                  onPress={async () => {
+                    await haptics.light();
+                    if (isTrainer) {
+                      router.push("/(trainer)/deliveries" as any);
+                    } else if (isClient) {
+                      router.push("/(client)/deliveries" as any);
+                    }
+                  }}
                 >
-                  <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
-                    <IconSymbol name="shippingbox.fill" size={20} color={colors.primary} />
+                  <View 
+                    className="w-10 h-10 rounded-full items-center justify-center"
+                    style={{ backgroundColor: `${getStatusColor(delivery.status)}20` }}
+                  >
+                    <IconSymbol 
+                      name={delivery.status === "delivered" ? "checkmark.circle.fill" : "shippingbox.fill"} 
+                      size={20} 
+                      color={getStatusColor(delivery.status)} 
+                    />
                   </View>
                   <View className="flex-1 ml-3">
-                    <Text className="text-foreground font-medium">{delivery.item}</Text>
-                    <Text className="text-sm text-muted">{delivery.bundleTitle}</Text>
+                    <Text className="text-foreground font-medium" numberOfLines={1}>
+                      {delivery.productName || delivery.item || "Delivery"}
+                    </Text>
+                    <Text className="text-sm text-muted" numberOfLines={1}>
+                      {isTrainer ? (delivery.clientName || "Client") : (delivery.trainerName || "Trainer")}
+                    </Text>
                   </View>
                   <View className="items-end">
-                    <Text className="text-sm text-muted">{delivery.date}</Text>
+                    <Text className="text-sm text-muted">
+                      {formatDate(delivery.scheduledDate || delivery.date)}
+                    </Text>
                     <View
                       className="px-2 py-0.5 rounded-full mt-1"
                       style={{ backgroundColor: `${getStatusColor(delivery.status)}20` }}
@@ -215,8 +344,22 @@ export default function ActivityScreen() {
             </View>
             <Text className="text-foreground font-semibold text-lg mb-1">No activity yet</Text>
             <Text className="text-muted text-center">
-              Your orders and deliveries will appear here
+              {isTrainer 
+                ? "Orders and deliveries from your clients will appear here"
+                : "Your orders and deliveries will appear here"
+              }
             </Text>
+            {!isTrainer && (
+              <TouchableOpacity
+                className="bg-primary px-6 py-3 rounded-full mt-6"
+                onPress={async () => {
+                  await haptics.light();
+                  router.push("/(tabs)/discover" as any);
+                }}
+              >
+                <Text className="text-background font-semibold">Browse Programs</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 

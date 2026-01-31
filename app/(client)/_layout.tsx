@@ -1,14 +1,23 @@
 import { Stack } from "expo-router";
 import { useColors } from "@/hooks/use-colors";
+import { Platform } from "react-native";
 
 /**
  * Client Stack Layout
  * 
  * All client screens are now accessible via Stack navigation from the unified tabs.
  * The bottom tab bar remains stable - these screens appear as cards/modals on top.
+ * 
+ * Animation presets:
+ * - slide_from_right: Standard horizontal slide for detail screens
+ * - slide_from_bottom: Modal-style presentation for forms/editors
+ * - fade: Subtle fade for quick transitions
  */
 export default function ClientStackLayout() {
   const colors = useColors();
+
+  // Platform-specific animation configuration
+  const defaultAnimation = Platform.OS === "ios" ? "default" : "slide_from_right";
 
   return (
     <Stack
@@ -16,17 +25,31 @@ export default function ClientStackLayout() {
         headerShown: false,
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
-        animation: "slide_from_right",
+        animation: defaultAnimation,
         gestureDirection: "horizontal",
         contentStyle: { backgroundColor: colors.background },
+        // Smooth animation timing
+        animationDuration: 250,
       }}
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="home" />
-      <Stack.Screen name="subscriptions" />
-      <Stack.Screen name="deliveries" />
-      <Stack.Screen name="spending" />
-      <Stack.Screen name="orders" />
+      <Stack.Screen 
+        name="subscriptions" 
+        options={{ animation: "slide_from_right" }}
+      />
+      <Stack.Screen 
+        name="deliveries" 
+        options={{ animation: "slide_from_right" }}
+      />
+      <Stack.Screen 
+        name="spending" 
+        options={{ animation: "slide_from_right" }}
+      />
+      <Stack.Screen 
+        name="orders" 
+        options={{ animation: "slide_from_right" }}
+      />
     </Stack>
   );
 }
