@@ -33,12 +33,12 @@ export default function CoordinatorStackLayout() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="home" />
-      <Stack.Screen 
-        name="catalog" 
+      <Stack.Screen
+        name="catalog"
         options={{ animation: "slide_from_right" }}
       />
-      <Stack.Screen 
-        name="logs" 
+      <Stack.Screen
+        name="logs"
         options={{ animation: "slide_from_right" }}
       />
     </Stack>

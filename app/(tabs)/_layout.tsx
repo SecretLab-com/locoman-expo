@@ -34,6 +34,9 @@ export default function UnifiedTabLayout() {
 
   // Calculate total activity badge (deliveries + orders pending)
   const activityBadge = (counts.pendingDeliveries || 0) + (counts.pendingApprovals || 0);
+  const renderTabButton =
+    (testID: string, label: string) => (props: any) =>
+      <HapticTab {...props} testID={testID} accessibilityLabel={label} />;
 
   return (
     <Tabs
@@ -58,6 +61,7 @@ export default function UnifiedTabLayout() {
         options={{
           title: "Home",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarButton: renderTabButton("tab-home", "Home tab"),
         }}
       />
       
@@ -67,6 +71,7 @@ export default function UnifiedTabLayout() {
         options={{
           title: "Discover",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,
+          tabBarButton: renderTabButton("tab-discover", "Discover tab"),
         }}
       />
       
@@ -78,6 +83,7 @@ export default function UnifiedTabLayout() {
           tabBarIcon: ({ color }) => (
             <BadgeIcon size={28} name="bell.fill" color={color} badge={activityBadge} />
           ),
+          tabBarButton: renderTabButton("tab-activity", "Activity tab"),
         }}
       />
       
@@ -87,6 +93,7 @@ export default function UnifiedTabLayout() {
         options={{
           title: "Messages",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="message.fill" color={color} />,
+          tabBarButton: renderTabButton("tab-messages", "Messages tab"),
         }}
       />
       
@@ -96,6 +103,7 @@ export default function UnifiedTabLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+          tabBarButton: renderTabButton("tab-profile", "Profile tab"),
         }}
       />
       

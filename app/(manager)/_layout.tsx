@@ -53,19 +53,19 @@ export default function ManagerStackLayout() {
         name="templates" 
         options={{ animation: "slide_from_right" }}
       />
-      <Stack.Screen 
-        name="invitations" 
-        options={{ 
+      <Stack.Screen
+        name="invitations"
+        options={{
           animation: "slide_from_bottom",
           presentation: "modal",
         }}
       />
-      <Stack.Screen 
-        name="deliveries" 
+      <Stack.Screen
+        name="deliveries"
         options={{ animation: "slide_from_right" }}
       />
-      <Stack.Screen 
-        name="products" 
+      <Stack.Screen
+        name="products"
         options={{ animation: "slide_from_right" }}
       />
     </Stack>
