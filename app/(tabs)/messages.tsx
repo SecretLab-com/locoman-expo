@@ -25,6 +25,8 @@ type Conversation = {
   lastMessage: string | null;
   lastMessageAt: string | null;
   unreadCount: number;
+  lastMessageIsOwn: boolean;
+  lastMessageIsRead: boolean;
 };
 
 function ConversationItem({ conversation, onPress }: { conversation: Conversation; onPress: () => void }) {
@@ -92,12 +94,30 @@ function ConversationItem({ conversation, onPress }: { conversation: Conversatio
             {formatTimestamp(conversation.lastMessageAt)}
           </Text>
         </View>
-        <Text
-          className={`text-sm mt-0.5 ${conversation.unreadCount > 0 ? "text-foreground font-medium" : "text-muted"}`}
-          numberOfLines={1}
-        >
-          {conversation.lastMessage || "Start a conversation"}
-        </Text>
+        <View className="flex-row items-center mt-0.5">
+          {/* Read receipt for own messages */}
+          {conversation.lastMessageIsOwn && conversation.lastMessage && (
+            <View className="flex-row items-center mr-1">
+              <IconSymbol 
+                name="checkmark" 
+                size={12} 
+                color={conversation.lastMessageIsRead ? colors.primary : colors.muted} 
+              />
+              <IconSymbol 
+                name="checkmark" 
+                size={12} 
+                color={conversation.lastMessageIsRead ? colors.primary : colors.muted}
+                style={{ marginLeft: -6 }}
+              />
+            </View>
+          )}
+          <Text
+            className={`text-sm flex-1 ${conversation.unreadCount > 0 ? "text-foreground font-medium" : "text-muted"}`}
+            numberOfLines={1}
+          >
+            {conversation.lastMessageIsOwn && conversation.lastMessage ? `You: ${conversation.lastMessage}` : (conversation.lastMessage || "Start a conversation")}
+          </Text>
+        </View>
       </View>
 
       {/* Unread Badge */}
@@ -193,6 +213,8 @@ export default function MessagesScreen() {
     lastMessage: conv.lastMessage || conv.lastMessageContent || null,
     lastMessageAt: conv.lastMessageAt || conv.updatedAt || null,
     unreadCount: conv.unreadCount || 0,
+    lastMessageIsOwn: conv.lastMessageIsOwn || conv.lastMessageSenderId === conv.currentUserId || false,
+    lastMessageIsRead: conv.lastMessageIsRead || false,
   }));
 
   return (

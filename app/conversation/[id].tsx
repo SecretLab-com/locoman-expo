@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Text,
   View,
@@ -10,9 +10,16 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import { Image } from "expo-image";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+  SharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -26,6 +33,83 @@ type Message = {
   createdAt: string;
   isRead: boolean;
 };
+
+// Typing indicator animation component
+function TypingIndicator({ name, colors }: { name: string; colors: any }) {
+  const dot1 = useSharedValue(0);
+  const dot2 = useSharedValue(0);
+  const dot3 = useSharedValue(0);
+
+  useEffect(() => {
+    const animateDot = (dotValue: SharedValue<number>, delay: number) => {
+      dotValue.value = withDelay(
+        delay,
+        withRepeat(
+          withSequence(
+            withTiming(-4, { duration: 300 }),
+            withTiming(0, { duration: 300 })
+          ),
+          -1,
+          false
+        )
+      );
+    };
+
+    animateDot(dot1, 0);
+    animateDot(dot2, 150);
+    animateDot(dot3, 300);
+  }, []);
+
+  const dot1Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: dot1.value }],
+  }));
+
+  const dot2Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: dot2.value }],
+  }));
+
+  const dot3Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: dot3.value }],
+  }));
+
+  return (
+    <View className="px-4 py-2 items-start">
+      <View className="flex-row items-center">
+        <Text className="text-xs text-muted mr-2">{name} is typing</Text>
+        <View className="flex-row items-center gap-1">
+          <Animated.View
+            style={[dot1Style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted }]}
+          />
+          <Animated.View
+            style={[dot2Style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted }]}
+          />
+          <Animated.View
+            style={[dot3Style, { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted }]}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// Read receipt component (double checkmarks)
+function ReadReceipt({ isRead, colors }: { isRead: boolean; colors: any }) {
+  return (
+    <View className="flex-row items-center ml-1">
+      <IconSymbol 
+        name="checkmark" 
+        size={12} 
+        color={isRead ? colors.primary : colors.muted} 
+      />
+      <IconSymbol 
+        name="checkmark" 
+        size={12} 
+        color={isRead ? colors.primary : colors.muted}
+        style={{ marginLeft: -6 }}
+      />
+    </View>
+  );
+}
 
 function MessageBubble({ message, isOwn, colors }: { message: Message; isOwn: boolean; colors: any }) {
   const formatTime = (date: string) => {
@@ -46,10 +130,12 @@ function MessageBubble({ message, isOwn, colors }: { message: Message; isOwn: bo
           {message.content}
         </Text>
       </View>
-      <Text className="text-xs text-muted mt-1 px-1">
-        {formatTime(message.createdAt)}
-        {isOwn && message.isRead && " • Read"}
-      </Text>
+      <View className="flex-row items-center mt-1 px-1">
+        <Text className="text-xs text-muted">
+          {formatTime(message.createdAt)}
+        </Text>
+        {isOwn && <ReadReceipt isRead={message.isRead} colors={colors} />}
+      </View>
     </View>
   );
 }
@@ -64,7 +150,10 @@ export default function ConversationScreen() {
   }>();
   const { user } = useAuthContext();
   const [messageText, setMessageText] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -75,17 +164,36 @@ export default function ConversationScreen() {
     refetch,
   } = trpc.messages.thread.useQuery(
     { conversationId: id || "" },
-    { enabled: !!id }
+    { 
+      enabled: !!id,
+      refetchInterval: 3000, // Poll for new messages every 3 seconds
+    }
   );
 
   // Send message mutation
   const sendMessage = trpc.messages.send.useMutation({
     onSuccess: () => {
       setMessageText("");
+      setIsTyping(false);
       refetch();
       utils.messages.conversations.invalidate();
     },
   });
+
+  // Mark messages as read mutation
+  const markRead = trpc.messages.markRead.useMutation();
+
+  // Mark messages as read when viewing
+  useEffect(() => {
+    if (messages && messages.length > 0 && user) {
+      const unreadMessages = messages.filter(
+        (msg: any) => msg.senderId !== user.id && !msg.isRead
+      );
+      unreadMessages.forEach((msg: any) => {
+        markRead.mutate({ id: msg.id });
+      });
+    }
+  }, [messages, user]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -95,6 +203,42 @@ export default function ConversationScreen() {
       }, 100);
     }
   }, [messages]);
+
+  // Simulate other user typing (in a real app, this would come from WebSocket)
+  // For demo purposes, we'll show typing indicator briefly after sending a message
+  useEffect(() => {
+    if (sendMessage.isSuccess) {
+      // Simulate the other person typing a response
+      const showTypingTimeout = setTimeout(() => {
+        setOtherUserTyping(true);
+        const hideTypingTimeout = setTimeout(() => {
+          setOtherUserTyping(false);
+        }, 3000);
+        return () => clearTimeout(hideTypingTimeout);
+      }, 1000);
+      return () => clearTimeout(showTypingTimeout);
+    }
+  }, [sendMessage.isSuccess]);
+
+  // Handle text input changes for typing indicator
+  const handleTextChange = useCallback((text: string) => {
+    setMessageText(text);
+    
+    // Set typing state
+    if (text.length > 0 && !isTyping) {
+      setIsTyping(true);
+    }
+    
+    // Clear previous timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
+    // Set timeout to clear typing state after 2 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+    }, 2000);
+  }, [isTyping]);
 
   const handleSend = async () => {
     if (!messageText.trim() || !participantId) return;
@@ -143,7 +287,9 @@ export default function ConversationScreen() {
           <Text className="text-foreground font-semibold text-lg" numberOfLines={1}>
             {name || "Conversation"}
           </Text>
-          <Text className="text-xs text-muted">Tap for details</Text>
+          <Text className="text-xs text-muted">
+            {otherUserTyping ? "typing..." : "Tap for details"}
+          </Text>
         </View>
       </View>
 
@@ -182,6 +328,11 @@ export default function ConversationScreen() {
               </Text>
             </View>
           }
+          ListFooterComponent={
+            otherUserTyping ? (
+              <TypingIndicator name={name || "User"} colors={colors} />
+            ) : null
+          }
           onContentSizeChange={() => {
             if (messageList.length > 0) {
               flatListRef.current?.scrollToEnd({ animated: false });
@@ -205,7 +356,7 @@ export default function ConversationScreen() {
               placeholder="Type a message..."
               placeholderTextColor={colors.muted}
               value={messageText}
-              onChangeText={setMessageText}
+              onChangeText={handleTextChange}
               multiline
               returnKeyType="default"
             />

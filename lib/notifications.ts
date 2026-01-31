@@ -302,6 +302,37 @@ export async function scheduleDeliveryUpdateNotification(
 }
 
 /**
+ * Schedule a new message notification
+ */
+export async function scheduleMessageNotification(
+  conversationId: string,
+  senderName: string,
+  messagePreview: string
+): Promise<string> {
+  if (Platform.OS === "web") {
+    console.log("Notifications not supported on web");
+    return "";
+  }
+
+  // Truncate message preview if too long
+  const preview = messagePreview.length > 50 
+    ? messagePreview.substring(0, 47) + "..." 
+    : messagePreview;
+
+  const identifier = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: senderName,
+      body: preview,
+      data: { type: "message", conversationId },
+      sound: true,
+    },
+    trigger: null, // Immediate
+  });
+
+  return identifier;
+}
+
+/**
  * Cancel a scheduled notification
  */
 export async function cancelNotification(identifier: string): Promise<void> {

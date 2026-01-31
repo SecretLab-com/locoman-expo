@@ -101,7 +101,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         break;
       case "message":
         if (data.conversationId) {
-          router.push(`/messages/${data.conversationId}` as any);
+          router.push({
+            pathname: "/conversation/[id]" as any,
+            params: { 
+              id: String(data.conversationId),
+              name: String(data.senderName || "Message"),
+              participantId: String(data.senderId || ""),
+            },
+          });
         }
         break;
       default:
