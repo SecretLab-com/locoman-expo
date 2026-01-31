@@ -57,15 +57,15 @@ export default function TrainerStackLayout() {
         name="orders" 
         options={{ animation: "slide_from_right" }}
       />
-      <Stack.Screen 
-        name="invite" 
-        options={{ 
+      <Stack.Screen
+        name="invite"
+        options={{
           animation: "slide_from_bottom",
           presentation: "modal",
         }}
       />
-      <Stack.Screen 
-        name="join-requests" 
+      <Stack.Screen
+        name="join-requests"
         options={{ animation: "slide_from_right" }}
       />
       <Stack.Screen 
@@ -76,8 +76,8 @@ export default function TrainerStackLayout() {
         name="points" 
         options={{ animation: "slide_from_right" }}
       />
-      <Stack.Screen 
-        name="settings" 
+      <Stack.Screen
+        name="settings"
         options={{ animation: "slide_from_right" }}
       />
     </Stack>

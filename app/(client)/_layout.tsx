@@ -34,20 +34,20 @@ export default function ClientStackLayout() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="home" />
-      <Stack.Screen 
-        name="subscriptions" 
+      <Stack.Screen
+        name="subscriptions"
         options={{ animation: "slide_from_right" }}
       />
-      <Stack.Screen 
-        name="deliveries" 
+      <Stack.Screen
+        name="deliveries"
         options={{ animation: "slide_from_right" }}
       />
       <Stack.Screen 
         name="spending" 
         options={{ animation: "slide_from_right" }}
       />
-      <Stack.Screen 
-        name="orders" 
+      <Stack.Screen
+        name="orders"
         options={{ animation: "slide_from_right" }}
       />
     </Stack>
