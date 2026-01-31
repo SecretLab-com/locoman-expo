@@ -827,3 +827,7 @@
 - [x] Add attachment picker modal for images and files
 - [x] Store reactions in database with user tracking
 - [x] Add file upload endpoint to server storage
+
+## User Role Updates
+- [x] Update testuser to have coordinator/superuser role (already configured in oauth.ts)
+- [x] Update login screen label from "Shopper" to "Super User"

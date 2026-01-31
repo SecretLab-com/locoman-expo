@@ -351,9 +351,9 @@ export default function LoginScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("testuser@secretlab.com"); setPassword("supertest"); }}
-                  className="px-2 py-1 bg-primary/10 rounded"
+                  className="px-2 py-1 bg-purple-500/10 rounded"
                 >
-                  <Text className="text-xs text-primary">Shopper</Text>
+                  <Text className="text-xs text-purple-500">Super User</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("coordinator@secretlab.com"); setPassword("supertest"); }}
