@@ -831,3 +831,8 @@
 ## User Role Updates
 - [x] Update testuser to have coordinator/superuser role (already configured in oauth.ts)
 - [x] Update login screen label from "Shopper" to "Super User"
+
+## Bug Fixes - Login State
+- [x] Fix login state not updating on Expo Go after signing in (added triggerAuthRefresh)
+- [x] Investigate session token storage and retrieval on native platforms
+- [x] Fix button borders too thin on Manager Dashboard Quick Actions (added border-2 border-primary/30)

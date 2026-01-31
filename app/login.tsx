@@ -19,6 +19,7 @@ import { OAuthButtons } from "@/components/oauth-buttons";
 import { haptics } from "@/hooks/use-haptics";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Auth from "@/lib/_core/auth";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
@@ -141,6 +142,11 @@ export default function LoginScreen() {
           window.location.href = targetRoute;
         } else {
           console.log("[Login] Calling router.replace for native...");
+          // Trigger auth refresh to update the global auth state
+          console.log("[Login] Triggering auth refresh...");
+          triggerAuthRefresh();
+          // Small delay to allow auth state to update before navigation
+          await new Promise(resolve => setTimeout(resolve, 100));
           router.replace(targetRoute as any);
           console.log("[Login] router.replace called");
         }
