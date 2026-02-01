@@ -1,40 +1,40 @@
-import { eq, and, desc, asc, sql, inArray, like, or, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  InsertUser,
-  users,
-  bundleTemplates,
-  bundleDrafts,
-  products,
-  clients,
-  subscriptions,
-  sessions,
-  orders,
-  orderItems,
-  messages,
-  calendarEvents,
-  trainerEarnings,
-  activityLogs,
-  invitations,
-  productDeliveries,
-  userInvitations,
-  userActivityLogs,
-  InsertBundleTemplate,
-  InsertBundleDraft,
-  InsertClient,
-  InsertSubscription,
-  InsertSession,
-  InsertMessage,
-  InsertCalendarEvent,
-  InsertProduct,
-  InsertOrder,
-  InsertOrderItem,
-  InsertActivityLog,
-  InsertInvitation,
-  InsertProductDelivery,
-  InsertTrainerEarning,
-  InsertUserInvitation,
-  InsertUserActivityLog,
+    activityLogs,
+    bundleDrafts,
+    bundleTemplates,
+    calendarEvents,
+    clients,
+    InsertActivityLog,
+    InsertBundleDraft,
+    InsertBundleTemplate,
+    InsertCalendarEvent,
+    InsertClient,
+    InsertInvitation,
+    InsertMessage,
+    InsertOrder,
+    InsertOrderItem,
+    InsertProduct,
+    InsertProductDelivery,
+    InsertSession,
+    InsertSubscription,
+    InsertTrainerEarning,
+    InsertUser,
+    InsertUserActivityLog,
+    InsertUserInvitation,
+    invitations,
+    messages,
+    orderItems,
+    orders,
+    productDeliveries,
+    products,
+    sessions,
+    subscriptions,
+    trainerEarnings,
+    userActivityLogs,
+    userInvitations,
+    users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -119,6 +119,13 @@ export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -311,13 +318,31 @@ export async function updateBundleDraft(id: number, data: Partial<InsertBundleDr
 export async function getPublishedBundles() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(bundleDrafts).where(eq(bundleDrafts.status, "published")).orderBy(desc(bundleDrafts.updatedAt));
+  try {
+    return db
+      .select()
+      .from(bundleDrafts)
+      .where(eq(bundleDrafts.status, "published"))
+      .orderBy(desc(bundleDrafts.updatedAt));
+  } catch (error) {
+    console.error("[Database] Failed to load published bundles:", error);
+    return [];
+  }
 }
 
 export async function getPendingReviewBundles() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(bundleDrafts).where(eq(bundleDrafts.status, "pending_review")).orderBy(asc(bundleDrafts.submittedForReviewAt));
+  try {
+    return db
+      .select()
+      .from(bundleDrafts)
+      .where(eq(bundleDrafts.status, "pending_review"))
+      .orderBy(asc(bundleDrafts.submittedForReviewAt));
+  } catch (error) {
+    console.error("[Database] Failed to load pending review bundles:", error);
+    return [];
+  }
 }
 
 // ============================================================================

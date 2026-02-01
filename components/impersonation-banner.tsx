@@ -12,7 +12,7 @@ import { haptics } from "@/hooks/use-haptics";
  */
 export function ImpersonationBanner() {
   const colors = useColors();
-  const { isImpersonating, impersonatedUser, stopImpersonation, isCoordinator } = useAuthContext();
+  const { isImpersonating, impersonatedUser, stopImpersonation } = useAuthContext();
 
   // Only show if actually impersonating
   if (!isImpersonating || !impersonatedUser) {
@@ -46,6 +46,9 @@ export function ImpersonationBanner() {
           onPress={handleEndImpersonation}
           className="bg-warning px-4 py-2 rounded-full"
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="End impersonation session"
+          testID="end-impersonation"
         >
           <Text className="text-white font-semibold text-sm">End Session</Text>
         </TouchableOpacity>

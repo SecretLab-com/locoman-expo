@@ -1,18 +1,18 @@
-import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const.js";
-import { ForbiddenError } from "../../shared/_core/errors.js";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
+import { ForbiddenError } from "../../shared/_core/errors.js";
+import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const.js";
 import * as db from "../db";
 import { ENV } from "./env";
 import type {
-  ExchangeTokenRequest,
-  ExchangeTokenResponse,
-  GetUserInfoResponse,
-  GetUserInfoWithJwtRequest,
-  GetUserInfoWithJwtResponse,
+    ExchangeTokenRequest,
+    ExchangeTokenResponse,
+    GetUserInfoResponse,
+    GetUserInfoWithJwtRequest,
+    GetUserInfoWithJwtResponse,
 } from "./types/manusTypes";
 // Utility function
 const isNonEmptyString = (value: unknown): value is string =>
@@ -204,7 +204,11 @@ class SDKServer {
         name,
       };
     } catch (error) {
-      console.warn("[Auth] Session verification failed", String(error));
+      const errorMessage = String(error);
+      if (/JWSSignatureVerificationFailed|JWTExpired|JWTInvalid|JWSInvalid/i.test(errorMessage)) {
+        return null;
+      }
+      console.warn("[Auth] Session verification failed", errorMessage);
       return null;
     }
   }

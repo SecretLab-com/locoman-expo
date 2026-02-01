@@ -1,11 +1,10 @@
 import { useAuthContext } from "@/contexts/auth-context";
 
 // Import role-specific dashboard components
-import ShopperHome from "@/components/dashboards/shopper-home";
 import ClientHome from "@/components/dashboards/client-home";
-import TrainerHome from "@/components/dashboards/trainer-home";
 import ManagerHome from "@/components/dashboards/manager-home";
-import CoordinatorHome from "@/components/dashboards/coordinator-home";
+import ShopperHome from "@/components/dashboards/shopper-home";
+import TrainerHome from "@/components/dashboards/trainer-home";
 
 /**
  * Unified Home Screen
@@ -22,9 +21,9 @@ import CoordinatorHome from "@/components/dashboards/coordinator-home";
  * - Coordinator → CoordinatorHome (impersonation, logs)
  */
 export default function UnifiedHomeScreen() {
-  const { isAuthenticated, effectiveRole, isImpersonating } = useAuthContext();
+  const { isAuthenticated, effectiveRole } = useAuthContext();
 
-  // Not authenticated or shopper role → Show shopper/browse experience
+  // Not authenticated or shopper → Show shopper experience
   if (!isAuthenticated || effectiveRole === "shopper" || !effectiveRole) {
     return <ShopperHome />;
   }
@@ -32,13 +31,8 @@ export default function UnifiedHomeScreen() {
   // Role-specific dashboards
   switch (effectiveRole) {
     case "coordinator":
-      // Coordinators who are impersonating see the impersonated role's dashboard
-      // Otherwise they see the coordinator dashboard
-      if (!isImpersonating) {
-        return <CoordinatorHome />;
-      }
-      // Fall through to show impersonated role's dashboard
-      break;
+      // Coordinators in tabs use the client-style home experience
+      return <ClientHome />;
     case "manager":
       return <ManagerHome />;
     case "trainer":
@@ -49,6 +43,4 @@ export default function UnifiedHomeScreen() {
       return <ShopperHome />;
   }
 
-  // This handles coordinators who are impersonating
-  return <ShopperHome />;
 }

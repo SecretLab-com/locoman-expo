@@ -1,28 +1,28 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  RefreshControl,
-  StyleSheet,
-  Modal,
-  Pressable,
-  Alert,
-  Platform,
-  ActivityIndicator,
-  FlatList,
-} from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { useAuthContext } from "@/contexts/auth-context";
-import { useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
+import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
+import { useCallback, useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from "react-native";
 
 type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 type UserStatus = "active" | "inactive";
@@ -48,16 +48,6 @@ type ActivityLogEntry = {
   previousValue: string | null;
   newValue: string | null;
   notes: string | null;
-  createdAt: Date;
-};
-
-type UserInvitation = {
-  id: number;
-  email: string;
-  name: string | null;
-  role: UserRole;
-  status: "pending" | "accepted" | "expired" | "revoked";
-  expiresAt: Date;
   createdAt: Date;
 };
 
@@ -281,7 +271,7 @@ export default function UsersScreen() {
       usersQuery.refetch();
       
       Alert.alert("Success", `${selectedUser.name}'s role changed to ${newRole}`);
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to change user role");
     }
   };
@@ -317,7 +307,7 @@ export default function UsersScreen() {
         "Success",
         `${selectedUser.name} has been ${newActive ? "activated" : "deactivated"}`
       );
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to update user status");
     }
   };
@@ -353,7 +343,7 @@ export default function UsersScreen() {
       }
       
       Alert.alert("Impersonation Started", `You are now viewing as ${selectedUser.name}`);
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to start impersonation");
     }
   };
@@ -405,7 +395,7 @@ export default function UsersScreen() {
       exitSelectionMode();
       
       Alert.alert("Success", `Updated role to ${newRole} for ${selectedUserIds.size} users`);
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to update user roles");
     }
   };
@@ -432,7 +422,7 @@ export default function UsersScreen() {
         "Success",
         `${active ? "Activated" : "Deactivated"} ${selectedUserIds.size} users`
       );
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to update user statuses");
     }
   };
@@ -463,7 +453,7 @@ export default function UsersScreen() {
       setInviteRole("shopper");
       
       Alert.alert("Success", `Invitation sent to ${inviteEmail}`);
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to send invitation");
     } finally {
       setInviting(false);
@@ -485,7 +475,7 @@ export default function UsersScreen() {
               await revokeInvitationMutation.mutateAsync({ id: inviteId });
               invitationsQuery.refetch();
               Alert.alert("Success", "Invitation revoked");
-            } catch (error) {
+            } catch {
               Alert.alert("Error", "Failed to revoke invitation");
             }
           },
@@ -567,14 +557,25 @@ export default function UsersScreen() {
   const roles = ["all", "shopper", "client", "trainer", "manager", "coordinator"] as const;
   const allRoles: UserRole[] = ["shopper", "client", "trainer", "manager", "coordinator"];
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(manager)" as any);
+  };
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header with Export Button */}
       <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
         <View className="flex-row items-center">
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={handleBack}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            testID="users-back"
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
@@ -921,12 +922,20 @@ export default function UsersScreen() {
                   className="w-12 h-12 rounded-full items-center justify-center mr-3"
                   style={{ backgroundColor: `${ROLE_COLORS[user.role]}20` }}
                 >
-                  <Text
-                    className="text-base font-bold"
-                    style={{ color: ROLE_COLORS[user.role] }}
-                  >
-                    {getInitials(user.name)}
-                  </Text>
+                  {user.photoUrl ? (
+                    <Image
+                      source={{ uri: user.photoUrl }}
+                      className="w-12 h-12 rounded-full"
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Text
+                      className="text-base font-bold"
+                      style={{ color: ROLE_COLORS[user.role] }}
+                    >
+                      {getInitials(user.name)}
+                    </Text>
+                  )}
                 </View>
 
                 {/* User Info */}
@@ -1232,7 +1241,7 @@ export default function UsersScreen() {
                   </View>
 
                   <Text style={[styles.activityLogSubtitle, { color: colors.muted }]}>
-                    {selectedUser.name}'s activity history
+                    {`${selectedUser.name}'s activity history`}
                   </Text>
 
                   {activityLogs.length === 0 ? (

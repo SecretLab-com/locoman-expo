@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
+import { navigateToHome } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
@@ -246,6 +247,7 @@ export default function FindTrainerScreen() {
         title="Find a Trainer" 
         showBack
         showHome
+        onBack={() => navigateToHome()}
       />
       
       {/* Search Bar */}

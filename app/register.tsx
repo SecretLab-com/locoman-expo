@@ -167,6 +167,9 @@ export default function RegisterScreen() {
               onPress={handleRegister}
               disabled={loading}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Create account"
+              testID="register-submit"
             >
               {loading ? (
                 <ActivityIndicator color={colors.background} />
@@ -188,6 +191,9 @@ export default function RegisterScreen() {
               onPress={handleOAuthRegister}
               disabled={loading}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Manus"
+              testID="register-oauth-manus"
             >
               <Text className="text-foreground font-semibold">Continue with Manus</Text>
             </TouchableOpacity>

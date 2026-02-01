@@ -1,19 +1,20 @@
-import { useState, useMemo } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  Image,
-  ActivityIndicator,
-  RefreshControl,
-} from "react-native";
-import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { router } from "expo-router";
+import { useMemo, useState } from "react";
+import {
+    ActivityIndicator,
+    Image,
+    RefreshControl,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 // Specialty options
 const SPECIALTIES = [
@@ -43,6 +44,7 @@ type Trainer = {
 
 export default function TrainersScreen() {
   const colors = useColors();
+  const { canManage } = useAuthContext();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSpecialty, setSelectedSpecialty] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
@@ -50,6 +52,7 @@ export default function TrainersScreen() {
   // Fetch trainers via tRPC
   const { data: trainers, isLoading, refetch } = trpc.catalog.trainers.useQuery(undefined, {
     staleTime: 60000,
+    enabled: !canManage,
   });
 
   // Filter trainers
@@ -88,6 +91,26 @@ export default function TrainersScreen() {
     const spec = SPECIALTIES.find((s) => s.value === value);
     return spec?.label || value.replace(/_/g, " ");
   };
+
+  if (canManage) {
+    return (
+      <ScreenContainer className="flex-1 items-center justify-center">
+        <Text className="text-lg font-semibold text-foreground">Manage Users</Text>
+        <Text className="text-sm text-muted mt-2 text-center">
+          Use the Users screen to filter and manage all roles.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.replace("/(manager)/users" as any)}
+          className="mt-4 px-4 py-2 rounded-lg border border-border bg-surface"
+          accessibilityRole="button"
+          accessibilityLabel="Go to users"
+          testID="trainers-go-to-users"
+        >
+          <Text className="text-foreground">Go to Users</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer className="flex-1">

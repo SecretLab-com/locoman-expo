@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
+import { navigateToHome } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
@@ -144,7 +145,6 @@ function PendingRequestCard({
   };
   onCancel: () => void;
 }) {
-  const colors = useColors();
   const trainer = request.trainer;
 
   if (!trainer) return null;
@@ -188,8 +188,6 @@ function PendingRequestCard({
 }
 
 export default function MyTrainersScreen() {
-  const colors = useColors();
-  
   // Fetch trainers from API
   const { 
     data: trainers = [], 
@@ -301,7 +299,7 @@ export default function MyTrainersScreen() {
       {/* My Trainers Header */}
       {trainers.length > 0 && (
         <Text className="text-muted text-sm mb-4">
-          Trainers you're currently working with
+          {"Trainers you're currently working with"}
         </Text>
       )}
     </View>
@@ -322,7 +320,7 @@ export default function MyTrainersScreen() {
       </TouchableOpacity>
       
       <Text className="text-muted text-xs text-center mt-4 px-4">
-        Adding a new trainer won't affect your existing programs. 
+        {"Adding a new trainer won't affect your existing programs. "}
         You can work with multiple trainers at once.
       </Text>
     </View>
@@ -342,6 +340,9 @@ export default function MyTrainersScreen() {
       <TouchableOpacity
         className="bg-primary px-6 py-3 rounded-full"
         onPress={handleAddTrainer}
+        accessibilityRole="button"
+        accessibilityLabel="Find a trainer"
+        testID="my-trainers-find"
       >
         <Text className="text-background font-semibold">Find a Trainer</Text>
       </TouchableOpacity>
@@ -354,6 +355,7 @@ export default function MyTrainersScreen() {
         title="My Trainers" 
         showBack
         showHome
+        onBack={() => navigateToHome()}
       />
       
       <FlatList

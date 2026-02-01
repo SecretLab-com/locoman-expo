@@ -119,7 +119,7 @@ export default function TrainerProfileScreen() {
         </View>
         <Text className="text-xl font-bold text-foreground mb-2">Trainer Not Found</Text>
         <Text className="text-muted text-center mb-6">
-          This trainer profile doesn't exist or has been removed.
+          {"This trainer profile doesn't exist or has been removed."}
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}

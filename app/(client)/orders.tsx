@@ -1,58 +1,29 @@
-import { useState } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  FlatList,
-  RefreshControl,
-} from "react-native";
-import { router } from "expo-router";
-import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import {
+    FlatList,
+    RefreshControl,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
-// Mock data for client orders
-const MOCK_ORDERS = [
-  {
-    id: 1,
-    bundleId: 1,
-    bundleTitle: "Full Body Transformation",
-    trainerName: "Sarah Johnson",
-    trainerAvatar: "https://i.pravatar.cc/150?img=1",
-    image: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400",
-    price: 149.99,
-    status: "active",
-    purchaseDate: "2024-01-15",
-    progress: 65,
-  },
-  {
-    id: 2,
-    bundleId: 3,
-    bundleTitle: "Yoga for Beginners",
-    trainerName: "Emma Wilson",
-    trainerAvatar: "https://i.pravatar.cc/150?img=5",
-    image: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=400",
-    price: 59.99,
-    status: "active",
-    purchaseDate: "2024-02-20",
-    progress: 30,
-  },
-  {
-    id: 3,
-    bundleId: 2,
-    bundleTitle: "HIIT Cardio Blast",
-    trainerName: "Mike Chen",
-    trainerAvatar: "https://i.pravatar.cc/150?img=3",
-    image: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=400",
-    price: 79.99,
-    status: "completed",
-    purchaseDate: "2023-11-10",
-    progress: 100,
-  },
-];
+type OrderStatus = "active" | "completed";
 
-type Order = (typeof MOCK_ORDERS)[0];
+type Order = {
+  id: number;
+  title: string;
+  imageUrl?: string | null;
+  price: number;
+  status: OrderStatus;
+  purchaseDate: Date | string | null;
+  progress: number;
+};
 
 function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   const colors = useColors();
@@ -79,24 +50,24 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
       activeOpacity={0.8}
     >
       <View className="flex-row">
-        <Image
-          source={{ uri: order.image }}
-          className="w-24 h-full"
-          contentFit="cover"
-        />
+        {order.imageUrl ? (
+          <Image
+            source={{ uri: order.imageUrl }}
+            className="w-24 h-full"
+            contentFit="cover"
+          />
+        ) : (
+          <View className="w-24 h-full items-center justify-center bg-muted/20">
+            <IconSymbol name="bag.fill" size={22} color={colors.muted} />
+          </View>
+        )}
         <View className="flex-1 p-4">
           <View className="flex-row items-start justify-between">
             <View className="flex-1 mr-2">
               <Text className="text-base font-semibold text-foreground" numberOfLines={2}>
-                {order.bundleTitle}
+                {order.title}
               </Text>
-              <View className="flex-row items-center mt-1">
-                <Image
-                  source={{ uri: order.trainerAvatar }}
-                  className="w-5 h-5 rounded-full"
-                />
-                <Text className="text-sm text-muted ml-2">{order.trainerName}</Text>
-              </View>
+              <Text className="text-sm text-muted mt-1">Order #{order.id}</Text>
             </View>
             <View className={`px-2 py-1 rounded-full ${statusStyle.bg}`}>
               <Text className={`text-xs font-medium capitalize ${statusStyle.text}`}>
@@ -122,7 +93,7 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
 
           <View className="flex-row items-center justify-between mt-3">
             <Text className="text-sm text-muted">
-              Purchased: {new Date(order.purchaseDate).toLocaleDateString()}
+              Purchased: {order.purchaseDate ? new Date(order.purchaseDate).toLocaleDateString() : "N/A"}
             </Text>
             <Text className="text-base font-bold text-primary">${order.price}</Text>
           </View>
@@ -135,21 +106,49 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
 export default function ClientOrdersScreen() {
   const colors = useColors();
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
+  const normalizedFilter = useMemo<"all" | "active" | "completed">(() => {
+    if (filterParam === "active" || filterParam === "completed" || filterParam === "all") {
+      return filterParam;
+    }
+    return "all";
+  }, [filterParam]);
+  const [filter, setFilter] = useState<"all" | "active" | "completed">(normalizedFilter);
+  const { data: orders = [], refetch, isLoading } = trpc.orders.myOrders.useQuery();
 
-  const filteredOrders = MOCK_ORDERS.filter((order) => {
-    if (filter === "all") return true;
-    return order.status === filter;
-  });
+  useEffect(() => {
+    setFilter(normalizedFilter);
+  }, [normalizedFilter]);
+
+  const normalizedOrders = useMemo<Order[]>(() => {
+    return orders.map((order) => {
+      const status = order.status === "delivered" ? "completed" : "active";
+      const progress = status === "completed" ? 100 : 55;
+      return {
+        id: order.id,
+        title: order.shopifyOrderNumber ? `Order #${order.shopifyOrderNumber}` : `Order #${order.id}`,
+        imageUrl: (order.orderData as any)?.imageUrl ?? null,
+        price: Number(order.totalAmount ?? 0),
+        status,
+        purchaseDate: order.createdAt ?? null,
+        progress,
+      };
+    });
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    if (filter === "all") return normalizedOrders;
+    return normalizedOrders.filter((order) => order.status === filter);
+  }, [filter, normalizedOrders]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await refetch();
     setRefreshing(false);
   };
 
-  const handleOrderPress = (order: Order) => {
-    router.push(`/bundle/${order.bundleId}` as any);
+  const handleOrderPress = (_order: Order) => {
+    router.push("/(client)/orders" as any);
   };
 
   return (
@@ -160,12 +159,15 @@ export default function ClientOrdersScreen() {
           <TouchableOpacity
             onPress={() => router.back()}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            testID="orders-back"
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <View>
             <Text className="text-2xl font-bold text-foreground">My Orders</Text>
-            <Text className="text-sm text-muted">{MOCK_ORDERS.length} total orders</Text>
+            <Text className="text-sm text-muted">{orders.length} total orders</Text>
           </View>
         </View>
 
@@ -204,10 +206,15 @@ export default function ClientOrdersScreen() {
         ListEmptyComponent={
           <View className="items-center py-12">
             <IconSymbol name="bag.fill" size={48} color={colors.muted} />
-            <Text className="text-muted text-center mt-4">No orders found</Text>
+            <Text className="text-muted text-center mt-4">
+              {isLoading ? "Loading orders..." : "No orders found"}
+            </Text>
             <TouchableOpacity
               className="bg-primary px-6 py-3 rounded-full mt-4"
-              onPress={() => router.push("/(tabs)")}
+              onPress={() => router.push("/(tabs)/products" as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Browse catalog"
+              testID="orders-browse"
             >
               <Text className="text-background font-semibold">Browse Catalog</Text>
             </TouchableOpacity>

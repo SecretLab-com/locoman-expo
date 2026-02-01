@@ -83,6 +83,15 @@ export const getLoginUrl = () => {
   const state = encodeState(redirectUri);
 
   const portalUrl = OAUTH_PORTAL_URL || getApiBaseUrl();
+  if (!portalUrl) {
+    throw new Error("OAuth portal URL is not configured.");
+  }
+  const isLocalhost = /localhost|127\.0\.0\.1/.test(portalUrl);
+  if (isLocalhost && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "OAuth portal URL points to localhost. Set EXPO_PUBLIC_OAUTH_PORTAL_URL to the real OAuth portal.",
+    );
+  }
   const url = new URL(`${portalUrl}/app-auth`);
   url.searchParams.set("appId", APP_ID);
   url.searchParams.set("redirectUri", redirectUri);

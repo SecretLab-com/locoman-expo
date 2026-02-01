@@ -8,11 +8,11 @@ import {
   Pressable,
   ScrollView,
   Alert,
-  Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 export interface MediaItem {
   uri: string;
@@ -44,6 +44,12 @@ export function MediaPicker({
   quality = 0.8,
 }: MediaPickerProps) {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const overlaySoft = isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(15, 23, 42, 0.12)";
+  const overlayStrong = isDark ? "rgba(0, 0, 0, 0.65)" : "rgba(15, 23, 42, 0.2)";
+  const overlayFull = isDark ? "rgba(0, 0, 0, 0.9)" : "rgba(15, 23, 42, 0.35)";
+  const overlayTextColor = isDark ? "#fff" : colors.foreground;
   const [showOptions, setShowOptions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
 
@@ -168,8 +174,11 @@ export function MediaPicker({
                 resizeMode="cover"
               />
               {image.type === "video" && (
-                <View className="absolute inset-0 items-center justify-center bg-black/30 rounded-xl">
-                  <IconSymbol name="play.fill" size={24} color="white" />
+                <View
+                  className="absolute inset-0 items-center justify-center rounded-xl"
+                  style={{ backgroundColor: overlaySoft }}
+                >
+                  <IconSymbol name="play.fill" size={24} color={overlayTextColor} />
                 </View>
               )}
               {index === 0 && (
@@ -200,10 +209,11 @@ export function MediaPicker({
         animationType="slide"
         onRequestClose={() => setShowOptions(false)}
       >
-        <Pressable
-          className="flex-1 bg-black/50 justify-end"
-          onPress={() => setShowOptions(false)}
-        >
+          <Pressable
+            className="flex-1 justify-end"
+            onPress={() => setShowOptions(false)}
+            style={{ backgroundColor: overlayStrong }}
+          >
           <View className="bg-background rounded-t-3xl p-6">
             <Text className="text-xl font-bold text-foreground mb-4">Add Photo</Text>
 
@@ -250,10 +260,11 @@ export function MediaPicker({
         animationType="fade"
         onRequestClose={() => setSelectedIndex(null)}
       >
-        <Pressable
-          className="flex-1 bg-black/90 justify-center items-center"
-          onPress={() => setSelectedIndex(null)}
-        >
+          <Pressable
+            className="flex-1 justify-center items-center"
+            onPress={() => setSelectedIndex(null)}
+            style={{ backgroundColor: overlayFull }}
+          >
           {selectedIndex !== null && images[selectedIndex] && (
             <View className="w-full">
               <Image
@@ -265,29 +276,35 @@ export function MediaPicker({
                 <TouchableOpacity
                   onPress={() => moveImageUp(selectedIndex)}
                   disabled={selectedIndex === 0}
-                  className={`w-12 h-12 rounded-full items-center justify-center ${
-                    selectedIndex === 0 ? "bg-white/20" : "bg-white/40"
-                  }`}
+                  className="w-12 h-12 rounded-full items-center justify-center"
+                  style={{
+                    backgroundColor: selectedIndex === 0
+                      ? (isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(15, 23, 42, 0.2)")
+                      : (isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(15, 23, 42, 0.35)"),
+                  }}
                 >
-                  <IconSymbol name="chevron.left" size={24} color="white" />
+                  <IconSymbol name="chevron.left" size={24} color={overlayTextColor} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => removeImage(selectedIndex)}
                   className="w-12 h-12 rounded-full bg-error items-center justify-center"
                 >
-                  <IconSymbol name="trash.fill" size={24} color="white" />
+                  <IconSymbol name="trash.fill" size={24} color={overlayTextColor} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => moveImageDown(selectedIndex)}
                   disabled={selectedIndex === images.length - 1}
-                  className={`w-12 h-12 rounded-full items-center justify-center ${
-                    selectedIndex === images.length - 1 ? "bg-white/20" : "bg-white/40"
-                  }`}
+                  className="w-12 h-12 rounded-full items-center justify-center"
+                  style={{
+                    backgroundColor: selectedIndex === images.length - 1
+                      ? (isDark ? "rgba(255, 255, 255, 0.2)" : "rgba(15, 23, 42, 0.2)")
+                      : (isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(15, 23, 42, 0.35)"),
+                  }}
                 >
-                  <IconSymbol name="chevron.right" size={24} color="white" />
+                  <IconSymbol name="chevron.right" size={24} color={overlayTextColor} />
                 </TouchableOpacity>
               </View>
-              <Text className="text-white text-center mt-4">
+              <Text className="text-center mt-4" style={{ color: overlayTextColor }}>
                 {selectedIndex + 1} of {images.length}
               </Text>
             </View>
@@ -315,6 +332,11 @@ export function SingleImagePicker({
   placeholder?: string;
 }) {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const overlaySoft = isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(15, 23, 42, 0.12)";
+  const overlayStrong = isDark ? "rgba(0, 0, 0, 0.65)" : "rgba(15, 23, 42, 0.2)";
+  const overlayTextColor = isDark ? "#fff" : colors.foreground;
   const [showOptions, setShowOptions] = useState(false);
 
   const pickFromLibrary = async () => {
@@ -362,16 +384,18 @@ export function SingleImagePicker({
             <View className="absolute top-2 right-2">
               <TouchableOpacity
                 onPress={() => onImageChange(null)}
-                className="w-8 h-8 rounded-full bg-black/50 items-center justify-center"
+                className="w-8 h-8 rounded-full items-center justify-center"
+                style={{ backgroundColor: overlaySoft }}
               >
-                <IconSymbol name="xmark" size={16} color="white" />
+                <IconSymbol name="xmark" size={16} color={overlayTextColor} />
               </TouchableOpacity>
             </View>
             <TouchableOpacity
               onPress={() => setShowOptions(true)}
-              className="absolute bottom-2 right-2 px-3 py-1.5 rounded-lg bg-black/50"
+              className="absolute bottom-2 right-2 px-3 py-1.5 rounded-lg"
+              style={{ backgroundColor: overlayStrong }}
             >
-              <Text className="text-white text-sm">Change</Text>
+              <Text className="text-sm" style={{ color: overlayTextColor }}>Change</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -389,8 +413,9 @@ export function SingleImagePicker({
         onRequestClose={() => setShowOptions(false)}
       >
         <Pressable
-          className="flex-1 bg-black/50 justify-end"
+          className="flex-1 justify-end"
           onPress={() => setShowOptions(false)}
+          style={{ backgroundColor: overlayStrong }}
         >
           <View className="bg-background rounded-t-3xl p-6">
             <TouchableOpacity

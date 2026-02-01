@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { Text, View, TouchableOpacity, ScrollView, RefreshControl, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -17,17 +17,25 @@ type StatCardProps = {
 
 function StatCard({ title, value, icon, color, onPress }: StatCardProps) {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
   const iconColor = color || colors.primary;
 
   // Gradient colors based on the icon color
   const getGradientColors = (): readonly [string, string] => {
     if (color === colors.success) {
-      return ["#065F46", "#047857"] as const; // Green gradient
+      return isLight
+        ? ["#DCFCE7", "#ECFDF5"] as const
+        : ["#065F46", "#047857"] as const;
     }
     if (color === colors.warning) {
-      return ["#4A3728", "#2D2118"] as const; // Amber gradient
+      return isLight
+        ? ["#FEF3C7", "#FFFBEB"] as const
+        : ["#4A3728", "#2D2118"] as const;
     }
-    return ["#1E293B", "#0F172A"] as const; // Default dark slate gradient
+    return isLight
+      ? ["#DBEAFE", "#EFF6FF"] as const
+      : ["#1E293B", "#0F172A"] as const;
   };
 
   const content = (
@@ -69,6 +77,8 @@ type QuickActionProps = {
 
 function QuickAction({ title, icon, onPress }: QuickActionProps) {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
 
   return (
     <TouchableOpacity
@@ -77,7 +87,7 @@ function QuickAction({ title, icon, onPress }: QuickActionProps) {
       activeOpacity={0.8}
     >
       <LinearGradient
-        colors={["#1E3A5F", "#0F2744"] as const}
+        colors={isLight ? ["#DBEAFE", "#EFF6FF"] as const : ["#1E3A5F", "#0F2744"] as const}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         className="p-4 items-center"
@@ -258,7 +268,7 @@ export default function TrainerDashboardScreen() {
         {/* Today's Sessions */}
         <View className="px-4 mb-6">
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Today's Sessions</Text>
+            <Text className="text-lg font-semibold text-foreground">{"Today's Sessions"}</Text>
             <TouchableOpacity onPress={() => router.push("/(trainer)/calendar" as any)}>
               <Text className="text-primary font-medium">View Calendar</Text>
             </TouchableOpacity>

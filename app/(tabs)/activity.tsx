@@ -27,7 +27,7 @@ type ActivityTab = "all" | "orders" | "deliveries" | "notifications";
  */
 export default function ActivityScreen() {
   const colors = useColors();
-  const { isAuthenticated, effectiveRole, isTrainer, isClient, isManager } = useAuthContext();
+  const { isAuthenticated, effectiveRole, isTrainer, isClient } = useAuthContext();
   const [activeTab, setActiveTab] = useState<ActivityTab>("all");
 
   // Fetch data based on role

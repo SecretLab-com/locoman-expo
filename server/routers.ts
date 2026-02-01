@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, trainerProcedure, managerProcedure, coordinatorProcedure, router } from "./_core/trpc";
 import { generateImage } from "./_core/imageGeneration";
-import * as shopify from "./shopify";
+import { systemRouter } from "./_core/systemRouter";
+import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
 import * as db from "./db";
+import * as shopify from "./shopify";
 
 export const appRouter = router({
   system: systemRouter,
@@ -47,6 +47,52 @@ export const appRouter = router({
       }),
     
     products: publicProcedure.query(async () => {
+      const shopifyProducts = await shopify.fetchProducts();
+      type ProductCategory =
+        | "protein"
+        | "pre_workout"
+        | "post_workout"
+        | "recovery"
+        | "strength"
+        | "wellness"
+        | "hydration"
+        | "vitamins";
+
+      const toCategory = (productType?: string): ProductCategory | null => {
+        if (!productType) return null;
+        const normalized = productType.toLowerCase().replace(/[\s-]+/g, "_");
+        const allowed = new Set<ProductCategory>([
+          "protein",
+          "pre_workout",
+          "post_workout",
+          "recovery",
+          "strength",
+          "wellness",
+          "hydration",
+          "vitamins",
+        ]);
+        const normalizedCategory = normalized as ProductCategory;
+        return allowed.has(normalizedCategory) ? normalizedCategory : null;
+      };
+
+      for (const product of shopifyProducts) {
+        const variant = product.variants[0];
+        const image = product.images[0];
+        await db.upsertProduct({
+          shopifyProductId: product.id,
+          shopifyVariantId: variant?.id,
+          name: product.title,
+          description: product.body_html || null,
+          price: variant?.price || "0.00",
+          imageUrl: image?.src || null,
+          brand: product.vendor || null,
+          category: toCategory(product.product_type),
+          inventoryQuantity: variant?.inventory_quantity || 0,
+          availability: (variant?.inventory_quantity || 0) > 0 ? "available" : "out_of_stock",
+          syncedAt: new Date(),
+        });
+      }
+
       return db.getProducts();
     }),
     
@@ -366,8 +412,7 @@ export const appRouter = router({
   orders: router({
     // Client gets their orders
     myOrders: protectedProcedure.query(async ({ ctx }) => {
-      // Would need client lookup
-      return [];
+      return db.getOrdersByClient(ctx.user.id);
     }),
     
     // Trainer gets orders attributed to them

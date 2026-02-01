@@ -13,12 +13,10 @@ import {
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { navigateToHome } from "@/lib/navigation";
-import { useAuthContext } from "@/contexts/auth-context";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import * as Haptics from "expo-haptics";
-import { trpc } from "@/lib/trpc";
 
 type InvitationData = {
   id: number;
@@ -29,16 +27,16 @@ type InvitationData = {
   bundleDescription: string;
   bundlePrice: number;
   bundleDuration: string;
-  products: Array<{
+  products: {
     id: number;
     name: string;
     quantity: number;
-  }>;
-  services: Array<{
+  }[];
+  services: {
     id: number;
     name: string;
     sessions: number;
-  }>;
+  }[];
   goals: string[];
   personalMessage?: string;
   expiresAt: Date;
@@ -377,7 +375,7 @@ export default function InvitationScreen() {
             <View className="bg-primary/5 rounded-xl p-4 border border-primary/20">
               <IconSymbol name="message.fill" size={20} color={colors.primary} />
               <Text className="text-foreground mt-2 leading-relaxed italic">
-                "{invitation.personalMessage}"
+                {`"${invitation.personalMessage}"`}
               </Text>
             </View>
           </View>

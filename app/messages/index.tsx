@@ -11,6 +11,7 @@ import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
+import { navigateToHome } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 
@@ -148,7 +149,7 @@ function ConversationCard({ conversation, onPress }: { conversation: Conversatio
 
 export default function MessagesScreen() {
   const colors = useColors();
-  const [conversations, setConversations] = useState(MOCK_CONVERSATIONS);
+  const [conversations] = useState(MOCK_CONVERSATIONS);
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -177,9 +178,12 @@ export default function MessagesScreen() {
         subtitle={totalUnread > 0 ? `${totalUnread} unread` : undefined}
         showBack
         showHome
+        onBack={() => navigateToHome()}
         rightAction={{
           icon: "pencil",
           onPress: () => {},
+          label: "New message",
+          testID: "messages-new",
         }}
       />
 

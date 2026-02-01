@@ -1,30 +1,31 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  FlatList,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-} from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withSequence,
-  withTiming,
-  withDelay,
-  SharedValue,
-} from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
+import { useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+    ActivityIndicator,
+    FlatList,
+    KeyboardAvoidingView,
+    Platform,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import Animated, {
+    SharedValue,
+    useAnimatedStyle,
+    useSharedValue,
+    withDelay,
+    withRepeat,
+    withSequence,
+    withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Message = {
   id: number;
@@ -58,7 +59,7 @@ function TypingIndicator({ name, colors }: { name: string; colors: any }) {
     animateDot(dot1, 0);
     animateDot(dot2, 150);
     animateDot(dot3, 300);
-  }, []);
+  }, [dot1, dot2, dot3]);
 
   const dot1Style = useAnimatedStyle(() => ({
     transform: [{ translateY: dot1.value }],
@@ -193,7 +194,7 @@ export default function ConversationScreen() {
         markRead.mutate({ id: msg.id });
       });
     }
-  }, [messages, user]);
+  }, [messages, user, markRead]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -253,7 +254,7 @@ export default function ConversationScreen() {
 
   const handleBack = async () => {
     await haptics.light();
-    router.back();
+    navigateToHome();
   };
 
   // Transform messages to match our interface
@@ -275,6 +276,9 @@ export default function ConversationScreen() {
         <TouchableOpacity
           className="w-10 h-10 rounded-full items-center justify-center -ml-2"
           onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to home"
+          testID="conversation-back"
         >
           <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
         </TouchableOpacity>
@@ -352,13 +356,25 @@ export default function ConversationScreen() {
         >
           <View className="flex-1 flex-row items-end bg-background rounded-2xl border border-border px-4 py-2 mr-3">
             <TextInput
-              className="flex-1 text-foreground text-base max-h-24"
+              className="flex-1 text-foreground text-base max-h-24 py-1"
               placeholder="Type a message..."
               placeholderTextColor={colors.muted}
+              selectionColor={colors.muted}
               value={messageText}
               onChangeText={handleTextChange}
               multiline
               returnKeyType="default"
+              blurOnSubmit={false}
+              onKeyPress={({ nativeEvent }) => {
+                if (nativeEvent.key === "Enter") {
+                  handleSend();
+                }
+              }}
+              onSubmitEditing={() => {
+                if (Platform.OS !== "web") {
+                  handleSend();
+                }
+              }}
             />
           </View>
           <TouchableOpacity

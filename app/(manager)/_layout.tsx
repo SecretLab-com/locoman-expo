@@ -1,73 +1,104 @@
-import { Stack } from "expo-router";
+import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { BadgeIcon } from "@/components/badge-icon";
+import { HapticTab } from "@/components/haptic-tab";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useBadgeContext } from "@/contexts/badge-context";
 import { useColors } from "@/hooks/use-colors";
 import { Platform } from "react-native";
 
-/**
- * Manager Stack Layout
- * 
- * All manager screens are now accessible via Stack navigation from the unified tabs.
- * The bottom tab bar remains stable - these screens appear as cards/modals on top.
- * 
- * Animation presets:
- * - slide_from_right: Standard horizontal slide for detail screens
- * - slide_from_bottom: Modal-style presentation for forms/editors
- * - fade: Subtle fade for quick transitions
- */
-export default function ManagerStackLayout() {
+export default function ManagerTabLayout() {
   const colors = useColors();
-
-  // Platform-specific animation configuration
-  const defaultAnimation = Platform.OS === "ios" ? "default" : "slide_from_right";
+  const insets = useSafeAreaInsets();
+  const { counts } = useBadgeContext();
+  const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
+  const tabBarHeight = 56 + bottomPadding;
+  const renderTabButton = (testID: string, label: string) => {
+    const TabButton = (props: any) => (
+      <HapticTab {...props} testID={testID} accessibilityLabel={label} />
+    );
+    TabButton.displayName = `TabButton(${testID})`;
+    return TabButton;
+  };
 
   return (
-    <Stack
+    <Tabs
       screenOptions={{
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.muted,
         headerShown: false,
-        gestureEnabled: true,
-        fullScreenGestureEnabled: true,
-        animation: defaultAnimation,
-        gestureDirection: "horizontal",
-        contentStyle: { backgroundColor: colors.background },
-        animationDuration: 250,
+        tabBarButton: HapticTab,
+        tabBarStyle: {
+          paddingTop: 8,
+          paddingBottom: bottomPadding,
+          height: tabBarHeight,
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          borderTopWidth: 0.5,
+        },
       }}
     >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="home" />
-      <Stack.Screen 
-        name="approvals" 
-        options={{ animation: "slide_from_right" }}
-      />
-      <Stack.Screen 
-        name="users" 
-        options={{ animation: "slide_from_right" }}
-      />
-      <Stack.Screen 
-        name="analytics" 
-        options={{ animation: "slide_from_right" }}
-      />
-      <Stack.Screen 
-        name="trainers" 
-        options={{ animation: "slide_from_right" }}
-      />
-      <Stack.Screen 
-        name="templates" 
-        options={{ animation: "slide_from_right" }}
-      />
-      <Stack.Screen
-        name="invitations"
+      <Tabs.Screen
+        name="index"
         options={{
-          animation: "slide_from_bottom",
-          presentation: "modal",
+          title: "Home",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarButton: renderTabButton("tab-home", "Home tab"),
         }}
       />
-      <Stack.Screen
+      <Tabs.Screen
+        name="approvals"
+        options={{
+          title: "Approvals",
+          tabBarIcon: ({ color }) => <BadgeIcon size={28} name="checkmark.circle.fill" color={color} badge={counts.pendingApprovals} />,
+          tabBarButton: renderTabButton("tab-approvals", "Approvals tab"),
+        }}
+      />
+      <Tabs.Screen
+        name="users"
+        options={{
+          title: "Users",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
+          tabBarButton: renderTabButton("tab-users", "Users tab"),
+        }}
+      />
+      <Tabs.Screen
+        name="analytics"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="trainers"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="templates"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="invitations"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="deliveries"
-        options={{ animation: "slide_from_right" }}
+        options={{
+          href: null,
+        }}
       />
-      <Stack.Screen
+      <Tabs.Screen
         name="products"
-        options={{ animation: "slide_from_right" }}
+        options={{
+          href: null,
+        }}
       />
-    </Stack>
+    </Tabs>
   );
 }

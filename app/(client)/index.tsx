@@ -1,49 +1,54 @@
-import { useState } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl,
-} from "react-native";
+import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useMemo, useState } from "react";
+import {
+  RefreshControl,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-// Mock data for client dashboard
-const MOCK_ACTIVE_BUNDLES = [
-  {
-    id: 1,
-    title: "Full Body Transformation",
-    trainerName: "Sarah Johnson",
-    trainerAvatar: "https://i.pravatar.cc/150?img=1",
-    progress: 65,
-    nextSession: "Today at 3:00 PM",
-    image: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400",
-  },
-  {
-    id: 2,
-    title: "Yoga for Beginners",
-    trainerName: "Emma Wilson",
-    trainerAvatar: "https://i.pravatar.cc/150?img=5",
-    progress: 30,
-    nextSession: "Tomorrow at 9:00 AM",
-    image: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=400",
-  },
-];
+type OrderCardData = {
+  id: number;
+  title: string;
+  status: string;
+  total: number;
+  imageUrl?: string | null;
+  createdAt?: Date | string | null;
+};
 
-const MOCK_UPCOMING_DELIVERIES = [
-  { id: 1, bundleTitle: "Full Body Transformation", item: "Week 8 Workout Plan", date: "Mar 22" },
-  { id: 2, bundleTitle: "Yoga for Beginners", item: "Meditation Guide", date: "Mar 23" },
-];
+const STATUS_PROGRESS: Record<string, number> = {
+  pending: 15,
+  confirmed: 30,
+  processing: 55,
+  shipped: 80,
+  delivered: 100,
+  cancelled: 0,
+  refunded: 0,
+};
 
-type ActiveBundle = (typeof MOCK_ACTIVE_BUNDLES)[0];
+function formatCurrency(value: number) {
+  if (Number.isNaN(value)) return "$0.00";
+  return `$${value.toFixed(2)}`;
+}
 
-function ActiveBundleCard({ bundle, onPress }: { bundle: ActiveBundle; onPress: () => void }) {
+function formatDate(value?: Date | string | null) {
+  if (!value) return "N/A";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "N/A";
+  return date.toLocaleDateString();
+}
+
+function OrderCard({ order, onPress }: { order: OrderCardData; onPress: () => void }) {
   const colors = useColors();
+  const progress = STATUS_PROGRESS[order.status] ?? 0;
 
   return (
     <TouchableOpacity
@@ -52,54 +57,166 @@ function ActiveBundleCard({ bundle, onPress }: { bundle: ActiveBundle; onPress: 
       onPress={onPress}
       activeOpacity={0.8}
     >
-      <Image
-        source={{ uri: bundle.image }}
-        className="w-full h-32"
-        contentFit="cover"
-      />
+      {order.imageUrl ? (
+        <Image
+          source={{ uri: order.imageUrl }}
+          className="w-full h-32"
+          contentFit="cover"
+        />
+      ) : (
+        <View className="w-full h-32 items-center justify-center bg-muted/20">
+          <IconSymbol name="bag.fill" size={28} color={colors.muted} />
+        </View>
+      )}
       <View className="p-4">
         <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
-          {bundle.title}
+          {order.title}
         </Text>
         
         <View className="flex-row items-center mt-2">
-          <Image
-            source={{ uri: bundle.trainerAvatar }}
-            className="w-6 h-6 rounded-full"
-          />
-          <Text className="text-sm text-muted ml-2">{bundle.trainerName}</Text>
+          <View className="w-6 h-6 rounded-full bg-primary/10 items-center justify-center">
+            <IconSymbol name="tag.fill" size={12} color={colors.primary} />
+          </View>
+          <Text className="text-sm text-muted ml-2 capitalize">{order.status}</Text>
         </View>
 
         {/* Progress Bar */}
         <View className="mt-3">
           <View className="flex-row justify-between mb-1">
             <Text className="text-xs text-muted">Progress</Text>
-            <Text className="text-xs font-medium text-foreground">{bundle.progress}%</Text>
+            <Text className="text-xs font-medium text-foreground">{progress}%</Text>
           </View>
           <View className="h-2 bg-border rounded-full overflow-hidden">
             <View
               className="h-full bg-primary rounded-full"
-              style={{ width: `${bundle.progress}%` }}
+              style={{ width: `${progress}%` }}
             />
           </View>
         </View>
 
         <View className="flex-row items-center mt-3">
-          <IconSymbol name="clock.fill" size={14} color={colors.primary} />
-          <Text className="text-sm text-primary ml-1">{bundle.nextSession}</Text>
+          <IconSymbol name="calendar" size={14} color={colors.primary} />
+          <Text className="text-sm text-primary ml-1">
+            {formatDate(order.createdAt)}
+          </Text>
+          <Text className="text-sm text-muted ml-auto">
+            {formatCurrency(order.total)}
+          </Text>
         </View>
       </View>
     </TouchableOpacity>
   );
 }
 
+function StatLabelRow({ imageUrls, label }: { imageUrls: (string | null | undefined)[]; label: string }) {
+  const colors = useColors();
+  const visible = imageUrls.filter(Boolean).slice(0, 3) as string[];
+
+  return (
+    <View className="flex-row items-center justify-between">
+      <Text className="text-sm text-muted">{label}</Text>
+      {visible.length > 0 ? (
+        <View className="flex-row">
+          {visible.map((uri, index) => (
+            <View
+              key={`${uri}-${index}`}
+              className={`w-5 h-5 rounded-full border border-background overflow-hidden ${
+                index === 0 ? "" : "-ml-2"
+              }`}
+            >
+              <Image source={{ uri }} className="w-full h-full" contentFit="cover" />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View className="w-5 h-5 rounded-full bg-primary/20 items-center justify-center">
+          <IconSymbol name="sparkles" size={10} color={colors.primary} />
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function ClientDashboardScreen() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
+  const statBlue = isLight
+    ? ["#DBEAFE", "#EFF6FF"] as const
+    : ["#1E3A5F", "#0F2744"] as const;
+  const statGreen = isLight
+    ? ["#DCFCE7", "#ECFDF5"] as const
+    : ["#065F46", "#047857"] as const;
   const [refreshing, setRefreshing] = useState(false);
+  const {
+    data: orders = [],
+    refetch: refetchOrders,
+    isLoading: ordersLoading,
+  } = trpc.orders.myOrders.useQuery();
+  const {
+    data: deliveries = [],
+    refetch: refetchDeliveries,
+    isLoading: deliveriesLoading,
+  } = trpc.deliveries.myDeliveries.useQuery();
+  const {
+    data: myTrainers = [],
+    refetch: refetchTrainers,
+    isLoading: trainersLoading,
+  } = trpc.myTrainers.list.useQuery();
+
+  const activeOrders = useMemo(
+    () => orders.filter((order) => !["delivered", "cancelled", "refunded"].includes(order.status ?? "")),
+    [orders]
+  );
+  const completedOrders = useMemo(
+    () => orders.filter((order) => order.status === "delivered").length,
+    [orders]
+  );
+  const activeOrderImages = useMemo(
+    () =>
+      activeOrders
+        .map((order) => (order.orderData as any)?.imageUrl ?? null)
+        .filter(Boolean),
+    [activeOrders]
+  );
+  const completedOrderImages = useMemo(
+    () =>
+      orders
+        .filter((order) => order.status === "delivered")
+        .map((order) => (order.orderData as any)?.imageUrl ?? null)
+        .filter(Boolean),
+    [orders]
+  );
+  const orderCards = useMemo<OrderCardData[]>(
+    () =>
+      activeOrders.map((order) => ({
+        id: order.id,
+        title: order.shopifyOrderNumber ? `Order #${order.shopifyOrderNumber}` : `Order #${order.id}`,
+        status: order.status ?? "pending",
+        total: Number(order.totalAmount ?? 0),
+        imageUrl: (order.orderData as any)?.imageUrl ?? null,
+        createdAt: order.createdAt,
+      })),
+    [activeOrders]
+  );
+  const upcomingDeliveries = useMemo(
+    () =>
+      deliveries
+        .filter((delivery) => !["delivered", "confirmed", "cancelled"].includes(delivery.status ?? ""))
+        .slice(0, 2),
+    [deliveries]
+  );
+  const topTrainers = useMemo(
+    () =>
+      [...myTrainers]
+        .sort((a, b) => (b.activeBundles ?? 0) - (a.activeBundles ?? 0))
+        .slice(0, 5),
+    [myTrainers]
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await Promise.all([refetchOrders(), refetchDeliveries(), refetchTrainers()]);
     setRefreshing(false);
   };
 
@@ -114,60 +231,134 @@ export default function ClientDashboardScreen() {
         {/* Header */}
         <View className="px-4 pt-2 pb-4">
           <Text className="text-2xl font-bold text-foreground">Welcome Back!</Text>
-          <Text className="text-sm text-muted">Let's continue your fitness journey</Text>
+          <Text className="text-sm text-muted">Lets continue your fitness journey</Text>
         </View>
 
         {/* Quick Stats */}
         <View className="flex-row px-4 mb-6">
-          <View className="flex-1 rounded-xl overflow-hidden mr-2">
+          <TouchableOpacity
+            className="flex-1 rounded-xl overflow-hidden mr-2"
+            activeOpacity={0.85}
+            onPress={() => router.push({ pathname: "/(client)/orders", params: { filter: "active" } })}
+            accessibilityRole="button"
+            accessibilityLabel="View active bundles"
+            testID="client-stats-active"
+          >
             <LinearGradient
-              colors={["#1E3A5F", "#0F2744"] as const}
+              colors={statBlue}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               className="p-4"
+              style={{ padding: 16 }}
             >
               <IconSymbol name="bag.fill" size={24} color={colors.primary} />
               <Text className="text-2xl font-bold text-foreground mt-2">
-                {MOCK_ACTIVE_BUNDLES.length}
+                {activeOrders.length}
               </Text>
-              <Text className="text-sm text-muted">Active Bundles</Text>
+              <StatLabelRow imageUrls={activeOrderImages} label="Active Orders" />
             </LinearGradient>
-          </View>
-          <View className="flex-1 rounded-xl overflow-hidden ml-2">
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-1 rounded-xl overflow-hidden ml-2"
+            activeOpacity={0.85}
+            onPress={() => router.push({ pathname: "/(client)/orders", params: { filter: "completed" } })}
+            accessibilityRole="button"
+            accessibilityLabel="View completed bundles"
+            testID="client-stats-completed"
+          >
             <LinearGradient
-              colors={["#065F46", "#047857"] as const}
+              colors={statGreen}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               className="p-4"
+              style={{ padding: 16 }}
             >
               <IconSymbol name="checkmark.circle.fill" size={24} color={colors.success} />
-              <Text className="text-2xl font-bold text-foreground mt-2">12</Text>
-              <Text className="text-sm text-muted">Completed</Text>
+              <Text className="text-2xl font-bold text-foreground mt-2">{completedOrders}</Text>
+              <StatLabelRow imageUrls={completedOrderImages} label="Delivered" />
             </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* Top Trainers */}
+        <View className="px-4 mb-6">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-lg font-semibold text-foreground">Top Trainers</Text>
+            <TouchableOpacity onPress={() => router.push("/my-trainers" as any)}>
+              <Text className="text-primary font-medium">View All</Text>
+            </TouchableOpacity>
           </View>
+          {trainersLoading ? (
+            <View className="bg-surface rounded-xl p-4 border border-border">
+              <Text className="text-sm text-muted">Loading trainers...</Text>
+            </View>
+          ) : topTrainers.length > 0 ? (
+            <View className="bg-surface rounded-xl border border-border divide-y divide-border">
+              {topTrainers.map((trainer) => (
+                <View key={trainer.id} className="flex-row items-center p-4">
+                  {trainer.photoUrl ? (
+                    <Image source={{ uri: trainer.photoUrl }} className="w-10 h-10 rounded-full" />
+                  ) : (
+                    <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
+                      <IconSymbol name="person.fill" size={18} color={colors.primary} />
+                    </View>
+                  )}
+                  <View className="flex-1 ml-3">
+                    <Text className="text-foreground font-medium">{trainer.name || "Trainer"}</Text>
+                    <Text className="text-xs text-muted">
+                      {trainer.activeBundles ?? 0} active bundles
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    className="px-3 py-1 rounded-full bg-primary/10"
+                    onPress={() => router.push(`/trainer/${trainer.id}` as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${trainer.name || "trainer"} profile`}
+                    testID={`trainer-${trainer.id}`}
+                  >
+                    <Text className="text-primary text-xs font-semibold">View</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View className="bg-surface rounded-xl p-4 border border-border">
+              <Text className="text-sm text-muted">No trainers yet.</Text>
+            </View>
+          )}
         </View>
 
         {/* Active Bundles */}
         <View className="mb-6">
           <View className="flex-row items-center justify-between px-4 mb-3">
-            <Text className="text-lg font-semibold text-foreground">Active Programs</Text>
+            <Text className="text-lg font-semibold text-foreground">Active Orders</Text>
             <TouchableOpacity onPress={() => router.push("/(client)/orders" as any)}>
               <Text className="text-primary font-medium">View All</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16 }}
-          >
-            {MOCK_ACTIVE_BUNDLES.map((bundle) => (
-              <ActiveBundleCard
-                key={bundle.id}
-                bundle={bundle}
-                onPress={() => router.push(`/bundle/${bundle.id}` as any)}
-              />
-            ))}
-          </ScrollView>
+          {ordersLoading ? (
+            <View className="px-4">
+              <Text className="text-sm text-muted">Loading orders...</Text>
+            </View>
+          ) : orderCards.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16 }}
+            >
+              {orderCards.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  onPress={() => router.push("/(client)/orders" as any)}
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <View className="px-4">
+              <Text className="text-sm text-muted">No active orders yet.</Text>
+            </View>
+          )}
         </View>
 
         {/* Upcoming Deliveries */}
@@ -179,23 +370,35 @@ export default function ClientDashboardScreen() {
             </TouchableOpacity>
           </View>
           <View className="bg-surface rounded-xl border border-border">
-            {MOCK_UPCOMING_DELIVERIES.map((delivery, index) => (
-              <View
-                key={delivery.id}
-                className={`flex-row items-center p-4 ${
-                  index < MOCK_UPCOMING_DELIVERIES.length - 1 ? "border-b border-border" : ""
-                }`}
-              >
-                <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
-                  <IconSymbol name="shippingbox.fill" size={20} color={colors.primary} />
-                </View>
-                <View className="flex-1 ml-4">
-                  <Text className="text-base font-medium text-foreground">{delivery.item}</Text>
-                  <Text className="text-sm text-muted">{delivery.bundleTitle}</Text>
-                </View>
-                <Text className="text-sm font-medium text-primary">{delivery.date}</Text>
+            {deliveriesLoading ? (
+              <View className="p-4">
+                <Text className="text-sm text-muted">Loading deliveries...</Text>
               </View>
-            ))}
+            ) : upcomingDeliveries.length > 0 ? (
+              upcomingDeliveries.map((delivery, index) => (
+                <View
+                  key={delivery.id}
+                  className={`flex-row items-center p-4 ${
+                    index < upcomingDeliveries.length - 1 ? "border-b border-border" : ""
+                  }`}
+                >
+                  <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
+                    <IconSymbol name="shippingbox.fill" size={20} color={colors.primary} />
+                  </View>
+                  <View className="flex-1 ml-4">
+                    <Text className="text-base font-medium text-foreground">{delivery.productName}</Text>
+                    <Text className="text-sm text-muted">{delivery.deliveryMethod ?? "Delivery"}</Text>
+                  </View>
+                  <Text className="text-sm font-medium text-primary">
+                    {formatDate(delivery.scheduledDate || delivery.deliveredAt || delivery.createdAt)}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <View className="p-4">
+                <Text className="text-sm text-muted">No upcoming deliveries.</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -203,7 +406,7 @@ export default function ClientDashboardScreen() {
         <View className="px-4 mb-8">
           <TouchableOpacity
             className="bg-surface border border-border rounded-xl p-4 flex-row items-center"
-            onPress={() => router.push("/browse")}
+            onPress={() => router.push("/(tabs)/products" as any)}
           >
             <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center">
               <IconSymbol name="magnifyingglass" size={24} color={colors.primary} />

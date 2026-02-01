@@ -70,8 +70,6 @@ function SectionTitle({ children }: { children: string }) {
 }
 
 function RoleBadge({ role }: { role: string }) {
-  const colors = useColors();
-  
   const getRoleStyle = () => {
     switch (role) {
       case "trainer":
@@ -98,7 +96,7 @@ function RoleBadge({ role }: { role: string }) {
 
 export default function ProfileScreen() {
   const colors = useColors();
-  const { user, isAuthenticated, logout, loading, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
+  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager } = useAuthContext();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
 
 

@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
@@ -106,11 +105,6 @@ export default function SpendingScreen() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  // Get category label
-  const getCategoryLabel = (category: SpendingCategory) => {
-    return category.charAt(0).toUpperCase() + category.slice(1);
-  };
-
   return (
     <ScreenContainer className="flex-1">
       {/* Header */}
@@ -123,8 +117,8 @@ export default function SpendingScreen() {
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <View>
-            <Text className="text-2xl font-bold text-foreground">Spending</Text>
-            <Text className="text-sm text-muted mt-1">Track your fitness investments</Text>
+            <Text className="text-2xl font-bold text-foreground">Revenue</Text>
+            <Text className="text-sm text-muted mt-1">Track your fitness income</Text>
           </View>
         </View>
       </View>

@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { NavigationHeader } from "@/components/navigation-header";
+import { navigateToHome } from "@/lib/navigation";
 import * as Haptics from "expo-haptics";
 
 type GoalType = "weight_loss" | "strength" | "longevity" | "power";
@@ -154,6 +155,7 @@ export default function TemplateEditorScreen() {
           title={isNew ? "New Template" : "Edit Template"}
           showBack
           showHome
+          onBack={() => navigateToHome()}
           confirmBack={{
             title: "Discard Changes?",
             message: "You have unsaved changes. Are you sure you want to leave?",
@@ -164,6 +166,7 @@ export default function TemplateEditorScreen() {
             icon: "checkmark",
             onPress: handleSave,
             label: isSaving ? "Saving..." : "Save",
+            testID: "template-save",
           }}
         />
 

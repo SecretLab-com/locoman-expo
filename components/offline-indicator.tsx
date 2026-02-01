@@ -1,7 +1,6 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { View, Text, Animated, StyleSheet } from "react-native";
 import { useOffline } from "@/contexts/offline-context";
-import { useEffect, useRef } from "react";
 
 /**
  * Offline indicator banner that shows when the device is offline
@@ -32,7 +31,7 @@ export function OfflineIndicator() {
     >
       <View style={styles.content}>
         <View style={styles.dot} />
-        <Text style={styles.text}>You're offline. Showing cached data.</Text>
+        <Text style={styles.text}>{"You're offline. Showing cached data."}</Text>
       </View>
     </Animated.View>
   );

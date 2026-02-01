@@ -14,7 +14,7 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { trpc } from "@/lib/trpc";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 type OrderStatus = "pending" | "processing" | "ready" | "delivered" | "cancelled";
 
@@ -95,6 +95,10 @@ const STATUS_TABS: { value: OrderStatus | "all"; label: string }[] = [
 
 export default function OrdersScreen() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const overlayColor = colorScheme === "dark"
+    ? "rgba(0, 0, 0, 0.5)"
+    : "rgba(15, 23, 42, 0.18)";
   const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
   const [orders] = useState<Order[]>(MOCK_ORDERS);
   const [refreshing, setRefreshing] = useState(false);
@@ -380,8 +384,9 @@ export default function OrdersScreen() {
         onRequestClose={() => setShowDetailModal(false)}
       >
         <Pressable
-          className="flex-1 bg-black/50 justify-end"
+          className="flex-1 justify-end"
           onPress={() => setShowDetailModal(false)}
+          style={{ backgroundColor: overlayColor }}
         >
           <View className="bg-background rounded-t-3xl max-h-[85%]">
             {selectedOrder && (

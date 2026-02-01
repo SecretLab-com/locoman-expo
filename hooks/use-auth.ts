@@ -57,8 +57,14 @@ export function useAuth(options?: UseAuthOptions) {
           console.log("[useAuth] Web user set from API:", userInfo);
         } else {
           console.log("[useAuth] Web: No authenticated user from API");
-          setUser(null);
-          await Auth.clearUserInfo();
+          const cachedUser = await Auth.getUserInfo();
+          if (cachedUser) {
+            console.log("[useAuth] Web: Using cached user info as fallback");
+            setUser(cachedUser);
+          } else {
+            setUser(null);
+            await Auth.clearUserInfo();
+          }
         }
         return;
       }
@@ -90,7 +96,17 @@ export function useAuth(options?: UseAuthOptions) {
       const error = err instanceof Error ? err : new Error("Failed to fetch user");
       console.error("[useAuth] fetchUser error:", error);
       setError(error);
-      setUser(null);
+      if (Platform.OS === "web") {
+        const cachedUser = await Auth.getUserInfo();
+        if (cachedUser) {
+          console.log("[useAuth] Web: Using cached user info after error");
+          setUser(cachedUser);
+        } else {
+          setUser(null);
+        }
+      } else {
+        setUser(null);
+      }
     } finally {
       setLoading(false);
       console.log("[useAuth] fetchUser completed, loading:", false);

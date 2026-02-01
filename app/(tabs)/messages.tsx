@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import {
   Text,
   View,
@@ -132,7 +132,7 @@ function ConversationItem({ conversation, onPress }: { conversation: Conversatio
 
 export default function MessagesScreen() {
   const colors = useColors();
-  const { isAuthenticated, isTrainer, isClient } = useAuthContext();
+  const { isAuthenticated, isTrainer } = useAuthContext();
 
   // Fetch conversations from API
   const {

@@ -1,11 +1,11 @@
-import { Text, View, TouchableOpacity, ScrollView, RefreshControl } from "react-native";
-import { router } from "expo-router";
-import { useState, useCallback } from "react";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useColors } from "@/hooks/use-colors";
 import { useBadgeContext } from "@/contexts/badge-context";
+import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { router } from "expo-router";
+import { useCallback, useState } from "react";
+import { RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 type QuickActionProps = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -78,14 +78,7 @@ export default function CoordinatorHomeScreen() {
             icon="rectangle.grid.2x2.fill"
             title="Product Catalog"
             subtitle="Manage products and inventory"
-            onPress={() => router.push("/(coordinator)/catalog" as any)}
-          />
-          
-          <QuickAction
-            icon="person.badge.key.fill"
-            title="Impersonate"
-            subtitle="View app as any user for testing"
-            onPress={() => router.push("/(coordinator)/dashboard" as any)}
+            onPress={() => router.push("/(tabs)/products" as any)}
           />
           
           <QuickAction

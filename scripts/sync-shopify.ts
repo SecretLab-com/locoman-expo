@@ -3,6 +3,7 @@
  * Run with: npx tsx scripts/sync-shopify.ts
  */
 
+import "dotenv/config";
 import * as shopify from "../server/shopify";
 import * as db from "../server/db";
 
