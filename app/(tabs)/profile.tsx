@@ -130,7 +130,8 @@ export default function ProfileScreen() {
           style: "destructive",
           onPress: async () => {
             await logout();
-            router.replace("/(tabs)");
+            // Navigate to login screen after logout
+            router.replace("/login");
           },
         },
       ]

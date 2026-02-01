@@ -83,7 +83,7 @@ function QuickAction({ title, icon, onPress }: QuickActionProps) {
 
   return (
     <TouchableOpacity
-      className="rounded-xl overflow-hidden flex-1 mx-1"
+      className="rounded-xl overflow-hidden flex-1 mx-1 border-2 border-primary/30"
       onPress={onPress}
       activeOpacity={0.8}
     >

@@ -813,3 +813,33 @@
 - [x] Implement message read receipts
 - [x] Show double checkmarks for read messages
 - [x] Update message status in real-time (polling every 3 seconds)
+
+## Advanced Messaging Features
+- [x] Implement WebSocket real-time messaging infrastructure
+- [x] Replace polling with WebSocket for instant message delivery
+- [x] Add real-time typing indicators via WebSocket
+- [x] Add message reactions with emoji picker (8 common emojis)
+- [x] Display reactions on message bubbles with counts
+- [x] Implement image attachments in chat (expo-image-picker)
+- [x] Implement file attachments in chat (expo-document-picker)
+- [x] Add attachment preview and download functionality
+- [x] Add emoji picker modal with long-press gesture
+- [x] Add attachment picker modal for images and files
+- [x] Store reactions in database with user tracking
+- [x] Add file upload endpoint to server storage
+
+## User Role Updates
+- [x] Update testuser to have coordinator/superuser role (already configured in oauth.ts)
+- [x] Update login screen label from "Shopper" to "Super User"
+
+## Bug Fixes - Login State
+- [x] Fix login state not updating on Expo Go after signing in (added triggerAuthRefresh)
+- [x] Investigate session token storage and retrieval on native platforms
+- [x] Fix button borders too thin on Manager Dashboard Quick Actions (added border-2 border-primary/30)
+
+## UI Improvements
+- [x] Apply consistent border styling to trainer dashboard buttons
+- [x] Apply consistent border styling to client dashboard buttons
+- [x] Apply consistent border styling to coordinator dashboard buttons
+- [x] Add loading state with spinner to login button (shows spinner + 'Signing In...' text)
+- [x] Test and verify logout flow on Expo Go (redirects to /login after logout)

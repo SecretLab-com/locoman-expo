@@ -10,16 +10,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
@@ -150,6 +151,11 @@ export default function LoginScreen() {
           window.location.href = targetRoute;
         } else {
           console.log("[Login] Calling router.replace for native...");
+          // Trigger auth refresh to update the global auth state
+          console.log("[Login] Triggering auth refresh...");
+          triggerAuthRefresh();
+          // Small delay to allow auth state to update before navigation
+          await new Promise(resolve => setTimeout(resolve, 100));
           router.replace(targetRoute as any);
           console.log("[Login] router.replace called");
         }
@@ -311,7 +317,7 @@ export default function LoginScreen() {
 
             {/* Login Button */}
             <TouchableOpacity
-              className="bg-primary rounded-full py-4 items-center mb-4"
+              className={`bg-primary rounded-full py-4 items-center mb-4 ${loading ? 'opacity-80' : ''}`}
               onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.8}
@@ -320,7 +326,10 @@ export default function LoginScreen() {
               testID="login-submit"
             >
               {loading ? (
-                <ActivityIndicator color={colors.background} />
+                <View className="flex-row items-center">
+                  <ActivityIndicator color={colors.background} size="small" />
+                  <Text className="text-background font-semibold text-lg ml-2">Signing In...</Text>
+                </View>
               ) : (
                 <Text className="text-background font-semibold text-lg">Sign In</Text>
               )}
@@ -403,12 +412,12 @@ export default function LoginScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("testuser@secretlab.com"); setPassword("supertest"); }}
-                  className="px-2 py-1 bg-primary/10 rounded"
+                  className="px-2 py-1 bg-purple-500/10 rounded"
                   accessibilityRole="button"
                   accessibilityLabel="Fill shopper test account"
                   testID="test-account-shopper"
                 >
-                  <Text className="text-xs text-primary">Shopper</Text>
+                  <Text className="text-xs text-purple-500">Super User</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("coordinator@secretlab.com"); setPassword("supertest"); }}

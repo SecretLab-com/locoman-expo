@@ -5,6 +5,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { setupWebSocket } from "./websocket";
 
 async function startServer() {
   const app = express();
@@ -49,8 +50,12 @@ async function startServer() {
   );
 
   const preferredPort = parseInt(process.env.PORT || "3000");
+
+  setupWebSocket(server);
+
   server.listen(preferredPort, () => {
     console.log(`[api] server listening on port ${preferredPort}`);
+    console.log(`[ws] WebSocket server available at ws://localhost:${preferredPort}/ws`);
   });
   server.on("error", (error) => {
     console.error(`[api] Failed to start on port ${preferredPort}:`, error);

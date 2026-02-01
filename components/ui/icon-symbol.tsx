@@ -67,6 +67,7 @@ const MAPPING = {
   "play.fill": "play-arrow",
   "pause.fill": "pause",
   "doc.text.fill": "description",
+  "doc.fill": "description",
   "bell.fill": "notifications",
   "square.and.arrow.up": "share",
   "link": "link",

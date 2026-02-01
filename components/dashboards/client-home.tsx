@@ -128,7 +128,7 @@ export default function ClientHome() {
 
         {/* Quick Stats */}
         <View className="flex-row px-4 mb-6">
-          <View className="flex-1 rounded-xl overflow-hidden mr-2">
+          <View className="flex-1 rounded-xl overflow-hidden mr-2 border-2 border-primary/30">
             <LinearGradient
               colors={statBlue}
               start={{ x: 0, y: 0 }}
@@ -142,7 +142,7 @@ export default function ClientHome() {
               <Text className="text-sm text-muted">Active Bundles</Text>
             </LinearGradient>
           </View>
-          <View className="flex-1 rounded-xl overflow-hidden ml-2">
+          <View className="flex-1 rounded-xl overflow-hidden ml-2 border-2 border-success/30">
             <LinearGradient
               colors={statGreen}
               start={{ x: 0, y: 0 }}

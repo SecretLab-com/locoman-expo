@@ -203,7 +203,7 @@ export default function ManagerHome() {
           <View className="flex-row gap-3 mb-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/templates" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-primary/30"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -219,7 +219,7 @@ export default function ManagerHome() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/invitations" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-primary/30"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -235,7 +235,7 @@ export default function ManagerHome() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/analytics" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-primary/30"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -253,7 +253,7 @@ export default function ManagerHome() {
           <View className="flex-row gap-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/deliveries" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-primary/30"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -269,7 +269,7 @@ export default function ManagerHome() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/products" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-primary/30"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -285,7 +285,7 @@ export default function ManagerHome() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/approvals" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-warning/30"
             >
               <LinearGradient
                 colors={warningGradient}
