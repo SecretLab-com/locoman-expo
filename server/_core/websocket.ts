@@ -1,6 +1,7 @@
-import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
 import { sdk } from "./sdk";
+
+const { WebSocketServer, WebSocket } = require("ws");
 
 // Store connected clients by user ID
 const clients = new Map<number, Set<WebSocket>>();

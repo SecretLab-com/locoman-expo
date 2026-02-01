@@ -1,10 +1,10 @@
+import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { registerOAuthRoutes } from "./oauth";
 import { setupWebSocket } from "./websocket";
 
 async function startServer() {
