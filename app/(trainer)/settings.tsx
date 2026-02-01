@@ -105,7 +105,7 @@ export default function SettingsScreen() {
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Profile Section */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-white mb-3">Profile</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Profile</Text>
           
           {/* Avatar */}
           <View className="items-center mb-4">
@@ -153,7 +153,7 @@ export default function SettingsScreen() {
 
         {/* Specialties Section */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-white mb-1">Specialties</Text>
+          <Text className="text-lg font-semibold text-foreground mb-1">Specialties</Text>
           <Text className="text-sm text-foreground/60 mb-3">Select up to 5 specialties</Text>
           
           <View className="flex-row flex-wrap gap-2">
@@ -184,7 +184,7 @@ export default function SettingsScreen() {
 
         {/* Social Links Section */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-white mb-3">Social Links</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Social Links</Text>
           
           {/* Instagram */}
           <View className="mb-3">
@@ -248,7 +248,7 @@ export default function SettingsScreen() {
 
         {/* Availability Section */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-white mb-3">Availability</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Availability</Text>
           
           <View className="bg-surface rounded-xl p-4 border border-border">
             <View className="flex-row items-center justify-between">
@@ -272,7 +272,7 @@ export default function SettingsScreen() {
 
         {/* Appearance Section */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-white mb-3">Appearance</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Appearance</Text>
           
           <View className="bg-surface rounded-xl border border-border">
             <View className="p-4">
@@ -327,7 +327,7 @@ export default function SettingsScreen() {
 
         {/* Notifications Section */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-white mb-3">Notifications</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Notifications</Text>
           
           <View className="bg-surface rounded-xl border border-border divide-y divide-border">
             {/* Email Notifications */}
@@ -406,7 +406,7 @@ export default function SettingsScreen() {
 
         {/* Danger Zone */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-white mb-3">Account</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Account</Text>
           
           <TouchableOpacity
             onPress={() => {

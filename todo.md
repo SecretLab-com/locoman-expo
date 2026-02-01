@@ -843,3 +843,9 @@
 - [x] Apply consistent border styling to coordinator dashboard buttons
 - [x] Add loading state with spinner to login button (shows spinner + 'Signing In...' text)
 - [x] Test and verify logout flow on Expo Go (redirects to /login after logout)
+
+## Dark Mode Fixes
+- [x] Audit codebase for hardcoded colors not using theme tokens
+- [x] Fix trainer settings section headers (Profile, Specialties, Social Links, Availability, Appearance, Notifications, Account)
+- [x] Fix profile screen SectionTitle components to use text-muted
+- [x] Ensure all text uses text-foreground/text-muted instead of hardcoded colors
