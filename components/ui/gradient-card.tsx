@@ -2,6 +2,7 @@ import { View, type ViewProps } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { cn } from "@/lib/utils";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 export type GradientVariant = "primary" | "success" | "warning" | "surface" | "dark";
 
@@ -49,6 +50,8 @@ export function GradientCard({
   ...props
 }: GradientCardProps) {
   const themeColors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
 
   // Define gradient color presets based on variant
   const getGradientColors = (): readonly [string, string, ...string[]] => {
@@ -62,11 +65,14 @@ export function GradientCard({
       case "warning":
         return [themeColors.warning, "#D97706"] as const; // Orange gradient
       case "dark":
-        return ["#1E293B", "#0F172A"] as const; // Dark slate gradient
+        return isLight
+          ? [themeColors.surface, themeColors.background]
+          : ["#1E293B", "#0F172A"];
       case "surface":
       default:
-        // Subtle gradient for surface cards
-        return ["#1A1A2E", "#16162A"] as const; // Dark navy gradient
+        return isLight
+          ? [themeColors.surface, themeColors.background]
+          : ["#1A1A2E", "#16162A"];
     }
   };
 

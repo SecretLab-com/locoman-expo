@@ -1,0 +1,10 @@
+---
+description: Ensure interactive UI elements have accessibility labels/roles
+alwaysApply: true
+---
+
+# Accessibility for Buttons
+
+- Whenever you discover a button or tappable control without accessibility metadata, add `accessibilityRole="button"` and a clear `accessibilityLabel`.
+- Add a stable `testID` for automation where possible (e.g., `tab-home`, `login-submit`, `catalog-tab-products`).
+- Prefer updating shared components first (e.g., buttons, tabs, headers) to cover many screens at once.

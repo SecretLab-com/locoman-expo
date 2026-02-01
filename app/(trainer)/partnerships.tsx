@@ -104,7 +104,6 @@ export default function TrainerPartnershipsScreen() {
   const [partnerships, setPartnerships] = useState<Partnership[]>(MOCK_PARTNERSHIPS);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
 
   // Submit business form state
   const [businessForm, setBusinessForm] = useState({

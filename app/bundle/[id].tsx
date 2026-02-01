@@ -178,7 +178,7 @@ export default function BundleDetailScreen() {
 
           {/* What's Included */}
           <View className="mb-6">
-            <Text className="text-lg font-semibold text-foreground mb-3">What's Included</Text>
+            <Text className="text-lg font-semibold text-foreground mb-3">{"What's Included"}</Text>
             {bundle.includes.map((item: string, index: number) => (
               <View key={index} className="flex-row items-center mb-2">
                 <IconSymbol name="checkmark.circle.fill" size={20} color={colors.success} />

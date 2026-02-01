@@ -6,15 +6,16 @@ import {
   Modal,
   Pressable,
   StyleSheet,
+  Platform,
 } from "react-native";
 import { router, usePathname } from "expo-router";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import * as Haptics from "expo-haptics";
-import { Platform } from "react-native";
 
 type MenuItem = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -25,8 +26,9 @@ type MenuItem = {
 
 export function ProfileFAB() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
-  const { user, isAuthenticated, logout, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
+  const { user, effectiveUser, isAuthenticated, logout, isTrainer } = useAuthContext();
   const [menuVisible, setMenuVisible] = useState(false);
   const pathname = usePathname();
 
@@ -50,6 +52,12 @@ export function ProfileFAB() {
     setTimeout(onPress, 100);
   };
 
+  const toTestId = (label: string) =>
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
   // Navigate to the shared profile screen - this is presented as a card/modal
   // so it doesn't switch the bottom tab navigation
   const navigateToProfile = () => {
@@ -65,7 +73,13 @@ export function ProfileFAB() {
     }
   };
 
-  const menuItems: MenuItem[] = isAuthenticated
+  const isUserAuthenticated = isAuthenticated || Boolean(effectiveUser);
+  const avatarUrl = effectiveUser?.photoUrl || user?.photoUrl || undefined;
+  const isDark = colorScheme === "dark";
+  const overlayColor = isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(15, 23, 42, 0.12)";
+  const shadowColor = isDark ? "#000" : colors.border;
+
+  const menuItems: MenuItem[] = isUserAuthenticated
     ? [
         {
           icon: "person.fill",
@@ -84,7 +98,7 @@ export function ProfileFAB() {
         },
         {
           icon: "rectangle.portrait.and.arrow.right",
-          label: "Sign Out",
+          label: "Logout",
           onPress: async () => {
             await logout();
             router.replace("/(tabs)");
@@ -107,8 +121,9 @@ export function ProfileFAB() {
 
   // Get user initials for avatar fallback
   const getInitials = () => {
-    if (!user?.name) return "?";
-    const parts = user.name.split(" ");
+    const displayName = effectiveUser?.name || user?.name;
+    if (!displayName) return "?";
+    const parts = displayName.split(" ");
     if (parts.length >= 2) {
       return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     }
@@ -121,6 +136,9 @@ export function ProfileFAB() {
       <TouchableOpacity
         onPress={handlePress}
         activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="Profile menu"
+        testID="profile-fab"
         style={[
           styles.fab,
           {
@@ -128,17 +146,18 @@ export function ProfileFAB() {
             right: 16,
             backgroundColor: colors.surface,
             borderColor: colors.border,
+            shadowColor,
           },
         ]}
       >
-        {isAuthenticated && user?.photoUrl ? (
+        {isUserAuthenticated && avatarUrl ? (
           <Image
-            source={{ uri: user.photoUrl }}
+            source={{ uri: avatarUrl }}
             style={styles.avatar}
           />
-        ) : isAuthenticated ? (
+        ) : isUserAuthenticated ? (
           <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
-            <Text style={styles.avatarInitials}>{getInitials()}</Text>
+            <Text style={[styles.avatarInitials, { color: colors.background }]}>{getInitials()}</Text>
           </View>
         ) : (
           <IconSymbol name="person.circle.fill" size={32} color={colors.muted} />
@@ -152,7 +171,7 @@ export function ProfileFAB() {
         animationType="fade"
         onRequestClose={closeMenu}
       >
-        <Pressable style={styles.overlay} onPress={closeMenu}>
+        <Pressable style={[styles.overlay, { backgroundColor: overlayColor }]} onPress={closeMenu}>
           <View
             style={[
               styles.menu,
@@ -161,17 +180,22 @@ export function ProfileFAB() {
                 right: 16,
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
+                shadowColor,
               },
             ]}
           >
             {/* User Info Header (if authenticated) */}
-            {isAuthenticated && user && (
+            {isUserAuthenticated && (effectiveUser || user) && (
               <View style={[styles.menuHeader, { borderBottomColor: colors.border }]}>
                 <Text style={[styles.userName, { color: colors.foreground }]}>
-                  {user.name || user.email}
+                  {effectiveUser?.name || user?.name || effectiveUser?.email || user?.email}
                 </Text>
                 <Text style={[styles.userRole, { color: colors.muted }]}>
-                  {user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'User'}
+                  {effectiveUser?.role
+                    ? effectiveUser.role.charAt(0).toUpperCase() + effectiveUser.role.slice(1)
+                    : user?.role
+                    ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+                    : "User"}
                 </Text>
               </View>
             )}
@@ -183,6 +207,9 @@ export function ProfileFAB() {
                 style={styles.menuItem}
                 onPress={() => handleMenuItemPress(item.onPress)}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={item.label}
+                testID={`menu-${toTestId(item.label)}`}
               >
                 <IconSymbol
                   name={item.icon}

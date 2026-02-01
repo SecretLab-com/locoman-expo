@@ -12,6 +12,7 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 // Mock data
 const MOCK_STATS = {
@@ -46,14 +47,20 @@ type StatCardProps = {
 
 function StatCard({ title, value, icon, color, onPress }: StatCardProps) {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
   const iconColor = color || colors.primary;
 
   // Gradient colors based on the icon color
   const getGradientColors = (): readonly [string, string] => {
     if (color === colors.success) {
-      return ["#065F46", "#047857"] as const; // Green gradient
+      return isLight
+        ? ["#DCFCE7", "#ECFDF5"] as const
+        : ["#065F46", "#047857"] as const;
     }
-    return ["#1E293B", "#0F172A"] as const; // Default dark slate gradient
+    return isLight
+      ? ["#DBEAFE", "#EFF6FF"] as const
+      : ["#1E293B", "#0F172A"] as const;
   };
 
   const content = (
@@ -87,6 +94,14 @@ function StatCard({ title, value, icon, color, onPress }: StatCardProps) {
 
 export default function ManagerHome() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
+  const quickActionGradient = isLight
+    ? ["#DBEAFE", "#EFF6FF"] as const
+    : ["#1E3A5F", "#0F2744"] as const;
+  const warningGradient = isLight
+    ? ["#FEF3C7", "#FFFBEB"] as const
+    : ["#4A3728", "#2D2118"] as const;
   const [refreshing, setRefreshing] = useState(false);
   const [lowInventory, setLowInventory] = useState(MOCK_LOW_INVENTORY);
 
@@ -191,7 +206,7 @@ export default function ManagerHome() {
               className="flex-1 rounded-xl overflow-hidden"
             >
               <LinearGradient
-                colors={["#1E3A5F", "#0F2744"] as const}
+                colors={quickActionGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 className="p-4 items-center"
@@ -207,7 +222,7 @@ export default function ManagerHome() {
               className="flex-1 rounded-xl overflow-hidden"
             >
               <LinearGradient
-                colors={["#1E3A5F", "#0F2744"] as const}
+                colors={quickActionGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 className="p-4 items-center"
@@ -223,7 +238,7 @@ export default function ManagerHome() {
               className="flex-1 rounded-xl overflow-hidden"
             >
               <LinearGradient
-                colors={["#1E3A5F", "#0F2744"] as const}
+                colors={quickActionGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 className="p-4 items-center"
@@ -241,7 +256,7 @@ export default function ManagerHome() {
               className="flex-1 rounded-xl overflow-hidden"
             >
               <LinearGradient
-                colors={["#1E3A5F", "#0F2744"] as const}
+                colors={quickActionGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 className="p-4 items-center"
@@ -257,7 +272,7 @@ export default function ManagerHome() {
               className="flex-1 rounded-xl overflow-hidden"
             >
               <LinearGradient
-                colors={["#1E3A5F", "#0F2744"] as const}
+                colors={quickActionGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 className="p-4 items-center"
@@ -273,7 +288,7 @@ export default function ManagerHome() {
               className="flex-1 rounded-xl overflow-hidden"
             >
               <LinearGradient
-                colors={["#4A3728", "#2D2118"] as const}
+                colors={warningGradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 className="p-4 items-center"

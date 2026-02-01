@@ -1,30 +1,32 @@
-import { useState, useEffect } from "react";
-import {
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  ActivityIndicator,
-  Switch,
-} from "react-native";
-import { router } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { startOAuthLogin, getApiBaseUrl } from "@/constants/oauth";
 import { OAuthButtons } from "@/components/oauth-buttons";
-import { haptics } from "@/hooks/use-haptics";
+import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { getApiBaseUrl, startOAuthLogin } from "@/constants/oauth";
+import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
+import { haptics } from "@/hooks/use-haptics";
 import * as Auth from "@/lib/_core/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
 
 export default function LoginScreen() {
   const colors = useColors();
+  const { isAuthenticated, loading: authLoading } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,6 +53,13 @@ export default function LoginScreen() {
     loadSavedCredentials();
   }, []);
 
+  useEffect(() => {
+    if (authLoading) return;
+    if (isAuthenticated) {
+      router.replace("/");
+    }
+  }, [authLoading, isAuthenticated]);
+
   const handleLogin = async () => {
     await haptics.light();
     
@@ -63,6 +72,7 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
 
+    const apiBaseUrl = getApiBaseUrl();
     try {
       // Save or clear remember me preference
       if (rememberMe) {
@@ -74,7 +84,6 @@ export default function LoginScreen() {
       }
 
       // Call login API with correct base URL
-      const apiBaseUrl = getApiBaseUrl();
       console.log("[Login] API base URL:", apiBaseUrl);
       console.log("[Login] Attempting login for:", email);
       const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
@@ -92,35 +101,35 @@ export default function LoginScreen() {
         console.log("[Login] Response data:", JSON.stringify(data));
         const userRole = data.user?.role || "shopper";
         console.log("[Login] User role:", userRole);
+        if (data.user) {
+          const userInfo: Auth.User = {
+            id: data.user.id,
+            openId: data.user.openId,
+            name: data.user.name ?? null,
+            email: data.user.email ?? null,
+            phone: data.user.phone ?? null,
+            photoUrl: data.user.photoUrl ?? null,
+            loginMethod: data.user.loginMethod ?? null,
+            role: data.user.role ?? "shopper",
+            username: data.user.username ?? null,
+            bio: data.user.bio ?? null,
+            specialties: data.user.specialties ?? null,
+            socialLinks: data.user.socialLinks ?? null,
+            trainerId: data.user.trainerId ?? null,
+            active: data.user.active ?? true,
+            metadata: data.user.metadata ?? null,
+            createdAt: data.user.createdAt ? new Date(data.user.createdAt) : new Date(),
+            updatedAt: data.user.updatedAt ? new Date(data.user.updatedAt) : new Date(),
+            lastSignedIn: data.user.lastSignedIn ? new Date(data.user.lastSignedIn) : new Date(),
+          };
+          await Auth.setUserInfo(userInfo);
+        }
         
         // Store session token and user info for native apps
         if (Platform.OS !== "web" && data.sessionToken) {
           console.log("[Login] Storing session token for native app...");
           await Auth.setSessionToken(data.sessionToken);
-          if (data.user) {
-            const userInfo: Auth.User = {
-              id: data.user.id,
-              openId: data.user.openId,
-              name: data.user.name ?? null,
-              email: data.user.email ?? null,
-              phone: data.user.phone ?? null,
-              photoUrl: data.user.photoUrl ?? null,
-              loginMethod: data.user.loginMethod ?? null,
-              role: data.user.role ?? "shopper",
-              username: data.user.username ?? null,
-              bio: data.user.bio ?? null,
-              specialties: data.user.specialties ?? null,
-              socialLinks: data.user.socialLinks ?? null,
-              trainerId: data.user.trainerId ?? null,
-              active: data.user.active ?? true,
-              metadata: data.user.metadata ?? null,
-              createdAt: data.user.createdAt ? new Date(data.user.createdAt) : new Date(),
-              updatedAt: data.user.updatedAt ? new Date(data.user.updatedAt) : new Date(),
-              lastSignedIn: data.user.lastSignedIn ? new Date(data.user.lastSignedIn) : new Date(),
-            };
-            await Auth.setUserInfo(userInfo);
-            console.log("[Login] User info stored for native app");
-          }
+          console.log("[Login] User info stored for native app");
         }
         
         // Navigate to appropriate dashboard based on role
@@ -151,7 +160,15 @@ export default function LoginScreen() {
       }
     } catch (err) {
       await haptics.error();
-      setError(err instanceof Error ? err.message : "Login failed");
+      const message = err instanceof Error ? err.message : "Login failed";
+      if (/Failed to fetch|Network request failed/i.test(message)) {
+        setError(
+          `Cannot reach API server at ${apiBaseUrl || "configured base URL"}. ` +
+            "Start the API server (pnpm dev or pnpm dev:server) and try again.",
+        );
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -174,6 +191,11 @@ export default function LoginScreen() {
   const handleRegisterPress = async () => {
     await haptics.light();
     router.push("/register" as any);
+  };
+
+  const handleCancelPress = async () => {
+    await haptics.light();
+    router.back();
   };
 
   const handleGuestPress = async () => {
@@ -293,6 +315,9 @@ export default function LoginScreen() {
               onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in"
+              testID="login-submit"
             >
               {loading ? (
                 <ActivityIndicator color={colors.background} />
@@ -307,22 +332,40 @@ export default function LoginScreen() {
               onPress={handleOAuthLogin}
               disabled={loading}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Manus"
+              testID="login-oauth-manus"
             >
               <Text className="text-foreground font-semibold">Continue with Manus</Text>
             </TouchableOpacity>
 
             {/* Register Link */}
             <View className="flex-row justify-center">
-              <Text className="text-muted">Don't have an account? </Text>
+              <Text className="text-muted">{"Don't have an account? "}</Text>
               <TouchableOpacity onPress={handleRegisterPress}>
                 <Text className="text-primary font-semibold">Sign Up</Text>
               </TouchableOpacity>
             </View>
 
+            {/* Cancel */}
+            <TouchableOpacity
+              className="mt-4 items-center"
+              onPress={handleCancelPress}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel login"
+              testID="login-cancel"
+            >
+              <Text className="text-muted">Cancel</Text>
+            </TouchableOpacity>
+
             {/* Skip for now (guest browsing) */}
             <TouchableOpacity
               className="mt-6 items-center"
               onPress={handleGuestPress}
+              accessibilityRole="button"
+              accessibilityLabel="Browse as guest"
+              testID="login-guest"
             >
               <Text className="text-muted">Browse as guest</Text>
             </TouchableOpacity>
@@ -334,30 +377,45 @@ export default function LoginScreen() {
                 <TouchableOpacity
                   onPress={() => { setEmail("trainer@secretlab.com"); setPassword("supertest"); }}
                   className="px-2 py-1 bg-primary/10 rounded"
+                  accessibilityRole="button"
+                  accessibilityLabel="Fill trainer test account"
+                  testID="test-account-trainer"
                 >
                   <Text className="text-xs text-primary">Trainer</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("client@secretlab.com"); setPassword("supertest"); }}
                   className="px-2 py-1 bg-primary/10 rounded"
+                  accessibilityRole="button"
+                  accessibilityLabel="Fill client test account"
+                  testID="test-account-client"
                 >
                   <Text className="text-xs text-primary">Client</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("manager@secretlab.com"); setPassword("supertest"); }}
                   className="px-2 py-1 bg-primary/10 rounded"
+                  accessibilityRole="button"
+                  accessibilityLabel="Fill manager test account"
+                  testID="test-account-manager"
                 >
                   <Text className="text-xs text-primary">Manager</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("testuser@secretlab.com"); setPassword("supertest"); }}
                   className="px-2 py-1 bg-primary/10 rounded"
+                  accessibilityRole="button"
+                  accessibilityLabel="Fill shopper test account"
+                  testID="test-account-shopper"
                 >
                   <Text className="text-xs text-primary">Shopper</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => { setEmail("coordinator@secretlab.com"); setPassword("supertest"); }}
                   className="px-2 py-1 bg-purple-500/10 rounded"
+                  accessibilityRole="button"
+                  accessibilityLabel="Fill coordinator test account"
+                  testID="test-account-coordinator"
                 >
                   <Text className="text-xs text-purple-500">Coordinator</Text>
                 </TouchableOpacity>

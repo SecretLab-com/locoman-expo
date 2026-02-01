@@ -6,7 +6,6 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  FlatList,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
@@ -300,7 +299,7 @@ export default function ClientDetailScreen() {
                   ],
                 });
               }
-            } catch (error) {
+            } catch {
               Alert.alert("Error", "Failed to complete session");
             }
           },

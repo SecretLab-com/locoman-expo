@@ -13,6 +13,7 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 type SubscriptionStatus = "active" | "paused" | "cancelled" | "expired";
 
@@ -68,6 +69,10 @@ const MOCK_SUBSCRIPTIONS: Subscription[] = [
 
 export default function SubscriptionsScreen() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const overlayColor = colorScheme === "dark"
+    ? "rgba(0, 0, 0, 0.5)"
+    : "rgba(15, 23, 42, 0.18)";
   const [subscriptions] = useState<Subscription[]>(MOCK_SUBSCRIPTIONS);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
@@ -316,8 +321,9 @@ export default function SubscriptionsScreen() {
         onRequestClose={() => setShowDetailModal(false)}
       >
         <Pressable
-          className="flex-1 bg-black/50 justify-end"
+          className="flex-1 justify-end"
           onPress={() => setShowDetailModal(false)}
+          style={{ backgroundColor: overlayColor }}
         >
           <View className="bg-background rounded-t-3xl max-h-[85%]">
             {selectedSubscription && (

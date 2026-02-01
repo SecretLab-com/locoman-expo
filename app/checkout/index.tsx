@@ -6,6 +6,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
@@ -14,7 +15,6 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useCart, CartItem } from "@/contexts/cart-context";
 import * as Haptics from "expo-haptics";
-import { Platform } from "react-native";
 
 const FULFILLMENT_OPTIONS = [
   { value: "home_ship" as const, label: "Home Shipping", icon: "shippingbox.fill", description: "Delivered to your address" },

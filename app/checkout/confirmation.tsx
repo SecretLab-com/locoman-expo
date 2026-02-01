@@ -1,25 +1,22 @@
 import { useEffect } from "react";
-import { Text, View, TouchableOpacity } from "react-native";
+import { Text, View, TouchableOpacity, Platform } from "react-native";
 import { router } from "expo-router";
-import { navigateToHome } from "@/lib/navigation";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import * as Haptics from "expo-haptics";
-import { Platform } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withDelay,
-  withSequence,
   withTiming,
 } from "react-native-reanimated";
 
 export default function OrderConfirmationScreen() {
   const colors = useColors();
-  const { isClient, isTrainer, isManager, isCoordinator } = useAuthContext();
+  const { isClient } = useAuthContext();
   
   const checkScale = useSharedValue(0);
   const textOpacity = useSharedValue(0);
@@ -35,7 +32,7 @@ export default function OrderConfirmationScreen() {
     checkScale.value = withSpring(1, { damping: 10, stiffness: 100 });
     textOpacity.value = withDelay(300, withTiming(1, { duration: 400 }));
     buttonsTranslateY.value = withDelay(500, withSpring(0, { damping: 15 }));
-  }, []);
+  }, [buttonsTranslateY, checkScale, textOpacity]);
 
   const checkAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: checkScale.value }],
@@ -57,11 +54,6 @@ export default function OrderConfirmationScreen() {
     } else {
       router.replace("/(client)/orders" as any);
     }
-  };
-
-  const handleGoHome = () => {
-    // Navigate to the user's home (initial landing page)
-    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
   const handleContinueShopping = () => {
@@ -97,7 +89,7 @@ export default function OrderConfirmationScreen() {
         </View>
 
         <Text className="text-muted text-center mt-6 px-4">
-          You'll receive a confirmation email shortly with your order details and tracking information.
+          {"You'll receive a confirmation email shortly with your order details and tracking information."}
         </Text>
       </Animated.View>
 
@@ -129,7 +121,7 @@ export default function OrderConfirmationScreen() {
         <View className="flex-row items-center">
           <IconSymbol name="bell.fill" size={20} color={colors.primary} />
           <Text className="text-foreground font-medium ml-3 flex-1">
-            We'll notify you when your order is ready
+            {"We'll notify you when your order is ready"}
           </Text>
         </View>
       </View>

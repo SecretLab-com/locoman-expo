@@ -5,10 +5,10 @@
  */
 
 // Environment variables for Shopify
-const SHOPIFY_STORE_NAME = process.env.SHOPIFY_STORE_NAME || "bundle-dev-store-4";
+const SHOPIFY_STORE_NAME = process.env.SHOPIFY_STORE_NAME || "";
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_API_ACCESS_TOKEN || "";
-// Default to real API if credentials are provided, otherwise use mock mode
-const MOCK_SHOPIFY = process.env.MOCK_SHOPIFY === "true" || (!SHOPIFY_STORE_NAME || !SHOPIFY_ACCESS_TOKEN);
+// Only use mock data when explicitly enabled
+const MOCK_SHOPIFY = process.env.MOCK_SHOPIFY === "true";
 
 const SHOPIFY_API_VERSION = "2024-01";
 const SHOPIFY_BASE_URL = `https://${SHOPIFY_STORE_NAME}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}`;
@@ -175,6 +175,9 @@ async function shopifyRequest<T>(
     console.log(`[Shopify Mock] ${method} ${endpoint}`);
     throw new Error("Mock mode - use mock functions instead");
   }
+  if (!SHOPIFY_STORE_NAME || !SHOPIFY_ACCESS_TOKEN) {
+    throw new Error("Shopify credentials are missing. Set SHOPIFY_STORE_NAME and SHOPIFY_API_ACCESS_TOKEN.");
+  }
 
   const url = `${SHOPIFY_BASE_URL}${endpoint}`;
   const headers: Record<string, string> = {
@@ -190,7 +193,14 @@ async function shopifyRequest<T>(
 
   if (!response.ok) {
     const error = await response.text();
-    console.error(`[Shopify] API Error: ${response.status} - ${error}`);
+    const tokenSnippet = SHOPIFY_ACCESS_TOKEN
+      ? `${SHOPIFY_ACCESS_TOKEN.slice(0, 6)}...${SHOPIFY_ACCESS_TOKEN.slice(-4)}`
+      : "missing";
+    if (/invalid api key/i.test(error)) {
+      console.error(`[Shopify] API Error: ${response.status} - ${error} (token: ${tokenSnippet})`);
+    } else {
+      console.error(`[Shopify] API Error: ${response.status} - ${error}`);
+    }
     throw new Error(`Shopify API error: ${response.status}`);
   }
 
@@ -209,13 +219,8 @@ export async function fetchProducts(): Promise<ShopifyProduct[]> {
     return mockProducts;
   }
 
-  try {
-    const response = await shopifyRequest<{ products: ShopifyProduct[] }>("/products.json?limit=250");
-    return response.products;
-  } catch (error) {
-    console.error("[Shopify] Failed to fetch products:", error);
-    return mockProducts; // Fallback to mock data
-  }
+  const response = await shopifyRequest<{ products: ShopifyProduct[] }>("/products.json?limit=250");
+  return response.products;
 }
 
 /**
@@ -226,13 +231,8 @@ export async function fetchProduct(productId: number): Promise<ShopifyProduct | 
     return mockProducts.find((p) => p.id === productId) || null;
   }
 
-  try {
-    const response = await shopifyRequest<{ product: ShopifyProduct }>(`/products/${productId}.json`);
-    return response.product;
-  } catch (error) {
-    console.error(`[Shopify] Failed to fetch product ${productId}:`, error);
-    return null;
-  }
+  const response = await shopifyRequest<{ product: ShopifyProduct }>(`/products/${productId}.json`);
+  return response.product;
 }
 
 /**
@@ -292,7 +292,7 @@ interface PublishBundleOptions {
   description: string;
   price: string;
   imageUrl?: string;
-  products: Array<{ name: string; quantity: number }>;
+  products: { name: string; quantity: number }[];
   trainerId: number;
   trainerName: string;
 }
@@ -421,7 +421,7 @@ export async function fetchOrders(status?: string): Promise<ShopifyOrder[]> {
  * Create a checkout URL for a cart
  */
 export async function createCheckout(
-  items: Array<{ variantId: number; quantity: number }>
+  items: { variantId: number; quantity: number }[]
 ): Promise<string | null> {
   if (MOCK_SHOPIFY) {
     // Return a mock checkout URL

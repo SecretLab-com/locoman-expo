@@ -1,17 +1,18 @@
-import { useState } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl,
-} from "react-native";
+import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useState } from "react";
+import {
+  RefreshControl,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 // Mock data for client dashboard
 const MOCK_ACTIVE_BUNDLES = [
@@ -95,6 +96,14 @@ function ActiveBundleCard({ bundle, onPress }: { bundle: ActiveBundle; onPress: 
 
 export default function ClientHome() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
+  const statBlue = isLight
+    ? ["#DBEAFE", "#EFF6FF"] as const
+    : ["#1E3A5F", "#0F2744"] as const;
+  const statGreen = isLight
+    ? ["#DCFCE7", "#ECFDF5"] as const
+    : ["#065F46", "#047857"] as const;
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -114,14 +123,14 @@ export default function ClientHome() {
         {/* Header */}
         <View className="px-4 pt-2 pb-4">
           <Text className="text-2xl font-bold text-foreground">Welcome Back!</Text>
-          <Text className="text-sm text-muted">Let's continue your fitness journey</Text>
+          <Text className="text-sm text-muted">{"Let's continue your fitness journey"}</Text>
         </View>
 
         {/* Quick Stats */}
         <View className="flex-row px-4 mb-6">
           <View className="flex-1 rounded-xl overflow-hidden mr-2">
             <LinearGradient
-              colors={["#1E3A5F", "#0F2744"] as const}
+              colors={statBlue}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               className="p-4"
@@ -135,7 +144,7 @@ export default function ClientHome() {
           </View>
           <View className="flex-1 rounded-xl overflow-hidden ml-2">
             <LinearGradient
-              colors={["#065F46", "#047857"] as const}
+              colors={statGreen}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               className="p-4"

@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { navigateToHome } from "@/lib/navigation";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { useAuthContext } from "@/contexts/auth-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -70,8 +71,6 @@ function SectionTitle({ children }: { children: string }) {
 }
 
 function RoleBadge({ role }: { role: string }) {
-  const colors = useColors();
-  
   const getRoleStyle = () => {
     switch (role) {
       case "trainer":
@@ -98,7 +97,7 @@ function RoleBadge({ role }: { role: string }) {
 
 export default function SharedProfileScreen() {
   const colors = useColors();
-  const { user, isAuthenticated, logout, loading, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
+  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
 
   // Navigate back to the user's role-specific home (initial landing page)
@@ -205,22 +204,14 @@ export default function SharedProfileScreen() {
   return (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Navigation Header - leave space on right for ProfileFAB */}
-        <View className="flex-row items-center px-4 py-3 border-b border-border pr-14">
-          <TouchableOpacity
-            onPress={handleBack}
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-2"
-          >
-            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleGoHome}
-            className="flex-row items-center bg-primary/10 px-4 py-2 rounded-full"
-          >
-            <IconSymbol name="house.fill" size={18} color={colors.primary} />
-            <Text className="text-primary font-semibold ml-2">Home</Text>
-          </TouchableOpacity>
-        </View>
+        <NavigationHeader
+          title="Profile"
+          showBack
+          showHome
+          onBack={handleBack}
+          homeTestID="profile-home"
+          backTestID="profile-back"
+        />
 
         {/* Profile Header */}
         <View className="items-center py-6 px-4">

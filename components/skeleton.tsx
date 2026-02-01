@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { View, Animated, StyleSheet, ViewStyle } from "react-native";
+import { View, Animated, ViewStyle } from "react-native";
 import { useColors } from "@/hooks/use-colors";
 
 import type { DimensionValue } from "react-native";

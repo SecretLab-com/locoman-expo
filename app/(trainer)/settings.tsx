@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Image,
   Alert,
   Switch,
 } from "react-native";
@@ -75,7 +74,7 @@ export default function SettingsScreen() {
       // TODO: Save settings via tRPC
       await new Promise((resolve) => setTimeout(resolve, 1000));
       Alert.alert("Success", "Settings saved successfully!");
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to save settings. Please try again.");
     } finally {
       setIsSaving(false);

@@ -1,23 +1,23 @@
-import { useState, useEffect } from "react";
+import { OfflineBadge } from "@/components/offline-indicator";
+import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useOffline } from "@/contexts/offline-context";
+import { useAuth } from "@/hooks/use-auth";
+import { useColors } from "@/hooks/use-colors";
+import { haptics } from "@/hooks/use-haptics";
+import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
+  ActivityIndicator,
   FlatList,
   RefreshControl,
-  ActivityIndicator,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { router } from "expo-router";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { useAuth } from "@/hooks/use-auth";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import { trpc } from "@/lib/trpc";
-import { useOffline } from "@/contexts/offline-context";
-import { OfflineBadge } from "@/components/offline-indicator";
-import { haptics } from "@/hooks/use-haptics";
 
 type Bundle = {
   id: number;

@@ -74,7 +74,6 @@ function EarningsCard({ title, value, subtitle, icon, color }: {
 }
 
 function SimpleBarChart({ data }: { data: typeof MOCK_MONTHLY_DATA }) {
-  const colors = useColors();
   const maxValue = Math.max(...data.map((d) => d.earnings));
 
   return (

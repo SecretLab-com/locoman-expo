@@ -1,7 +1,7 @@
-import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import * as Auth from "@/lib/_core/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
 
 export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 

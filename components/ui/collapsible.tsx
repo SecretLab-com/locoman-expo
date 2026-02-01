@@ -4,7 +4,11 @@ import { Text, TouchableOpacity, View } from "react-native";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 
-export function Collapsible({ children, title }: PropsWithChildren & { title: string }) {
+export function Collapsible({
+  children,
+  title,
+  testID,
+}: PropsWithChildren & { title: string; testID?: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const colors = useColors();
 
@@ -14,6 +18,9 @@ export function Collapsible({ children, title }: PropsWithChildren & { title: st
         className="flex-row items-center gap-1.5"
         onPress={() => setIsOpen((value) => !value)}
         activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={`Toggle ${title}`}
+        testID={testID}
       >
         <IconSymbol
           name="chevron.right"

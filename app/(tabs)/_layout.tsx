@@ -4,39 +4,35 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { BadgeIcon } from "@/components/badge-icon";
-import { useColors } from "@/hooks/use-colors";
 import { useAuthContext } from "@/contexts/auth-context";
-import { useBadgeContext } from "@/contexts/badge-context";
+import { useColors } from "@/hooks/use-colors";
 
 /**
- * Unified Tab Layout
- * 
- * This provides a STABLE bottom navigation that doesn't change based on role.
- * All users see the same 5 tabs:
+ * Shopper Tab Layout
+ *
+ * Stable bottom navigation for shoppers:
  * - Home: Role-adaptive dashboard
- * - Discover: Browse products, trainers, bundles
- * - Activity: Orders, deliveries, notifications
- * - Messages: Conversations
+ * - Products: Browse catalog
+ * - Trainers: Find trainers
+ * - Cart: View cart
  * - Profile: Settings, account
- * 
- * Role-specific features are accessed from the Home dashboard via cards/buttons,
- * not separate tabs. This creates a consistent, predictable navigation experience.
  */
 export default function UnifiedTabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isAuthenticated } = useAuthContext();
-  const { counts } = useBadgeContext();
+  const { role, canManage, isTrainer } = useAuthContext();
+  const isAdmin = role === "manager" || role === "coordinator";
+  const showCart = !isAdmin && !isTrainer;
   
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
   const tabBarHeight = 56 + bottomPadding;
-
-  // Calculate total activity badge (deliveries + orders pending)
-  const activityBadge = (counts.pendingDeliveries || 0) + (counts.pendingApprovals || 0);
-  const renderTabButton =
-    (testID: string, label: string) => (props: any) =>
-      <HapticTab {...props} testID={testID} accessibilityLabel={label} />;
+  const renderTabButton = (testID: string, label: string) => {
+    const TabButton = (props: any) => (
+      <HapticTab {...props} testID={testID} accessibilityLabel={label} />
+    );
+    TabButton.displayName = `TabButton(${testID})`;
+    return TabButton;
+  };
 
   return (
     <Tabs
@@ -49,7 +45,7 @@ export default function UnifiedTabLayout() {
           paddingTop: 8,
           paddingBottom: bottomPadding,
           height: tabBarHeight,
-          backgroundColor: '#000000',
+          backgroundColor: colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: 0.5,
         },
@@ -65,37 +61,48 @@ export default function UnifiedTabLayout() {
         }}
       />
       
-      {/* Discover - Browse products, trainers, bundles */}
+      {/* Products - Browse catalog */}
       <Tabs.Screen
-        name="discover"
+        name="products"
         options={{
-          title: "Discover",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,
-          tabBarButton: renderTabButton("tab-discover", "Discover tab"),
+          title: "Products",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="cube.box.fill" color={color} />,
+          tabBarButton: renderTabButton("tab-products", "Products tab"),
         }}
       />
       
-      {/* Activity - Orders, deliveries, notifications */}
+      {/* Trainers/Users - Find trainers or manage users */}
       <Tabs.Screen
-        name="activity"
+        name="trainers"
         options={{
-          title: "Activity",
-          tabBarIcon: ({ color }) => (
-            <BadgeIcon size={28} name="bell.fill" color={color} badge={activityBadge} />
-          ),
-          tabBarButton: renderTabButton("tab-activity", "Activity tab"),
+          title: isAdmin ? "Users" : "Trainers",
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
+          tabBarButton: renderTabButton("tab-trainers", isAdmin ? "Users tab" : "Trainers tab"),
         }}
       />
       
-      {/* Messages - Conversations */}
-      <Tabs.Screen
-        name="messages"
-        options={{
-          title: "Messages",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="message.fill" color={color} />,
-          tabBarButton: renderTabButton("tab-messages", "Messages tab"),
-        }}
-      />
+      {/* Admin Approvals or Cart */}
+      {isAdmin ? (
+        <Tabs.Screen
+          name="approvals"
+          options={{
+            title: "Approvals",
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="checkmark.circle.fill" color={color} />,
+            tabBarButton: renderTabButton("tab-approvals", "Approvals tab"),
+          }}
+        />
+      ) : (
+        showCart && (
+          <Tabs.Screen
+            name="cart"
+            options={{
+              title: "Cart",
+              tabBarIcon: ({ color }) => <IconSymbol size={28} name="cart.fill" color={color} />,
+              tabBarButton: renderTabButton("tab-cart", "Cart tab"),
+            }}
+          />
+        )
+      )}
       
       {/* Profile - Settings, account */}
       <Tabs.Screen
@@ -108,10 +115,9 @@ export default function UnifiedTabLayout() {
       />
       
       {/* Hidden screens - accessible via navigation but not in tab bar */}
-      <Tabs.Screen name="home" options={{ href: null }} />
-      <Tabs.Screen name="products" options={{ href: null }} />
-      <Tabs.Screen name="trainers" options={{ href: null }} />
-      <Tabs.Screen name="cart" options={{ href: null }} />
+      <Tabs.Screen name="discover" options={{ href: null }} />
+      <Tabs.Screen name="activity" options={{ href: null }} />
+      <Tabs.Screen name="messages" options={{ href: null }} />
     </Tabs>
   );
 }

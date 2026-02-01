@@ -3,7 +3,6 @@ import {
   Text,
   View,
   TouchableOpacity,
-  Pressable,
   TextInput,
   ScrollView,
   Alert,
@@ -19,10 +18,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
+import { navigateToHome } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
-import * as Haptics from "expo-haptics";
 import { SingleImagePicker } from "@/components/media-picker";
 import { haptics } from "@/hooks/use-haptics";
 
@@ -125,7 +124,6 @@ export default function BundleEditorScreen() {
   const [showProductModal, setShowProductModal] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [productTypeFilter, setProductTypeFilter] = useState<string>("all");
-  const [vendorFilter, setVendorFilter] = useState<string>("all");
   
   // Barcode scanner
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
@@ -136,8 +134,6 @@ export default function BundleEditorScreen() {
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [newServiceType, setNewServiceType] = useState("");
   
-  // Goal modal
-  const [showGoalModal, setShowGoalModal] = useState(false);
   const [customGoal, setCustomGoal] = useState("");
 
   // Product detail modal
@@ -175,7 +171,7 @@ export default function BundleEditorScreen() {
   );
 
   // Cross-platform alert helper (defined early for mutations)
-  const platformAlert = (title: string, message: string, buttons?: Array<{ text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void }>) => {
+  const platformAlert = (title: string, message: string, buttons?: { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void }[]) => {
     if (Platform.OS === 'web') {
       if (buttons && buttons.length > 0) {
         const confirmButton = buttons.find(b => b.text !== 'Cancel') || buttons[0];
@@ -252,7 +248,7 @@ export default function BundleEditorScreen() {
 
       // Match products from productsJson with Shopify products
       if (existingBundle.productsJson && shopifyProducts) {
-        const parsedProducts = existingBundle.productsJson as Array<{ id: number; name: string; price: string; imageUrl?: string; quantity?: number }>;
+        const parsedProducts = existingBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number }[];
         const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
           const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === p.id);
           if (shopifyProduct) {
@@ -317,10 +313,9 @@ export default function BundleEditorScreen() {
         (product.vendor && product.vendor.toLowerCase().includes(productSearch.toLowerCase())) ||
         (product.sku && product.sku.toLowerCase().includes(productSearch.toLowerCase()));
       const matchesType = productTypeFilter === "all" || product.productType === productTypeFilter;
-      const matchesVendor = vendorFilter === "all" || product.vendor === vendorFilter;
-      return matchesSearch && matchesType && matchesVendor;
+      return matchesSearch && matchesType;
     });
-  }, [shopifyProducts, productSearch, productTypeFilter, vendorFilter]);
+  }, [shopifyProducts, productSearch, productTypeFilter]);
 
   // Extract unique product types and vendors (excluding Bundle type)
   const uniqueProductTypes = useMemo(() => {
@@ -331,12 +326,6 @@ export default function BundleEditorScreen() {
         .filter((type): type is string => Boolean(type) && type.toLowerCase() !== 'bundle')
     );
     return Array.from(types).sort();
-  }, [shopifyProducts]);
-
-  const uniqueVendors = useMemo(() => {
-    if (!shopifyProducts) return [];
-    const vendors = new Set(shopifyProducts.map((p: ProductItem) => p.vendor).filter(Boolean));
-    return Array.from(vendors).sort();
   }, [shopifyProducts]);
 
   // Add service
@@ -535,7 +524,7 @@ export default function BundleEditorScreen() {
 
   // Validate form
   // Cross-platform alert helper
-  const showAlert = (title: string, message: string, buttons?: Array<{ text: string; style?: 'default' | 'cancel' | 'destructive'; onPress?: () => void }>) => {
+  const showAlert = (title: string, message: string, buttons?: { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void }[]) => {
     if (Platform.OS === 'web') {
       if (buttons && buttons.length > 1) {
         // For confirmation dialogs
@@ -737,6 +726,7 @@ export default function BundleEditorScreen() {
           title={isNewBundle ? "Create Bundle" : "Edit Bundle"}
           showBack
           showHome
+          onBack={() => navigateToHome()}
           confirmBack={{
             title: "Discard Changes?",
             message: "You have unsaved changes. Are you sure you want to leave?",
@@ -746,6 +736,8 @@ export default function BundleEditorScreen() {
           rightAction={!isNewBundle ? {
             icon: "trash.fill",
             onPress: handleDelete,
+            label: "Delete bundle",
+            testID: "bundle-delete",
           } : undefined}
         />
 

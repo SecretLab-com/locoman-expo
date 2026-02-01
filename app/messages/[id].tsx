@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
 import { navigateToHome } from "@/lib/navigation";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
@@ -17,6 +16,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
 import { useAuthContext } from "@/contexts/auth-context";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 
 type Message = {
   id: number;
@@ -25,6 +25,8 @@ type Message = {
   timestamp: string;
   isMe: boolean;
   status: "sent" | "delivered" | "read";
+  attachmentUrl?: string | null;
+  attachmentType?: "image" | "video";
 };
 
 type ConversationInfo = {
@@ -141,9 +143,26 @@ function MessageBubble({ message }: { message: Message }) {
             : "bg-surface border border-border rounded-bl-md"
         }`}
       >
-        <Text className={message.isMe ? "text-background" : "text-foreground"}>
-          {message.text}
-        </Text>
+        {message.attachmentUrl && message.attachmentType === "image" && (
+          <Image
+            source={{ uri: message.attachmentUrl }}
+            className="w-56 h-56 rounded-xl mb-2"
+            contentFit="cover"
+          />
+        )}
+        {message.attachmentUrl && message.attachmentType === "video" && (
+          <View className="w-56 h-56 rounded-xl mb-2 bg-background items-center justify-center">
+            <IconSymbol name="play.fill" size={28} color={colors.muted} />
+            <Text className={message.isMe ? "text-background mt-2" : "text-foreground mt-2"}>
+              Video attachment
+            </Text>
+          </View>
+        )}
+        {message.text ? (
+          <Text className={message.isMe ? "text-background" : "text-foreground"}>
+            {message.text}
+          </Text>
+        ) : null}
         <View className={`flex-row items-center mt-1 ${message.isMe ? "justify-end" : "justify-start"}`}>
           <Text className={`text-xs ${message.isMe ? "text-background/70" : "text-muted"}`}>
             {formatMessageTime(message.timestamp)}
@@ -165,7 +184,6 @@ function MessageBubble({ message }: { message: Message }) {
 export default function MessageDetailScreen() {
   const colors = useColors();
   const { isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
-  const { id } = useLocalSearchParams<{ id: string }>();
   const [messages, setMessages] = useState(MOCK_MESSAGES);
   const [inputText, setInputText] = useState("");
   const [conversation] = useState(MOCK_CONVERSATION);
@@ -211,6 +229,37 @@ export default function MessageDetailScreen() {
     }, 1000);
   };
 
+  const handleAddMedia = async () => {
+    await haptics.light();
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: false,
+      quality: 0.8,
+    });
+
+    if (result.canceled || result.assets.length === 0) return;
+
+    const asset = result.assets[0];
+    const attachmentType = asset.type === "video" ? "video" : "image";
+    const newMessage: Message = {
+      id: Date.now(),
+      senderId: 1,
+      text: inputText.trim(),
+      timestamp: new Date().toISOString(),
+      isMe: true,
+      status: "sent",
+      attachmentUrl: asset.uri,
+      attachmentType,
+    };
+
+    setMessages((prev) => [...prev, newMessage]);
+    setInputText("");
+
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
   // Group messages by date
   const groupedMessages = messages.reduce((groups, message) => {
     const date = message.timestamp.split("T")[0];
@@ -246,9 +295,12 @@ export default function MessageDetailScreen() {
       {/* Header with back and home buttons */}
       <View className="flex-row items-center px-4 py-3 border-b border-border">
         <TouchableOpacity 
-          onPress={() => { haptics.light(); router.back(); }} 
+          onPress={() => { haptics.light(); navigateToHome({ isCoordinator, isManager, isTrainer, isClient }); }} 
           className="p-2 -ml-2"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel="Back to home"
+          testID="message-back"
         >
           <IconSymbol name="chevron.left" size={24} color={colors.primary} />
         </TouchableOpacity>
@@ -260,6 +312,9 @@ export default function MessageDetailScreen() {
           }} 
           className="p-2"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel="Go to home"
+          testID="message-home"
         >
           <IconSymbol name="house.fill" size={20} color={colors.primary} />
         </TouchableOpacity>
@@ -291,10 +346,20 @@ export default function MessageDetailScreen() {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity className="p-2">
+        <TouchableOpacity
+          className="p-2"
+          accessibilityRole="button"
+          accessibilityLabel="Start call"
+          testID="message-call"
+        >
           <IconSymbol name="phone.fill" size={20} color={colors.primary} />
         </TouchableOpacity>
-        <TouchableOpacity className="p-2">
+        <TouchableOpacity
+          className="p-2"
+          accessibilityRole="button"
+          accessibilityLabel="Start video call"
+          testID="message-video"
+        >
           <IconSymbol name="video.fill" size={20} color={colors.primary} />
         </TouchableOpacity>
       </View>
@@ -318,7 +383,13 @@ export default function MessageDetailScreen() {
 
         {/* Input Area */}
         <View className="flex-row items-end px-4 py-3 border-t border-border bg-background">
-          <TouchableOpacity className="p-2">
+          <TouchableOpacity
+            className="p-2"
+            onPress={handleAddMedia}
+            accessibilityRole="button"
+            accessibilityLabel="Add photo or video"
+            testID="message-add-media"
+          >
             <IconSymbol name="plus" size={24} color={colors.muted} />
           </TouchableOpacity>
 

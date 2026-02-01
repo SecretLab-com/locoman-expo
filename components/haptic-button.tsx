@@ -3,12 +3,12 @@ import {
   TouchableOpacity,
   TouchableOpacityProps,
   Text,
-  View,
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
 import { haptics } from "@/hooks/use-haptics";
 import { cn } from "@/lib/utils";
+import { useColors } from "@/hooks/use-colors";
 
 interface HapticButtonProps extends TouchableOpacityProps {
   variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
@@ -18,6 +18,7 @@ interface HapticButtonProps extends TouchableOpacityProps {
   children: React.ReactNode;
   className?: string;
   textClassName?: string;
+  accessibilityLabel?: string;
 }
 
 export function HapticButton({
@@ -33,6 +34,7 @@ export function HapticButton({
   style,
   ...props
 }: HapticButtonProps) {
+  const colors = useColors();
   const handlePress = async (e: any) => {
     if (disabled || loading) return;
 
@@ -83,11 +85,17 @@ export function HapticButton({
     lg: "text-lg",
   };
 
+  const computedAccessibilityLabel =
+    props.accessibilityLabel ||
+    (typeof children === "string" ? children : undefined);
+
   return (
     <TouchableOpacity
       onPress={handlePress}
       disabled={disabled || loading}
       activeOpacity={0.7}
+      accessibilityRole={props.accessibilityRole || "button"}
+      accessibilityLabel={computedAccessibilityLabel}
       style={[
         styles.button,
         disabled && styles.disabled,
@@ -105,7 +113,7 @@ export function HapticButton({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === "primary" || variant === "danger" ? "#fff" : "#10B981"}
+          color={variant === "primary" || variant === "danger" ? colors.background : colors.primary}
         />
       ) : (
         typeof children === "string" ? (

@@ -11,6 +11,7 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 // Status tiers
 const STATUS_TIERS = [
@@ -73,6 +74,10 @@ const MOCK_HISTORY: PointHistory[] = [
 
 export default function PointsScreen() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const overlayColor = colorScheme === "dark"
+    ? "rgba(0, 0, 0, 0.5)"
+    : "rgba(15, 23, 42, 0.18)";
   const [totalPoints] = useState(2450);
   const [history] = useState<PointHistory[]>(MOCK_HISTORY);
   const [showTiersModal, setShowTiersModal] = useState(false);
@@ -271,8 +276,9 @@ export default function PointsScreen() {
         onRequestClose={() => setShowTiersModal(false)}
       >
         <Pressable
-          className="flex-1 bg-black/50 justify-end"
+          className="flex-1 justify-end"
           onPress={() => setShowTiersModal(false)}
+          style={{ backgroundColor: overlayColor }}
         >
           <View className="bg-background rounded-t-3xl max-h-[85%]">
             <ScrollView>

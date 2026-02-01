@@ -6,12 +6,12 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
-  TextInput,
   Alert,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 
 // Days of the week
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -76,6 +76,10 @@ const MOCK_SESSIONS: Session[] = [
 
 export default function CalendarScreen() {
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const overlayColor = colorScheme === "dark"
+    ? "rgba(0, 0, 0, 0.5)"
+    : "rgba(15, 23, 42, 0.18)";
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [sessions] = useState<Session[]>(MOCK_SESSIONS);
@@ -392,8 +396,9 @@ export default function CalendarScreen() {
         onRequestClose={() => setShowSessionModal(false)}
       >
         <Pressable
-          className="flex-1 bg-black/50 justify-end"
+          className="flex-1 justify-end"
           onPress={() => setShowSessionModal(false)}
+          style={{ backgroundColor: overlayColor }}
         >
           <View className="bg-background rounded-t-3xl p-6">
             {selectedSession && (
@@ -460,8 +465,9 @@ export default function CalendarScreen() {
         onRequestClose={() => setShowAddModal(false)}
       >
         <Pressable
-          className="flex-1 bg-black/50 justify-end"
+          className="flex-1 justify-end"
           onPress={() => setShowAddModal(false)}
+          style={{ backgroundColor: overlayColor }}
         >
           <View className="bg-background rounded-t-3xl p-6">
             <View className="flex-row items-center justify-between mb-4">

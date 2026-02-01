@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Pressable, StyleSheet, Platform, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, Platform, Alert } from "react-native";
 import { router, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -27,7 +27,10 @@ type NavigationHeaderProps = {
     icon: Parameters<typeof IconSymbol>[0]["name"];
     onPress: () => void;
     label?: string;
+    testID?: string;
   };
+  backTestID?: string;
+  homeTestID?: string;
   /** Subtitle text below title */
   subtitle?: string;
   /** Whether the header is transparent (for overlaying content) */
@@ -58,6 +61,8 @@ export function NavigationHeader({
   homePath,
   confirmBack,
   rightAction,
+  backTestID,
+  homeTestID,
   subtitle,
   transparent = false,
 }: NavigationHeaderProps) {
@@ -72,9 +77,13 @@ export function NavigationHeader({
     const doBack = () => {
       if (onBack) {
         onBack();
-      } else {
-        router.back();
+        return;
       }
+      if (router.canGoBack()) {
+        router.back();
+        return;
+      }
+      router.replace(getDefaultHomePath(pathname) as any);
     };
     
     if (confirmBack) {
@@ -136,6 +145,7 @@ export function NavigationHeader({
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
               accessibilityLabel="Go back"
+              testID={backTestID || "nav-back"}
             >
               <IconSymbol name="chevron.left" size={24} color={colors.primary} />
             </Pressable>
@@ -172,6 +182,7 @@ export function NavigationHeader({
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
               accessibilityLabel="Go to home"
+              testID={homeTestID || "nav-home"}
             >
               <IconSymbol name="house.fill" size={22} color={colors.primary} />
             </Pressable>
@@ -186,6 +197,7 @@ export function NavigationHeader({
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
               accessibilityLabel={rightAction.label || "Action"}
+              testID={rightAction.testID || "nav-action"}
             >
               <IconSymbol name={rightAction.icon} size={22} color={colors.primary} />
             </Pressable>
@@ -198,22 +210,9 @@ export function NavigationHeader({
 
 /**
  * Determine the default home path based on current pathname
- * Routes to the Dashboard/index screen for each role
+ * Routes to the unified bottom tab interface
  */
-function getDefaultHomePath(pathname: string): string {
-  if (pathname.startsWith("/(trainer)") || pathname.includes("/bundle-editor") || pathname.includes("/template-editor")) {
-    return "/(trainer)";
-  }
-  if (pathname.startsWith("/(client)") || pathname.includes("/my-trainers")) {
-    return "/(client)";
-  }
-  if (pathname.startsWith("/(manager)")) {
-    return "/(manager)";
-  }
-  if (pathname.startsWith("/(coordinator)")) {
-    return "/(coordinator)";
-  }
-  // Default to shopper tabs (Discover/Bundles)
+function getDefaultHomePath(_pathname: string): string {
   return "/(tabs)";
 }
 

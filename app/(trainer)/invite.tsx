@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import {
   View,
   Text,
@@ -66,7 +66,7 @@ export default function InviteScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
       Alert.alert("Copied!", "Invite link copied to clipboard.");
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to copy link.");
     }
   };
@@ -133,7 +133,7 @@ export default function InviteScreen() {
           },
         ]
       );
-    } catch (error) {
+    } catch {
       Alert.alert("Error", "Failed to send invitation. Please try again.");
     } finally {
       setIsSending(false);
@@ -356,7 +356,7 @@ export default function InviteScreen() {
           </View>
           <Text className="text-foreground text-sm leading-5">
             • Personalized invitations have a higher acceptance rate{"\n"}
-            • Include your client's name for a personal touch{"\n"}
+            • Include your {"client's"} name for a personal touch{"\n"}
             • Share the link via text, email, or social media{"\n"}
             • Links expire after 7 days for security
           </Text>

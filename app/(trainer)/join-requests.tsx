@@ -13,7 +13,6 @@ import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 
 type JoinRequest = {
@@ -108,7 +107,7 @@ function JoinRequestCard({
       {request.message && (
         <View className="bg-background rounded-lg p-3 mb-3">
           <Text className="text-foreground text-sm leading-5">
-            "{request.message}"
+            {`"${request.message}"`}
           </Text>
         </View>
       )}

@@ -37,14 +37,6 @@ const ROLE_COLORS: Record<UserRole, string> = {
   coordinator: "#8B5CF6",
 };
 
-const ROLE_ROUTES: Record<UserRole, string> = {
-  shopper: "/(tabs)",
-  client: "/(tabs)",
-  trainer: "/(tabs)",
-  manager: "/(tabs)",
-  coordinator: "/(tabs)",
-};
-
 const STARRED_USERS_KEY = "locomotivate_starred_users";
 
 export default function CoordinatorHome() {

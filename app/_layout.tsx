@@ -26,9 +26,47 @@ import { OfflineIndicator } from "@/components/offline-indicator";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
 import { ProfileFAB } from "@/components/profile-fab";
 import { BadgeProvider } from "@/contexts/badge-context";
+import { NavigationHeader } from "@/components/navigation-header";
+import { navigateToHome } from "@/lib/navigation";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
+
+const HEADER_TITLES: Record<string, string> = {
+  "bundle/[id]": "Bundle Details",
+  "bundle-editor/[id]": "Bundle Editor",
+  "browse/index": "Browse",
+  "checkout/index": "Checkout",
+  "checkout/confirmation": "Confirmation",
+  "client-detail/[id]": "Client Details",
+  "conversation/[id]": "Conversation",
+  "invite/[token]": "Accept Invite",
+  "login": "Sign In",
+  "messages/index": "Messages",
+  "messages/[id]": "Message",
+  "my-trainers/index": "My Trainers",
+  "my-trainers/find": "Find Trainers",
+  "new-message": "New Message",
+  "oauth/callback": "Connecting",
+  "profile/index": "Profile",
+  "register": "Create Account",
+  "template-editor/[id]": "Template Editor",
+  "trainer/[id]": "Trainer",
+};
+
+function getHeaderTitle(routeName: string): string {
+  if (HEADER_TITLES[routeName]) {
+    return HEADER_TITLES[routeName];
+  }
+  const cleaned = routeName
+    .replace(/\[.*?\]/g, "")
+    .replace(/[-/]/g, " ")
+    .trim();
+  if (!cleaned) {
+    return "Back";
+  }
+  return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -104,9 +142,15 @@ export default function RootLayout() {
                       {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
                       {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
                       {/* Enable swipe-back gesture globally for native iOS/Android feel */}
-                      <Stack 
-                        screenOptions={{ 
-                          headerShown: false,
+                      <Stack
+                        screenOptions={{
+                          headerShown: true,
+                          header: ({ route }) => (
+                            <NavigationHeader
+                              title={getHeaderTitle(route.name)}
+                              onBack={() => navigateToHome()}
+                            />
+                          ),
                           // Enable swipe-back gesture on all screens by default
                           gestureEnabled: true,
                           // iOS: Full-width swipe from left edge
@@ -117,22 +161,25 @@ export default function RootLayout() {
                           gestureDirection: "horizontal",
                         }}
                       >
-                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
                     <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
                     <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
-                    <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card" }} />
+                    <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
                     <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
                     <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
                     <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false, animation: "fade" }} />
-                    <Stack.Screen name="messages/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="messages/[id]" options={{ presentation: "card" }} />
+                    <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
+                    <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
                     <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
                     <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="my-trainers/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="my-trainers/find" options={{ presentation: "card" }} />
-                    <Stack.Screen name="profile/index" options={{ presentation: "card" }} />
+                    <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
+                    <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
+                    <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
                     <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
+                    <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
+                    <Stack.Screen name="new-message" options={{ presentation: "card" }} />
+                    <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
                     <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
                     <Stack.Screen name="(client)" options={{ headerShown: false }} />
                     <Stack.Screen name="(manager)" options={{ headerShown: false }} />
