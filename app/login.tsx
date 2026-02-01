@@ -3,6 +3,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { getApiBaseUrl, startOAuthLogin } from "@/constants/oauth";
 import { useAuthContext } from "@/contexts/auth-context";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import * as Auth from "@/lib/_core/auth";
@@ -10,17 +11,16 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
-import { triggerAuthRefresh } from "@/hooks/use-auth";
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
