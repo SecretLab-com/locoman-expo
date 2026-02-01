@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, email, name, role FROM users WHERE email LIKE '%testuser%' OR email LIKE '%secretlab%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2QzfGuqHiBgZJ1M.d648e97afdf6 --database Zh3EDv2vowKBy5kswkzuFV --execute SELECT id, email, name, role FROM users WHERE email LIKE '%testuser%' OR email LIKE '%secretlab%';",
+  "rows": [
+    {
+      "id": "1",
+      "email": "jason@secretlab.com",
+      "name": "Jason Bright",
+      "role": "coordinator"
+    },
+    {
+      "id": "30002",
+      "email": "trainer@secretlab.com",
+      "name": "Test Trainer",
+      "role": "trainer"
+    },
+    {
+      "id": "30081",
+      "email": "manager@secretlab.com",
+      "name": "Test Manager",
+      "role": "manager"
+    },
+    {
+      "id": "30091",
+      "email": "coordinator@secretlab.com",
+      "name": "Test Coordinator",
+      "role": "coordinator"
+    },
+    {
+      "id": "300002",
+      "email": "testuser@secretlab.com",
+      "name": "Test User",
+      "role": "coordinator"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\temail\tname\trole\n1\tjason@secretlab.com\tJason Bright\tcoordinator\n30002\ttrainer@secretlab.com\tTest Trainer\ttrainer\n30081\tmanager@secretlab.com\tTest Manager\tmanager\n30091\tcoordinator@secretlab.com\tTest Coordinator\tcoordinator\n300002\ttestuser@secretlab.com\tTest User\tcoordinator\n",
+  "stderr": "",
+  "execution_time_ms": 1531
+}

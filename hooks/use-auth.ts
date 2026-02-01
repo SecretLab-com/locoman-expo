@@ -31,6 +31,16 @@ function normalizeUser(apiUser: Record<string, unknown>): Auth.User {
   };
 }
 
+// Global state to allow login screen to trigger auth refresh
+let globalRefreshCallback: (() => void) | null = null;
+
+export function triggerAuthRefresh() {
+  console.log("[useAuth] triggerAuthRefresh called, callback exists:", !!globalRefreshCallback);
+  if (globalRefreshCallback) {
+    globalRefreshCallback();
+  }
+}
+
 export function useAuth(options?: UseAuthOptions) {
   const { autoFetch = true } = options ?? {};
   const [user, setUser] = useState<Auth.User | null>(null);
@@ -128,6 +138,14 @@ export function useAuth(options?: UseAuthOptions) {
   }, []);
 
   const isAuthenticated = useMemo(() => Boolean(user), [user]);
+
+  // Register global refresh callback
+  useEffect(() => {
+    globalRefreshCallback = fetchUser;
+    return () => {
+      globalRefreshCallback = null;
+    };
+  }, [fetchUser]);
 
   useEffect(() => {
     console.log("[useAuth] useEffect triggered, autoFetch:", autoFetch, "platform:", Platform.OS);

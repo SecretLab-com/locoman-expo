@@ -264,9 +264,10 @@ export default function CoordinatorHome() {
                     key={role}
                     onPress={() => testUser && handleImpersonate(testUser)}
                     disabled={!testUser}
-                    className="px-4 py-3 rounded-xl flex-row items-center"
+                    className="px-4 py-3 rounded-xl flex-row items-center border-2"
                     style={{ 
                       backgroundColor: `${ROLE_COLORS[role]}20`,
+                      borderColor: `${ROLE_COLORS[role]}50`,
                       opacity: testUser ? 1 : 0.5,
                     }}
                   >
