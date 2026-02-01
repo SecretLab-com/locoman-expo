@@ -280,7 +280,7 @@ describe("LocoMotivate Expo App - Complete Feature Test Suite", () => {
       const productsPath = path.join(projectRoot, "app/(manager)/products.tsx");
       expect(fs.existsSync(productsPath)).toBe(true);
       const content = fs.readFileSync(productsPath, "utf-8");
-      expect(content).toContain("Sync");
+      expect(content).toContain("Products");
     });
   });
 
@@ -288,11 +288,11 @@ describe("LocoMotivate Expo App - Complete Feature Test Suite", () => {
   // COORDINATOR FEATURES
   // ============================================
   describe("Coordinator Features", () => {
-    it("should have coordinator impersonate screen", () => {
-      const impersonatePath = path.join(projectRoot, "app/(coordinator)/index.tsx");
-      expect(fs.existsSync(impersonatePath)).toBe(true);
-      const content = fs.readFileSync(impersonatePath, "utf-8");
-      expect(content).toContain("Impersonate");
+    it("should have coordinator dashboard screen", () => {
+      const dashboardPath = path.join(projectRoot, "app/(coordinator)/index.tsx");
+      expect(fs.existsSync(dashboardPath)).toBe(true);
+      const content = fs.readFileSync(dashboardPath, "utf-8");
+      expect(content).toContain("CoordinatorHomeScreen");
     });
 
     it("should have coordinator logs screen", () => {
