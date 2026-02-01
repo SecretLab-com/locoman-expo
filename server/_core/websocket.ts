@@ -1,5 +1,6 @@
 import { Server } from "http";
 import { sdk } from "./sdk";
+import type { IncomingMessage } from "http";
 
 const { WebSocketServer, WebSocket } = require("ws");
 
@@ -20,7 +21,7 @@ export type WSMessage =
 export function setupWebSocket(server: Server) {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
-  wss.on("connection", async (ws, req) => {
+  wss.on("connection", async (ws: typeof WebSocket, req: IncomingMessage) => {
     // Extract token from query string
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const token = url.searchParams.get("token");
@@ -54,7 +55,7 @@ export function setupWebSocket(server: Server) {
       console.log(`[WebSocket] User ${userId} connected`);
 
       // Handle incoming messages
-      ws.on("message", (data) => {
+      ws.on("message", (data: Buffer) => {
         try {
           const message = JSON.parse(data.toString());
           handleClientMessage(userId, message, ws);
