@@ -10,6 +10,7 @@ import {
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -92,10 +93,7 @@ export default function NewMessageScreen() {
     contact.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleBack = async () => {
-    await haptics.light();
-    router.back();
-  };
+
 
   const handleContactPress = (contact: Contact) => {
     // Generate conversation ID and navigate to chat
@@ -110,19 +108,9 @@ export default function NewMessageScreen() {
   };
 
   return (
-    <ScreenContainer>
-      {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <TouchableOpacity
-          className="w-10 h-10 rounded-full items-center justify-center -ml-2"
-          onPress={handleBack}
-        >
-          <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-xl font-bold text-foreground ml-2">
-          New Message
-        </Text>
-      </View>
+    <ScreenContainer edges={["left", "right"]}>
+      {/* Navigation Header */}
+      <NavigationHeader title="New Message" />
 
       {/* Search */}
       <View className="px-4 py-3">
