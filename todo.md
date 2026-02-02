@@ -878,3 +878,5 @@
 - [x] Add push notification deep link integration - trigger deep links when users tap notifications
 - [x] Create shareable link generator with Share buttons on bundle and trainer screens
 - [x] Configure universal links for web-to-app navigation (Apple App Site Association, Android App Links)
+- [ ] Fix users not loading issue
+- [x] Fix dev server instability - OOM killer was terminating Metro due to memory pressure from tsc --watch
