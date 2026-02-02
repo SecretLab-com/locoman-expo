@@ -1,8 +1,8 @@
 // Load environment variables with proper priority (system > .env)
 // Inline implementation to avoid ESM/CommonJS compatibility issues
+import type { ExpoConfig } from "expo/config";
 import * as fs from "fs";
 import * as path from "path";
-import type { ExpoConfig } from "expo/config";
 
 // Load .env file if it exists (system env vars take priority)
 const envPath = path.resolve(process.cwd(), ".env");
