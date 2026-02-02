@@ -873,3 +873,5 @@
 - [x] Add back navigation header to trainer Deliveries screen
 - [x] Add confirmation dialogs to bundle-editor screen for unsaved changes (already had confirmBack)
 - [x] Implement breadcrumb navigation component for deeply nested screens
+- [x] Enable swipe-to-go-back gesture for stack screens
+- [x] Implement deep link handling for push notifications and external links
