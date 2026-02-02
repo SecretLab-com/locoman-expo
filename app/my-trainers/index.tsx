@@ -188,6 +188,8 @@ function PendingRequestCard({
 }
 
 export default function MyTrainersScreen() {
+  const colors = useColors();
+  
   // Fetch trainers from API
   const { 
     data: trainers = [], 
