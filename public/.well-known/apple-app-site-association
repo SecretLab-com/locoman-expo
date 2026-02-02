@@ -1,0 +1,28 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAM_ID.space.manus.locoman.expo.t20260125130603",
+        "paths": [
+          "/bundle/*",
+          "/trainer/*",
+          "/conversation/*",
+          "/messages",
+          "/profile",
+          "/checkout",
+          "/invite/*",
+          "/client/*",
+          "/browse",
+          "/activity",
+          "/discover"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "TEAM_ID.space.manus.locoman.expo.t20260125130603"
+    ]
+  }
+}

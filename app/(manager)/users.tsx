@@ -400,7 +400,8 @@ export default function UsersScreen() {
       
       closeModal();
       
-      // Navigate to appropriate dashboard based on role
+      // Navigate to appropriate dashboard based on impersonated user's role
+      // Uses role-aware navigation helper for consistency
       navigateToHome({
         isCoordinator: selectedUser.role === "coordinator",
         isManager: selectedUser.role === "manager",

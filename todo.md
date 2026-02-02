@@ -743,7 +743,7 @@
 
 
 ## Impersonate Screen Home Button Fix
-- [ ] Fix home button on Impersonate screen to navigate to Dashboard
+- [x] Fix home button on Impersonate screen to navigate to Dashboard (uses role-aware navigateToHome)
 - [x] Fix Profile/Settings showing wrong role tabs when accessed from Coordinator view (created shared /profile screen that opens as card overlay)
 
 ## Settings Screen Header Fix
@@ -865,5 +865,16 @@
 ## Navigation Architecture Improvements (from NAVIGATION_DIAGRAM.md)
 - [x] Remove "Discover More" tab switching that navigates from (client) to (tabs)
 - [x] Add Profile FAB component for quick access to profile/settings from any screen
-- [ ] Consider consolidating tab navigators in future refactor
-- [ ] Move hidden tabs to proper stack screens
+- [x] Consider consolidating tab navigators in future refactor (moved hidden tabs to stack screens)
+- [x] Move hidden tabs to proper stack screens (discover, activity, messages now in root stack)
+- [x] Add back navigation header to trainer Calendar screen
+- [x] Add back navigation header to trainer Clients screen
+- [x] Add back navigation header to trainer Earnings screen
+- [x] Add back navigation header to trainer Deliveries screen
+- [x] Add confirmation dialogs to bundle-editor screen for unsaved changes (already had confirmBack)
+- [x] Implement breadcrumb navigation component for deeply nested screens
+- [x] Enable swipe-to-go-back gesture for stack screens
+- [x] Implement deep link handling for push notifications and external links
+- [x] Add push notification deep link integration - trigger deep links when users tap notifications
+- [x] Create shareable link generator with Share buttons on bundle and trainer screens
+- [x] Configure universal links for web-to-app navigation (Apple App Site Association, Android App Links)

@@ -28,16 +28,19 @@ import { OfflineProvider } from "@/contexts/offline-context";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 import { navigateToHome } from "@/lib/navigation";
 import { createTRPCClient, trpc } from "@/lib/trpc";
+import { useDeepLink } from "@/hooks/use-deep-link";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
 const HEADER_TITLES: Record<string, string> = {
+  "activity/index": "Activity",
   "bundle/[id]": "Bundle Details",
   "bundle-editor/[id]": "Bundle Editor",
   "browse/index": "Browse",
   "checkout/index": "Checkout",
   "checkout/confirmation": "Confirmation",
+  "discover-bundles/index": "Discover",
   "client-detail/[id]": "Client Details",
   "conversation/[id]": "Conversation",
   "invite/[token]": "Accept Invite",
@@ -89,6 +92,9 @@ export default function RootLayout() {
   useEffect(() => {
     initManusRuntime();
   }, []);
+
+  // Handle incoming deep links from push notifications and external links
+  useDeepLink();
 
   useEffect(() => {
     if (!__DEV__) return;
@@ -196,6 +202,8 @@ export default function RootLayout() {
                     <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
                     <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
                     <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
+                    <Stack.Screen name="activity/index" options={{ presentation: "card" }} />
+                    <Stack.Screen name="discover-bundles/index" options={{ presentation: "card" }} />
                     <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
                     <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
                     <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />

@@ -10,6 +10,8 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
+import { BreadcrumbNav } from "@/components/breadcrumb-nav";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
@@ -395,17 +397,25 @@ export default function ClientDetailScreen() {
     : 0;
 
   return (
-    <ScreenContainer>
-      {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-          <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-lg font-semibold text-foreground ml-2">Client Details</Text>
-        <TouchableOpacity onPress={handleMessage} className="p-2">
-          <IconSymbol name="message.fill" size={22} color={colors.primary} />
-        </TouchableOpacity>
-      </View>
+    <ScreenContainer edges={["left", "right"]}>
+      {/* Navigation Header */}
+      <NavigationHeader
+        title="Client Details"
+        rightAction={{
+          icon: "message.fill",
+          onPress: handleMessage,
+          label: "Message client",
+          testID: "message-client",
+        }}
+      />
+
+      {/* Breadcrumb Navigation */}
+      <BreadcrumbNav
+        items={[
+          { label: "Clients", path: "/(trainer)/clients" },
+          { label: client.name },
+        ]}
+      />
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         {/* Client Profile */}

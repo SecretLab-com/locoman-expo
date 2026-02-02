@@ -9,6 +9,7 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { ShareButton } from "@/components/share-button";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -128,6 +129,20 @@ export default function BundleDetailScreen() {
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
+          {/* Share Button */}
+          <View className="absolute top-4 right-16 w-10 h-10 rounded-full bg-background/80 items-center justify-center">
+            <ShareButton
+              content={{
+                type: "bundle",
+                id: String(bundle.id),
+                title: bundle.title,
+                message: `Check out ${bundle.title} - ${bundle.description.slice(0, 100)}...`,
+              }}
+              size={20}
+              color={colors.foreground}
+              className="p-0"
+            />
+          </View>
           {/* Favorite Button */}
           <TouchableOpacity
             className="absolute top-4 right-4 w-10 h-10 rounded-full bg-background/80 items-center justify-center border border-border"

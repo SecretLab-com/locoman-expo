@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity } from "react-native";
-import { router } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -22,8 +22,8 @@ export function ImpersonationBanner() {
   const handleEndImpersonation = async () => {
     await haptics.medium();
     stopImpersonation();
-    // Navigate back to coordinator dashboard
-    router.replace("/(coordinator)" as any);
+    // Navigate back to coordinator dashboard using role-aware navigation
+    navigateToHome({ isCoordinator: true });
   };
 
   return (

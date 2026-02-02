@@ -4,6 +4,7 @@ import {
     getLastNotificationResponse,
     registerForPushNotificationsAsync,
 } from "@/lib/notifications";
+import { handleNotificationDeepLink } from "@/hooks/use-deep-link";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
@@ -70,13 +71,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     if (!data) return;
 
-    // Navigate based on notification type
+    // First, try to handle via deep link if a deepLink URL is provided
+    if (data.deepLink && typeof data.deepLink === "string") {
+      const handled = handleNotificationDeepLink(data.deepLink);
+      if (handled) return;
+    }
+
+    // Fall back to legacy notification type handling
     switch (data.type) {
       case "delivery":
-        if (data.deliveryId) {
-          router.push("/(client)/deliveries" as any);
-        }
-        break;
       case "delivery_update":
         if (data.deliveryId) {
           router.push("/(client)/deliveries" as any);
@@ -88,10 +91,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         }
         break;
       case "order":
-        if (data.orderId) {
-          router.push("/(trainer)/orders" as any);
-        }
-        break;
       case "new_order":
         if (data.orderId) {
           router.push("/(trainer)/orders" as any);
@@ -112,6 +111,21 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
               participantId: String(data.senderId || ""),
             },
           });
+        }
+        break;
+      case "bundle":
+        if (data.bundleId) {
+          router.push(`/bundle/${data.bundleId}` as any);
+        }
+        break;
+      case "trainer":
+        if (data.trainerId) {
+          router.push(`/trainer/${data.trainerId}` as any);
+        }
+        break;
+      case "client":
+        if (data.clientId) {
+          router.push(`/client-detail/${data.clientId}` as any);
         }
         break;
       default:
