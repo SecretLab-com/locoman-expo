@@ -859,3 +859,4 @@
 - [x] Updated getApiBaseUrl() to check Constants.expoConfig.extra.apiBaseUrl
 - [x] Deep investigation: products still not loading on Expo Go after previous fixes
 - [x] Hardcoded public API URL in app.config.ts extra field as fallback
+- [ ] Third attempt: products still not loading on Expo Go - investigate deeper
