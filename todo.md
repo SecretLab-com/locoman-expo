@@ -849,3 +849,8 @@
 - [x] Fix trainer settings section headers (Profile, Specialties, Social Links, Availability, Appearance, Notifications, Account)
 - [x] Fix profile screen SectionTitle components to use text-muted
 - [x] Ensure all text uses text-foreground/text-muted instead of hardcoded colors
+
+## Bug Fixes - Products Loading
+- [x] Fix "Unable to load products" error on Products page
+- [x] Diagnose API connection issue (localhost URL not accessible from physical device)
+- [x] Update EXPO_PUBLIC_API_BASE_URL to public tunnel URL
