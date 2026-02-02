@@ -854,3 +854,6 @@
 - [x] Fix "Unable to load products" error on Products page
 - [x] Diagnose API connection issue (localhost URL not accessible from physical device)
 - [x] Update EXPO_PUBLIC_API_BASE_URL to public tunnel URL
+- [x] Debug persistent products loading error on Expo Go after API URL fix
+- [x] Added API base URL to Expo config extra field for native access
+- [x] Updated getApiBaseUrl() to check Constants.expoConfig.extra.apiBaseUrl

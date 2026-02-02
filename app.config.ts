@@ -82,6 +82,10 @@ const config: ExpoConfig = {
   scheme: env.scheme,
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
+  extra: {
+    // API base URL for native platforms - this is bundled into the app
+    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "",
+  },
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
