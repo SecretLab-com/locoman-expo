@@ -57,14 +57,8 @@ function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger =
 }
 
 function SectionTitle({ children }: { children: string }) {
-  const { colorScheme } = useThemeContext();
-  // Use dark text in light mode, light text with opacity in dark mode
-  const textClass = colorScheme === "dark" 
-    ? "text-white/80" 
-    : "text-foreground/70";
-  
   return (
-    <Text className={`text-sm font-semibold ${textClass} uppercase tracking-wider mb-2 mt-6`}>
+    <Text className="text-sm font-semibold text-muted uppercase tracking-wider mb-2 mt-6">
       {children}
     </Text>
   );

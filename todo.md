@@ -843,3 +843,21 @@
 - [x] Apply consistent border styling to coordinator dashboard buttons
 - [x] Add loading state with spinner to login button (shows spinner + 'Signing In...' text)
 - [x] Test and verify logout flow on Expo Go (redirects to /login after logout)
+
+## Dark Mode Fixes
+- [x] Audit codebase for hardcoded colors not using theme tokens
+- [x] Fix trainer settings section headers (Profile, Specialties, Social Links, Availability, Appearance, Notifications, Account)
+- [x] Fix profile screen SectionTitle components to use text-muted
+- [x] Ensure all text uses text-foreground/text-muted instead of hardcoded colors
+
+## Bug Fixes - Products Loading
+- [x] Fix "Unable to load products" error on Products page
+- [x] Diagnose API connection issue (localhost URL not accessible from physical device)
+- [x] Update EXPO_PUBLIC_API_BASE_URL to public tunnel URL
+- [x] Debug persistent products loading error on Expo Go after API URL fix
+- [x] Added API base URL to Expo config extra field for native access
+- [x] Updated getApiBaseUrl() to check Constants.expoConfig.extra.apiBaseUrl
+- [x] Deep investigation: products still not loading on Expo Go after previous fixes
+- [x] Hardcoded public API URL in app.config.ts extra field as fallback
+- [ ] Third attempt: products still not loading on Expo Go - investigate deeper
+- [x] Fix API URL not working on Expo Go physical devices - products page shows 'Unable to load products'

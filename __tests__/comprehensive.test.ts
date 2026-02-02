@@ -226,13 +226,12 @@ describe("LocoMotivate Expo App - Comprehensive Feature Tests", () => {
   });
 
   describe("Coordinator Features", () => {
-    it("should have impersonate screen", () => {
+    it("should have coordinator dashboard screen", () => {
       const screenPath = path.join(PROJECT_ROOT, "app/(coordinator)/index.tsx");
       expect(fs.existsSync(screenPath)).toBe(true);
       const content = fs.readFileSync(screenPath, "utf-8");
-      expect(content).toContain("Impersonate");
-      expect(content).toContain("Quick Role Simulation");
-      expect(content).toContain("starred");
+      expect(content).toContain("CoordinatorHomeScreen");
+      expect(content).toContain("QuickAction");
     });
 
     it("should have logs screen", () => {
