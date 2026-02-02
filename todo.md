@@ -870,3 +870,6 @@
 - [x] Add back navigation header to trainer Calendar screen
 - [x] Add back navigation header to trainer Clients screen
 - [x] Add back navigation header to trainer Earnings screen
+- [x] Add back navigation header to trainer Deliveries screen
+- [x] Add confirmation dialogs to bundle-editor screen for unsaved changes (already had confirmBack)
+- [x] Implement breadcrumb navigation component for deeply nested screens

@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
@@ -360,12 +361,12 @@ export default function TrainerDeliveriesScreen() {
   }
 
   return (
-    <ScreenContainer>
-      {/* Header */}
-      <View className="px-4 pt-4 pb-2">
-        <Text className="text-2xl font-bold text-foreground">Deliveries</Text>
-        <Text className="text-muted">Manage product deliveries to clients</Text>
-      </View>
+    <ScreenContainer edges={["left", "right"]}>
+      {/* Navigation Header */}
+      <NavigationHeader
+        title="Deliveries"
+        subtitle="Manage product deliveries to clients"
+      />
 
       {/* Status Tabs */}
       <View className="px-4 py-2">
