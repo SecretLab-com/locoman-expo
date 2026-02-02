@@ -217,4 +217,34 @@ export function parseDeepLink(url: string) {
   return Linking.parse(url);
 }
 
+/**
+ * Handle a deep link from a push notification.
+ * This is a convenience wrapper that handles both full URLs and path-only strings.
+ * 
+ * @param deepLinkOrPath - Either a full deep link URL or just the path (e.g., "bundle/123")
+ * @returns true if navigation was successful, false otherwise
+ */
+export function handleNotificationDeepLink(deepLinkOrPath: string): boolean {
+  // If it looks like a full URL (has scheme), use handleDeepLink directly
+  if (deepLinkOrPath.includes("://")) {
+    return handleDeepLink(deepLinkOrPath);
+  }
+  
+  // Otherwise, treat it as a path and try to match directly
+  const match = matchRoute(deepLinkOrPath);
+  if (!match) {
+    console.log("[DeepLink] No matching route for notification path:", deepLinkOrPath);
+    return false;
+  }
+
+  console.log("[DeepLink] Navigating from notification to:", match.route.routerPath, "with params:", match.params);
+
+  router.push({
+    pathname: match.route.routerPath as any,
+    params: match.params,
+  });
+
+  return true;
+}
+
 export { handleDeepLink, matchRoute, DEEP_LINK_ROUTES };
