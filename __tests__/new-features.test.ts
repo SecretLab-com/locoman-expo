@@ -109,7 +109,8 @@ describe("Shopify Integration", () => {
   });
 
   it("should have manager products screen", () => {
-    const screenPath = path.join(projectRoot, "app/(manager)/products.tsx");
+    // Manager products re-exports from tabs, so check the actual implementation
+    const screenPath = path.join(projectRoot, "app/(tabs)/products.tsx");
     expect(fs.existsSync(screenPath)).toBe(true);
     const content = fs.readFileSync(screenPath, "utf-8");
     expect(content).toContain("Products");

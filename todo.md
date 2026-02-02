@@ -743,7 +743,7 @@
 
 
 ## Impersonate Screen Home Button Fix
-- [ ] Fix home button on Impersonate screen to navigate to Dashboard
+- [x] Fix home button on Impersonate screen to navigate to Dashboard (uses role-aware navigateToHome)
 - [x] Fix Profile/Settings showing wrong role tabs when accessed from Coordinator view (created shared /profile screen that opens as card overlay)
 
 ## Settings Screen Header Fix
@@ -865,5 +865,5 @@
 ## Navigation Architecture Improvements (from NAVIGATION_DIAGRAM.md)
 - [x] Remove "Discover More" tab switching that navigates from (client) to (tabs)
 - [x] Add Profile FAB component for quick access to profile/settings from any screen
-- [ ] Consider consolidating tab navigators in future refactor
-- [ ] Move hidden tabs to proper stack screens
+- [x] Consider consolidating tab navigators in future refactor (moved hidden tabs to stack screens)
+- [x] Move hidden tabs to proper stack screens (discover, activity, messages now in root stack)

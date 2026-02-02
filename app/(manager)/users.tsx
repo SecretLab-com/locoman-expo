@@ -7,6 +7,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { navigateToHome } from "@/lib/navigation";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -379,14 +380,14 @@ export default function UsersScreen() {
       
       closeModal();
       
-      // Navigate to appropriate dashboard based on role
-      if (selectedUser.role === "client") {
-        router.replace("/(client)");
-      } else if (selectedUser.role === "trainer") {
-        router.replace("/(trainer)");
-      } else {
-        router.replace("/(tabs)");
-      }
+      // Navigate to appropriate dashboard based on impersonated user's role
+      // Uses role-aware navigation helper for consistency
+      navigateToHome({
+        isClient: selectedUser.role === "client",
+        isTrainer: selectedUser.role === "trainer",
+        isManager: selectedUser.role === "manager",
+        isCoordinator: selectedUser.role === "coordinator",
+      });
       
       Alert.alert("Impersonation Started", `You are now viewing as ${selectedUser.name}`);
     } catch {

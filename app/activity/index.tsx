@@ -354,7 +354,7 @@ export default function ActivityScreen() {
                 className="bg-primary px-6 py-3 rounded-full mt-6"
                 onPress={async () => {
                   await haptics.light();
-                  router.push("/(tabs)/discover" as any);
+                  router.push("/discover-bundles" as any);
                 }}
               >
                 <Text className="text-background font-semibold">Browse Programs</Text>
