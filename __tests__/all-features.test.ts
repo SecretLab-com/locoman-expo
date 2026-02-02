@@ -277,7 +277,8 @@ describe("LocoMotivate Expo App - Complete Feature Test Suite", () => {
     });
 
     it("should have manager products screen", () => {
-      const productsPath = path.join(projectRoot, "app/(manager)/products.tsx");
+      // Manager products re-exports from tabs, so check the actual implementation
+      const productsPath = path.join(projectRoot, "app/(tabs)/products.tsx");
       expect(fs.existsSync(productsPath)).toBe(true);
       const content = fs.readFileSync(productsPath, "utf-8");
       expect(content).toContain("Products");
