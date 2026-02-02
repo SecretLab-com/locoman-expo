@@ -84,7 +84,8 @@ const config: ExpoConfig = {
   newArchEnabled: true,
   extra: {
     // API base URL for native platforms - this is bundled into the app
-    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "",
+    // Using the public tunnel URL so Expo Go can reach the API server
+    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://3002-i4anndi9mla842misgiwl-a70979ba.sg1.manus.computer",
   },
   ios: {
     supportsTablet: true,

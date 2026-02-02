@@ -857,3 +857,5 @@
 - [x] Debug persistent products loading error on Expo Go after API URL fix
 - [x] Added API base URL to Expo config extra field for native access
 - [x] Updated getApiBaseUrl() to check Constants.expoConfig.extra.apiBaseUrl
+- [x] Deep investigation: products still not loading on Expo Go after previous fixes
+- [x] Hardcoded public API URL in app.config.ts extra field as fallback
