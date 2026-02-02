@@ -860,3 +860,4 @@
 - [x] Deep investigation: products still not loading on Expo Go after previous fixes
 - [x] Hardcoded public API URL in app.config.ts extra field as fallback
 - [ ] Third attempt: products still not loading on Expo Go - investigate deeper
+- [x] Fix API URL not working on Expo Go physical devices - products page shows 'Unable to load products'
