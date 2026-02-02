@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 
@@ -142,22 +143,21 @@ export default function TrainerClientsScreen() {
   };
 
   return (
-    <ScreenContainer>
-      {/* Header */}
-      <View className="px-4 pt-2 pb-4">
-        <View className="flex-row items-center justify-between">
-          <View>
-            <Text className="text-2xl font-bold text-foreground">Clients</Text>
-            <Text className="text-sm text-muted">{MOCK_CLIENTS.length} total clients</Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => setShowBulkInvite(true)}
-            style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-          >
-            <IconSymbol name="person.badge.plus" size={16} color="#FFFFFF" />
-            <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Bulk Invite</Text>
-          </TouchableOpacity>
-        </View>
+    <ScreenContainer edges={["left", "right"]}>
+      {/* Navigation Header */}
+      <NavigationHeader
+        title="Clients"
+        subtitle={`${MOCK_CLIENTS.length} total clients`}
+        rightAction={{
+          icon: "person.badge.plus",
+          onPress: () => setShowBulkInvite(true),
+          label: "Bulk invite",
+          testID: "bulk-invite",
+        }}
+      />
+
+      {/* Content */}
+      <View className="px-4 pb-4">
 
         {/* Search Bar */}
         <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-3 mt-4">
