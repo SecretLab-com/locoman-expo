@@ -2,27 +2,27 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { navigateToHome } from "@/lib/navigation";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
 
 type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
@@ -82,7 +82,17 @@ export default function UsersScreen() {
   const colors = useColors();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { startImpersonation, isCoordinator, user: currentUser } = useAuthContext();
+  const { startImpersonation, isCoordinator, isAuthenticated, user: currentUser, effectiveRole } = useAuthContext();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
   
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRole, setSelectedRole] = useState<UserRole | "all">("all");
@@ -120,21 +130,31 @@ export default function UsersScreen() {
   const [sortKey, setSortKey] = useState<UserSort>("alphabetical");
 
   // tRPC query for users with filters
-  const usersQuery = trpc.admin.usersWithFilters.useQuery({
-    limit: PAGE_SIZE,
-    offset: offset,
-    role: selectedRole === "all" ? undefined : selectedRole,
-    status: selectedStatus === "all" ? undefined : selectedStatus,
-    search: searchQuery || undefined,
-    joinedAfter: joinedAfter || undefined,
-    joinedBefore: joinedBefore || undefined,
-  });
+  const usersQuery = trpc.admin.usersWithFilters.useQuery(
+    {
+      limit: PAGE_SIZE,
+      offset: offset,
+      role: selectedRole === "all" ? undefined : selectedRole,
+      status: selectedStatus === "all" ? undefined : selectedStatus,
+      search: searchQuery || undefined,
+      joinedAfter: joinedAfter || undefined,
+      joinedBefore: joinedBefore || undefined,
+    },
+    {
+      enabled: isAuthenticated,
+    }
+  );
   
   // tRPC query for pending invitations
-  const invitationsQuery = trpc.admin.getUserInvitations.useQuery({
-    limit: 50,
-    status: "pending",
-  });
+  const invitationsQuery = trpc.admin.getUserInvitations.useQuery(
+    {
+      limit: 50,
+      status: "pending",
+    },
+    {
+      enabled: isAuthenticated,
+    }
+  );
 
   // tRPC mutations
   const updateRoleMutation = trpc.admin.updateUserRole.useMutation();
@@ -383,10 +403,10 @@ export default function UsersScreen() {
       // Navigate to appropriate dashboard based on impersonated user's role
       // Uses role-aware navigation helper for consistency
       navigateToHome({
-        isClient: selectedUser.role === "client",
-        isTrainer: selectedUser.role === "trainer",
-        isManager: selectedUser.role === "manager",
         isCoordinator: selectedUser.role === "coordinator",
+        isManager: selectedUser.role === "manager",
+        isTrainer: selectedUser.role === "trainer",
+        isClient: selectedUser.role === "client",
       });
       
       Alert.alert("Impersonation Started", `You are now viewing as ${selectedUser.name}`);
@@ -932,6 +952,23 @@ export default function UsersScreen() {
             <ActivityIndicator size="large" color={colors.primary} />
             <Text className="text-muted mt-2">Loading users...</Text>
           </View>
+        ) : usersQuery.isError ? (
+          <View className="py-8 items-center">
+            <IconSymbol name="exclamationmark.triangle.fill" size={40} color={colors.warning} />
+            <Text className="text-foreground font-semibold mt-3">Unable to load users</Text>
+            <Text className="text-muted mt-1 text-center">
+              Please check your connection and try again.
+            </Text>
+            <TouchableOpacity
+              className="mt-4 px-4 py-2 rounded-full bg-primary"
+              onPress={() => usersQuery.refetch()}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading users"
+              testID="users-retry"
+            >
+              <Text className="text-background font-semibold">Retry</Text>
+            </TouchableOpacity>
+          </View>
         ) : displayUsers.length === 0 ? (
           <View className="py-8 items-center">
             <IconSymbol name="person.2" size={48} color={colors.muted} />
@@ -943,8 +980,7 @@ export default function UsersScreen() {
               <TouchableOpacity
                 key={user.id}
                 onPress={() => openUserDetail(user)}
-                className="flex-row items-center p-4 mb-3 rounded-xl"
-                style={{ backgroundColor: colors.surface }}
+                className="flex-row items-center p-4 mb-3 rounded-xl bg-surface border border-border"
               >
                 {/* Selection Checkbox */}
                 {selectionMode && (
@@ -966,14 +1002,16 @@ export default function UsersScreen() {
                 
                 {/* Avatar */}
                 <View
-                  className="w-12 h-12 rounded-full items-center justify-center mr-3"
+                  className="w-12 h-12 rounded-full items-center justify-center mr-3 overflow-hidden"
                   style={{ backgroundColor: `${ROLE_COLORS[user.role]}20` }}
                 >
                   {user.photoUrl ? (
                     <Image
                       source={{ uri: user.photoUrl }}
-                      className="w-12 h-12 rounded-full"
+                      style={styles.avatarImage}
                       contentFit="cover"
+                      transition={150}
+                      cachePolicy="memory-disk"
                     />
                   ) : (
                     <Text
@@ -1012,16 +1050,36 @@ export default function UsersScreen() {
                 </View>
 
                 {/* Role Badge */}
-                <View
-                  className="px-3 py-1 rounded-full"
-                  style={{ backgroundColor: `${ROLE_COLORS[user.role]}20` }}
-                >
-                  <Text
-                    className="text-xs font-semibold capitalize"
-                    style={{ color: ROLE_COLORS[user.role] }}
+                <View className="flex-row items-center gap-2">
+                  {!selectionMode && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!currentUser?.id) return;
+                        const conversationId = [currentUser.id, user.id].sort().join("-");
+                        const name = user.name || "User";
+                        router.push(
+                          `${roleBase}/messages/${conversationId}?participantId=${user.id}&name=${encodeURIComponent(name)}` as any
+                        );
+                      }}
+                      className="w-8 h-8 rounded-full items-center justify-center bg-surface border border-border"
+                      accessibilityRole="button"
+                      accessibilityLabel={`Message ${user.name || "user"}`}
+                      testID={`user-message-${user.id}`}
+                    >
+                      <IconSymbol name="message.fill" size={14} color={colors.primary} />
+                    </TouchableOpacity>
+                  )}
+                  <View
+                    className="px-3 py-1 rounded-full"
+                    style={{ backgroundColor: `${ROLE_COLORS[user.role]}20` }}
                   >
-                    {user.role}
-                  </Text>
+                    <Text
+                      className="text-xs font-semibold capitalize"
+                      style={{ color: ROLE_COLORS[user.role] }}
+                    >
+                      {user.role}
+                    </Text>
+                  </View>
                 </View>
               </TouchableOpacity>
             ))}
@@ -1535,6 +1593,9 @@ export default function UsersScreen() {
 }
 
 const styles = StyleSheet.create({
+  avatarImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
   headerButtons: {
     flexDirection: "row",
     gap: 8,

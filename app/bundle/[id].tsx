@@ -12,6 +12,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { ShareButton } from "@/components/share-button";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 
 // Mock bundle data - in production this would come from tRPC
 const MOCK_BUNDLES: Record<string, any> = {
@@ -86,11 +87,25 @@ export default function BundleDetailScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [isFavorite, setIsFavorite] = useState(false);
+  const { effectiveRole, isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
+  const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
 
   const bundle = MOCK_BUNDLES[id || "1"] || MOCK_BUNDLES["1"];
 
   const handleAddToCart = () => {
     Alert.alert("Added to Cart", `${bundle.title} has been added to your cart!`);
+  };
+
+  const handleInviteClient = () => {
+    if (isCoordinator) {
+      router.push("/(coordinator)/invite" as any);
+      return;
+    }
+    if (isManager) {
+      router.push("/(manager)/invite" as any);
+      return;
+    }
+    router.push("/(trainer)/invite" as any);
   };
 
   const handleToggleFavorite = () => {
@@ -109,7 +124,7 @@ export default function BundleDetailScreen() {
           />
           {/* Back Button */}
           <TouchableOpacity
-            className="absolute top-4 left-4 w-10 h-10 rounded-full bg-background/80 items-center justify-center"
+            className="absolute top-4 left-4 w-10 h-10 rounded-full bg-background/80 items-center justify-center border border-border"
             onPress={() => router.back()}
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
@@ -130,7 +145,7 @@ export default function BundleDetailScreen() {
           </View>
           {/* Favorite Button */}
           <TouchableOpacity
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-background/80 items-center justify-center"
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-background/80 items-center justify-center border border-border"
             onPress={handleToggleFavorite}
           >
             <IconSymbol
@@ -206,15 +221,27 @@ export default function BundleDetailScreen() {
 
       {/* Bottom Action Bar */}
       <View className="absolute bottom-0 left-0 right-0 bg-background border-t border-border px-4 pt-4 pb-8">
-        <TouchableOpacity
-          className="bg-primary rounded-xl py-4 items-center"
-          onPress={handleAddToCart}
-          activeOpacity={0.8}
-        >
-          <Text className="text-background font-semibold text-lg">
-            Add to Cart - ${bundle.price}
-          </Text>
-        </TouchableOpacity>
+        {canPurchase ? (
+          <TouchableOpacity
+            className="bg-primary rounded-xl py-4 items-center"
+            onPress={handleAddToCart}
+            activeOpacity={0.8}
+          >
+            <Text className="text-background font-semibold text-lg">
+              Add to Cart - ${bundle.price}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            className="bg-primary rounded-xl py-4 items-center"
+            onPress={handleInviteClient}
+            activeOpacity={0.8}
+          >
+            <Text className="text-background font-semibold text-lg">
+              {isTrainer ? "Invite Client" : "Assign to Client"}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </ScreenContainer>
   );

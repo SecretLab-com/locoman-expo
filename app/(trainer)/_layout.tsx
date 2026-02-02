@@ -9,13 +9,19 @@ export default function TrainerTabLayout() {
   const navHeight = useBottomNavHeight();
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(trainer)", testID: "tab-home" },
-    { label: "Calendar", icon: "calendar", href: "/(trainer)/calendar", testID: "tab-calendar" },
-    { label: "Clients", icon: "person.2.fill", href: "/(trainer)/clients", testID: "tab-clients" },
     {
-      label: "Deliveries",
-      icon: "shippingbox.fill",
-      href: "/(trainer)/deliveries",
-      testID: "tab-deliveries",
+      label: "Clients",
+      icon: "person.2.fill",
+      href: "/(trainer)/clients",
+      testID: "tab-clients",
+    },
+    { label: "Pay", icon: "creditcard.fill", href: "/(trainer)/pay", testID: "tab-pay" },
+    { label: "Analytics", icon: "chart.bar.fill", href: "/(trainer)/analytics", testID: "tab-analytics" },
+    {
+      label: "Alerts",
+      icon: "exclamationmark.triangle.fill",
+      href: "/(trainer)/alerts",
+      testID: "tab-alerts",
       badge: counts.pendingDeliveries,
     },
   ];

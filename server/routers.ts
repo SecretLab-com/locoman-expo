@@ -627,6 +627,26 @@ export const appRouter = router({
           content: input.content,
         });
       }),
+
+    sendGroup: protectedProcedure
+      .input(z.object({
+        receiverIds: z.array(z.number()).min(1),
+        content: z.string().min(1),
+        conversationId: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const conversationId =
+          input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
+        for (const receiverId of input.receiverIds) {
+          await db.createMessage({
+            senderId: ctx.user.id,
+            receiverId,
+            conversationId,
+            content: input.content,
+          });
+        }
+        return { conversationId };
+      }),
     
     markRead: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -662,6 +682,36 @@ export const appRouter = router({
           attachmentSize: input.attachmentSize,
           attachmentMimeType: input.attachmentMimeType,
         });
+      }),
+
+    sendGroupWithAttachment: protectedProcedure
+      .input(z.object({
+        receiverIds: z.array(z.number()).min(1),
+        content: z.string(),
+        conversationId: z.string().optional(),
+        messageType: z.enum(["text", "image", "file"]).default("text"),
+        attachmentUrl: z.string().optional(),
+        attachmentName: z.string().optional(),
+        attachmentSize: z.number().optional(),
+        attachmentMimeType: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const conversationId =
+          input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
+        for (const receiverId of input.receiverIds) {
+          await db.createMessage({
+            senderId: ctx.user.id,
+            receiverId,
+            conversationId,
+            content: input.content,
+            messageType: input.messageType,
+            attachmentUrl: input.attachmentUrl,
+            attachmentName: input.attachmentName,
+            attachmentSize: input.attachmentSize,
+            attachmentMimeType: input.attachmentMimeType,
+          });
+        }
+        return { conversationId };
       }),
     
     // Get reactions for a message

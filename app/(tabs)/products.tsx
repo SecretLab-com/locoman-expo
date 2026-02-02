@@ -92,7 +92,8 @@ const sanitizeDescriptionHtml = (html: string) => {
 export default function ProductsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const { canManage } = useAuthContext();
+  const { canManage, effectiveRole, isClient } = useAuthContext();
+  const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
   const { width } = useWindowDimensions();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
@@ -208,6 +209,7 @@ export default function ProductsScreen() {
 
   // Handle add to cart
   const handleAddToCart = (product: Product) => {
+    if (!canPurchase) return;
     addItem({
       type: "product",
       title: product.name,
@@ -440,21 +442,27 @@ export default function ProductsScreen() {
 
                   {/* Add to Cart Button */}
                   <View className="px-2.5 pb-2.5">
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        handleAddToCart(product);
-                      }}
-                      disabled={!inStock}
-                      className={`py-1.5 rounded-lg items-center ${inStock ? "bg-primary" : "bg-muted"}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Add ${product.name} to cart`}
-                      testID={`product-add-${product.id}`}
-                    >
-                      <Text className={`text-xs font-semibold ${inStock ? "text-white" : "text-foreground"}`}>
-                        {inStock ? "Add to Cart" : "Sold Out"}
-                      </Text>
-                    </TouchableOpacity>
+                    {canPurchase ? (
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleAddToCart(product);
+                        }}
+                        disabled={!inStock}
+                        className={`py-1.5 rounded-lg items-center ${inStock ? "bg-primary" : "bg-muted"}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Add ${product.name} to cart`}
+                        testID={`product-add-${product.id}`}
+                      >
+                        <Text className={`text-xs font-semibold ${inStock ? "text-white" : "text-foreground"}`}>
+                          {inStock ? "Add to Cart" : "Sold Out"}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View className="py-1.5 rounded-lg items-center border border-border bg-surface">
+                        <Text className="text-xs font-semibold text-foreground">Review only</Text>
+                      </View>
+                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -665,39 +673,45 @@ export default function ProductsScreen() {
                     </View>
                   )}
 
-                  <TouchableOpacity
-                    onPress={() => {
-                      handleAddToCart(selectedProduct);
-                      setDetailModalOpen(false);
-                    }}
-                    disabled={selectedProduct.availability !== "available" || (selectedProduct.inventoryQuantity || 0) <= 0}
-                    className={`mt-6 py-3 rounded-xl items-center flex-row justify-center ${
-                      selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                        ? "bg-primary"
-                        : "bg-muted"
-                    }`}
-                  >
-                    <IconSymbol
-                      name="cart"
-                      size={18}
-                      color={
+                  {canPurchase ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        handleAddToCart(selectedProduct);
+                        setDetailModalOpen(false);
+                      }}
+                      disabled={selectedProduct.availability !== "available" || (selectedProduct.inventoryQuantity || 0) <= 0}
+                      className={`mt-6 py-3 rounded-xl items-center flex-row justify-center ${
                         selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                          ? "#fff"
-                          : colors.foreground
-                      }
-                    />
-                    <Text
-                      className={`font-semibold ml-2 ${
-                        selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                          ? "text-white"
-                          : "text-foreground"
+                          ? "bg-primary"
+                          : "bg-muted"
                       }`}
                     >
-                      {selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                        ? "Add to Cart"
-                        : "Sold Out"}
-                    </Text>
-                  </TouchableOpacity>
+                      <IconSymbol
+                        name="cart"
+                        size={18}
+                        color={
+                          selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
+                            ? "#fff"
+                            : colors.foreground
+                        }
+                      />
+                      <Text
+                        className={`font-semibold ml-2 ${
+                          selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
+                            ? "text-white"
+                            : "text-foreground"
+                        }`}
+                      >
+                        {selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
+                          ? "Add to Cart"
+                          : "Sold Out"}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View className="mt-6 py-3 rounded-xl items-center border border-border bg-surface">
+                      <Text className="font-semibold text-foreground">Review only</Text>
+                    </View>
+                  )}
                 </View>
               </ScrollView>
             )}

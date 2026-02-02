@@ -6,7 +6,7 @@ import { haptics } from "@/hooks/use-haptics";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 type QuickActionProps = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -416,9 +416,10 @@ export default function CoordinatorHomeScreen() {
                   <IconSymbol name="person.fill" size={20} color={colors.muted} />
                   <Image
                     source={{ uri: trainer.avatar }}
-                    className="absolute h-14 w-14 rounded-full"
+                    style={[styles.coverImage, styles.roundedFull]}
                     contentFit="cover"
                     transition={150}
+                    cachePolicy="memory-disk"
                   />
                 </View>
                 <Text className="text-sm font-semibold text-foreground mt-2" numberOfLines={1}>
@@ -461,9 +462,10 @@ export default function CoordinatorHomeScreen() {
                   <IconSymbol name="shippingbox.fill" size={20} color={colors.muted} />
                   <Image
                     source={{ uri: bundle.image }}
-                    className="absolute h-20 w-full"
+                    style={styles.coverImage}
                     contentFit="cover"
                     transition={150}
+                    cachePolicy="memory-disk"
                   />
                 </View>
                 <View className="p-3">
@@ -549,3 +551,12 @@ export default function CoordinatorHomeScreen() {
     </ScreenContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  coverImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  roundedFull: {
+    borderRadius: 999,
+  },
+});

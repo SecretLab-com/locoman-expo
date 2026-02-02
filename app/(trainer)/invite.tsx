@@ -14,6 +14,7 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useAuthContext } from "@/contexts/auth-context";
 import * as Haptics from "expo-haptics";
 
 type Bundle = {
@@ -32,17 +33,23 @@ const MOCK_BUNDLES: Bundle[] = [
 
 export default function InviteScreen() {
   const colors = useColors();
+  const { isTrainer, isManager, isCoordinator, user } = useAuthContext();
   const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
   const [clientEmail, setClientEmail] = useState("");
   const [clientName, setClientName] = useState("");
   const [personalMessage, setPersonalMessage] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [assignedTrainer, setAssignedTrainer] = useState(user?.name || "");
 
   // Generate invite link
   const generateInviteLink = () => {
     if (!selectedBundle) {
       Alert.alert("Select Bundle", "Please select a bundle to invite the client to.");
+      return;
+    }
+    if (!isTrainer && !assignedTrainer.trim()) {
+      Alert.alert("Assign Trainer", "Please assign a trainer to this bundle invite.");
       return;
     }
 
@@ -209,6 +216,37 @@ export default function InviteScreen() {
               );
             })}
           </View>
+        </View>
+
+        {/* Assigned Trainer */}
+        <View className="mb-6">
+          <Text className="text-lg font-semibold text-foreground mb-3">
+            Assigned Trainer
+          </Text>
+          {isTrainer ? (
+            <View className="bg-surface border border-border rounded-xl px-4 py-3">
+              <Text className="text-foreground font-medium">
+                {user?.name || "You"}
+              </Text>
+              <Text className="text-xs text-muted mt-1">
+                Bundles must be assigned to a trainer at invite.
+              </Text>
+            </View>
+          ) : (
+            <View>
+              <Text className="text-sm font-medium text-foreground mb-1">Trainer Name</Text>
+              <TextInput
+                value={assignedTrainer}
+                onChangeText={setAssignedTrainer}
+                placeholder="Assign a trainer"
+                placeholderTextColor={colors.muted}
+                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+              />
+              <Text className="text-xs text-muted mt-2">
+                Required for manager/coordinator invites.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Client Details */}

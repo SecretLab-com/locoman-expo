@@ -1,20 +1,20 @@
-import { useState } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  FlatList,
-  RefreshControl,
-  TextInput,
-} from "react-native";
-import { router } from "expo-router";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
-import { navigateToHome } from "@/lib/navigation";
-import { useColors } from "@/hooks/use-colors";
+import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
+import { navigateToHome } from "@/lib/navigation";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { useState } from "react";
+import {
+    FlatList,
+    RefreshControl,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 type Conversation = {
   id: number;
@@ -183,7 +183,7 @@ export default function MessagesScreen() {
   };
 
   return (
-    <ScreenContainer edges={["left", "right"]}>
+    <ScreenContainer edges={["left", "right"]} className="flex-1 relative">
       {/* Header with home button */}
       <NavigationHeader
         title="Messages"
@@ -191,12 +191,6 @@ export default function MessagesScreen() {
         showBack
         showHome
         onBack={() => navigateToHome()}
-        rightAction={{
-          icon: "pencil",
-          onPress: () => {},
-          label: "New message",
-          testID: "messages-new",
-        }}
       />
 
       {/* Search Section */}
@@ -245,6 +239,17 @@ export default function MessagesScreen() {
           </View>
         }
       />
+
+      <TouchableOpacity
+        onPress={() => router.push(`${roleBase}/messages/new` as any)}
+        className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+        style={{ right: 16, bottom: 16 }}
+        accessibilityRole="button"
+        accessibilityLabel="Start a new message"
+        testID="messages-new-fab"
+      >
+        <IconSymbol name="plus" size={24} color={colors.background} />
+      </TouchableOpacity>
     </ScreenContainer>
   );
 }

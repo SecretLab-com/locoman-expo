@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
     activityLogs,
@@ -674,6 +674,72 @@ export async function getConversations(userId: number) {
   const received = await db.select({ conversationId: messages.conversationId }).from(messages).where(eq(messages.receiverId, userId));
   const allConversations = [...new Set([...sent, ...received].map(m => m.conversationId))];
   return allConversations;
+}
+
+export async function getConversationSummaries(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conversationRows = await db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(or(eq(messages.senderId, userId), eq(messages.receiverId, userId)))
+    .groupBy(messages.conversationId);
+
+  const summaries = [];
+  for (const row of conversationRows) {
+    const conversationId = row.conversationId;
+
+    const lastMessageRows = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+    const lastMessage = lastMessageRows[0];
+
+    const participantRows = await db
+      .select({ senderId: messages.senderId, receiverId: messages.receiverId })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId));
+    const participantIds = new Set<number>();
+    participantRows.forEach((participant) => {
+      participantIds.add(participant.senderId);
+      participantIds.add(participant.receiverId);
+    });
+    participantIds.delete(userId);
+    const participants = participantIds.size
+      ? await db
+          .select({
+            id: users.id,
+            name: users.name,
+            photoUrl: users.photoUrl,
+            role: users.role,
+          })
+          .from(users)
+          .where(inArray(users.id, Array.from(participantIds)))
+      : [];
+
+    const unreadCountRows = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.receiverId, userId),
+          isNull(messages.readAt),
+        ),
+      );
+
+    summaries.push({
+      conversationId,
+      lastMessage,
+      participants,
+      unreadCount: unreadCountRows[0]?.count ?? 0,
+    });
+  }
+
+  return summaries;
 }
 
 export async function getMessagesByConversation(conversationId: string) {

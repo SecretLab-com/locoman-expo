@@ -14,6 +14,8 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useCart, CartItem } from "@/contexts/cart-context";
+import { useAuthContext } from "@/contexts/auth-context";
+import { navigateToHome } from "@/lib/navigation";
 import * as Haptics from "expo-haptics";
 
 const FULFILLMENT_OPTIONS = [
@@ -149,6 +151,7 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
 
 export default function CheckoutScreen() {
   const colors = useColors();
+  const { isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
   const { items, subtotal, updateQuantity, updateFulfillment, removeItem, clearCart } = useCart();
   const [processing, setProcessing] = useState(false);
 
@@ -208,6 +211,29 @@ export default function CheckoutScreen() {
       ]
     );
   };
+
+  if (isTrainer && !isClient) {
+    return (
+      <ScreenContainer className="items-center justify-center px-6">
+        <IconSymbol name="cart.fill" size={64} color={colors.muted} />
+        <Text className="text-xl font-semibold text-foreground mt-4">
+          Checkout is client-only
+        </Text>
+        <Text className="text-muted text-center mt-2">
+          Coordinators, managers, and trainers can review bundles but cannot purchase them.
+        </Text>
+        <TouchableOpacity
+          className="bg-primary px-6 py-3 rounded-full mt-6"
+          onPress={() => navigateToHome({ isCoordinator, isManager, isTrainer, isClient })}
+          accessibilityRole="button"
+          accessibilityLabel="Back to home"
+          testID="checkout-back-home"
+        >
+          <Text className="text-background font-semibold">Back to Home</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
 
   if (items.length === 0) {
     return (
