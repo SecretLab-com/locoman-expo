@@ -1,4 +1,5 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,8 @@ type NavigationHeaderProps = {
   subtitle?: string;
   /** Whether the header is transparent (for overlaying content) */
   transparent?: boolean;
+  /** Use SafeArea top inset (default: true) */
+  useSafeAreaTop?: boolean;
 };
 
 /**
@@ -66,11 +69,13 @@ export function NavigationHeader({
   homeTestID,
   subtitle,
   transparent = false,
+  useSafeAreaTop = true,
 }: NavigationHeaderProps) {
   const colors = useColors();
+  const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const iconColor = colors.foreground;
+  const iconColor = colorScheme === "dark" ? "#F8FAFC" : colors.primary;
 
   const handleBack = () => {
     // Fire haptics without awaiting (don't block navigation)
@@ -125,12 +130,21 @@ export function NavigationHeader({
   return (
     <View
       className={cn(
-        transparent ? "bg-transparent border-b-0" : "bg-surface border-b border-border",
+        transparent
+          ? "bg-transparent border-b-0"
+          : colorScheme === "dark"
+            ? "bg-background border-b border-border"
+            : "bg-surface border-b border-border",
       )}
       style={[
         styles.container,
         {
-          paddingTop: Platform.OS === "web" ? 6 : Math.max(insets.top, 6),
+          paddingTop:
+            Platform.OS === "web"
+              ? 6
+              : useSafeAreaTop
+                ? Math.max(insets.top, 6)
+                : 6,
         },
       ]}
     >

@@ -165,36 +165,37 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Specialties Section */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-1">Specialties</Text>
-          <Text className="text-sm text-foreground/60 mb-3">Select up to 5 specialties</Text>
-          
-          <View className="flex-row flex-wrap gap-2">
-            {SPECIALTIES.map((specialty) => {
-              const isSelected = selectedSpecialties.includes(specialty.value);
-              return (
-                <TouchableOpacity
-                  key={specialty.value}
-                  onPress={() => toggleSpecialty(specialty.value)}
-                  className={`px-4 py-2 rounded-full border ${
-                    isSelected
-                      ? "bg-primary border-primary"
-                      : "bg-surface border-border"
-                  }`}
-                >
-                  <Text
-                    className={`text-sm ${
-                      isSelected ? "text-white font-semibold" : "text-foreground"
+        {isTrainer && (
+          <View className="mb-6">
+            <Text className="text-lg font-semibold text-foreground mb-1">Specialties</Text>
+            <Text className="text-sm text-foreground/60 mb-3">Select up to 5 specialties</Text>
+
+            <View className="flex-row flex-wrap gap-2">
+              {SPECIALTIES.map((specialty) => {
+                const isSelected = selectedSpecialties.includes(specialty.value);
+                return (
+                  <TouchableOpacity
+                    key={specialty.value}
+                    onPress={() => toggleSpecialty(specialty.value)}
+                    className={`px-4 py-2 rounded-full border ${
+                      isSelected
+                        ? "bg-primary border-primary"
+                        : "bg-surface border-border"
                     }`}
                   >
-                    {specialty.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                    <Text
+                      className={`text-sm ${
+                        isSelected ? "text-white font-semibold" : "text-foreground"
+                      }`}
+                    >
+                      {specialty.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Social Links Section */}
         <View className="mb-6">
@@ -260,29 +261,30 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Availability Section */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Availability</Text>
-          
-          <View className="bg-surface rounded-xl p-4 border border-border">
-            <View className="flex-row items-center justify-between">
-              <View className="flex-1">
-                <Text className="text-base font-medium text-primary">
-                  Accepting New Clients
-                </Text>
-                <Text className="text-sm text-foreground/60">
-                  Show your profile in the trainer directory
-                </Text>
+        {isTrainer && (
+          <View className="mb-6">
+            <Text className="text-lg font-semibold text-foreground mb-3">Availability</Text>
+
+            <View className="bg-surface rounded-xl p-4 border border-border">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1">
+                  <Text className="text-base font-medium text-primary">
+                    Accepting New Clients
+                  </Text>
+                  <Text className="text-sm text-foreground/60">
+                    Show your profile in the trainer directory
+                  </Text>
+                </View>
+                <Switch
+                  value={isAvailable}
+                  onValueChange={setIsAvailable}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#fff"
+                />
               </View>
-              <Switch
-                value={isAvailable}
-                onValueChange={setIsAvailable}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
             </View>
           </View>
-        </View>
+        )}
 
         {/* Appearance Section */}
         <View className="mb-6">

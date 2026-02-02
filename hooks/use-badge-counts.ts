@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useWebSocket } from "@/hooks/use-websocket";
 
 export type BadgeCounts = {
   pendingDeliveries: number;
@@ -23,22 +24,39 @@ export function useBadgeCounts() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
+  const websocket = useWebSocket();
+
   // Fetch pending deliveries count for trainers
   const trainerDeliveriesQuery = trpc.deliveries.pending.useQuery(
     undefined,
-    { enabled: isAuthenticated && isTrainer }
+    {
+      enabled: isAuthenticated && isTrainer,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
   );
 
   // Fetch client deliveries
   const clientDeliveriesQuery = trpc.deliveries.myDeliveries.useQuery(
     undefined,
-    { enabled: isAuthenticated && isClient }
+    {
+      enabled: isAuthenticated && isClient,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
   );
 
   // Fetch pending approvals count (for managers)
   const approvalsQuery = trpc.admin.pendingBundles.useQuery(
     undefined,
-    { enabled: isAuthenticated && isManager }
+    {
+      enabled: isAuthenticated && isManager,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
   );
 
   // Fetch pending join requests (for trainers) - uses myTrainers.pendingRequests
@@ -46,7 +64,12 @@ export function useBadgeCounts() {
   // For trainers to see incoming requests, we'd need a separate endpoint
   const joinRequestsQuery = trpc.myTrainers.pendingRequests.useQuery(
     undefined,
-    { enabled: isAuthenticated && isTrainer }
+    {
+      enabled: isAuthenticated && isTrainer,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
   );
 
   // Update counts when queries change
@@ -72,6 +95,20 @@ export function useBadgeCounts() {
     ]);
     setIsLoading(false);
   }, [trainerDeliveriesQuery, clientDeliveriesQuery, approvalsQuery, joinRequestsQuery]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    websocket.connect();
+    const unsubscribe = websocket.subscribe((message) => {
+      if (message.type === "badge_counts_updated") {
+        refetch();
+      }
+    });
+    return () => {
+      unsubscribe();
+      websocket.disconnect();
+    };
+  }, [isAuthenticated, refetch, websocket]);
 
   return {
     counts,

@@ -4,6 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { generateImage } from "./_core/imageGeneration";
 import { systemRouter } from "./_core/systemRouter";
 import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
+import { notifyBadgeCounts } from "./_core/websocket";
 import * as db from "./db";
 import * as shopify from "./shopify";
 import { storagePut } from "./storage";
@@ -172,6 +173,8 @@ export const appRouter = router({
           status: "pending_review",
           submittedForReviewAt: new Date(),
         });
+        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        notifyBadgeCounts(managerIds);
         return { success: true };
       }),
     
@@ -455,6 +458,10 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.markDeliveryReady(input.id);
+        const delivery = await db.getDeliveryById(input.id);
+        if (delivery) {
+          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        }
         return { success: true };
       }),
     
@@ -462,6 +469,10 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.markDeliveryDelivered(input.id);
+        const delivery = await db.getDeliveryById(input.id);
+        if (delivery) {
+          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        }
         return { success: true };
       }),
     
@@ -470,6 +481,10 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.confirmDeliveryReceipt(input.id);
+        const delivery = await db.getDeliveryById(input.id);
+        if (delivery) {
+          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        }
         return { success: true };
       }),
     
@@ -484,6 +499,10 @@ export const appRouter = router({
           status: "disputed",
           disputeReason: input.reason,
         });
+        const delivery = await db.getDeliveryById(input.id);
+        if (delivery) {
+          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        }
         return { success: true };
       }),
     
@@ -499,6 +518,10 @@ export const appRouter = router({
           clientNotes: input.reason ? `Reschedule requested: ${input.reason}` : "Reschedule requested",
         });
         // Note: In a full implementation, we'd add rescheduleRequestedDate field
+        const delivery = await db.getDeliveryById(input.id);
+        if (delivery) {
+          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        }
         return { success: true };
       }),
     
@@ -513,6 +536,10 @@ export const appRouter = router({
           scheduledDate: new Date(input.newDate),
           clientNotes: null, // Clear the reschedule request
         });
+        const delivery = await db.getDeliveryById(input.id);
+        if (delivery) {
+          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        }
         return { success: true };
       }),
     
@@ -527,6 +554,10 @@ export const appRouter = router({
           notes: input.reason ? `Reschedule rejected: ${input.reason}` : "Reschedule rejected",
           clientNotes: null, // Clear the reschedule request
         });
+        const delivery = await db.getDeliveryById(input.id);
+        if (delivery) {
+          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        }
         return { success: true };
       }),
     
@@ -559,6 +590,7 @@ export const appRouter = router({
           });
           deliveryIds.push(id);
         }
+        notifyBadgeCounts([ctx.user.id, input.clientId]);
         return { success: true, deliveryIds };
       }),
   }),
@@ -839,6 +871,7 @@ export const appRouter = router({
           ctx.user.id,
           input.message
         );
+        notifyBadgeCounts([ctx.user.id, input.trainerId]);
         return { success: true, requestId };
       }),
     
@@ -852,6 +885,7 @@ export const appRouter = router({
       .input(z.object({ requestId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await db.cancelJoinRequest(input.requestId, ctx.user.id);
+        notifyBadgeCounts([ctx.user.id]);
         return { success: true };
       }),
   }),
@@ -944,6 +978,8 @@ export const appRouter = router({
           reviewedAt: new Date(),
           reviewedBy: ctx.user.id,
         });
+        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        notifyBadgeCounts(managerIds);
         return { success: true };
       }),
     
@@ -959,6 +995,8 @@ export const appRouter = router({
           reviewedBy: ctx.user.id,
           rejectionReason: input.reason,
         });
+        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        notifyBadgeCounts(managerIds);
         return { success: true };
       }),
     
@@ -974,6 +1012,8 @@ export const appRouter = router({
           reviewedBy: ctx.user.id,
           reviewComments: input.comments,
         });
+        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        notifyBadgeCounts(managerIds);
         return { success: true };
       }),
     

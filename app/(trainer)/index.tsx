@@ -103,7 +103,17 @@ function QuickAction({ title, icon, onPress }: QuickActionProps) {
 
 export default function TrainerDashboardScreen() {
   const colors = useColors();
-  const { user } = useAuthContext();
+  const { user, effectiveRole } = useAuthContext();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
 
   // Fetch trainer stats from API
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = trpc.trainerDashboard.stats.useQuery();
@@ -243,7 +253,7 @@ export default function TrainerDashboardScreen() {
             <QuickAction
               title="Messages"
               icon="message.fill"
-              onPress={() => router.push("/messages" as any)}
+              onPress={() => router.push(`${roleBase}/messages` as any)}
             />
           </View>
           <View className="flex-row">

@@ -14,6 +14,7 @@ import { NavigationHeader } from "@/components/navigation-header";
 import { navigateToHome } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 
 type Conversation = {
   id: number;
@@ -149,6 +150,17 @@ function ConversationCard({ conversation, onPress }: { conversation: Conversatio
 
 export default function MessagesScreen() {
   const colors = useColors();
+  const { effectiveRole } = useAuthContext();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
   const [conversations] = useState(MOCK_CONVERSATIONS);
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -167,7 +179,7 @@ export default function MessagesScreen() {
   };
 
   const handleConversationPress = (conversation: Conversation) => {
-    router.push(`/messages/${conversation.id}` as any);
+    router.push(`${roleBase}/messages/${conversation.id}` as any);
   };
 
   return (

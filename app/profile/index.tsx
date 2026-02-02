@@ -91,7 +91,19 @@ function RoleBadge({ role }: { role: string }) {
 
 export default function SharedProfileScreen() {
   const colors = useColors();
-  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
+  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, isCoordinator, effectiveRole } =
+    useAuthContext();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
+  const managerBase = isCoordinator ? "/(coordinator)" : "/(manager)";
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
 
   // Navigate back to the user's role-specific home (initial landing page)
@@ -205,6 +217,7 @@ export default function SharedProfileScreen() {
           onBack={handleBack}
           homeTestID="profile-home"
           backTestID="profile-back"
+          useSafeAreaTop={false}
         />
 
         {/* Profile Header */}
@@ -348,13 +361,13 @@ export default function SharedProfileScreen() {
                   icon="checkmark.circle.fill"
                   title="Pending Approvals"
                   subtitle="Review submitted bundles"
-                  onPress={() => router.push("/(manager)/approvals" as any)}
+                  onPress={() => router.push(`${managerBase}/approvals` as any)}
                 />
                 <MenuItem
                   icon="person.2.fill"
                   title="Manage Users"
                   subtitle="View and manage user accounts"
-                  onPress={() => router.push("/(manager)/users" as any)}
+                  onPress={() => router.push(`${managerBase}/users` as any)}
                 />
               </View>
             </>
@@ -395,17 +408,7 @@ export default function SharedProfileScreen() {
               icon="gearshape.fill"
               title="Settings"
               subtitle="App preferences and notifications"
-              onPress={() => {
-                if (isTrainer) {
-                  router.push("/(trainer)/settings" as any);
-                } else {
-                  if (Platform.OS === "web") {
-                    alert("Settings coming soon!");
-                  } else {
-                    Alert.alert("Coming Soon", "Settings coming soon!");
-                  }
-                }
-              }}
+              onPress={() => router.push(`${roleBase}/settings` as any)}
             />
             <MenuItem
               icon="info.circle.fill"

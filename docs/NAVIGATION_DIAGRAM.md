@@ -4,7 +4,7 @@
 
 ## Current Navigation Structure
 
-The app currently has **5 separate tab navigators** that switch based on user role, plus standalone screens. This creates a confusing experience where the bottom navigation changes when navigating between screens.
+The app currently has **5 separate role nav groups**. To prevent the bottom nav from changing, shared screens are routed through **role wrappers** (e.g., `/(role)/messages`, `/(role)/bundle/[id]`) so the nav remains stable.
 
 ```mermaid
 flowchart TB

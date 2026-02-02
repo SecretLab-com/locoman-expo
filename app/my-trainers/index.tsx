@@ -9,6 +9,7 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
 import { trpc } from "@/lib/trpc";
+import { useAuthContext } from "@/contexts/auth-context";
 
 type MyTrainer = {
   id: number;
@@ -189,6 +190,17 @@ function PendingRequestCard({
 
 export default function MyTrainersScreen() {
   const colors = useColors();
+  const { effectiveRole } = useAuthContext();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
   
   // Fetch trainers from API
   const { 
@@ -230,7 +242,7 @@ export default function MyTrainersScreen() {
 
   const handleMessageTrainer = async (trainer: MyTrainer) => {
     await haptics.light();
-    router.push(`/messages/${trainer.id}` as any);
+    router.push(`${roleBase}/messages/${trainer.id}` as any);
   };
 
   const handleRemoveTrainer = (trainer: MyTrainer) => {

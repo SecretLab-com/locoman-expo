@@ -211,7 +211,7 @@ export default function ClientOrdersScreen() {
             </Text>
             <TouchableOpacity
               className="bg-primary px-6 py-3 rounded-full mt-4"
-              onPress={() => router.push("/(tabs)/products" as any)}
+              onPress={() => router.push("/(client)/products" as any)}
               accessibilityRole="button"
               accessibilityLabel="Browse catalog"
               testID="orders-browse"
