@@ -31,7 +31,17 @@ const SPECIALTY_LABELS: Record<string, string> = {
 export default function TrainerProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
-  const { user } = useAuthContext();
+  const { user, effectiveRole } = useAuthContext();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
   const [requestSent, setRequestSent] = useState(false);
 
   // Parse id safely - return 0 if invalid
@@ -88,7 +98,7 @@ export default function TrainerProfileScreen() {
       return;
     }
 
-    router.push(`/messages/${id}` as any);
+    router.push(`${roleBase}/messages/${id}` as any);
   };
 
   // Open social link

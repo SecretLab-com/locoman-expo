@@ -4,12 +4,23 @@ import { useEffect } from "react";
 import { Text, View } from "react-native";
 
 export default function CatalogRedirect() {
-  const { loading } = useAuthContext();
+  const { loading, effectiveRole } = useAuthContext();
+
+  const target =
+    effectiveRole === "client"
+      ? "/(client)/products"
+      : effectiveRole === "trainer"
+        ? "/(trainer)/products"
+        : effectiveRole === "manager"
+          ? "/(manager)/products"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)/bundles"
+            : "/(tabs)/products";
 
   useEffect(() => {
     if (loading) return;
-    router.replace("/(tabs)/products" as any);
-  }, [loading]);
+    router.replace(target as any);
+  }, [loading, target]);
 
   return (
     <View className="flex-1 items-center justify-center">

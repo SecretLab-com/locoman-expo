@@ -16,7 +16,8 @@ export type WSMessage =
   | { type: "typing_stop"; conversationId: string; userId: number }
   | { type: "message_read"; messageId: number; conversationId: string }
   | { type: "reaction_added"; messageId: number; reaction: string; userId: number }
-  | { type: "reaction_removed"; messageId: number; reaction: string; userId: number };
+  | { type: "reaction_removed"; messageId: number; reaction: string; userId: number }
+  | { type: "badge_counts_updated" };
 
 export function setupWebSocket(server: Server) {
   const wss = new WebSocketServer({ server, path: "/ws" });
@@ -26,25 +27,27 @@ export function setupWebSocket(server: Server) {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const token = url.searchParams.get("token");
 
-    if (!token) {
-      ws.close(4001, "Authentication required");
-      return;
-    }
-
     try {
-      const session = await sdk.verifySession(token);
-      if (!session) {
-        ws.close(4001, "Invalid token");
+      let userId: number | null = null;
+
+      if (token) {
+        const session = await sdk.verifySession(token);
+        if (session) {
+          const { getUserByOpenId } = await import("../db");
+          const user = await getUserByOpenId(session.openId);
+          userId = user?.id ?? null;
+        }
+      }
+
+      if (!userId) {
+        const user = await sdk.authenticateRequest(req as any);
+        userId = user?.id ?? null;
+      }
+
+      if (!userId) {
+        ws.close(4001, "Authentication required");
         return;
       }
-      // Get user from database by openId
-      const { getUserByOpenId } = await import("../db");
-      const user = await getUserByOpenId(session.openId);
-      if (!user) {
-        ws.close(4001, "User not found");
-        return;
-      }
-      const userId = user.id;
 
       // Add client to the map
       if (!clients.has(userId)) {
@@ -202,6 +205,13 @@ export function notifyMessageRead(
     type: "message_read",
     messageId,
     conversationId,
+  });
+}
+
+export function notifyBadgeCounts(userIds: number[]) {
+  const unique = Array.from(new Set(userIds.filter(Boolean)));
+  unique.forEach((userId) => {
+    sendToUser(userId, { type: "badge_counts_updated" });
   });
 }
 

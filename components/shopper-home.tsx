@@ -10,13 +10,13 @@ import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    FlatList,
+    RefreshControl,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 type Bundle = {
@@ -94,14 +94,14 @@ export default function ShopperHome() {
   const [usingCache, setUsingCache] = useState(false);
 
   // Fetch bundles from API
-  const { 
-    data: bundlesData, 
-    isLoading, 
-    refetch, 
+  const {
+    data: bundlesData,
+    isLoading,
+    refetch,
     isRefetching,
     isError,
   } = trpc.catalog.bundles.useQuery(undefined, {
-    enabled: isOnline, // Only fetch when online
+    enabled: isOnline,
     retry: isOnline ? 1 : 0,
   });
 
@@ -110,17 +110,19 @@ export default function ShopperHome() {
     async function loadCache() {
       const cached = await getCachedBundles();
       if (cached) {
-        setCachedBundles(cached.map((b: any) => ({
-          id: b.id,
-          title: b.title,
-          description: b.description,
-          price: b.price,
-          imageUrl: b.imageUrl,
-          trainerName: b.trainerName || "Trainer",
-          trainerAvatar: b.trainerAvatar,
-          rating: b.rating,
-          reviews: b.reviewCount,
-        })));
+        setCachedBundles(
+          cached.map((b: any) => ({
+            id: b.id,
+            title: b.title,
+            description: b.description,
+            price: b.price,
+            imageUrl: b.imageUrl,
+            trainerName: b.trainerName || "Trainer",
+            trainerAvatar: b.trainerAvatar,
+            rating: b.rating,
+            reviews: b.reviewCount,
+          }))
+        );
       }
     }
     loadCache();
@@ -135,7 +137,7 @@ export default function ShopperHome() {
   }, [bundlesData, cacheBundles]);
 
   // Determine which data to show
-  const allBundles: Bundle[] = bundlesData 
+  const allBundles: Bundle[] = bundlesData
     ? bundlesData.map((b: any) => ({
         id: b.id,
         title: b.title,
@@ -190,7 +192,11 @@ export default function ShopperHome() {
             <Text className="text-2xl font-bold text-foreground">Discover</Text>
             <View className="flex-row items-center">
               <Text className="text-sm text-muted">Find your perfect fitness program</Text>
-              {usingCache && <View className="ml-2"><OfflineBadge /></View>}
+              {usingCache && (
+                <View className="ml-2">
+                  <OfflineBadge />
+                </View>
+              )}
             </View>
           </View>
           {!isAuthenticated && (
@@ -251,8 +257,8 @@ export default function ShopperHome() {
                 {!isOnline ? "You're offline" : "No bundles found"}
               </Text>
               <Text className="text-muted text-center text-sm mt-1">
-                {!isOnline 
-                  ? "Connect to the internet to browse bundles" 
+                {!isOnline
+                  ? "Connect to the internet to browse bundles"
                   : "Try adjusting your search"}
               </Text>
             </View>

@@ -604,6 +604,17 @@ export async function getPendingDeliveries(trainerId: number) {
   ).orderBy(asc(productDeliveries.scheduledDate));
 }
 
+export async function getDeliveryById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select()
+    .from(productDeliveries)
+    .where(eq(productDeliveries.id, id))
+    .limit(1);
+  return result[0] ?? null;
+}
+
 export async function createDelivery(data: InsertProductDelivery) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -639,6 +650,16 @@ export async function confirmDeliveryReceipt(id: number) {
     status: "confirmed",
     confirmedAt: new Date(),
   }).where(eq(productDeliveries.id, id));
+}
+
+export async function getUserIdsByRoles(roles: InsertUser["role"][]) {
+  const db = await getDb();
+  if (!db) return [];
+  const result = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.role, roles as any));
+  return result.map((row) => row.id);
 }
 
 // ============================================================================

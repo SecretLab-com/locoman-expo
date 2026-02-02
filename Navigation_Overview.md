@@ -1,7 +1,7 @@
 ## Navigation Overview
 
 ### Decision Summary
-We will **stabilize the bottom navigation per role** by keeping a single role-specific tab layout active at a time and treating all shared screens as stack screens that sit **above** that role’s tabs. This mirrors the most common industry pattern (Instagram/Uber/DoorDash): a stable tab bar for a role, with modal/stack screens on top that do not swap the tab bar.
+We will **stabilize the bottom navigation per role** so the **nav never changes** while a user stays in their role. Each role owns a custom bottom nav, and **shared screens are routed through role-group wrappers** to keep that nav visible. This mirrors common industry patterns (Instagram/Uber/DoorDash): a stable tab bar for a role, with detail screens that do not swap the tab bar.
 
 ### Why This Decision
 - Users get a consistent, predictable tab bar for their role.
@@ -9,11 +9,11 @@ We will **stabilize the bottom navigation per role** by keeping a single role-sp
 - Avoids Expo Router remapping the tab bar when jumping into another role group.
 
 ### Rules of the Road
-1. **Exactly one tab layout is active per role**:
+1. **Exactly one role nav is active per role**:
    - Shopper/Client/Trainer/Manager/Coordinator each has its own tab layout group.
-2. **Shared screens must live in the root stack** (outside role groups):
-   - These screens should be pushed on top of the current role tab layout.
-3. **Never navigate into another role’s group** from a shared screen.
+2. **Shared screens must be reachable via role wrappers**:
+   - Each role group owns routes like `/(role)/messages`, `/(role)/profile`, `/(role)/bundle/[id]`.
+3. **Never navigate into another role’s group** from within a role.
    - Use role-aware helpers to return home without switching groups.
 4. **Role switching only happens at authentication/impersonation boundaries**.
 5. **Bottom nav should not be auto-generated across roles**; only the current role’s tab layout renders.
@@ -28,11 +28,11 @@ Root Stack (`app/_layout.tsx`)
 - `/(trainer)` → Trainer tabs
 - `/(manager)` → Manager tabs
 - `/(coordinator)` → Coordinator tabs
-- Shared stack screens (no tab bar):
-  - `/profile`
-  - `/messages`, `/conversation/[id]`
-  - `/trainer/[id]`, `/bundle/[id]`, `/bundle-editor/[id]`
-  - `/checkout/*`, `/invite/*`, `/template-editor/*`, etc.
+- Shared screens exist **through role wrappers**:
+  - `/(role)/profile`
+  - `/(role)/messages`, `/(role)/conversation/[id]`
+  - `/(role)/trainer/[id]`, `/(role)/bundle/[id]`, `/(role)/bundle-editor/[id]`
+  - `/(role)/checkout/*`, `/(role)/invite/*`, `/(role)/template-editor/*`, etc.
 
 Role Tab Layouts
 - **Unified Tabs** (Shopper-like)
@@ -56,26 +56,26 @@ All “Home” buttons should use the role-aware helper:
 
 This ensures home buttons always return to the correct tab layout.
 
-### 2) Shared Screens Must Be in Root Stack
-Shared screens should not live under role groups. They belong to the root stack so the tab bar stays stable underneath.
+### 2) Shared Screens Must Be Routed via Role Wrappers
+Shared screens **must** be accessed through the current role group so the bottom nav never changes.
 
 Examples:
-- Profile (`/profile`)
-- Conversation (`/conversation/[id]`)
-- Bundle detail (`/bundle/[id]`)
+- Profile (`/(role)/profile`)
+- Conversation (`/(role)/conversation/[id]`)
+- Bundle detail (`/(role)/bundle/[id]`)
 
 ### 3) Avoid Cross-Group Navigation
-Do not route from a shared screen into another role group unless the user’s role actually changed.
+Do not route from a role screen into another role group unless the user’s role actually changed.
 
 Bad:
 - `router.push("/(trainer)/settings")` when viewing as manager
 
 Good:
-- `router.push("/profile")` or a role-aware screen inside the current group
+- `router.push("/(manager)/profile")` or another role-aware wrapper inside the current group
 
 ### 4) “Role Portals”
-Use a “portal” helper or component to choose the correct route for a shared action (home, profile, orders).
-This keeps role routing logic in one place and prevents accidental tab swaps.
+Use a role helper or wrapper route to choose the correct route for a shared action (home, profile, messages, bundles).
+This keeps role routing logic in one place and prevents accidental nav swaps.
 
 ---
 

@@ -28,12 +28,27 @@ export function ProfileFAB() {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
-  const { user, effectiveUser, isAuthenticated, logout, isTrainer } = useAuthContext();
+  const { user, effectiveUser, isAuthenticated, logout, isTrainer, effectiveRole } = useAuthContext();
   const [menuVisible, setMenuVisible] = useState(false);
   const pathname = usePathname();
 
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
+
   // Hide FAB on profile screen since it's redundant there
-  const isOnProfileScreen = pathname === "/profile" || pathname.startsWith("/profile/");
+  const isOnProfileScreen =
+    pathname === "/profile" ||
+    pathname.startsWith("/profile/") ||
+    pathname === `${roleBase}/profile` ||
+    pathname.startsWith(`${roleBase}/profile/`);
   if (isOnProfileScreen) {
     return null;
   }
@@ -61,7 +76,7 @@ export function ProfileFAB() {
   // Navigate to the shared profile screen - this is presented as a card/modal
   // so it doesn't switch the bottom tab navigation
   const navigateToProfile = () => {
-    router.push("/profile" as any);
+    router.push(`${roleBase}/profile` as any);
   };
 
   // Navigate to settings - for trainers use their settings, others use profile
@@ -69,7 +84,7 @@ export function ProfileFAB() {
     if (isTrainer) {
       router.push("/(trainer)/settings" as any);
     } else {
-      router.push("/profile" as any);
+      router.push(`${roleBase}/profile` as any);
     }
   };
 
@@ -94,7 +109,7 @@ export function ProfileFAB() {
         {
           icon: "message.fill",
           label: "Messages",
-          onPress: () => router.push("/messages" as any),
+          onPress: () => router.push(`${roleBase}/messages` as any),
         },
         {
           icon: "rectangle.portrait.and.arrow.right",

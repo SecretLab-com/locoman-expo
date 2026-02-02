@@ -90,7 +90,19 @@ function RoleBadge({ role }: { role: string }) {
 
 export default function ProfileScreen() {
   const colors = useColors();
-  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager } = useAuthContext();
+  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, effectiveRole, isCoordinator } =
+    useAuthContext();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
+  const managerBase = isCoordinator ? "/(coordinator)" : "/(manager)";
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
 
 
@@ -276,13 +288,13 @@ export default function ProfileScreen() {
                   icon="checkmark.circle.fill"
                   title="Pending Approvals"
                   subtitle="Review submitted bundles"
-                  onPress={() => router.push("/(manager)/approvals" as any)}
+                  onPress={() => router.push(`${managerBase}/approvals` as any)}
                 />
                 <MenuItem
                   icon="person.2.fill"
                   title="Manage Users"
                   subtitle="View and manage user accounts"
-                  onPress={() => router.push("/(manager)/users" as any)}
+                  onPress={() => router.push(`${managerBase}/users` as any)}
                 />
               </View>
             </>
@@ -302,13 +314,7 @@ export default function ProfileScreen() {
               icon="gearshape.fill"
               title="Settings"
               subtitle="App preferences and notifications"
-              onPress={() => {
-                if (isTrainer) {
-                  router.push("/(trainer)/settings" as any);
-                } else {
-                  Alert.alert("Coming Soon", "Settings coming soon!");
-                }
-              }}
+              onPress={() => router.push(`${roleBase}/settings` as any)}
             />
             <MenuItem
               icon="info.circle.fill"

@@ -5,20 +5,21 @@ import { useCart } from "@/contexts/cart-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Modal,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-    useWindowDimensions,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from "react-native";
 import RenderHTML from "react-native-render-html";
 
@@ -105,6 +106,21 @@ export default function ProductsScreen() {
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [imageZoomOpen, setImageZoomOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const { sort, q } = useLocalSearchParams();
+
+  useEffect(() => {
+    const sortParam = Array.isArray(sort) ? sort[0] : sort;
+    if (typeof sortParam === "string") {
+      const allowed = ["popular", "price_low", "price_high", "name"];
+      if (allowed.includes(sortParam)) {
+        setSortBy(sortParam);
+      }
+    }
+    const searchParam = Array.isArray(q) ? q[0] : q;
+    if (typeof searchParam === "string" && searchParam.trim().length > 0) {
+      setSearchQuery(searchParam);
+    }
+  }, [sort, q]);
 
   // Fetch products via tRPC
   const {

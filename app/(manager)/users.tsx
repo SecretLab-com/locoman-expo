@@ -6,9 +6,9 @@ import { trpc } from "@/lib/trpc";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -26,6 +26,7 @@ import {
 
 type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 type UserStatus = "active" | "inactive";
+type UserSort = "performance" | "newest" | "active" | "alphabetical";
 
 type User = {
   id: number;
@@ -79,6 +80,7 @@ const ACTION_LABELS: Record<string, string> = {
 export default function UsersScreen() {
   const colors = useColors();
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { startImpersonation, isCoordinator, user: currentUser } = useAuthContext();
   
   const [searchQuery, setSearchQuery] = useState("");
@@ -114,6 +116,7 @@ export default function UsersScreen() {
   
   // Pending invites state
   const [showInvites, setShowInvites] = useState(false);
+  const [sortKey, setSortKey] = useState<UserSort>("alphabetical");
 
   // tRPC query for users with filters
   const usersQuery = trpc.admin.usersWithFilters.useQuery({
@@ -145,6 +148,49 @@ export default function UsersScreen() {
   const totalCount = usersQuery.data?.total ?? 0;
   const hasMore = offset + PAGE_SIZE < totalCount;
   const pendingInvites = invitationsQuery.data?.invitations ?? [];
+  const displayUsers = useMemo(() => {
+    if (!users.length) return [];
+    const ordered = [...users];
+    if (sortKey === "newest") {
+      ordered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else if (sortKey === "active") {
+      ordered.sort((a, b) => Number(b.active) - Number(a.active));
+    } else if (sortKey === "performance") {
+      ordered.sort((a, b) => {
+        const aTime = new Date(a.lastSignedIn ?? a.createdAt).getTime();
+        const bTime = new Date(b.lastSignedIn ?? b.createdAt).getTime();
+        return bTime - aTime;
+      });
+    } else {
+      ordered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+    return ordered;
+  }, [users, sortKey]);
+
+  useEffect(() => {
+    const normalize = (value: string | string[] | undefined) =>
+      Array.isArray(value) ? value[0] : value;
+    const roleParam = normalize(params.role);
+    const statusParam = normalize(params.status);
+    const sortParam = normalize(params.sort);
+    const queryParam = normalize(params.q);
+
+    if (typeof roleParam === "string") {
+      setSelectedRole(roleParam as UserRole | "all");
+    }
+    if (typeof statusParam === "string") {
+      setSelectedStatus(statusParam as UserStatus | "all");
+    }
+    if (typeof sortParam === "string") {
+      const allowed: UserSort[] = ["performance", "newest", "active", "alphabetical"];
+      if (allowed.includes(sortParam as UserSort)) {
+        setSortKey(sortParam as UserSort);
+      }
+    }
+    if (typeof queryParam === "string") {
+      setSearchQuery(queryParam);
+    }
+  }, [params.role, params.status, params.sort, params.q]);
 
   // Reset offset when filters change
   useEffect(() => {
@@ -363,10 +409,10 @@ export default function UsersScreen() {
 
   // Select/deselect all visible users
   const toggleSelectAll = () => {
-    if (selectedUserIds.size === users.length) {
+    if (selectedUserIds.size === displayUsers.length) {
       setSelectedUserIds(new Set());
     } else {
-      setSelectedUserIds(new Set(users.map((u) => u.id)));
+      setSelectedUserIds(new Set(displayUsers.map((u) => u.id)));
     }
   };
 
@@ -490,7 +536,7 @@ export default function UsersScreen() {
     
     try {
       const headers = ["ID", "Name", "Email", "Role", "Status", "Phone", "Joined", "Last Active"];
-      const rows = users.map((user) => [
+      const rows = displayUsers.map((user) => [
         user.id.toString(),
         user.name || "",
         user.email || "",
@@ -844,17 +890,17 @@ export default function UsersScreen() {
               style={[
                 styles.checkbox,
                 {
-                  backgroundColor: selectedUserIds.size === users.length ? colors.primary : "transparent",
-                  borderColor: selectedUserIds.size === users.length ? colors.primary : colors.border,
+                  backgroundColor: selectedUserIds.size === displayUsers.length ? colors.primary : "transparent",
+                  borderColor: selectedUserIds.size === displayUsers.length ? colors.primary : colors.border,
                 },
               ]}
             >
-              {selectedUserIds.size === users.length && (
+              {selectedUserIds.size === displayUsers.length && (
                 <IconSymbol name="checkmark" size={12} color="#fff" />
               )}
             </View>
             <Text style={{ color: colors.foreground, marginLeft: 8 }}>
-              {selectedUserIds.size === users.length ? "Deselect All" : "Select All"}
+              {selectedUserIds.size === displayUsers.length ? "Deselect All" : "Select All"}
             </Text>
           </TouchableOpacity>
           <Text style={{ color: colors.muted }}>
@@ -885,14 +931,14 @@ export default function UsersScreen() {
             <ActivityIndicator size="large" color={colors.primary} />
             <Text className="text-muted mt-2">Loading users...</Text>
           </View>
-        ) : users.length === 0 ? (
+        ) : displayUsers.length === 0 ? (
           <View className="py-8 items-center">
             <IconSymbol name="person.2" size={48} color={colors.muted} />
             <Text className="text-muted mt-2">No users found</Text>
           </View>
         ) : (
           <>
-            {users.map((user) => (
+            {displayUsers.map((user) => (
               <TouchableOpacity
                 key={user.id}
                 onPress={() => openUserDetail(user)}
@@ -988,7 +1034,7 @@ export default function UsersScreen() {
             )}
 
             {/* End of List */}
-            {!hasMore && users.length > 0 && (
+            {!hasMore && displayUsers.length > 0 && (
               <View className="py-4 items-center">
                 <Text className="text-sm text-muted">
                   Showing all {totalCount} users

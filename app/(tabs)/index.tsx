@@ -1,10 +1,10 @@
-import { useAuthContext } from "@/contexts/auth-context";
+import { useEffect } from "react";
+import { ActivityIndicator } from "react-native";
 
-// Import role-specific dashboard components
-import ClientHome from "@/components/dashboards/client-home";
-import ManagerHome from "@/components/dashboards/manager-home";
-import ShopperHome from "@/components/dashboards/shopper-home";
-import TrainerHome from "@/components/dashboards/trainer-home";
+import { ScreenContainer } from "@/components/screen-container";
+import { useAuthContext } from "@/contexts/auth-context";
+import { navigateToHome } from "@/lib/navigation";
+import ShopperHome from "../../components/shopper-home";
 
 /**
  * Unified Home Screen
@@ -21,26 +21,31 @@ import TrainerHome from "@/components/dashboards/trainer-home";
  * - Coordinator → CoordinatorHome (impersonation, logs)
  */
 export default function UnifiedHomeScreen() {
-  const { isAuthenticated, effectiveRole } = useAuthContext();
+  const {
+    isAuthenticated,
+    effectiveRole,
+    loading,
+    isCoordinator,
+    isManager,
+    isTrainer,
+    isClient,
+  } = useAuthContext();
+
+  useEffect(() => {
+    if (loading) return;
+    if (isAuthenticated && effectiveRole && effectiveRole !== "shopper") {
+      navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
+    }
+  }, [loading, isAuthenticated, effectiveRole, isCoordinator, isManager, isTrainer, isClient]);
 
   // Not authenticated or shopper → Show shopper experience
   if (!isAuthenticated || effectiveRole === "shopper" || !effectiveRole) {
     return <ShopperHome />;
   }
 
-  // Role-specific dashboards
-  switch (effectiveRole) {
-    case "coordinator":
-      // Coordinators in tabs use the client-style home experience
-      return <ClientHome />;
-    case "manager":
-      return <ManagerHome />;
-    case "trainer":
-      return <TrainerHome />;
-    case "client":
-      return <ClientHome />;
-    default:
-      return <ShopperHome />;
-  }
-
+  return (
+    <ScreenContainer className="items-center justify-center">
+      <ActivityIndicator size="large" />
+    </ScreenContainer>
+  );
 }

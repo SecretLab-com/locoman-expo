@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { COOKIE_NAME } from "@/shared/const";
+import { getApiBaseUrl } from "@/lib/api-config";
 
 type WSMessage = 
   | { type: "connected"; userId: number }
@@ -10,7 +11,8 @@ type WSMessage =
   | { type: "typing_stop"; conversationId: string; userId: number }
   | { type: "message_read"; messageId: number; conversationId: string }
   | { type: "reaction_added"; messageId: number; reaction: string; userId: number }
-  | { type: "reaction_removed"; messageId: number; reaction: string; userId: number };
+  | { type: "reaction_removed"; messageId: number; reaction: string; userId: number }
+  | { type: "badge_counts_updated" };
 
 type MessageHandler = (message: WSMessage) => void;
 
@@ -22,23 +24,20 @@ export function useWebSocket() {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(async () => {
-    // Skip on web for now (would need different auth approach)
-    if (Platform.OS === "web") {
-      console.log("[WebSocket] Skipping on web platform");
-      return;
-    }
-
     try {
       // Get auth token
-      const token = await SecureStore.getItemAsync(COOKIE_NAME);
-      if (!token) {
+      const token = Platform.OS === "web" ? null : await SecureStore.getItemAsync(COOKIE_NAME);
+      if (!token && Platform.OS !== "web") {
         console.log("[WebSocket] No auth token, skipping connection");
         return;
       }
 
       // Get API base URL
-      const apiUrl = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000";
-      const wsUrl = apiUrl.replace(/^http/, "ws") + `/ws?token=${encodeURIComponent(token)}`;
+      const apiUrl = getApiBaseUrl() || process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000";
+      const wsBase = apiUrl.replace(/^http/, "ws");
+      const wsUrl = token
+        ? `${wsBase}/ws?token=${encodeURIComponent(token)}`
+        : `${wsBase}/ws`;
 
       console.log("[WebSocket] Connecting to:", wsUrl.split("?")[0]);
 

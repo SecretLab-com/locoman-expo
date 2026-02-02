@@ -6,3 +6,4 @@
 
 ## User Preferences
 - Use single quotes in static CLI parameters.
+- Verify changes before asking the user to verify.
