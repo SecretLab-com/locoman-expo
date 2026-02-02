@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { ShareButton } from "@/components/share-button";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
@@ -144,7 +145,7 @@ export default function TrainerProfileScreen() {
   return (
     <ScreenContainer edges={["top", "left", "right"]}>
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        {/* Header with back button */}
+        {/* Header with back button and share */}
         <View className="flex-row items-center px-4 py-3">
           <TouchableOpacity
             onPress={() => router.back()}
@@ -152,9 +153,22 @@ export default function TrainerProfileScreen() {
           >
             <IconSymbol name="chevron.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
-          <Text className="flex-1 text-lg font-semibold text-foreground text-center mr-10">
+          <Text className="flex-1 text-lg font-semibold text-foreground text-center">
             Trainer Profile
           </Text>
+          <View className="w-10 h-10 rounded-full bg-surface items-center justify-center">
+            <ShareButton
+              content={{
+                type: "trainer",
+                id: String(trainer.id),
+                title: trainer.name || "Trainer",
+                message: `Check out ${trainer.name} on LocoMotivate - ${trainer.bio?.slice(0, 80) || "A great fitness trainer!"}...`,
+              }}
+              size={20}
+              color={colors.foreground}
+              className="p-0"
+            />
+          </View>
         </View>
 
         {/* Profile Header */}

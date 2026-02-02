@@ -875,3 +875,6 @@
 - [x] Implement breadcrumb navigation component for deeply nested screens
 - [x] Enable swipe-to-go-back gesture for stack screens
 - [x] Implement deep link handling for push notifications and external links
+- [x] Add push notification deep link integration - trigger deep links when users tap notifications
+- [x] Create shareable link generator with Share buttons on bundle and trainer screens
+- [x] Configure universal links for web-to-app navigation (Apple App Site Association, Android App Links)

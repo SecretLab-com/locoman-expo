@@ -90,9 +90,13 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
-    "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
+    associatedDomains: [
+      "applinks:locomotivate.app",
+      "webcredentials:locomotivate.app",
+    ],
   },
   android: {
     adaptiveIcon: {
@@ -113,6 +117,68 @@ const config: ExpoConfig = {
           {
             scheme: env.scheme,
             host: "*",
+          },
+        ],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+      {
+        action: "VIEW",
+        autoVerify: true,
+        data: [
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            pathPrefix: "/bundle",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            pathPrefix: "/trainer",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            pathPrefix: "/conversation",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            pathPrefix: "/invite",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            pathPrefix: "/client",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            path: "/messages",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            path: "/profile",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            path: "/checkout",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            path: "/browse",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            path: "/activity",
+          },
+          {
+            scheme: "https",
+            host: "locomotivate.app",
+            path: "/discover",
           },
         ],
         category: ["BROWSABLE", "DEFAULT"],
