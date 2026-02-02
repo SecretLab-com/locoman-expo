@@ -6,6 +6,7 @@ import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { navigateToHome } from "@/lib/navigation";
 
 /**
  * Shopper Tab Layout
@@ -20,7 +21,7 @@ import { useColors } from "@/hooks/use-colors";
 export default function UnifiedTabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { role, canManage, isTrainer } = useAuthContext();
+  const { role, canManage, isTrainer, isClient, isCoordinator, isManager } = useAuthContext();
   const isAdmin = role === "manager" || role === "coordinator";
   const showCart = !isAdmin && !isTrainer;
   
@@ -31,6 +32,18 @@ export default function UnifiedTabLayout() {
       <HapticTab {...props} testID={testID} accessibilityLabel={label} />
     );
     TabButton.displayName = `TabButton(${testID})`;
+    return TabButton;
+  };
+  const renderHomeTabButton = () => {
+    const TabButton = (props: any) => (
+      <HapticTab
+        {...props}
+        testID="tab-home"
+        accessibilityLabel="Home tab"
+        onPress={() => navigateToHome({ isCoordinator, isManager, isTrainer, isClient })}
+      />
+    );
+    TabButton.displayName = "TabButton(tab-home)";
     return TabButton;
   };
 
@@ -57,7 +70,7 @@ export default function UnifiedTabLayout() {
         options={{
           title: "Home",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-          tabBarButton: renderTabButton("tab-home", "Home tab"),
+          tabBarButton: renderHomeTabButton(),
         }}
       />
       

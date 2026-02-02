@@ -1,9 +1,10 @@
-import { View, Text, Pressable, StyleSheet, Platform, Alert } from "react-native";
-import { router, usePathname } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { cn } from "@/lib/utils";
+import { router, usePathname } from "expo-router";
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type NavigationHeaderProps = {
   title: string;
@@ -69,6 +70,7 @@ export function NavigationHeader({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
+  const iconColor = colors.foreground;
 
   const handleBack = () => {
     // Fire haptics without awaiting (don't block navigation)
@@ -122,13 +124,13 @@ export function NavigationHeader({
 
   return (
     <View
+      className={cn(
+        transparent ? "bg-transparent border-b-0" : "bg-surface border-b border-border",
+      )}
       style={[
         styles.container,
         {
-          paddingTop: Platform.OS === "web" ? 16 : Math.max(insets.top, 16),
-          backgroundColor: transparent ? "transparent" : colors.background,
-          borderBottomColor: transparent ? "transparent" : colors.border,
-          borderBottomWidth: transparent ? 0 : StyleSheet.hairlineWidth,
+          paddingTop: Platform.OS === "web" ? 6 : Math.max(insets.top, 6),
         },
       ]}
     >
@@ -147,24 +149,18 @@ export function NavigationHeader({
               accessibilityLabel="Go back"
               testID={backTestID || "nav-back"}
             >
-              <IconSymbol name="chevron.left" size={24} color={colors.primary} />
+              <IconSymbol name="chevron.left" size={20} color={iconColor} />
             </Pressable>
           )}
         </View>
 
         {/* Center - Title */}
         <View style={styles.centerSection}>
-          <Text
-            style={[styles.title, { color: colors.foreground }]}
-            numberOfLines={1}
-          >
+          <Text className="text-foreground" style={styles.title} numberOfLines={1}>
             {title}
           </Text>
           {subtitle && (
-            <Text
-              style={[styles.subtitle, { color: colors.muted }]}
-              numberOfLines={1}
-            >
+            <Text className="text-muted" style={styles.subtitle} numberOfLines={1}>
               {subtitle}
             </Text>
           )}
@@ -184,7 +180,7 @@ export function NavigationHeader({
               accessibilityLabel="Go to home"
               testID={homeTestID || "nav-home"}
             >
-              <IconSymbol name="house.fill" size={22} color={colors.primary} />
+              <IconSymbol name="house.fill" size={18} color={iconColor} />
             </Pressable>
           )}
           {rightAction && (
@@ -199,7 +195,7 @@ export function NavigationHeader({
               accessibilityLabel={rightAction.label || "Action"}
               testID={rightAction.testID || "nav-action"}
             >
-              <IconSymbol name={rightAction.icon} size={22} color={colors.primary} />
+              <IconSymbol name={rightAction.icon} size={18} color={iconColor} />
             </Pressable>
           )}
         </View>
@@ -218,16 +214,16 @@ function getDefaultHomePath(_pathname: string): string {
 
 const styles = StyleSheet.create({
   container: {
-    paddingBottom: 12,
+    paddingBottom: 6,
     paddingHorizontal: 16,
   },
   content: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 44,
+    minHeight: 36,
   },
   leftSection: {
-    width: 44,
+    width: 36,
     alignItems: "flex-start",
   },
   centerSection: {
@@ -235,24 +231,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   rightSection: {
-    width: 44,
+    width: 36,
     alignItems: "flex-end",
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 8,
   },
   iconButton: {
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
   },
   title: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "600",
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 11,
     marginTop: 2,
   },
 });
