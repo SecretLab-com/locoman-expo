@@ -7,6 +7,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 
@@ -153,18 +154,19 @@ export default function TrainerEarningsScreen() {
   };
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={["left", "right"]}>
+      {/* Navigation Header */}
+      <NavigationHeader
+        title="Earnings"
+        subtitle="Track your income and payouts"
+      />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Header */}
-        <View className="px-4 pt-2 pb-4">
-          <Text className="text-2xl font-bold text-foreground">Earnings</Text>
-          <Text className="text-sm text-muted">Track your income and payouts</Text>
-        </View>
 
         {/* Stats Cards */}
         <View className="px-4 mb-6">

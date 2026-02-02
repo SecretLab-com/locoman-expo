@@ -9,6 +9,7 @@ import {
   Alert,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { NavigationHeader } from "@/components/navigation-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -224,18 +225,17 @@ export default function CalendarScreen() {
   };
 
   return (
-    <ScreenContainer className="flex-1">
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Calendar</Text>
-        <TouchableOpacity
-          onPress={() => setShowAddModal(true)}
-          className="bg-primary px-4 py-2 rounded-lg flex-row items-center"
-        >
-          <IconSymbol name="plus" size={18} color="#fff" />
-          <Text className="text-white font-semibold ml-1">Add</Text>
-        </TouchableOpacity>
-      </View>
+    <ScreenContainer className="flex-1" edges={["left", "right"]}>
+      {/* Navigation Header */}
+      <NavigationHeader
+        title="Calendar"
+        rightAction={{
+          icon: "plus",
+          onPress: () => setShowAddModal(true),
+          label: "Add session",
+          testID: "add-session",
+        }}
+      />
 
       {/* Month Navigation */}
       <View className="flex-row items-center justify-between px-4 mb-4">

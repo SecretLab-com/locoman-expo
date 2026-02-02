@@ -867,3 +867,6 @@
 - [x] Add Profile FAB component for quick access to profile/settings from any screen
 - [x] Consider consolidating tab navigators in future refactor (moved hidden tabs to stack screens)
 - [x] Move hidden tabs to proper stack screens (discover, activity, messages now in root stack)
+- [x] Add back navigation header to trainer Calendar screen
+- [x] Add back navigation header to trainer Clients screen
+- [x] Add back navigation header to trainer Earnings screen
