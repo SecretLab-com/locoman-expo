@@ -1,21 +1,21 @@
-import { useState } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Platform,
-} from "react-native";
-import { router, usePathname } from "expo-router";
-import { Image } from "expo-image";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useColors } from "@/hooks/use-colors";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useColors } from "@/hooks/use-colors";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
+import { router, usePathname } from "expo-router";
+import { useState } from "react";
+import {
+    Modal,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type MenuItem = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -49,7 +49,8 @@ export function ProfileFAB() {
     pathname.startsWith("/profile/") ||
     pathname === `${roleBase}/profile` ||
     pathname.startsWith(`${roleBase}/profile/`);
-  if (isOnProfileScreen) {
+  const isOnMessageThread = pathname.includes("/messages/") || pathname.includes("/conversation/");
+  if (isOnProfileScreen || isOnMessageThread) {
     return null;
   }
 

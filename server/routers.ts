@@ -899,9 +899,27 @@ export const appRouter = router({
         const enrichedTrainers = await Promise.all(
           trainers.map(async (trainer) => {
             const bundleCount = await db.getTrainerBundleCount(trainer.id);
+            const bundles = await db.getPublishedBundlesPreviewByTrainer(trainer.id, 2);
+            let presentationHtml: string | null = null;
+            if (trainer.metadata) {
+              try {
+                const metadata =
+                  typeof trainer.metadata === "string"
+                    ? JSON.parse(trainer.metadata)
+                    : trainer.metadata;
+                presentationHtml =
+                  metadata && typeof metadata === "object"
+                    ? (metadata as { presentationHtml?: string }).presentationHtml ?? null
+                    : null;
+              } catch (error) {
+                console.warn("[Trainers] Failed to parse trainer metadata:", error);
+              }
+            }
             return {
               ...trainer,
               bundleCount,
+              bundles,
+              presentationHtml,
             };
           })
         );

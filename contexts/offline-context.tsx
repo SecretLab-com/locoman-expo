@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { useAuthContext } from "@/contexts/auth-context";
+import { logEvent } from "@/lib/logger";
 import { offlineCache } from "@/lib/offline-cache";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 interface OfflineContextType {
   isOnline: boolean;
@@ -19,6 +21,7 @@ interface OfflineContextType {
 const OfflineContext = createContext<OfflineContextType | undefined>(undefined);
 
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
+  const { isImpersonating } = useAuthContext();
   const [isOnline, setIsOnline] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
@@ -50,9 +53,30 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = offlineCache.subscribeToNetworkChanges((connected) => {
       setIsOnline(connected);
       console.log(`[Offline] Network status changed: ${connected ? "online" : "offline"}`);
+      logEvent("network.status", { online: connected });
     });
     return unsubscribe;
   }, []);
+
+  // Recheck network status after impersonation toggles
+  useEffect(() => {
+    let isActive = true;
+    const refreshOnlineStatus = async () => {
+      try {
+        const online = await offlineCache.isOnline();
+        if (!isActive) return;
+        setIsOnline(online);
+        console.log(`[Offline] Network refresh after impersonation: ${online ? "online" : "offline"}`);
+        logEvent("network.status", { online, source: "impersonation" });
+      } catch (error) {
+        console.error("[Offline] Network refresh failed:", error);
+      }
+    };
+    refreshOnlineStatus();
+    return () => {
+      isActive = false;
+    };
+  }, [isImpersonating]);
 
   const syncData = useCallback(async () => {
     if (!isOnline) {

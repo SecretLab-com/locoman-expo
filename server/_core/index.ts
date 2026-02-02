@@ -4,6 +4,7 @@ import express from "express";
 import { createServer } from "http";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { logError, logEvent } from "./logger";
 import { registerOAuthRoutes } from "./oauth";
 import { setupWebSocket } from "./websocket";
 
@@ -54,11 +55,11 @@ async function startServer() {
   setupWebSocket(server);
 
   server.listen(preferredPort, () => {
-    console.log(`[api] server listening on port ${preferredPort}`);
-    console.log(`[ws] WebSocket server available at ws://localhost:${preferredPort}/ws`);
+    logEvent("server.started", { port: preferredPort });
+    logEvent("websocket.ready", { url: `ws://localhost:${preferredPort}/ws` });
   });
   server.on("error", (error) => {
-    console.error(`[api] Failed to start on port ${preferredPort}:`, error);
+    logError("server.start_failed", error, { port: preferredPort });
     process.exit(1);
   });
 }

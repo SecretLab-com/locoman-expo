@@ -1,3 +1,4 @@
+import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -7,13 +8,13 @@ import { useThemeContext } from "@/lib/theme-provider";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    ScrollView,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 const SPECIALTIES = [
@@ -29,6 +30,7 @@ const SPECIALTIES = [
 
 export default function SettingsScreen() {
   const colors = useColors();
+  const bottomNavHeight = useBottomNavHeight();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
   const { isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   
@@ -448,17 +450,20 @@ export default function SettingsScreen() {
         </View>
 
         {/* Bottom padding for save button */}
-        <View className="h-32" />
+        <View className="h-24" />
       </ScrollView>
 
       {/* Sticky Save Button */}
-      <View className="absolute bottom-0 left-0 right-0 p-4 bg-background border-t border-border">
+      <View
+        className="absolute left-0 right-0 px-4 py-3 bg-background border-t border-border"
+        style={{ bottom: -(bottomNavHeight - 12) }}
+      >
         <TouchableOpacity
           onPress={handleSave}
           disabled={isSaving}
-          className={`w-full py-4 rounded-xl items-center ${isSaving ? "bg-muted" : "bg-primary"}`}
+          className={`w-full py-3 rounded-xl items-center ${isSaving ? "bg-muted" : "bg-primary"}`}
         >
-          <Text className="text-white font-semibold text-lg">
+          <Text className="text-white font-semibold text-base">
             {isSaving ? "Saving..." : "Save Changes"}
           </Text>
         </TouchableOpacity>

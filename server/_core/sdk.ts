@@ -24,6 +24,62 @@ export type SessionPayload = {
   name: string;
 };
 
+const DEV_TEST_USERS = new Map(
+  [
+    [
+      "test_user_coordinator",
+      { name: "Test User", email: "testuser@secretlab.com", role: "coordinator" },
+    ],
+    [
+      "test_trainer_account",
+      { name: "Test Trainer", email: "trainer@secretlab.com", role: "trainer" },
+    ],
+    [
+      "test_client_account",
+      { name: "Test Client", email: "client@secretlab.com", role: "client" },
+    ],
+    [
+      "test_manager_account",
+      { name: "Test Manager", email: "manager@secretlab.com", role: "manager" },
+    ],
+    [
+      "test_coordinator_account",
+      {
+        name: "Test Coordinator",
+        email: "coordinator@secretlab.com",
+        role: "coordinator",
+      },
+    ],
+  ] as const,
+);
+
+const buildDevUser = (openId: string): User | null => {
+  const devUser = DEV_TEST_USERS.get(openId);
+  if (!devUser) return null;
+  const now = new Date();
+  return {
+    id: 0,
+    openId,
+    name: devUser.name,
+    email: devUser.email,
+    phone: null,
+    photoUrl: null,
+    loginMethod: "email",
+    role: devUser.role,
+    username: null,
+    bio: null,
+    specialties: null,
+    socialLinks: null,
+    trainerId: null,
+    active: true,
+    metadata: null,
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now,
+    passwordHash: null,
+  };
+};
+
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
@@ -137,6 +193,9 @@ class SDKServer {
 
   private getSessionSecret() {
     const secret = ENV.cookieSecret;
+    if (!secret && ENV.isProduction) {
+      throw new Error("JWT_SECRET is required in production");
+    }
     return new TextEncoder().encode(secret);
   }
 
@@ -182,7 +241,6 @@ class SDKServer {
     cookieValue: string | undefined | null,
   ): Promise<{ openId: string; appId: string; name: string } | null> {
     if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
       return null;
     }
 
@@ -253,10 +311,18 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
+    const devUser = !ENV.isProduction ? buildDevUser(sessionUserId) : null;
+    const dbInstance = await db.getDb();
+    if (!dbInstance && devUser) {
+      return devUser;
+    }
     let user = await db.getUserByOpenId(sessionUserId);
 
     // If user not in DB, sync from OAuth server automatically
     if (!user) {
+      if (devUser) {
+        return devUser;
+      }
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
         await db.upsertUser({

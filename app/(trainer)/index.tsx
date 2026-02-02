@@ -65,7 +65,7 @@ function QuickAction({ title, icon, onPress }: QuickActionProps) {
 
 export default function TrainerDashboardScreen() {
   const colors = useColors();
-  const { user, effectiveRole } = useAuthContext();
+  const { user, effectiveUser, effectiveRole } = useAuthContext();
   const roleBase =
     effectiveRole === "client"
       ? "/(client)"
@@ -163,7 +163,9 @@ export default function TrainerDashboardScreen() {
         <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
           <View>
             <Text className="text-2xl font-bold text-foreground">Dashboard</Text>
-            <Text className="text-sm text-muted">Welcome back, {user?.name || "Trainer"}!</Text>
+            <Text className="text-sm text-muted">
+              Welcome back, {effectiveUser?.name || user?.name || "Trainer"}!
+            </Text>
           </View>
           <TouchableOpacity
             onPress={() => router.push("/(trainer)/settings" as any)}

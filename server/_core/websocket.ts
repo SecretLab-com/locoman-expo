@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "http";
 import { Server } from "http";
 import { sdk } from "./sdk";
+import { logError, logEvent } from "./logger";
 
 const { WebSocketServer, WebSocket } = require("ws");
 
@@ -61,7 +62,7 @@ export function setupWebSocket(server: Server) {
       }
       clients.get(userId)!.add(ws);
 
-      console.log(`[WebSocket] User ${userId} connected`);
+      logEvent("websocket.connected", { userId });
 
       // Handle incoming messages
       ws.on("message", (data: Buffer) => {
@@ -69,7 +70,7 @@ export function setupWebSocket(server: Server) {
           const message = JSON.parse(data.toString());
           handleClientMessage(userId, message, ws);
         } catch (e) {
-          console.error("[WebSocket] Failed to parse message:", e);
+          logError("websocket.parse_failed", e, { userId });
         }
       });
 
@@ -82,7 +83,7 @@ export function setupWebSocket(server: Server) {
             clients.delete(userId);
           }
         }
-        console.log(`[WebSocket] User ${userId} disconnected`);
+        logEvent("websocket.disconnected", { userId });
       });
 
       // Send connection confirmation
@@ -93,7 +94,7 @@ export function setupWebSocket(server: Server) {
       const message = e?.message || "";
       const isMissingCookie = statusCode === 403 && message.toLowerCase().includes("session cookie");
       if (!isMissingCookie) {
-        console.error("[WebSocket] Authentication failed:", e);
+        logError("websocket.auth_failed", e);
       }
       ws.close(4001, "Invalid token");
     }

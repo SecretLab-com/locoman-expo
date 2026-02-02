@@ -1,21 +1,21 @@
-import { useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Image,
-  ActivityIndicator,
-  Linking,
-  Alert,
-} from "react-native";
-import { useLocalSearchParams, router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { ShareButton } from "@/components/share-button";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { useAuthContext } from "@/contexts/auth-context";
+import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    Linking,
+    ScrollView,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 // Specialty labels
 const SPECIALTY_LABELS: Record<string, string> = {
@@ -255,21 +255,21 @@ export default function TrainerProfileScreen() {
         )}
 
         {/* Action Buttons */}
-        <View className="px-6 mb-6 gap-3">
+        <View className="px-6 mb-6 gap-2">
           <TouchableOpacity
             onPress={handleJoinRequest}
             disabled={requestSent}
-            className={`py-4 rounded-xl items-center ${
+            className={`py-2.5 rounded-lg items-center ${
               requestSent ? "bg-success" : "bg-primary"
             }`}
           >
             <View className="flex-row items-center">
               <IconSymbol
                 name={requestSent ? "checkmark.circle.fill" : "person.badge.plus"}
-                size={20}
+                size={18}
                 color="#fff"
               />
-              <Text className="text-white font-semibold ml-2">
+              <Text className="text-white font-semibold ml-2 text-sm">
                 {requestSent ? "Request Sent" : "Request to Join"}
               </Text>
             </View>
@@ -277,11 +277,11 @@ export default function TrainerProfileScreen() {
 
           <TouchableOpacity
             onPress={handleMessage}
-            className="py-4 rounded-xl items-center bg-surface border border-border"
+            className="py-2.5 rounded-lg items-center bg-surface border border-border"
           >
             <View className="flex-row items-center">
-              <IconSymbol name="message.fill" size={20} color={colors.foreground} />
-              <Text className="text-foreground font-semibold ml-2">Message</Text>
+              <IconSymbol name="message.fill" size={18} color={colors.foreground} />
+              <Text className="text-foreground font-semibold ml-2 text-sm">Message</Text>
             </View>
           </TouchableOpacity>
         </View>

@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
-import { View, Text, Animated, StyleSheet } from "react-native";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useOffline } from "@/contexts/offline-context";
+import React, { useEffect, useRef } from "react";
+import { Animated, StyleSheet, Text, View } from "react-native";
 
 /**
  * Offline indicator banner that shows when the device is offline
@@ -8,6 +9,7 @@ import { useOffline } from "@/contexts/offline-context";
  */
 export function OfflineIndicator() {
   const { isOnline, isLoading } = useOffline();
+  const { isImpersonating } = useAuthContext();
   const slideAnim = useRef(new Animated.Value(-50)).current;
 
   useEffect(() => {
@@ -20,7 +22,7 @@ export function OfflineIndicator() {
     }).start();
   }, [isOnline, isLoading, slideAnim]);
 
-  if (isLoading) return null;
+  if (isLoading || isImpersonating) return null;
 
   return (
     <Animated.View

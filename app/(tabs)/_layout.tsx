@@ -1,4 +1,4 @@
-import { Slot } from "expo-router";
+import { Slot, usePathname } from "expo-router";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem, useBottomNavHeight } from "@/components/role-bottom-nav";
@@ -16,6 +16,8 @@ import { useAuthContext } from "@/contexts/auth-context";
  */
 export default function UnifiedTabLayout() {
   const navHeight = useBottomNavHeight();
+  const pathname = usePathname();
+  const disableBottomPadding = pathname.includes("/messages/") || pathname.includes("/conversation/");
   const { role, isTrainer } = useAuthContext();
   const isAdmin = role === "manager" || role === "coordinator";
   const showCart = !isAdmin && !isTrainer;
@@ -57,7 +59,7 @@ export default function UnifiedTabLayout() {
 
   return (
     <View className="flex-1 bg-background">
-      <View style={{ flex: 1, paddingBottom: navHeight }}>
+      <View style={{ flex: 1, paddingBottom: disableBottomPadding ? 0 : navHeight }}>
         <Slot />
       </View>
       <RoleBottomNav items={navItems} />

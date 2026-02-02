@@ -800,12 +800,15 @@ export default function ConversationScreen() {
 
       {/* Input Area */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
         keyboardVerticalOffset={0}
+        enabled={Platform.OS !== "web"}
       >
         <View 
           className="flex-row items-end px-4 py-3 bg-surface border-t border-border"
-          style={{ paddingBottom: Math.max(insets.bottom, 12) }}
+          style={{
+            paddingBottom: Platform.OS === "web" ? 12 : Math.max(insets.bottom, 12),
+          }}
         >
           {/* Attachment button */}
           <TouchableOpacity
@@ -821,6 +824,19 @@ export default function ConversationScreen() {
               placeholder="Type a message..."
               placeholderTextColor={colors.muted}
               selectionColor={colors.muted}
+              style={
+                Platform.OS === "web"
+                  ? ({
+                      outlineWidth: 0,
+                      outlineStyle: "solid",
+                      outlineColor: "transparent",
+                      boxShadow: "none",
+                      WebkitBoxShadow: "none",
+                      borderWidth: 0,
+                      WebkitTapHighlightColor: "transparent",
+                    } as any)
+                  : undefined
+              }
               value={messageText}
               onChangeText={handleTextChange}
               multiline

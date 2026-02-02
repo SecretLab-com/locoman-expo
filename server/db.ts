@@ -1298,3 +1298,26 @@ export async function getTrainerBundleCount(trainerId: number) {
   
   return result[0]?.count ?? 0;
 }
+
+export async function getPublishedBundlesPreviewByTrainer(trainerId: number, limit = 2) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: bundleDrafts.id,
+      title: bundleDrafts.title,
+      imageUrl: bundleDrafts.imageUrl,
+      price: bundleDrafts.price,
+      cadence: bundleDrafts.cadence,
+    })
+    .from(bundleDrafts)
+    .where(
+      and(
+        eq(bundleDrafts.trainerId, trainerId),
+        eq(bundleDrafts.status, "published"),
+      ),
+    )
+    .orderBy(desc(bundleDrafts.updatedAt))
+    .limit(limit);
+}

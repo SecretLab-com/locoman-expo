@@ -68,7 +68,7 @@ export default function ManagerApprovalsScreen() {
   const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
   const [comments, setComments] = useState("");
   const utils = trpc.useUtils();
-  const websocket = useWebSocket();
+  const { connect, disconnect, subscribe } = useWebSocket();
 
   // Use real API
   const { data: bundles = [], isLoading, refetch, isRefetching } = trpc.admin.pendingBundles.useQuery(
@@ -119,17 +119,17 @@ export default function ManagerApprovalsScreen() {
   }, [refetch]);
 
   useEffect(() => {
-    websocket.connect();
-    const unsubscribe = websocket.subscribe((message) => {
+    connect();
+    const unsubscribe = subscribe((message) => {
       if (message.type === "badge_counts_updated") {
         refetch();
       }
     });
     return () => {
       unsubscribe();
-      websocket.disconnect();
+      disconnect();
     };
-  }, [refetch, websocket]);
+  }, [refetch, connect, disconnect, subscribe]);
 
   const handleApprove = (bundle: Bundle) => {
     if (Platform.OS === "web") {

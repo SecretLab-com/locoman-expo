@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { Platform } from "react-native";
-import * as SecureStore from "expo-secure-store";
-import { COOKIE_NAME } from "@/shared/const";
 import { getApiBaseUrl } from "@/lib/api-config";
+import { COOKIE_NAME } from "@/shared/const";
+import * as SecureStore from "expo-secure-store";
+import { useCallback, useRef, useState } from "react";
+import { Platform } from "react-native";
 
 type WSMessage = 
   | { type: "connected"; userId: number }
@@ -16,19 +16,67 @@ type WSMessage =
 
 type MessageHandler = (message: WSMessage) => void;
 
+type WSConnection = {
+  ws: WebSocket | null;
+  isConnecting: boolean;
+  reconnectTimeout: ReturnType<typeof setTimeout> | null;
+  idleCloseTimeout: ReturnType<typeof setTimeout> | null;
+  handlers: Set<MessageHandler>;
+  refCount: number;
+  lastConnectAt: number;
+};
+
+const sharedConnection: WSConnection = {
+  ws: null,
+  isConnecting: false,
+  reconnectTimeout: null,
+  idleCloseTimeout: null,
+  handlers: new Set(),
+  refCount: 0,
+  lastConnectAt: 0,
+};
+
 export function useWebSocket() {
-  const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const handlersRef = useRef<Set<MessageHandler>>(new Set());
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localHandlerRef = useRef<MessageHandler | null>(null);
+  const hasRegisteredRef = useRef(false);
 
   const connect = useCallback(async () => {
+    if (!hasRegisteredRef.current) {
+      sharedConnection.refCount += 1;
+      hasRegisteredRef.current = true;
+    }
+    if (sharedConnection.idleCloseTimeout) {
+      clearTimeout(sharedConnection.idleCloseTimeout);
+      sharedConnection.idleCloseTimeout = null;
+    }
     try {
+      const now = Date.now();
+      if (sharedConnection.lastConnectAt && now - sharedConnection.lastConnectAt < 2000) {
+        console.error("[WebSocket] Rapid reconnect attempt", {
+          deltaMs: now - sharedConnection.lastConnectAt,
+          stack: new Error().stack,
+        });
+      }
+      sharedConnection.lastConnectAt = now;
+
+      if (sharedConnection.ws) {
+        const state = sharedConnection.ws.readyState;
+        if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+          return;
+        }
+      }
+      if (sharedConnection.isConnecting) {
+        return;
+      }
+      sharedConnection.isConnecting = true;
+
       // Get auth token
       const token = Platform.OS === "web" ? null : await SecureStore.getItemAsync(COOKIE_NAME);
       if (!token && Platform.OS !== "web") {
         console.log("[WebSocket] No auth token, skipping connection");
+        sharedConnection.isConnecting = false;
         return;
       }
 
@@ -47,12 +95,13 @@ export function useWebSocket() {
         console.log("[WebSocket] Connected");
         setIsConnected(true);
         setConnectionError(null);
+        sharedConnection.isConnecting = false;
       };
 
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as WSMessage;
-          handlersRef.current.forEach((handler) => handler(message));
+          sharedConnection.handlers.forEach((handler) => handler(message));
         } catch (e) {
           console.error("[WebSocket] Failed to parse message:", e);
         }
@@ -61,50 +110,76 @@ export function useWebSocket() {
       ws.onerror = (error) => {
         console.error("[WebSocket] Error:", error);
         setConnectionError("Connection error");
+        sharedConnection.isConnecting = false;
       };
 
       ws.onclose = (event) => {
         console.log("[WebSocket] Disconnected:", event.code, event.reason);
         setIsConnected(false);
-        wsRef.current = null;
+        sharedConnection.ws = null;
+        sharedConnection.isConnecting = false;
 
-        // Attempt reconnect after 5 seconds if not intentional close
+        // Skip reconnect on auth failure or intentional close
+        if (event.code === 4001) {
+          setConnectionError("Authentication required");
+          return;
+        }
         if (event.code !== 1000) {
-          reconnectTimeoutRef.current = setTimeout(() => {
+          sharedConnection.reconnectTimeout = setTimeout(() => {
             connect();
           }, 5000);
         }
       };
 
-      wsRef.current = ws;
+      sharedConnection.ws = ws;
     } catch (e) {
       console.error("[WebSocket] Connection failed:", e);
       setConnectionError("Failed to connect");
+      sharedConnection.isConnecting = false;
     }
   }, []);
 
   const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
+    if (hasRegisteredRef.current) {
+      sharedConnection.refCount = Math.max(0, sharedConnection.refCount - 1);
+      hasRegisteredRef.current = false;
     }
-    if (wsRef.current) {
-      wsRef.current.close(1000, "User disconnected");
-      wsRef.current = null;
+    if (sharedConnection.refCount > 0) {
+      return;
     }
-    setIsConnected(false);
+    if (!sharedConnection.idleCloseTimeout) {
+      sharedConnection.idleCloseTimeout = setTimeout(() => {
+        if (sharedConnection.refCount > 0) {
+          return;
+        }
+        if (sharedConnection.reconnectTimeout) {
+          clearTimeout(sharedConnection.reconnectTimeout);
+          sharedConnection.reconnectTimeout = null;
+        }
+        if (sharedConnection.ws) {
+          sharedConnection.ws.close(1000, "User disconnected");
+          sharedConnection.ws = null;
+        }
+        setIsConnected(false);
+        sharedConnection.idleCloseTimeout = null;
+      }, 2000);
+    }
   }, []);
 
   const send = useCallback((message: object) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
+    if (sharedConnection.ws && sharedConnection.ws.readyState === WebSocket.OPEN) {
+      sharedConnection.ws.send(JSON.stringify(message));
     }
   }, []);
 
   const subscribe = useCallback((handler: MessageHandler) => {
-    handlersRef.current.add(handler);
+    sharedConnection.handlers.add(handler);
+    localHandlerRef.current = handler;
     return () => {
-      handlersRef.current.delete(handler);
+      sharedConnection.handlers.delete(handler);
+      if (localHandlerRef.current === handler) {
+        localHandlerRef.current = null;
+      }
     };
   }, []);
 

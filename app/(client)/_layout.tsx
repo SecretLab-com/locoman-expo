@@ -1,4 +1,4 @@
-import { Slot } from "expo-router";
+import { Slot, usePathname } from "expo-router";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem, useBottomNavHeight } from "@/components/role-bottom-nav";
@@ -15,6 +15,8 @@ import { RoleBottomNav, type RoleNavItem, useBottomNavHeight } from "@/component
  */
 export default function ClientTabLayout() {
   const navHeight = useBottomNavHeight();
+  const pathname = usePathname();
+  const disableBottomPadding = pathname.includes("/messages/") || pathname.includes("/conversation/");
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(client)", testID: "tab-home" },
     { label: "Orders", icon: "bag.fill", href: "/(client)/orders", testID: "tab-orders" },
@@ -25,7 +27,7 @@ export default function ClientTabLayout() {
 
   return (
     <View className="flex-1 bg-background">
-      <View style={{ flex: 1, paddingBottom: navHeight }}>
+      <View style={{ flex: 1, paddingBottom: disableBottomPadding ? 0 : navHeight }}>
         <Slot />
       </View>
       <RoleBottomNav items={navItems} />

@@ -1,14 +1,16 @@
-import { Text, View, TouchableOpacity, ScrollView, Alert, Pressable, Platform } from "react-native";
-import { router } from "expo-router";
-import { navigateToHome } from "@/lib/navigation";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
-import { useColors } from "@/hooks/use-colors";
-import { useAuthContext } from "@/contexts/auth-context";
+import { RoleBottomNav, type RoleNavItem, useBottomNavHeight } from "@/components/role-bottom-nav";
+import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
+import { useBadgeContext } from "@/contexts/badge-context";
+import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { Alert, Platform, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 type MenuItemProps = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -91,8 +93,10 @@ function RoleBadge({ role }: { role: string }) {
 
 export default function SharedProfileScreen() {
   const colors = useColors();
+  const navHeight = useBottomNavHeight();
   const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, isCoordinator, effectiveRole } =
     useAuthContext();
+  const { counts } = useBadgeContext();
   const roleBase =
     effectiveRole === "client"
       ? "/(client)"
@@ -182,9 +186,76 @@ export default function SharedProfileScreen() {
 
   const dashboardInfo = getDashboardLabel();
 
-  if (!isAuthenticated) {
-    return (
-      <ScreenContainer className="items-center justify-center px-6">
+  const navItems: RoleNavItem[] = (() => {
+    if (effectiveRole === "manager") {
+      return [
+        { label: "Home", icon: "house.fill", href: "/(manager)", testID: "tab-home" },
+        {
+          label: "Approvals",
+          icon: "checkmark.circle.fill",
+          href: "/(manager)/approvals",
+          testID: "tab-approvals",
+          badge: counts.pendingApprovals,
+        },
+        { label: "Users", icon: "person.2.fill", href: "/(manager)/users", testID: "tab-users" },
+      ];
+    }
+    if (effectiveRole === "coordinator") {
+      return [
+        { label: "Home", icon: "house.fill", href: "/(coordinator)", testID: "tab-home" },
+        { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
+        { label: "Bundles", icon: "cube.box.fill", href: "/(coordinator)/bundles", testID: "tab-bundles" },
+        {
+          label: "Alerts",
+          icon: "exclamationmark.triangle.fill",
+          href: "/(coordinator)/alerts?section=alerts",
+          testID: "tab-alerts",
+        },
+        { label: "Messaging", icon: "message.fill", href: "/(coordinator)/messages", testID: "tab-messaging" },
+      ];
+    }
+    if (effectiveRole === "trainer") {
+      return [
+        { label: "Home", icon: "house.fill", href: "/(trainer)", testID: "tab-home" },
+        { label: "Clients", icon: "person.2.fill", href: "/(trainer)/clients", testID: "tab-clients" },
+        { label: "Pay", icon: "creditcard.fill", href: "/(trainer)/pay", testID: "tab-pay" },
+        { label: "Analytics", icon: "chart.bar.fill", href: "/(trainer)/analytics", testID: "tab-analytics" },
+        {
+          label: "Alerts",
+          icon: "exclamationmark.triangle.fill",
+          href: "/(trainer)/alerts",
+          testID: "tab-alerts",
+          badge: counts.pendingDeliveries,
+        },
+      ];
+    }
+
+    const roleName = effectiveRole ?? "shopper";
+    const showCart = !["trainer", "manager", "coordinator"].includes(String(roleName));
+    const items: RoleNavItem[] = [
+      { label: "Home", icon: "house.fill", href: "/(tabs)", testID: "tab-home" },
+      { label: "Products", icon: "cube.box.fill", href: "/(tabs)/products", testID: "tab-products" },
+      { label: "Trainers", icon: "person.2.fill", href: "/(tabs)/trainers", testID: "tab-trainers" },
+    ];
+    if (showCart) {
+      items.push({
+        label: "Cart",
+        icon: "cart.fill",
+        href: "/(tabs)/cart",
+        testID: "tab-cart",
+      });
+    }
+    items.push({
+      label: "Profile",
+      icon: "person.fill",
+      href: "/(tabs)/profile",
+      testID: "tab-profile",
+    });
+    return items;
+  })();
+
+  const content = !isAuthenticated ? (
+    <ScreenContainer className="items-center justify-center px-6">
         <View className="w-24 h-24 rounded-full bg-surface items-center justify-center mb-6">
           <IconSymbol name="person.fill" size={48} color={colors.muted} />
         </View>
@@ -204,10 +275,7 @@ export default function SharedProfileScreen() {
           <Text className="text-primary font-semibold">Create Account</Text>
         </TouchableOpacity>
       </ScreenContainer>
-    );
-  }
-
-  return (
+  ) : (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
         <NavigationHeader
@@ -440,5 +508,14 @@ export default function SharedProfileScreen() {
         </View>
       </ScrollView>
     </ScreenContainer>
+  );
+
+  return (
+    <View className="flex-1 bg-background">
+      <View style={{ flex: 1, paddingBottom: navHeight }}>
+        {content}
+      </View>
+      <RoleBottomNav items={navItems} />
+    </View>
   );
 }

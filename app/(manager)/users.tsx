@@ -82,7 +82,15 @@ export default function UsersScreen() {
   const colors = useColors();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { startImpersonation, isCoordinator, isAuthenticated, user: currentUser, effectiveRole } = useAuthContext();
+  const {
+    startImpersonation,
+    isCoordinator,
+    isAuthenticated,
+    loading: authLoading,
+    canManage,
+    user: currentUser,
+    effectiveRole,
+  } = useAuthContext();
   const roleBase =
     effectiveRole === "client"
       ? "/(client)"
@@ -141,9 +149,45 @@ export default function UsersScreen() {
       joinedBefore: joinedBefore || undefined,
     },
     {
-      enabled: isAuthenticated,
+      enabled: isAuthenticated && canManage,
     }
   );
+
+  useEffect(() => {
+    if (usersQuery.isSuccess) {
+      console.log("[Users] usersWithFilters success", {
+        count: usersQuery.data?.users?.length ?? 0,
+        total: usersQuery.data?.total ?? 0,
+      });
+    }
+    if (usersQuery.isError) {
+      console.error("[Users] usersWithFilters error", usersQuery.error);
+      console.log("[Users] usersWithFilters input", {
+        limit: PAGE_SIZE,
+        offset,
+        role: selectedRole === "all" ? undefined : selectedRole,
+        status: selectedStatus === "all" ? undefined : selectedStatus,
+        search: searchQuery || undefined,
+        joinedAfter: joinedAfter || undefined,
+        joinedBefore: joinedBefore || undefined,
+        isAuthenticated,
+        canManage,
+      });
+    }
+  }, [
+    usersQuery.isSuccess,
+    usersQuery.isError,
+    usersQuery.data,
+    usersQuery.error,
+    offset,
+    selectedRole,
+    selectedStatus,
+    searchQuery,
+    joinedAfter,
+    joinedBefore,
+    isAuthenticated,
+    canManage,
+  ]);
   
   // tRPC query for pending invitations
   const invitationsQuery = trpc.admin.getUserInvitations.useQuery(
@@ -152,7 +196,7 @@ export default function UsersScreen() {
       status: "pending",
     },
     {
-      enabled: isAuthenticated,
+      enabled: isAuthenticated && canManage,
     }
   );
 
@@ -632,10 +676,56 @@ export default function UsersScreen() {
     router.replace("/(manager)" as any);
   };
 
+  if (authLoading) {
+    return (
+      <ScreenContainer className="items-center justify-center px-6">
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-3">Loading your account...</Text>
+      </ScreenContainer>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <ScreenContainer className="items-center justify-center px-6">
+        <View className="w-20 h-20 rounded-full bg-surface items-center justify-center mb-5">
+          <IconSymbol name="person.fill" size={36} color={colors.muted} />
+        </View>
+        <Text className="text-xl font-semibold text-foreground">Sign in required</Text>
+        <Text className="text-muted text-center mt-2 mb-6">
+          Please sign in to view and manage users.
+        </Text>
+        <TouchableOpacity
+          className="bg-primary px-8 py-3 rounded-full"
+          onPress={() => router.push("/login")}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in"
+          testID="users-sign-in"
+        >
+          <Text className="text-background font-semibold text-lg">Sign In</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
+
+  if (!canManage) {
+    return (
+      <ScreenContainer className="items-center justify-center px-6">
+        <View className="w-20 h-20 rounded-full bg-surface items-center justify-center mb-5">
+          <IconSymbol name="lock.fill" size={36} color={colors.muted} />
+        </View>
+        <Text className="text-xl font-semibold text-foreground">Manager access required</Text>
+        <Text className="text-muted text-center mt-2">
+          You don't have permission to view this page.
+        </Text>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header with Export Button */}
-      <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
+      <View className="px-4 pt-2 pb-4 flex-row items-center justify-between" style={{ paddingRight: 56 }}>
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={handleBack}
@@ -659,6 +749,9 @@ export default function UsersScreen() {
               <TouchableOpacity
                 onPress={exitSelectionMode}
                 style={[styles.headerButton, { backgroundColor: colors.surface }]}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel selection"
+                testID="users-cancel-selection"
               >
                 <Text style={{ color: colors.foreground }}>Cancel</Text>
               </TouchableOpacity>
@@ -672,6 +765,9 @@ export default function UsersScreen() {
                     opacity: selectedUserIds.size === 0 ? 0.5 : 1,
                   },
                 ]}
+                accessibilityRole="button"
+                accessibilityLabel="Bulk actions"
+                testID="users-bulk-actions"
               >
                 <Text style={{ color: "#fff" }}>
                   Actions ({selectedUserIds.size})
@@ -683,6 +779,9 @@ export default function UsersScreen() {
               <TouchableOpacity
                 onPress={() => setInviteModalVisible(true)}
                 style={[styles.headerButton, { backgroundColor: colors.primary }]}
+                accessibilityRole="button"
+                accessibilityLabel="Invite user"
+                testID="users-invite"
               >
                 <IconSymbol name="plus" size={16} color="#fff" />
                 <Text style={{ color: "#fff", marginLeft: 4 }}>Invite</Text>
@@ -690,6 +789,9 @@ export default function UsersScreen() {
               <TouchableOpacity
                 onPress={() => setSelectionMode(true)}
                 style={[styles.headerButton, { backgroundColor: colors.surface }]}
+                accessibilityRole="button"
+                accessibilityLabel="Select users"
+                testID="users-select"
               >
                 <IconSymbol name="checkmark.circle.fill" size={16} color={colors.foreground} />
               </TouchableOpacity>
@@ -700,6 +802,9 @@ export default function UsersScreen() {
                   styles.headerButton,
                   { backgroundColor: colors.surface, opacity: exporting ? 0.6 : 1 },
                 ]}
+                accessibilityRole="button"
+                accessibilityLabel="Export users"
+                testID="users-export"
               >
                 {exporting ? (
                   <ActivityIndicator size="small" color={colors.foreground} />

@@ -1,17 +1,30 @@
-import { usePathname } from "expo-router";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem, useBottomNavHeight } from "@/components/role-bottom-nav";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useBadgeContext } from "@/contexts/badge-context";
-import MessagesScreen from "../(tabs)/messages";
 
-export default function MessagesIndexScreen() {
+import ClientSettings from "../(client)/settings";
+import CoordinatorSettings from "../(coordinator)/settings";
+import ManagerSettings from "../(manager)/settings";
+import TabsSettings from "../(tabs)/settings";
+import TrainerSettings from "../(trainer)/settings";
+
+export default function SettingsIndexScreen() {
   const navHeight = useBottomNavHeight();
-  const pathname = usePathname();
-  const disableBottomPadding = pathname.includes("/messages/") || pathname.includes("/conversation/");
   const { effectiveRole } = useAuthContext();
   const { counts } = useBadgeContext();
+
+  const SettingsScreen =
+    effectiveRole === "trainer"
+      ? TrainerSettings
+      : effectiveRole === "manager"
+        ? ManagerSettings
+        : effectiveRole === "coordinator"
+          ? CoordinatorSettings
+          : effectiveRole === "client"
+            ? ClientSettings
+            : TabsSettings;
 
   const navItems: RoleNavItem[] = (() => {
     if (effectiveRole === "manager") {
@@ -57,8 +70,8 @@ export default function MessagesIndexScreen() {
       ];
     }
 
-    const role = effectiveRole ?? "shopper";
-    const showCart = !["trainer", "manager", "coordinator"].includes(String(role));
+    const roleName = effectiveRole ?? "shopper";
+    const showCart = !["trainer", "manager", "coordinator"].includes(String(roleName));
     const items: RoleNavItem[] = [
       { label: "Home", icon: "house.fill", href: "/(tabs)", testID: "tab-home" },
       { label: "Products", icon: "cube.box.fill", href: "/(tabs)/products", testID: "tab-products" },
@@ -83,8 +96,8 @@ export default function MessagesIndexScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <View style={{ flex: 1, paddingBottom: disableBottomPadding ? 0 : navHeight }}>
-        <MessagesScreen />
+      <View style={{ flex: 1, paddingBottom: navHeight }}>
+        <SettingsScreen />
       </View>
       <RoleBottomNav items={navItems} />
     </View>

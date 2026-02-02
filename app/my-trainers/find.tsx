@@ -1,14 +1,15 @@
-import { useState } from "react";
-import { Text, View, TouchableOpacity, FlatList, TextInput, Alert, Platform, RefreshControl, ActivityIndicator } from "react-native";
-import { router } from "expo-router";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
-import { navigateToHome } from "@/lib/navigation";
-import { useColors } from "@/hooks/use-colors";
+import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { useState } from "react";
+import RenderHTML from "react-native-render-html";
+import { ActivityIndicator, Alert, FlatList, Platform, RefreshControl, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 type DiscoverableTrainer = {
   id: number;
@@ -17,6 +18,14 @@ type DiscoverableTrainer = {
   specialties: string[] | null;
   bio: string | null;
   bundleCount: number;
+  presentationHtml?: string | null;
+  bundles?: Array<{
+    id: number;
+    title: string;
+    imageUrl: string | null;
+    price: string | null;
+    cadence: "one_time" | "weekly" | "monthly" | null;
+  }>;
 };
 
 const SPECIALTIES = [
@@ -31,6 +40,51 @@ const SPECIALTIES = [
   "Flexibility",
 ];
 
+const ALLOWED_DESCRIPTION_TAGS = [
+  "p",
+  "strong",
+  "b",
+  "em",
+  "i",
+  "ul",
+  "ol",
+  "li",
+  "br",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+];
+
+const sanitizeDescriptionHtml = (html: string) => {
+  let sanitized = html;
+  sanitized = sanitized.replace(
+    /<\s*(script|style|iframe|object|embed|link|meta)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+    "",
+  );
+  sanitized = sanitized.replace(
+    /<\s*(script|style|iframe|object|embed|link|meta)[^>]*\/\s*>/gi,
+    "",
+  );
+  sanitized = sanitized.replace(/\son\w+="[^"]*"/gi, "");
+  sanitized = sanitized.replace(/\son\w+='[^']*'/gi, "");
+  sanitized = sanitized.replace(/\sstyle="[^"]*"/gi, "");
+  sanitized = sanitized.replace(/\sstyle='[^']*'/gi, "");
+  sanitized = sanitized.replace(/<(\/?)(\w+)([^>]*)>/g, (match, slash, tag) => {
+    const lowerTag = String(tag).toLowerCase();
+    if (!ALLOWED_DESCRIPTION_TAGS.includes(lowerTag)) {
+      return "";
+    }
+    if (!slash && lowerTag === "br") {
+      return "<br/>";
+    }
+    return `<${slash}${lowerTag}>`;
+  });
+  return sanitized;
+};
+
 function TrainerDiscoveryCard({ 
   trainer, 
   onPress, 
@@ -43,16 +97,22 @@ function TrainerDiscoveryCard({
   isRequesting: boolean;
 }) {
   const colors = useColors();
+  const { width } = useWindowDimensions();
 
   const specialty = Array.isArray(trainer.specialties) && trainer.specialties.length > 0
     ? trainer.specialties[0]
     : "Personal Training";
+
+  const descriptionHtml = trainer.presentationHtml || trainer.bio;
 
   return (
     <TouchableOpacity
       className="bg-surface rounded-xl border border-border overflow-hidden mb-3"
       onPress={onPress}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`View ${trainer.name || "trainer"} profile`}
+      testID={`trainer-card-${trainer.id}`}
     >
       <View className="p-4">
         <View className="flex-row items-start">
@@ -66,10 +126,49 @@ function TrainerDiscoveryCard({
               {trainer.name || "Trainer"}
             </Text>
             <Text className="text-sm text-primary mt-0.5">{specialty}</Text>
-            {trainer.bio && (
-              <Text className="text-sm text-muted mt-1" numberOfLines={2}>
-                {trainer.bio}
-              </Text>
+            {descriptionHtml && (
+              <View style={{ maxHeight: 64, overflow: "hidden" }}>
+                <RenderHTML
+                  contentWidth={Math.max(0, width - 64)}
+                  source={{ html: sanitizeDescriptionHtml(descriptionHtml) }}
+                  tagsStyles={{
+                    p: { color: colors.muted, lineHeight: 18, marginTop: 0, marginBottom: 6 },
+                    h1: { color: colors.foreground, fontSize: 16, fontWeight: "600", marginBottom: 6 },
+                    h2: { color: colors.foreground, fontSize: 15, fontWeight: "600", marginBottom: 6 },
+                    h3: { color: colors.foreground, fontSize: 14, fontWeight: "600", marginBottom: 6 },
+                    h4: { color: colors.foreground, fontSize: 13, fontWeight: "600", marginBottom: 6 },
+                    h5: { color: colors.foreground, fontSize: 12, fontWeight: "600", marginBottom: 6 },
+                    h6: { color: colors.foreground, fontSize: 11, fontWeight: "600", marginBottom: 6 },
+                    strong: { color: colors.foreground, fontWeight: "600" },
+                    b: { color: colors.foreground, fontWeight: "600" },
+                    em: { fontStyle: "italic" },
+                    i: { fontStyle: "italic" },
+                    ul: { color: colors.muted, marginBottom: 6, paddingLeft: 16 },
+                    ol: { color: colors.muted, marginBottom: 6, paddingLeft: 16 },
+                    li: { color: colors.muted, marginBottom: 4 },
+                  }}
+                />
+              </View>
+            )}
+            {trainer.bundles && trainer.bundles.length > 0 ? (
+              <View className="flex-row flex-wrap mt-2 gap-2">
+                {trainer.bundles.map((bundle) => (
+                  <View key={bundle.id} className="flex-row items-center bg-background border border-border rounded-lg px-2 py-1 max-w-[160px]">
+                    <View className="w-6 h-6 rounded-md bg-surface items-center justify-center overflow-hidden mr-2">
+                      {bundle.imageUrl ? (
+                        <Image source={{ uri: bundle.imageUrl }} className="w-6 h-6" contentFit="cover" />
+                      ) : (
+                        <IconSymbol name="cube.box" size={14} color={colors.muted} />
+                      )}
+                    </View>
+                    <Text className="text-xs text-foreground" numberOfLines={1}>
+                      {bundle.title}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text className="text-xs text-muted mt-2">No bundles yet</Text>
             )}
             <View className="flex-row items-center mt-2">
               <IconSymbol name="cube.box.fill" size={14} color={colors.muted} />
@@ -80,21 +179,17 @@ function TrainerDiscoveryCard({
           </View>
         </View>
 
-        {/* Action buttons */}
-        <View className="flex-row mt-4 gap-2">
+        {/* Action button */}
+        <View className="mt-4 items-start">
           <TouchableOpacity
-            className="flex-1 bg-surface border border-border py-2.5 rounded-lg flex-row items-center justify-center"
-            onPress={onPress}
-            activeOpacity={0.7}
-          >
-            <IconSymbol name="person.fill" size={16} color={colors.foreground} />
-            <Text className="text-foreground font-medium ml-2">View Profile</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            className="flex-1 bg-primary py-2.5 rounded-lg flex-row items-center justify-center"
+            className="bg-primary py-2.5 rounded-lg flex-row items-center justify-center px-4"
             onPress={onRequestJoin}
             activeOpacity={0.7}
             disabled={isRequesting}
+            accessibilityRole="button"
+            accessibilityLabel={`Request to join ${trainer.name || "this trainer"}`}
+            testID={`trainer-request-${trainer.id}`}
+            style={{ maxWidth: 220 }}
           >
             {isRequesting ? (
               <ActivityIndicator size="small" color={colors.background} />

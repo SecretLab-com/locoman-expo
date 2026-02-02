@@ -1,5 +1,6 @@
 import { useAuth } from "@/hooks/use-auth";
 import * as Auth from "@/lib/_core/auth";
+import { logError, logEvent } from "@/lib/logger";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
 
@@ -43,9 +44,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const saved = await AsyncStorage.getItem(IMPERSONATION_KEY);
         if (saved) {
           setImpersonatedUser(JSON.parse(saved));
+          logEvent("impersonation.restore");
         }
       } catch (error) {
-        console.error("[Auth] Failed to load impersonation state:", error);
+        logError("impersonation.restore_failed", error);
       }
     }
     loadImpersonation();
@@ -62,11 +64,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const startImpersonation = useCallback((user: Auth.User) => {
     setImpersonatedUser(user);
     AsyncStorage.setItem(IMPERSONATION_KEY, JSON.stringify(user));
+    logEvent("impersonation.start", { userId: user.id, role: user.role });
   }, []);
 
   const stopImpersonation = useCallback(() => {
     setImpersonatedUser(null);
     AsyncStorage.removeItem(IMPERSONATION_KEY);
+    logEvent("impersonation.stop");
   }, []);
 
   // Determine effective user (impersonated or real)

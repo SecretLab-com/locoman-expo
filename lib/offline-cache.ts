@@ -1,5 +1,7 @@
+import { getApiBaseUrl } from "@/lib/api-config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
+import { Platform } from "react-native";
 
 // Cache keys
 const CACHE_KEYS = {
@@ -20,6 +22,36 @@ interface CacheEntry<T> {
 }
 
 const CACHE_VERSION = 1;
+const WEB_HEALTH_TTL_MS = 5000;
+let lastWebHealthCheckAt = 0;
+let lastWebHealthResult: boolean | null = null;
+
+const getHealthUrl = () => {
+  const baseUrl = getApiBaseUrl() || process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000";
+  return `${baseUrl.replace(/\/$/, "")}/api/health`;
+};
+
+const checkWebReachability = async (force = false): Promise<boolean> => {
+  if (Platform.OS !== "web") return true;
+  const now = Date.now();
+  if (!force && lastWebHealthResult !== null && now - lastWebHealthCheckAt < WEB_HEALTH_TTL_MS) {
+    return lastWebHealthResult;
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2000);
+  try {
+    const response = await fetch(getHealthUrl(), { method: "GET", signal: controller.signal });
+    lastWebHealthResult = response.ok;
+    lastWebHealthCheckAt = now;
+    return response.ok;
+  } catch {
+    lastWebHealthResult = false;
+    lastWebHealthCheckAt = now;
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
 
 /**
  * Offline caching service for the app
@@ -31,8 +63,20 @@ export const offlineCache = {
    */
   async isOnline(): Promise<boolean> {
     try {
+      if (Platform.OS === "web") {
+        const browserOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
+        if (!browserOnline) {
+          return await checkWebReachability(true);
+        }
+        return await checkWebReachability();
+      }
       const state = await NetInfo.fetch();
-      return state.isConnected ?? false;
+      const isConnected = state.isConnected;
+      const isReachable = state.isInternetReachable;
+      if (isConnected === false || isReachable === false) {
+        return false;
+      }
+      return true;
     } catch {
       return true; // Assume online if check fails
     }
@@ -42,8 +86,35 @@ export const offlineCache = {
    * Subscribe to network state changes
    */
   subscribeToNetworkChanges(callback: (isConnected: boolean) => void): () => void {
+    if (Platform.OS === "web") {
+      let isActive = true;
+      const emit = async (force = false) => {
+        if (!isActive) return;
+        const online = await checkWebReachability(force);
+        callback(online);
+      };
+      const handleOnline = () => void emit(true);
+      const handleOffline = () => void emit(true);
+      if (typeof window !== "undefined") {
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+      }
+      const intervalId = setInterval(() => void emit(false), 15000);
+      void emit(true);
+      return () => {
+        isActive = false;
+        clearInterval(intervalId);
+        if (typeof window !== "undefined") {
+          window.removeEventListener("online", handleOnline);
+          window.removeEventListener("offline", handleOffline);
+        }
+      };
+    }
     return NetInfo.addEventListener((state: NetInfoState) => {
-      callback(state.isConnected ?? false);
+      const isConnected = state.isConnected;
+      const isReachable = state.isInternetReachable;
+      const online = !(isConnected === false || isReachable === false);
+      callback(online);
     });
   },
 

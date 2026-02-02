@@ -1,6 +1,7 @@
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { logError, logEvent } from "@/lib/logger";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 
 type UseAuthOptions = {
@@ -46,6 +47,7 @@ export function useAuth(options?: UseAuthOptions) {
   const [user, setUser] = useState<Auth.User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const prevUserIdRef = useRef<number | null>(null);
 
   const fetchUser = useCallback(async () => {
     console.log("[useAuth] fetchUser called");
@@ -67,14 +69,8 @@ export function useAuth(options?: UseAuthOptions) {
           console.log("[useAuth] Web user set from API:", userInfo);
         } else {
           console.log("[useAuth] Web: No authenticated user from API");
-          const cachedUser = await Auth.getUserInfo();
-          if (cachedUser) {
-            console.log("[useAuth] Web: Using cached user info as fallback");
-            setUser(cachedUser);
-          } else {
-            setUser(null);
-            await Auth.clearUserInfo();
-          }
+          setUser(null);
+          await Auth.clearUserInfo();
         }
         return;
       }
@@ -105,18 +101,13 @@ export function useAuth(options?: UseAuthOptions) {
     } catch (err) {
       const error = err instanceof Error ? err : new Error("Failed to fetch user");
       console.error("[useAuth] fetchUser error:", error);
+      logError("auth.fetch_failed", error);
       setError(error);
       if (Platform.OS === "web") {
-        const cachedUser = await Auth.getUserInfo();
-        if (cachedUser) {
-          console.log("[useAuth] Web: Using cached user info after error");
-          setUser(cachedUser);
-        } else {
-          setUser(null);
-        }
-      } else {
-        setUser(null);
+        console.log("[useAuth] Web: Clearing cached user after error");
+        await Auth.clearUserInfo();
       }
+      setUser(null);
     } finally {
       setLoading(false);
       console.log("[useAuth] fetchUser completed, loading:", false);
@@ -126,8 +117,10 @@ export function useAuth(options?: UseAuthOptions) {
   const logout = useCallback(async () => {
     try {
       await Api.logout();
+      logEvent("auth.logout");
     } catch (err) {
       console.error("[Auth] Logout API call failed:", err);
+      logError("auth.logout_failed", err);
       // Continue with logout even if API call fails
     } finally {
       await Auth.removeSessionToken();
@@ -182,6 +175,16 @@ export function useAuth(options?: UseAuthOptions) {
       error: error?.message,
     });
   }, [user, loading, isAuthenticated, error]);
+
+  useEffect(() => {
+    const prevUserId = prevUserIdRef.current;
+    if (user && user.id !== prevUserId) {
+      logEvent("auth.signed_in", { userId: user.id, role: user.role });
+    } else if (!user && prevUserId !== null) {
+      logEvent("auth.signed_out");
+    }
+    prevUserIdRef.current = user?.id ?? null;
+  }, [user]);
 
   return {
     user,

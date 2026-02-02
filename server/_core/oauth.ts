@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const.js";
 import { getUserByOpenId, upsertUser } from "../db";
 import { getSessionCookieOptions } from "./cookies";
+import { logError, logEvent, logWarn } from "./logger";
 import { sdk } from "./sdk";
 
 function getQueryParam(req: Request, key: string): string | undefined {
@@ -71,6 +72,7 @@ export function registerOAuthRoutes(app: Express) {
     const state = getQueryParam(req, "state");
 
     if (!code || !state) {
+      logWarn("auth.oauth_callback_missing_params");
       res.status(400).json({ error: "code and state are required" });
       return;
     }
@@ -78,11 +80,12 @@ export function registerOAuthRoutes(app: Express) {
     try {
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
-      await syncUser(userInfo);
+      const savedUser = await syncUser(userInfo);
       const sessionToken = await sdk.createSessionToken(userInfo.openId!, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
       });
+      logEvent("auth.oauth_callback_success", { openId: userInfo.openId, role: (savedUser as any)?.role });
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
@@ -95,7 +98,7 @@ export function registerOAuthRoutes(app: Express) {
         "http://localhost:8081";
       res.redirect(302, frontendUrl);
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
+      logError("auth.oauth_callback_failed", error);
       res.status(500).json({ error: "OAuth callback failed" });
     }
   });
@@ -105,6 +108,7 @@ export function registerOAuthRoutes(app: Express) {
     const state = getQueryParam(req, "state");
 
     if (!code || !state) {
+      logWarn("auth.oauth_mobile_missing_params");
       res.status(400).json({ error: "code and state are required" });
       return;
     }
@@ -118,6 +122,7 @@ export function registerOAuthRoutes(app: Express) {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
       });
+      logEvent("auth.oauth_mobile_success", { openId: userInfo.openId, role: (user as any)?.role });
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
@@ -127,7 +132,7 @@ export function registerOAuthRoutes(app: Express) {
         user: buildUserResponse(user),
       });
     } catch (error) {
-      console.error("[OAuth] Mobile exchange failed", error);
+      logError("auth.oauth_mobile_failed", error);
       res.status(500).json({ error: "OAuth mobile exchange failed" });
     }
   });
@@ -135,6 +140,7 @@ export function registerOAuthRoutes(app: Express) {
   app.post("/api/auth/logout", (req: Request, res: Response) => {
     const cookieOptions = getSessionCookieOptions(req);
     res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    logEvent("auth.logout");
     res.json({ success: true });
   });
 
@@ -160,7 +166,7 @@ export function registerOAuthRoutes(app: Express) {
         res.json({ user: null });
         return;
       }
-      console.error("[Auth] /api/auth/me failed:", error);
+      logError("auth.me_failed", error);
       res.status(401).json({ error: "Not authenticated", user: null });
     }
   });
@@ -192,6 +198,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(testOpenId);
+        logEvent("auth.login_success", { role: "coordinator", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || testUser), sessionToken });
         return;
       }
@@ -217,6 +224,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(trainerOpenId);
+        logEvent("auth.login_success", { role: "trainer", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || trainerUser), sessionToken });
         return;
       }
@@ -242,6 +250,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(clientOpenId);
+        logEvent("auth.login_success", { role: "client", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || clientUser), sessionToken });
         return;
       }
@@ -267,6 +276,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(managerOpenId);
+        logEvent("auth.login_success", { role: "manager", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || managerUser), sessionToken });
         return;
       }
@@ -292,6 +302,7 @@ export function registerOAuthRoutes(app: Express) {
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
         
         const savedUser = await getUserByOpenId(coordinatorOpenId);
+        logEvent("auth.login_success", { role: "coordinator", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || coordinatorUser), sessionToken });
         return;
       }
@@ -324,10 +335,11 @@ export function registerOAuthRoutes(app: Express) {
       // Set cookie for this domain (3000-xxx)
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      logEvent("auth.session_set", { userId: (user as any)?.id, role: (user as any)?.role });
 
       res.json({ success: true, user: buildUserResponse(user) });
     } catch (error) {
-      console.error("[Auth] /api/auth/session failed:", error);
+      logError("auth.session_failed", error);
       res.status(401).json({ error: "Invalid token" });
     }
   });

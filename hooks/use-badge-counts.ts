@@ -24,7 +24,7 @@ export function useBadgeCounts() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const websocket = useWebSocket();
+  const { connect, disconnect, subscribe } = useWebSocket();
 
   // Fetch pending deliveries count for trainers
   const trainerDeliveriesQuery = trpc.deliveries.pending.useQuery(
@@ -98,17 +98,17 @@ export function useBadgeCounts() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    websocket.connect();
-    const unsubscribe = websocket.subscribe((message) => {
+    connect();
+    const unsubscribe = subscribe((message) => {
       if (message.type === "badge_counts_updated") {
         refetch();
       }
     });
     return () => {
       unsubscribe();
-      websocket.disconnect();
+      disconnect();
     };
-  }, [isAuthenticated, refetch, websocket]);
+  }, [isAuthenticated, refetch, connect, disconnect, subscribe]);
 
   return {
     counts,
