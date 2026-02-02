@@ -1,6 +1,6 @@
-import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
+import { getApiBaseUrl } from "@/lib/api-config";
 
 // Extract scheme from bundle ID (last segment timestamp, prefixed with "manus")
 // e.g., "space.manus.my.app.t20240115103045" -> "manus20240115103045"
@@ -8,17 +8,12 @@ const bundleId = "space.manus.locoman.expo.t20260125130603";
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
 const schemeFromBundleId = `manus${timestamp}`;
 
-// HARDCODED FALLBACK: Public API URL for Expo Go on physical devices
-// This is needed because environment variables don't work reliably on native
-const NATIVE_API_FALLBACK_URL = "https://3002-i4anndi9mla842misgiwl-a70979ba.sg1.manus.computer";
-
 const env = {
   portal: process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "",
   server: process.env.EXPO_PUBLIC_OAUTH_SERVER_URL ?? "",
   appId: process.env.EXPO_PUBLIC_APP_ID ?? "",
   ownerId: process.env.EXPO_PUBLIC_OWNER_OPEN_ID ?? "",
   ownerName: process.env.EXPO_PUBLIC_OWNER_NAME ?? "",
-  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? "",
   deepLinkScheme: schemeFromBundleId,
 };
 
@@ -27,65 +22,9 @@ export const OAUTH_SERVER_URL = env.server;
 export const APP_ID = env.appId;
 export const OWNER_OPEN_ID = env.ownerId;
 export const OWNER_NAME = env.ownerName;
-export const API_BASE_URL = env.apiBaseUrl;
 
-/**
- * Get the API base URL.
- * Priority:
- * 1. EXPO_PUBLIC_API_BASE_URL environment variable (if not localhost on native)
- * 2. Expo Constants extra.apiBaseUrl (for native builds)
- * 3. On web: derive from current hostname (8081 -> 3002)
- * 4. On native: use hardcoded fallback URL
- * 5. Fallback: empty string (relative URL - only works on web)
- */
-export function getApiBaseUrl(): string {
-  const isNative = ReactNative.Platform.OS !== "web";
-  
-  // 1. Check environment variable first (but skip localhost on native)
-  if (API_BASE_URL) {
-    const isLocalhost = /localhost|127\.0\.0\.1/.test(API_BASE_URL);
-    if (!isNative || !isLocalhost) {
-      const url = API_BASE_URL.replace(/\/$/, "");
-      console.log("[getApiBaseUrl] Using env var:", url);
-      return url;
-    }
-    console.log("[getApiBaseUrl] Skipping localhost env var on native");
-  }
-
-  // 2. Check Expo Constants extra (bundled at build time)
-  const extraApiUrl = Constants.expoConfig?.extra?.apiBaseUrl;
-  if (extraApiUrl) {
-    const isLocalhost = /localhost|127\.0\.0\.1/.test(extraApiUrl);
-    if (!isNative || !isLocalhost) {
-      const url = extraApiUrl.replace(/\/$/, "");
-      console.log("[getApiBaseUrl] Using Expo extra:", url);
-      return url;
-    }
-    console.log("[getApiBaseUrl] Skipping localhost Expo extra on native");
-  }
-
-  // 3. On web, derive from current hostname by replacing port 8081 with 3002
-  if (!isNative && typeof window !== "undefined" && window.location) {
-    const { protocol, hostname } = window.location;
-    // Pattern: 8081-sandboxid.region.domain -> 3002-sandboxid.region.domain
-    const apiHostname = hostname.replace(/^8081-/, "3002-");
-    if (apiHostname !== hostname) {
-      const url = `${protocol}//${apiHostname}`;
-      console.log("[getApiBaseUrl] Derived from web hostname:", url);
-      return url;
-    }
-  }
-
-  // 4. On native, use hardcoded fallback URL
-  if (isNative) {
-    console.log("[getApiBaseUrl] Using native fallback URL:", NATIVE_API_FALLBACK_URL);
-    return NATIVE_API_FALLBACK_URL;
-  }
-
-  // 5. Fallback to empty (will use relative URL - only works on web)
-  console.log("[getApiBaseUrl] Fallback to empty string");
-  return "";
-}
+// Re-export getApiBaseUrl for backward compatibility
+export { getApiBaseUrl };
 
 export const SESSION_TOKEN_KEY = "app_session_token";
 export const USER_INFO_KEY = "manus-runtime-user-info";

@@ -2,7 +2,7 @@ import { createTRPCReact } from "@trpc/react-query";
 import { httpBatchLink } from "@trpc/client";
 import superjson from "superjson";
 import type { AppRouter } from "@/server/routers";
-import { getApiBaseUrl } from "@/constants/oauth";
+import { getApiBaseUrl, getTrpcUrl } from "@/lib/api-config";
 import * as Auth from "@/lib/_core/auth";
 
 /**
@@ -19,11 +19,9 @@ export const trpc = createTRPCReact<AppRouter>();
  * Call this once in your app's root layout.
  */
 export function createTRPCClient() {
-  const apiBaseUrl = getApiBaseUrl();
-  const trpcUrl = `${apiBaseUrl}/api/trpc`;
+  const trpcUrl = getTrpcUrl();
   
   // Debug logging to help diagnose connection issues
-  console.log("[tRPC] API Base URL:", apiBaseUrl || "(empty - using relative URL)");
   console.log("[tRPC] Full tRPC URL:", trpcUrl);
   
   return trpc.createClient({
@@ -51,3 +49,6 @@ export function createTRPCClient() {
     ],
   });
 }
+
+// Re-export getApiBaseUrl for backward compatibility
+export { getApiBaseUrl };
