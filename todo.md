@@ -861,3 +861,9 @@
 - [x] Hardcoded public API URL in app.config.ts extra field as fallback
 - [ ] Third attempt: products still not loading on Expo Go - investigate deeper
 - [x] Fix API URL not working on Expo Go physical devices - products page shows 'Unable to load products'
+
+## Navigation Architecture Improvements (from NAVIGATION_DIAGRAM.md)
+- [x] Remove "Discover More" tab switching that navigates from (client) to (tabs)
+- [x] Add Profile FAB component for quick access to profile/settings from any screen
+- [ ] Consider consolidating tab navigators in future refactor
+- [ ] Move hidden tabs to proper stack screens
