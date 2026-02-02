@@ -4,7 +4,7 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Image,
@@ -48,6 +48,12 @@ export default function TrainersScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSpecialty, setSelectedSpecialty] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (canManage) {
+      router.replace("/(manager)/users" as any);
+    }
+  }, [canManage]);
 
   // Fetch trainers via tRPC
   const { data: trainers, isLoading, refetch } = trpc.catalog.trainers.useQuery(undefined, {
@@ -95,19 +101,8 @@ export default function TrainersScreen() {
   if (canManage) {
     return (
       <ScreenContainer className="flex-1 items-center justify-center">
-        <Text className="text-lg font-semibold text-foreground">Manage Users</Text>
-        <Text className="text-sm text-muted mt-2 text-center">
-          Use the Users screen to filter and manage all roles.
-        </Text>
-        <TouchableOpacity
-          onPress={() => router.replace("/(manager)/users" as any)}
-          className="mt-4 px-4 py-2 rounded-lg border border-border bg-surface"
-          accessibilityRole="button"
-          accessibilityLabel="Go to users"
-          testID="trainers-go-to-users"
-        >
-          <Text className="text-foreground">Go to Users</Text>
-        </TouchableOpacity>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-3">Loading users...</Text>
       </ScreenContainer>
     );
   }

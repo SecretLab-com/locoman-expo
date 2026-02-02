@@ -1,7 +1,7 @@
-import * as Notifications from "expo-notifications";
-import * as Device from "expo-device";
-import { Platform } from "react-native";
 import Constants from "expo-constants";
+import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 
 // Configure notification handler for foreground notifications (only on native)
 if (Platform.OS !== "web") {
@@ -22,7 +22,6 @@ if (Platform.OS !== "web") {
 export async function registerForPushNotificationsAsync(): Promise<string | undefined> {
   // Push notifications not supported on web
   if (Platform.OS === "web") {
-    console.log("Push notifications are not supported on web");
     return undefined;
   }
 

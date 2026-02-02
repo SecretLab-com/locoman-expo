@@ -28,7 +28,11 @@ interface RoleFlags {
  * Always returns the unified tabs - role adaptation happens within the Home screen.
  */
 export function getHomeRoute(_roleFlags?: RoleFlags): string {
-  // Always navigate to unified tabs - the Home screen adapts based on role
+  const roleFlags = _roleFlags ?? {};
+  if (roleFlags.isCoordinator) return "/(coordinator)";
+  if (roleFlags.isManager) return "/(manager)";
+  if (roleFlags.isTrainer) return "/(trainer)";
+  if (roleFlags.isClient) return "/(client)";
   return "/(tabs)";
 }
 
@@ -37,14 +41,14 @@ export function getHomeRoute(_roleFlags?: RoleFlags): string {
  * Uses router.replace to prevent back navigation to the previous screen.
  */
 export function navigateToHome(_roleFlags?: RoleFlags): void {
-  router.replace("/(tabs)" as any);
+  router.replace(getHomeRoute(_roleFlags) as any);
 }
 
 /**
  * Navigate to home using push (allows back navigation).
  */
 export function pushToHome(_roleFlags?: RoleFlags): void {
-  router.push("/(tabs)" as any);
+  router.push(getHomeRoute(_roleFlags) as any);
 }
 
 /**

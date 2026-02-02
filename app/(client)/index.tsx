@@ -46,6 +46,18 @@ function formatDate(value?: Date | string | null) {
   return date.toLocaleDateString();
 }
 
+function withAlpha(hexColor: string, alpha: number) {
+  const normalized = hexColor.replace("#", "");
+  const hex = normalized.length === 3
+    ? normalized.split("").map((char) => char + char).join("")
+    : normalized.padStart(6, "0");
+  const value = parseInt(hex, 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function OrderCard({ order, onPress }: { order: OrderCardData; onPress: () => void }) {
   const colors = useColors();
   const progress = STATUS_PROGRESS[order.status] ?? 0;
@@ -142,11 +154,11 @@ export default function ClientDashboardScreen() {
   const colorScheme = useColorScheme();
   const isLight = colorScheme === "light";
   const statBlue = isLight
-    ? ["#DBEAFE", "#EFF6FF"] as const
-    : ["#1E3A5F", "#0F2744"] as const;
+    ? [withAlpha(colors.primary, 0.18), withAlpha(colors.primary, 0.08)] as const
+    : [withAlpha(colors.primary, 0.35), withAlpha(colors.primary, 0.16)] as const;
   const statGreen = isLight
-    ? ["#DCFCE7", "#ECFDF5"] as const
-    : ["#065F46", "#047857"] as const;
+    ? [withAlpha(colors.success, 0.18), withAlpha(colors.success, 0.08)] as const
+    : [withAlpha(colors.success, 0.35), withAlpha(colors.success, 0.16)] as const;
   const [refreshing, setRefreshing] = useState(false);
   const {
     data: orders = [],

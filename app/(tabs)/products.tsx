@@ -104,6 +104,7 @@ export default function ProductsScreen() {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [imageZoomOpen, setImageZoomOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Fetch products via tRPC
   const {
@@ -126,7 +127,11 @@ export default function ProductsScreen() {
     onError: (err) => {
       Alert.alert("Shopify sync failed", err.message);
     },
+    onSettled: () => {
+      setIsSyncing(false);
+    },
   });
+  const syncInFlight = isSyncing || shopifySync.isPending;
 
   // Category options
   const categories = [
@@ -273,21 +278,25 @@ export default function ProductsScreen() {
 
         {canManage && (
           <TouchableOpacity
-            onPress={() => shopifySync.mutate()}
+            onPress={() => {
+              if (syncInFlight) return;
+              setIsSyncing(true);
+              shopifySync.mutate();
+            }}
             className="flex-row items-center bg-surface rounded-lg px-3 py-2 border border-border"
             accessibilityRole="button"
             accessibilityLabel="Sync products from Shopify"
             testID="products-sync-shopify"
-            disabled={shopifySync.isPending}
-            style={{ opacity: shopifySync.isPending ? 0.6 : 1 }}
+            disabled={syncInFlight}
+            style={{ opacity: syncInFlight ? 0.6 : 1 }}
           >
-            {shopifySync.isPending ? (
+            {syncInFlight ? (
               <ActivityIndicator size="small" color={colors.foreground} />
             ) : (
             <IconSymbol name="refresh" size={16} color={colors.foreground} />
             )}
             <Text className="text-foreground ml-2 text-sm">
-              {shopifySync.isPending ? "Syncing..." : "Sync"}
+              {syncInFlight ? "Syncing..." : "Sync"}
             </Text>
           </TouchableOpacity>
         )}

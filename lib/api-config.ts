@@ -11,11 +11,19 @@ import { Platform } from "react-native";
 // Hardcoded API URL for native platforms (Expo Go on physical devices)
 // This URL must be publicly accessible from the internet
 const NATIVE_API_URL = "https://3002-i4anndi9mla842misgiwl-a70979ba.sg1.manus.computer";
+const WEB_API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.VITE_API_BASE_URL || "";
 
 // Web API URL derivation from current hostname
 function getWebApiUrl(): string {
   if (typeof window !== "undefined" && window.location) {
-    const { protocol, hostname } = window.location;
+    const { protocol, hostname, port } = window.location;
+    if (WEB_API_URL) {
+      return WEB_API_URL;
+    }
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      const apiPort = port === "8081" ? "3002" : "3000";
+      return `${protocol}//${hostname}:${apiPort}`;
+    }
     // Pattern: 8081-sandboxid.region.domain -> 3002-sandboxid.region.domain
     const apiHostname = hostname.replace(/^8081-/, "3002-");
     if (apiHostname !== hostname) {

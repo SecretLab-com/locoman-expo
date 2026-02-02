@@ -1,20 +1,20 @@
-import { useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  Switch,
-} from "react-native";
-import { router } from "expo-router";
-import { navigateToHome } from "@/lib/navigation";
-import { useAuthContext } from "@/contexts/auth-context";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
+import { router } from "expo-router";
+import { useState } from "react";
+import {
+    Alert,
+    ScrollView,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 const SPECIALTIES = [
   { value: "weight_loss", label: "Weight Loss" },
@@ -81,20 +81,34 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
+  };
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header - leave space on right for ProfileFAB */}
       <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center pr-12">
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={handleBack}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-2"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            testID="settings-back"
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => navigateToHome({ isCoordinator, isManager, isTrainer, isClient })}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            accessibilityRole="button"
+            accessibilityLabel="Go to home"
+            testID="settings-home"
           >
             <IconSymbol name="house.fill" size={20} color={colors.foreground} />
           </TouchableOpacity>

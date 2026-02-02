@@ -1,13 +1,13 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useRef } from "react";
-import { Platform } from "react-native";
+import {
+    addNotificationReceivedListener,
+    addNotificationResponseListener,
+    getLastNotificationResponse,
+    registerForPushNotificationsAsync,
+} from "@/lib/notifications";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
-import {
-  registerForPushNotificationsAsync,
-  addNotificationReceivedListener,
-  addNotificationResponseListener,
-  getLastNotificationResponse,
-} from "@/lib/notifications";
+import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
 
 type NotificationContextType = {
   expoPushToken: string | null;
@@ -27,6 +27,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
   useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
     // Register for push notifications
     registerForPushNotificationsAsync().then((token) => {
       if (token) {
