@@ -1001,14 +1001,16 @@ export default function UsersScreen() {
                 
                 {/* Avatar */}
                 <View
-                  className="w-12 h-12 rounded-full items-center justify-center mr-3"
+                  className="w-12 h-12 rounded-full items-center justify-center mr-3 overflow-hidden"
                   style={{ backgroundColor: `${ROLE_COLORS[user.role]}20` }}
                 >
                   {user.photoUrl ? (
                     <Image
                       source={{ uri: user.photoUrl }}
-                      className="w-12 h-12 rounded-full"
+                      style={styles.avatarImage}
                       contentFit="cover"
+                      transition={150}
+                      cachePolicy="memory-disk"
                     />
                   ) : (
                     <Text
@@ -1590,6 +1592,9 @@ export default function UsersScreen() {
 }
 
 const styles = StyleSheet.create({
+  avatarImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
   headerButtons: {
     flexDirection: "row",
     gap: 8,
