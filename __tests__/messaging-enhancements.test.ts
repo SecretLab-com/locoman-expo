@@ -135,10 +135,9 @@ describe("Messaging Enhancements", () => {
     });
 
     it("should have read receipts in conversation list", () => {
-      // The messages/index.tsx uses a simplified mock data structure
-      // Check for unread count display which indicates read status
+      // The full messages implementation is in (tabs)/messages.tsx
       const content = fs.readFileSync(
-        path.join(APP_DIR, "app/messages/index.tsx"),
+        path.join(APP_DIR, "app/(tabs)/messages.tsx"),
         "utf-8"
       );
       expect(content).toContain("unreadCount");
@@ -146,15 +145,14 @@ describe("Messaging Enhancements", () => {
     });
 
     it("should show 'You:' prefix for own messages in list", () => {
-      // The messages/index.tsx uses a simplified mock data structure
-      // The full implementation with 'You:' prefix is in the tabs version
-      // which was moved to a shared location
+      // The full messages implementation is in (tabs)/messages.tsx
       const content = fs.readFileSync(
-        path.join(APP_DIR, "app/messages/index.tsx"),
+        path.join(APP_DIR, "app/(tabs)/messages.tsx"),
         "utf-8"
       );
-      // Check for message display functionality instead
-      expect(content).toContain("lastMessage");
+      // Check for You: prefix in the message display
+      expect(content).toContain("You:");
+      expect(content).toContain("lastMessageIsOwn");
     });
   });
 

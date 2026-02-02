@@ -128,9 +128,8 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
       
       const content = fs.readFileSync(messagesPath, "utf-8");
       expect(content).toContain("MessagesScreen");
-      expect(content).toContain("Conversation");
-      expect(content).toContain("unreadCount");
-      expect(content).toContain("isOnline");
+      // The messages/index.tsx re-exports from (tabs)/messages.tsx which has the full implementation
+      expect(content).toContain("RoleBottomNav");
     });
 
     it("should have message thread screen", () => {
