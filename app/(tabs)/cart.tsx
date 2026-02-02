@@ -9,7 +9,8 @@ import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuthContext } from "@/contexts/auth-context";
+import { navigateToHome } from "@/lib/navigation";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useCart, CartItem } from "@/contexts/cart-context";
 
@@ -83,7 +84,7 @@ function CartItemCard({
 
 export default function CartScreen() {
   const colors = useColors();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
   const { items, subtotal, updateQuantity, removeItem, isLoading } = useCart();
 
   const tax = subtotal * 0.08; // 8% tax
@@ -118,6 +119,29 @@ export default function CartScreen() {
     }
     router.push("/checkout" as any);
   };
+
+  if (isTrainer && !isClient) {
+    return (
+      <ScreenContainer className="items-center justify-center px-6">
+        <IconSymbol name="cart.fill" size={64} color={colors.muted} />
+        <Text className="text-xl font-semibold text-foreground mt-4">
+          Shopping is client-only
+        </Text>
+        <Text className="text-muted text-center mt-2">
+          Coordinators, managers, and trainers can review bundles but cannot purchase them.
+        </Text>
+        <TouchableOpacity
+          className="bg-primary px-6 py-3 rounded-full mt-6"
+          onPress={() => navigateToHome({ isCoordinator, isManager, isTrainer, isClient })}
+          accessibilityRole="button"
+          accessibilityLabel="Back to home"
+          testID="cart-back-home"
+        >
+          <Text className="text-background font-semibold">Back to Home</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
 
   if (isLoading) {
     return (

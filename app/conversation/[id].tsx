@@ -9,26 +9,26 @@ import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    FlatList,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Animated, {
-  SharedValue,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withTiming,
+    SharedValue,
+    useAnimatedStyle,
+    useSharedValue,
+    withDelay,
+    withRepeat,
+    withSequence,
+    withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -411,10 +411,12 @@ function MessageBubble({
 export default function ConversationScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { id, name, participantId } = useLocalSearchParams<{ 
+  const { id, name, participantId, participantIds, groupIcon } = useLocalSearchParams<{ 
     id: string; 
     name: string; 
     participantId: string;
+    participantIds: string;
+    groupIcon: string;
   }>();
   const { user } = useAuthContext();
   const [messageText, setMessageText] = useState("");
@@ -456,9 +458,23 @@ export default function ConversationScreen() {
       utils.messages.conversations.invalidate();
     },
   });
+  const sendGroupMessage = trpc.messages.sendGroup.useMutation({
+    onSuccess: () => {
+      setMessageText("");
+      setIsTyping(false);
+      refetch();
+      utils.messages.conversations.invalidate();
+    },
+  });
 
   // Send message with attachment
   const sendWithAttachment = trpc.messages.sendWithAttachment.useMutation({
+    onSuccess: () => {
+      refetch();
+      utils.messages.conversations.invalidate();
+    },
+  });
+  const sendGroupWithAttachment = trpc.messages.sendGroupWithAttachment.useMutation({
     onSuccess: () => {
       refetch();
       utils.messages.conversations.invalidate();
@@ -535,11 +551,29 @@ export default function ConversationScreen() {
   }, [isTyping]);
 
   const handleSend = async () => {
-    if (!messageText.trim() || !participantId) return;
-    
+    if (!messageText.trim()) return;
+
+    const ids = participantIds
+      ? participantIds
+          .split(",")
+          .map((value) => parseInt(value, 10))
+          .filter((value) => !Number.isNaN(value))
+      : participantId
+        ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
+        : [];
+    if (!ids.length) return;
+
     await haptics.light();
-    sendMessage.mutate({
-      receiverId: parseInt(participantId),
+    if (ids.length === 1) {
+      sendMessage.mutate({
+        receiverId: ids[0],
+        content: messageText.trim(),
+        conversationId: id,
+      });
+      return;
+    }
+    sendGroupMessage.mutate({
+      receiverIds: ids,
       content: messageText.trim(),
       conversationId: id,
     });
@@ -585,12 +619,34 @@ export default function ConversationScreen() {
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0] && participantId) {
+    if (!result.canceled && result.assets[0]) {
       // In a real app, you'd upload the image to storage first
       // For now, we'll just send a placeholder
       await haptics.light();
-      sendWithAttachment.mutate({
-        receiverId: parseInt(participantId),
+      const ids = participantIds
+        ? participantIds
+            .split(",")
+            .map((value) => parseInt(value, 10))
+            .filter((value) => !Number.isNaN(value))
+        : participantId
+          ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
+          : [];
+      if (!ids.length) return;
+      if (ids.length === 1) {
+        sendWithAttachment.mutate({
+          receiverId: ids[0],
+          content: "Image",
+          conversationId: id,
+          messageType: "image",
+          attachmentUrl: result.assets[0].uri,
+          attachmentName: result.assets[0].fileName || "image.jpg",
+          attachmentSize: result.assets[0].fileSize,
+          attachmentMimeType: result.assets[0].mimeType || "image/jpeg",
+        });
+        return;
+      }
+      sendGroupWithAttachment.mutate({
+        receiverIds: ids,
         content: "Image",
         conversationId: id,
         messageType: "image",
@@ -607,11 +663,33 @@ export default function ConversationScreen() {
       type: "*/*",
     });
 
-    if (!result.canceled && result.assets[0] && participantId) {
+    if (!result.canceled && result.assets[0]) {
       // In a real app, you'd upload the file to storage first
       await haptics.light();
-      sendWithAttachment.mutate({
-        receiverId: parseInt(participantId),
+      const ids = participantIds
+        ? participantIds
+            .split(",")
+            .map((value) => parseInt(value, 10))
+            .filter((value) => !Number.isNaN(value))
+        : participantId
+          ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
+          : [];
+      if (!ids.length) return;
+      if (ids.length === 1) {
+        sendWithAttachment.mutate({
+          receiverId: ids[0],
+          content: result.assets[0].name,
+          conversationId: id,
+          messageType: "file",
+          attachmentUrl: result.assets[0].uri,
+          attachmentName: result.assets[0].name,
+          attachmentSize: result.assets[0].size,
+          attachmentMimeType: result.assets[0].mimeType || "application/octet-stream",
+        });
+        return;
+      }
+      sendGroupWithAttachment.mutate({
+        receiverIds: ids,
         content: result.assets[0].name,
         conversationId: id,
         messageType: "file",
@@ -655,7 +733,7 @@ export default function ConversationScreen() {
         </TouchableOpacity>
         
         <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center ml-1">
-          <IconSymbol name="person.fill" size={20} color={colors.primary} />
+          <IconSymbol name={(groupIcon as any) || "person.fill"} size={20} color={colors.primary} />
         </View>
         
         <View className="flex-1 ml-3">

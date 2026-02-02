@@ -1,6 +1,6 @@
+import type { IncomingMessage } from "http";
 import { Server } from "http";
 import { sdk } from "./sdk";
-import type { IncomingMessage } from "http";
 
 const { WebSocketServer, WebSocket } = require("ws");
 
@@ -26,6 +26,7 @@ export function setupWebSocket(server: Server) {
     // Extract token from query string
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const token = url.searchParams.get("token");
+    const cookieHeader = req.headers.cookie || "";
 
     try {
       let userId: number | null = null;
@@ -40,6 +41,11 @@ export function setupWebSocket(server: Server) {
       }
 
       if (!userId) {
+        // If no token and no cookie, skip noisy auth errors
+        if (!token && !cookieHeader) {
+          ws.close(4001, "Authentication required");
+          return;
+        }
         const user = await sdk.authenticateRequest(req as any);
         userId = user?.id ?? null;
       }
@@ -82,8 +88,13 @@ export function setupWebSocket(server: Server) {
       // Send connection confirmation
       ws.send(JSON.stringify({ type: "connected", userId }));
 
-    } catch (e) {
-      console.error("[WebSocket] Authentication failed:", e);
+    } catch (e: any) {
+      const statusCode = e?.statusCode;
+      const message = e?.message || "";
+      const isMissingCookie = statusCode === 403 && message.toLowerCase().includes("session cookie");
+      if (!isMissingCookie) {
+        console.error("[WebSocket] Authentication failed:", e);
+      }
       ws.close(4001, "Invalid token");
     }
   });

@@ -16,6 +16,7 @@ import { navigateToHome } from "@/lib/navigation";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useAuthContext } from "@/contexts/auth-context";
 import * as Haptics from "expo-haptics";
 
 type InvitationData = {
@@ -77,6 +78,7 @@ const MOCK_INVITATION: InvitationData = {
 
 export default function InvitationScreen() {
   const colors = useColors();
+  const { isClient } = useAuthContext();
   const { token } = useLocalSearchParams<{ token: string }>();
   const [invitation, setInvitation] = useState<InvitationData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -130,6 +132,10 @@ export default function InvitationScreen() {
   // Handle accept - show payment modal
   const handleAccept = () => {
     if (!invitation) return;
+    if (!isClient) {
+      Alert.alert("Client Only", "This invitation can only be accepted by a client.");
+      return;
+    }
     setShowPaymentModal(true);
   };
 
@@ -383,12 +389,23 @@ export default function InvitationScreen() {
 
         {/* Actions */}
         <View className="px-4 pb-8">
-          <TouchableOpacity
-            onPress={handleAccept}
-            className="bg-primary py-4 rounded-xl items-center mb-3"
-          >
-            <Text className="text-white font-bold text-lg">Accept & Pay ${invitation.bundlePrice}</Text>
-          </TouchableOpacity>
+          {isClient ? (
+            <TouchableOpacity
+              onPress={handleAccept}
+              className="bg-primary py-4 rounded-xl items-center mb-3"
+            >
+              <Text className="text-white font-bold text-lg">
+                Accept & Pay ${invitation.bundlePrice}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <View className="bg-surface border border-border rounded-xl p-4 mb-3">
+              <Text className="text-foreground font-semibold">Client-only invitation</Text>
+              <Text className="text-muted mt-1">
+                This invitation can only be accepted and purchased by a client.
+              </Text>
+            </View>
+          )}
           <TouchableOpacity
             onPress={handleDecline}
             className="py-4 rounded-xl items-center"

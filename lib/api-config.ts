@@ -6,7 +6,8 @@
  * 
  * IMPORTANT: Update NATIVE_API_URL when the sandbox URL changes.
  */
-import { Platform } from "react-native";
+import { NativeModules, Platform } from "react-native";
+import Constants from "expo-constants";
 
 // Hardcoded API URL for native platforms (Expo Go on physical devices)
 // This URL must be publicly accessible from the internet
@@ -33,21 +34,42 @@ function getWebApiUrl(): string {
   return "";
 }
 
+function getNativeApiUrl(): string {
+  if (WEB_API_URL) {
+    return WEB_API_URL;
+  }
+  const scriptURL = NativeModules?.SourceCode?.scriptURL as string | undefined;
+  const hostUri = Constants?.expoConfig?.hostUri || Constants?.manifest?.hostUri;
+  const rawUrl = scriptURL || (hostUri ? `http://${hostUri}` : "");
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      const hostname = parsed.hostname;
+      const port = parsed.port || "8081";
+      const apiPort = port === "8081" ? "3002" : port;
+      return `${parsed.protocol}//${hostname}:${apiPort}`;
+    } catch {
+      // fallthrough
+    }
+  }
+  return NATIVE_API_URL;
+}
+
 /**
  * Get the API base URL for the current platform.
- * 
+ *
  * - On web: derives from current hostname (8081 -> 3002)
- * - On native (iOS/Android): uses hardcoded public URL
+ * - On native (iOS/Android): uses env override, then dev server host, then hardcoded URL
  */
 export function getApiBaseUrl(): string {
   const isNative = Platform.OS === "ios" || Platform.OS === "android";
-  
+
   if (isNative) {
-    // Always use hardcoded URL on native - env vars don't work reliably in Expo Go
-    console.log("[API Config] Native platform detected, using hardcoded URL:", NATIVE_API_URL);
-    return NATIVE_API_URL;
+    const nativeUrl = getNativeApiUrl();
+    console.log("[API Config] Native platform detected, using URL:", nativeUrl);
+    return nativeUrl;
   }
-  
+
   // On web, derive from current hostname
   const webUrl = getWebApiUrl();
   console.log("[API Config] Web platform, derived URL:", webUrl || "(empty - using relative URL)");

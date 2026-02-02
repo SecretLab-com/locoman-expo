@@ -63,6 +63,29 @@ export default function OrderConfirmationScreen() {
   // Generate a random order number
   const orderNumber = `LM-${Date.now().toString().slice(-8)}`;
 
+  if (!isClient) {
+    return (
+      <ScreenContainer className="items-center justify-center p-8">
+        <IconSymbol name="cart.fill" size={64} color={colors.muted} />
+        <Text className="text-xl font-semibold text-foreground mt-4">
+          Checkout is client-only
+        </Text>
+        <Text className="text-muted text-center mt-2">
+          Coordinators, managers, and trainers can review bundles but cannot purchase them.
+        </Text>
+        <TouchableOpacity
+          className="bg-primary px-6 py-3 rounded-full mt-6"
+          onPress={() => router.replace("/(tabs)" as any)}
+          accessibilityRole="button"
+          accessibilityLabel="Back to home"
+          testID="confirmation-back-home"
+        >
+          <Text className="text-background font-semibold">Back to Home</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer className="items-center justify-center p-8">
       {/* Success Icon */}

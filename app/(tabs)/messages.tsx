@@ -1,20 +1,21 @@
-import { useCallback } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  FlatList,
-  RefreshControl,
-  ActivityIndicator,
-} from "react-native";
-import { router } from "expo-router";
-import { Image } from "expo-image";
+import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { useCallback } from "react";
+import {
+    ActivityIndicator,
+    FlatList,
+    RefreshControl,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 type Conversation = {
   id: string;
@@ -132,7 +133,18 @@ function ConversationItem({ conversation, onPress }: { conversation: Conversatio
 
 export default function MessagesScreen() {
   const colors = useColors();
-  const { isAuthenticated, isTrainer } = useAuthContext();
+  const { isAuthenticated, isTrainer, effectiveRole } = useAuthContext();
+  const bottomNavHeight = useBottomNavHeight();
+  const roleBase =
+    effectiveRole === "client"
+      ? "/(client)"
+      : effectiveRole === "trainer"
+        ? "/(trainer)"
+        : effectiveRole === "manager"
+          ? "/(manager)"
+          : effectiveRole === "coordinator"
+            ? "/(coordinator)"
+            : "/(tabs)";
 
   // Fetch conversations from API
   const {
@@ -168,8 +180,11 @@ export default function MessagesScreen() {
 
   const handleNewMessage = async () => {
     await haptics.light();
-    // Navigate to new message screen or show contact picker
-    router.push("/new-message" as any);
+    if (!isAuthenticated) {
+      router.push("/login");
+      return;
+    }
+    router.push(`${roleBase}/messages/new` as any);
   };
 
   if (!isAuthenticated) {
@@ -218,7 +233,7 @@ export default function MessagesScreen() {
   }));
 
   return (
-    <ScreenContainer>
+    <ScreenContainer className="flex-1 relative">
       {/* Header */}
       <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
         <View>
@@ -227,58 +242,66 @@ export default function MessagesScreen() {
             {isTrainer ? "Chat with your clients" : "Chat with your trainers"}
           </Text>
         </View>
-        <TouchableOpacity
-          className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
-          onPress={handleNewMessage}
-        >
-          <IconSymbol name="plus" size={20} color={colors.foreground} />
-        </TouchableOpacity>
       </View>
 
-      {/* Conversations List */}
-      <FlatList
-        data={conversationList}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <ConversationItem
-            conversation={item}
-            onPress={() => handleConversationPress(item)}
-          />
-        )}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
-        ListEmptyComponent={
-          <View className="items-center py-12 px-4">
-            <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
-              <IconSymbol name="message.fill" size={32} color={colors.muted} />
+      <View className="flex-1">
+        {/* Conversations List */}
+        <FlatList
+          data={conversationList}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={({ item }) => (
+            <ConversationItem
+              conversation={item}
+              onPress={() => handleConversationPress(item)}
+            />
+          )}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+            />
+          }
+          ListEmptyComponent={
+            <View className="items-center py-12 px-4">
+              <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                <IconSymbol name="message.fill" size={32} color={colors.muted} />
+              </View>
+              <Text className="text-foreground font-semibold text-lg mb-1">No messages yet</Text>
+              <Text className="text-muted text-center mb-6">
+                {isTrainer 
+                  ? "Messages from your clients will appear here"
+                  : "Start a conversation with your trainer"
+                }
+              </Text>
+              {!isTrainer && (
+                <TouchableOpacity
+                  className="bg-primary px-6 py-3 rounded-full"
+                  onPress={async () => {
+                    await haptics.light();
+                    router.push("/(tabs)/discover" as any);
+                  }}
+                >
+                  <Text className="text-background font-semibold">Find a Trainer</Text>
+                </TouchableOpacity>
+              )}
             </View>
-            <Text className="text-foreground font-semibold text-lg mb-1">No messages yet</Text>
-            <Text className="text-muted text-center mb-6">
-              {isTrainer 
-                ? "Messages from your clients will appear here"
-                : "Start a conversation with your trainer"
-              }
-            </Text>
-            {!isTrainer && (
-              <TouchableOpacity
-                className="bg-primary px-6 py-3 rounded-full"
-                onPress={async () => {
-                  await haptics.light();
-                  router.push("/(tabs)/discover" as any);
-                }}
-              >
-                <Text className="text-background font-semibold">Find a Trainer</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        }
-        contentContainerStyle={{ flexGrow: 1 }}
-      />
+          }
+          contentContainerStyle={{ flexGrow: 1 }}
+        />
+
+      </View>
+
+      <TouchableOpacity
+        onPress={handleNewMessage}
+        className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+        style={{ right: 16, bottom: 16 - bottomNavHeight }}
+        accessibilityRole="button"
+        accessibilityLabel="Start a new message"
+        testID="messages-new-fab"
+      >
+        <IconSymbol name="plus" size={24} color={colors.background} />
+      </TouchableOpacity>
     </ScreenContainer>
   );
 }

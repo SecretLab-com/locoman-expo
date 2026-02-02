@@ -1,23 +1,24 @@
-import { useState, useCallback } from "react";
-import {
-  Text,
-  View,
-  FlatList,
-  TouchableOpacity,
-  RefreshControl,
-  Alert,
-  Platform,
-  ActivityIndicator,
-  TextInput,
-  Modal,
-} from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import * as Haptics from "expo-haptics";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useColors } from "@/hooks/use-colors";
+import { useWebSocket } from "@/hooks/use-websocket";
 import { trpc } from "@/lib/trpc";
+import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Modal,
+    Platform,
+    RefreshControl,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 type BundleStatus = "draft" | "pending_review" | "changes_requested" | "published" | "rejected";
 
@@ -67,9 +68,17 @@ export default function ManagerApprovalsScreen() {
   const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
   const [comments, setComments] = useState("");
   const utils = trpc.useUtils();
+  const websocket = useWebSocket();
 
   // Use real API
-  const { data: bundles = [], isLoading, refetch, isRefetching } = trpc.admin.pendingBundles.useQuery();
+  const { data: bundles = [], isLoading, refetch, isRefetching } = trpc.admin.pendingBundles.useQuery(
+    undefined,
+    {
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
+  );
   
   const approveMutation = trpc.admin.approveBundle.useMutation({
     onSuccess: () => {
@@ -108,6 +117,19 @@ export default function ManagerApprovalsScreen() {
   const onRefresh = useCallback(async () => {
     await refetch();
   }, [refetch]);
+
+  useEffect(() => {
+    websocket.connect();
+    const unsubscribe = websocket.subscribe((message) => {
+      if (message.type === "badge_counts_updated") {
+        refetch();
+      }
+    });
+    return () => {
+      unsubscribe();
+      websocket.disconnect();
+    };
+  }, [refetch, websocket]);
 
   const handleApprove = (bundle: Bundle) => {
     if (Platform.OS === "web") {

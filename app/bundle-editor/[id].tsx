@@ -301,13 +301,10 @@ export default function BundleEditorScreen() {
     updateForm("price", total.toFixed(2));
   }, [productTotal, servicesTotal, updateForm]);
 
-  // Filter products for modal (excluding bundles - bundles cannot contain other bundles)
+  // Filter products for modal (bundles are shown but disabled)
   const filteredProducts = useMemo(() => {
     if (!shopifyProducts) return [];
     return shopifyProducts.filter((product: ProductItem) => {
-      // Exclude bundles from selection
-      if (product.productType && product.productType.toLowerCase() === 'bundle') return false;
-      
       const matchesSearch = !productSearch ||
         product.title.toLowerCase().includes(productSearch.toLowerCase()) ||
         (product.vendor && product.vendor.toLowerCase().includes(productSearch.toLowerCase())) ||
@@ -317,13 +314,13 @@ export default function BundleEditorScreen() {
     });
   }, [shopifyProducts, productSearch, productTypeFilter]);
 
-  // Extract unique product types and vendors (excluding Bundle type)
+  // Extract unique product types and vendors
   const uniqueProductTypes = useMemo(() => {
     if (!shopifyProducts) return [];
     const types = new Set(
       shopifyProducts
         .map((p: ProductItem) => p.productType)
-        .filter((type): type is string => Boolean(type) && type.toLowerCase() !== 'bundle')
+        .filter((type): type is string => Boolean(type))
     );
     return Array.from(types).sort();
   }, [shopifyProducts]);
@@ -1500,12 +1497,20 @@ export default function BundleEditorScreen() {
                   contentContainerStyle={{ padding: 16 }}
                   renderItem={({ item }) => {
                     const isSelected = form.products.some((p) => p.id === item.id);
+                    const isBundle = item.productType?.toLowerCase() === "bundle";
                     return (
                       <View
                         className={`bg-surface border rounded-xl p-3 mb-2 flex-row items-center ${
                           isSelected ? "border-primary" : "border-border"
-                        }`}
+                        } ${isBundle ? "opacity-60" : ""}`}
                       >
+                        {isBundle && (
+                          <View className="absolute inset-0 bg-background/80 items-center justify-center rounded-xl">
+                            <Text className="text-xs font-semibold text-muted text-center px-3">
+                              Bundles Cannot Be Part of Other Bundles
+                            </Text>
+                          </View>
+                        )}
                         {/* Left side - clickable for detail view */}
                         <TouchableOpacity
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
@@ -1547,8 +1552,13 @@ export default function BundleEditorScreen() {
                         {/* Right side - checkbox for selection */}
                         <TouchableOpacity
                           style={{ padding: 12, marginRight: -8 }}
-                          onPress={() => toggleProduct(item)}
+                          onPress={() => {
+                            if (!isBundle) {
+                              toggleProduct(item);
+                            }
+                          }}
                           activeOpacity={0.7}
+                          disabled={isBundle}
                         >
                           <View
                             className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
