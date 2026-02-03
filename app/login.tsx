@@ -11,19 +11,21 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
+
+const FormView = Platform.OS === 'web' ? 'form' : View;
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -61,10 +63,13 @@ export default function LoginScreen() {
     }
   }, [authLoading, isAuthenticated]);
 
-  const handleLogin = async () => {
+  const handleLogin = async (testEmail?: string, testPassword?: string) => {
     await haptics.light();
-    
-    if (!email.trim() || !password.trim()) {
+
+    const finalEmail = (testEmail || email).trim();
+    const finalPassword = testPassword || password;
+
+    if (!finalEmail || !finalPassword) {
       await haptics.error();
       setError("Please enter both email and password");
       return;
@@ -78,7 +83,7 @@ export default function LoginScreen() {
       // Save or clear remember me preference
       if (rememberMe) {
         await AsyncStorage.setItem(REMEMBER_ME_KEY, "true");
-        await AsyncStorage.setItem(SAVED_EMAIL_KEY, email.trim());
+        await AsyncStorage.setItem(SAVED_EMAIL_KEY, finalEmail);
       } else {
         await AsyncStorage.removeItem(REMEMBER_ME_KEY);
         await AsyncStorage.removeItem(SAVED_EMAIL_KEY);
@@ -86,16 +91,16 @@ export default function LoginScreen() {
 
       // Call login API with correct base URL
       console.log("[Login] API base URL:", apiBaseUrl);
-      console.log("[Login] Attempting login for:", email);
+      console.log("[Login] Attempting login for:", finalEmail);
       const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: finalEmail, password: finalPassword }),
         credentials: "include",
       });
 
       console.log("[Login] Response status:", response.status, response.ok);
-      
+
       if (response.ok) {
         await haptics.success();
         const data = await response.json();
@@ -125,14 +130,14 @@ export default function LoginScreen() {
           };
           await Auth.setUserInfo(userInfo);
         }
-        
+
         // Store session token and user info for native apps
         if (Platform.OS !== "web" && data.sessionToken) {
           console.log("[Login] Storing session token for native app...");
           await Auth.setSessionToken(data.sessionToken);
           console.log("[Login] User info stored for native app");
         }
-        
+
         // Navigate to appropriate dashboard based on role
         let targetRoute = "/(tabs)";
         if (userRole === "trainer") {
@@ -144,21 +149,20 @@ export default function LoginScreen() {
         } else if (userRole === "coordinator") {
           targetRoute = "/(coordinator)";
         }
-        
+
         // Navigate to the appropriate dashboard
         console.log("[Login] Navigating to:", targetRoute, "Platform:", Platform.OS);
-        if (Platform.OS === "web" && typeof window !== "undefined") {
-          window.location.href = targetRoute;
-        } else {
-          console.log("[Login] Calling router.replace for native...");
-          // Trigger auth refresh to update the global auth state
-          console.log("[Login] Triggering auth refresh...");
-          triggerAuthRefresh();
-          // Small delay to allow auth state to update before navigation
-          await new Promise(resolve => setTimeout(resolve, 100));
-          router.replace(targetRoute as any);
-          console.log("[Login] router.replace called");
-        }
+
+        // Trigger auth refresh to update the global auth state
+        console.log("[Login] Triggering auth refresh...");
+        triggerAuthRefresh();
+
+        // Small delay to allow auth state to update before navigation
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        console.log("[Login] Calling router.replace...");
+        router.replace(targetRoute as any);
+        console.log("[Login] router.replace called");
       } else {
         await haptics.error();
         const data = await response.json();
@@ -170,7 +174,7 @@ export default function LoginScreen() {
       if (/Failed to fetch|Network request failed/i.test(message)) {
         setError(
           `Cannot reach API server at ${apiBaseUrl || "configured base URL"}. ` +
-            "Start the API server (pnpm dev or pnpm dev:server) and try again.",
+          "Start the API server (pnpm dev or pnpm dev:server) and try again.",
         );
       } else {
         setError(message);
@@ -258,97 +262,96 @@ export default function LoginScreen() {
               }}
             />
 
-            {/* Email Input */}
-            <View className="mb-4">
-              <Text className="text-sm font-medium text-foreground mb-2">Email</Text>
-              <TextInput
-                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                placeholder="Enter your email"
-                placeholderTextColor={colors.muted}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!loading}
-              />
-            </View>
-
-            {/* Password Input with Visibility Toggle */}
-            <View className="mb-4">
-              <Text className="text-sm font-medium text-foreground mb-2">Password</Text>
-              <View className="relative">
+            {/* Login fields and buttons wrapped in form for web */}
+            <View
+              {...(Platform.OS === 'web' ? {
+                component: 'form',
+                onSubmit: (e: any) => {
+                  e.preventDefault();
+                  handleLogin();
+                }
+              } : {})}
+              className="w-full"
+            >
+              {/* Email Input */}
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Email</Text>
                 <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 pr-12 text-foreground"
-                  placeholder="Enter your password"
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="Enter your email"
                   placeholderTextColor={colors.muted}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
                   editable={!loading}
-                  returnKeyType="done"
-                  onSubmitEditing={handleLogin}
                 />
-                <TouchableOpacity
-                  className="absolute right-3 top-0 bottom-0 justify-center"
-                  onPress={togglePasswordVisibility}
-                  activeOpacity={0.7}
-                >
-                  <IconSymbol
-                    name={showPassword ? "eye.slash.fill" : "eye.fill"}
-                    size={22}
-                    color={colors.muted}
-                  />
-                </TouchableOpacity>
               </View>
-            </View>
 
-            {/* Remember Me Toggle */}
-            <View className="flex-row items-center justify-between mb-6">
-              <Text className="text-sm text-foreground">Remember me</Text>
-              <Switch
-                value={rememberMe}
-                onValueChange={toggleRememberMe}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor={Platform.OS === "android" ? (rememberMe ? colors.primary : colors.surface) : undefined}
-                ios_backgroundColor={colors.border}
-              />
-            </View>
-
-            {/* Login Button */}
-            <TouchableOpacity
-              className={`bg-primary rounded-full py-4 items-center mb-4 ${loading ? 'opacity-80' : ''}`}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Sign in"
-              testID="login-submit"
-            >
-              {loading ? (
-                <View className="flex-row items-center">
-                  <ActivityIndicator color={colors.background} size="small" />
-                  <Text className="text-background font-semibold text-lg ml-2">Signing In...</Text>
+              {/* Password Input with Visibility Toggle */}
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Password</Text>
+                <View className="relative">
+                  <TextInput
+                    className="bg-surface border border-border rounded-xl px-4 py-3 pr-12 text-foreground"
+                    placeholder="Enter your password"
+                    placeholderTextColor={colors.muted}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    editable={!loading}
+                    returnKeyType="done"
+                    onSubmitEditing={handleLogin}
+                  />
+                  <TouchableOpacity
+                    className="absolute right-3 top-0 bottom-0 justify-center"
+                    onPress={togglePasswordVisibility}
+                    activeOpacity={0.7}
+                  >
+                    <IconSymbol
+                      name={showPassword ? "eye.slash.fill" : "eye.fill"}
+                      size={22}
+                      color={colors.muted}
+                    />
+                  </TouchableOpacity>
                 </View>
-              ) : (
-                <Text className="text-background font-semibold text-lg">Sign In</Text>
-              )}
-            </TouchableOpacity>
+              </View>
 
-            {/* Manus OAuth Login Button */}
-            <TouchableOpacity
-              className="bg-surface border border-border rounded-full py-4 items-center mb-6"
-              onPress={handleOAuthLogin}
-              disabled={loading}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Continue with Manus"
-              testID="login-oauth-manus"
-            >
-              <Text className="text-foreground font-semibold">Continue with Manus</Text>
-            </TouchableOpacity>
+              {/* Remember Me Toggle */}
+              <View className="flex-row items-center justify-between mb-6">
+                <Text className="text-sm text-foreground">Remember me</Text>
+                <Switch
+                  value={rememberMe}
+                  onValueChange={toggleRememberMe}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={Platform.OS === "android" ? (rememberMe ? colors.primary : colors.surface) : undefined}
+                  ios_backgroundColor={colors.border}
+                />
+              </View>
 
-            {/* Register Link */}
+              {/* Login Button */}
+              <TouchableOpacity
+                className={`bg-primary rounded-full py-4 items-center mb-4 ${loading ? 'opacity-80' : ''}`}
+                onPress={handleLogin}
+                disabled={loading}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in"
+                testID="login-submit"
+              >
+                {loading ? (
+                  <View className="flex-row items-center">
+                    <ActivityIndicator color={colors.background} size="small" />
+                    <Text className="text-background font-semibold text-lg ml-2">Signing In...</Text>
+                  </View>
+                ) : (
+                  <Text className="text-background font-semibold text-lg">Sign In</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Other Auth Links */}
             <View className="flex-row justify-center">
               <Text className="text-muted">{"Don't have an account? "}</Text>
               <TouchableOpacity onPress={handleRegisterPress}>
@@ -384,7 +387,11 @@ export default function LoginScreen() {
               <Text className="text-xs text-muted text-center mb-2">Test Accounts (password: supertest)</Text>
               <View className="flex-row flex-wrap justify-center gap-2">
                 <TouchableOpacity
-                  onPress={() => { setEmail("trainer@secretlab.com"); setPassword("supertest"); }}
+                  onPress={() => {
+                    setEmail("trainer@secretlab.com");
+                    setPassword("supertest");
+                    handleLogin("trainer@secretlab.com", "supertest");
+                  }}
                   className="px-2 py-1 bg-primary/10 rounded"
                   accessibilityRole="button"
                   accessibilityLabel="Fill trainer test account"
@@ -393,7 +400,11 @@ export default function LoginScreen() {
                   <Text className="text-xs text-primary">Trainer</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => { setEmail("client@secretlab.com"); setPassword("supertest"); }}
+                  onPress={() => {
+                    setEmail("client@secretlab.com");
+                    setPassword("supertest");
+                    handleLogin("client@secretlab.com", "supertest");
+                  }}
                   className="px-2 py-1 bg-primary/10 rounded"
                   accessibilityRole="button"
                   accessibilityLabel="Fill client test account"
@@ -402,7 +413,11 @@ export default function LoginScreen() {
                   <Text className="text-xs text-primary">Client</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => { setEmail("manager@secretlab.com"); setPassword("supertest"); }}
+                  onPress={() => {
+                    setEmail("manager@secretlab.com");
+                    setPassword("supertest");
+                    handleLogin("manager@secretlab.com", "supertest");
+                  }}
                   className="px-2 py-1 bg-primary/10 rounded"
                   accessibilityRole="button"
                   accessibilityLabel="Fill manager test account"
@@ -411,8 +426,12 @@ export default function LoginScreen() {
                   <Text className="text-xs text-primary">Manager</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => { setEmail("testuser@secretlab.com"); setPassword("supertest"); }}
-                  className="px-2 py-1 bg-purple-500/10 rounded"
+                  onPress={() => {
+                    setEmail("testuser@secretlab.com");
+                    setPassword("supertest");
+                    handleLogin("testuser@secretlab.com", "supertest");
+                  }}
+                  className="px-2 py-1 bg-primary/10 rounded"
                   accessibilityRole="button"
                   accessibilityLabel="Fill shopper test account"
                   testID="test-account-shopper"
@@ -420,7 +439,11 @@ export default function LoginScreen() {
                   <Text className="text-xs text-purple-500">Super User</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => { setEmail("coordinator@secretlab.com"); setPassword("supertest"); }}
+                  onPress={() => {
+                    setEmail("coordinator@secretlab.com");
+                    setPassword("supertest");
+                    handleLogin("coordinator@secretlab.com", "supertest");
+                  }}
                   className="px-2 py-1 bg-purple-500/10 rounded"
                   accessibilityRole="button"
                   accessibilityLabel="Fill coordinator test account"

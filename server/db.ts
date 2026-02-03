@@ -1,42 +1,42 @@
 import { and, asc, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-    activityLogs,
-    bundleDrafts,
-    bundleTemplates,
-    calendarEvents,
-    clients,
-    InsertActivityLog,
-    InsertBundleDraft,
-    InsertBundleTemplate,
-    InsertCalendarEvent,
-    InsertClient,
-    InsertInvitation,
-    InsertMessage,
-    InsertMessageReaction,
-    InsertOrder,
-    InsertOrderItem,
-    InsertProduct,
-    InsertProductDelivery,
-    InsertSession,
-    InsertSubscription,
-    InsertTrainerEarning,
-    InsertUser,
-    InsertUserActivityLog,
-    InsertUserInvitation,
-    invitations,
-    messageReactions,
-    messages,
-    orderItems,
-    orders,
-    productDeliveries,
-    products,
-    sessions,
-    subscriptions,
-    trainerEarnings,
-    userActivityLogs,
-    userInvitations,
-    users,
+  activityLogs,
+  bundleDrafts,
+  bundleTemplates,
+  calendarEvents,
+  clients,
+  InsertActivityLog,
+  InsertBundleDraft,
+  InsertBundleTemplate,
+  InsertCalendarEvent,
+  InsertClient,
+  InsertInvitation,
+  InsertMessage,
+  InsertMessageReaction,
+  InsertOrder,
+  InsertOrderItem,
+  InsertProduct,
+  InsertProductDelivery,
+  InsertSession,
+  InsertSubscription,
+  InsertTrainerEarning,
+  InsertUser,
+  InsertUserActivityLog,
+  InsertUserInvitation,
+  invitations,
+  messageReactions,
+  messages,
+  orderItems,
+  orders,
+  productDeliveries,
+  products,
+  sessions,
+  subscriptions,
+  trainerEarnings,
+  userActivityLogs,
+  userInvitations,
+  users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -173,21 +173,21 @@ export async function getUsersWithFilters(options: {
 }) {
   const db = await getDb();
   if (!db) return { users: [], total: 0 };
-  
+
   const { limit = 20, offset = 0, role, status, search, joinedAfter, joinedBefore } = options;
-  
+
   const conditions = [];
-  
+
   if (role && role !== "all") {
     conditions.push(eq(users.role, role as any));
   }
-  
+
   if (status === "active") {
     conditions.push(eq(users.active, true));
   } else if (status === "inactive") {
     conditions.push(eq(users.active, false));
   }
-  
+
   if (search) {
     conditions.push(
       or(
@@ -196,24 +196,24 @@ export async function getUsersWithFilters(options: {
       )!
     );
   }
-  
+
   if (joinedAfter) {
     conditions.push(gte(users.createdAt, joinedAfter));
   }
-  
+
   if (joinedBefore) {
     conditions.push(lte(users.createdAt, joinedBefore));
   }
-  
+
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-  
+
   // Get total count
   const countResult = await db
     .select({ count: sql<number>`count(*)` })
     .from(users)
     .where(whereClause);
   const total = countResult[0]?.count ?? 0;
-  
+
   // Get paginated users
   const userList = await db
     .select()
@@ -222,7 +222,7 @@ export async function getUsersWithFilters(options: {
     .orderBy(desc(users.createdAt))
     .limit(limit)
     .offset(offset);
-  
+
   return { users: userList, total };
 }
 
@@ -414,6 +414,26 @@ export async function updateClient(id: number, data: Partial<InsertClient>) {
   await db.update(clients).set(data).where(eq(clients.id, id));
 }
 
+export async function getActiveBundlesCountForClient(clientId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(subscriptions)
+    .where(and(eq(subscriptions.clientId, clientId), eq(subscriptions.status, "active")));
+  return result[0]?.count || 0;
+}
+
+export async function getTotalSpentByClient(clientId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ total: sql<string>`sum(totalAmount)` })
+    .from(orders)
+    .where(and(eq(orders.clientId, clientId), eq(orders.paymentStatus, "paid")));
+  return parseFloat(result[0]?.total || "0");
+}
+
 // ============================================================================
 // SUBSCRIPTIONS (with session tracking)
 // ============================================================================
@@ -505,19 +525,19 @@ export async function updateSession(id: number, data: Partial<InsertSession>) {
 export async function completeSession(sessionId: number) {
   const db = await getDb();
   if (!db) return;
-  
+
   // Get the session to find subscription
   const sessionResult = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
   if (sessionResult.length === 0) return;
-  
+
   const session = sessionResult[0];
-  
+
   // Update session status
   await db.update(sessions).set({
     status: "completed",
     completedAt: new Date(),
   }).where(eq(sessions.id, sessionId));
-  
+
   // Increment subscription sessions used if linked
   if (session.subscriptionId) {
     await incrementSessionsUsed(session.subscriptionId);
@@ -710,14 +730,14 @@ export async function getConversationSummaries(userId: number) {
     participantIds.delete(userId);
     const participants = participantIds.size
       ? await db
-          .select({
-            id: users.id,
-            name: users.name,
-            photoUrl: users.photoUrl,
-            role: users.role,
-          })
-          .from(users)
-          .where(inArray(users.id, Array.from(participantIds)))
+        .select({
+          id: users.id,
+          name: users.name,
+          photoUrl: users.photoUrl,
+          role: users.role,
+        })
+        .from(users)
+        .where(inArray(users.id, Array.from(participantIds)))
       : [];
 
     const unreadCountRows = await db
@@ -776,7 +796,7 @@ export async function getMessageReactions(messageId: number) {
 export async function addMessageReaction(data: InsertMessageReaction) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   // Check if reaction already exists
   const existing = await db.select()
     .from(messageReactions)
@@ -787,11 +807,11 @@ export async function addMessageReaction(data: InsertMessageReaction) {
         eq(messageReactions.reaction, data.reaction)
       )
     );
-  
+
   if (existing.length > 0) {
     return existing[0];
   }
-  
+
   const result = await db.insert(messageReactions).values(data);
   return { id: result[0].insertId, ...data };
 }
@@ -811,14 +831,14 @@ export async function removeMessageReaction(messageId: number, userId: number, r
 export async function getConversationReactions(conversationId: string) {
   const db = await getDb();
   if (!db) return [];
-  
+
   // Get all message IDs in the conversation
   const conversationMessages = await db.select({ id: messages.id })
     .from(messages)
     .where(eq(messages.conversationId, conversationId));
-  
+
   if (conversationMessages.length === 0) return [];
-  
+
   const messageIds = conversationMessages.map(m => m.id);
   return db.select()
     .from(messageReactions)
@@ -868,13 +888,13 @@ export async function createEarning(data: InsertTrainerEarning) {
 export async function getEarningsSummary(trainerId: number) {
   const db = await getDb();
   if (!db) return { total: 0, pending: 0, paid: 0 };
-  
+
   const earnings = await db.select().from(trainerEarnings).where(eq(trainerEarnings.trainerId, trainerId));
-  
+
   let total = 0;
   let pending = 0;
   let paid = 0;
-  
+
   for (const e of earnings) {
     const amount = parseFloat(e.amount as string) || 0;
     total += amount;
@@ -884,7 +904,7 @@ export async function getEarningsSummary(trainerId: number) {
       paid += amount;
     }
   }
-  
+
   return { total, pending, paid };
 }
 
@@ -948,22 +968,22 @@ export async function getUserInvitations(options: {
 }) {
   const db = await getDb();
   if (!db) return { invitations: [], total: 0 };
-  
+
   const { limit = 20, offset = 0, status } = options;
-  
+
   const conditions = [];
   if (status) {
     conditions.push(eq(userInvitations.status, status));
   }
-  
+
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-  
+
   const countResult = await db
     .select({ count: sql<number>`count(*)` })
     .from(userInvitations)
     .where(whereClause);
   const total = countResult[0]?.count ?? 0;
-  
+
   const invitationList = await db
     .select()
     .from(userInvitations)
@@ -971,7 +991,7 @@ export async function getUserInvitations(options: {
     .orderBy(desc(userInvitations.createdAt))
     .limit(limit)
     .offset(offset);
-  
+
   return { invitations: invitationList, total };
 }
 
@@ -985,6 +1005,68 @@ export async function revokeUserInvitation(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(userInvitations).set({ status: "revoked" }).where(eq(userInvitations.id, id));
+}
+
+// ============================================================================
+// COORDINATOR OPERATIONS
+// ============================================================================
+
+export async function getTopTrainers(limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      photoUrl: users.photoUrl,
+      clientCount: sql<number>`count(${clients.id})`,
+    })
+    .from(users)
+    .leftJoin(clients, and(eq(clients.trainerId, users.id), eq(clients.status, "active")))
+    .where(and(eq(users.role, "trainer"), eq(users.active, true)))
+    .groupBy(users.id)
+    .orderBy(desc(sql<number>`count(${clients.id})`))
+    .limit(limit);
+}
+
+export async function getTopBundles(limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: bundleDrafts.id,
+      title: bundleDrafts.title,
+      imageUrl: bundleDrafts.imageUrl,
+      orderCount: sql<number>`count(${trainerEarnings.id})`,
+    })
+    .from(bundleDrafts)
+    .leftJoin(trainerEarnings, eq(trainerEarnings.bundleDraftId, bundleDrafts.id))
+    .where(eq(bundleDrafts.status, "published"))
+    .groupBy(bundleDrafts.id)
+    .orderBy(desc(sql<number>`count(${trainerEarnings.id})`))
+    .limit(limit);
+}
+
+export async function getCoordinatorStats() {
+  const db = await getDb();
+  if (!db) return null;
+
+  const totalUsers = await db.select({ count: sql<number>`count(*)` }).from(users);
+  const totalBundles = await db.select({ count: sql<number>`count(*)` }).from(bundleDrafts).where(eq(bundleDrafts.status, "published"));
+  const pendingApprovals = await db.select({ count: sql<number>`count(*)` }).from(bundleDrafts).where(eq(bundleDrafts.status, "pending_review"));
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const newUsersThisMonth = await db.select({ count: sql<number>`count(*)` }).from(users).where(gte(users.createdAt, startOfMonth));
+
+  return {
+    totalUsers: totalUsers[0]?.count || 0,
+    totalBundles: totalBundles[0]?.count || 0,
+    pendingApprovals: pendingApprovals[0]?.count || 0,
+    newUsersThisMonth: newUsersThisMonth[0]?.count || 0,
+  };
 }
 
 // ============================================================================
@@ -1030,7 +1112,7 @@ export async function getRecentActivityLogs(limit = 100) {
 export async function getMyTrainers(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  
+
   // Find all client records where this user is linked
   const clientRecords = await db
     .select()
@@ -1041,18 +1123,18 @@ export async function getMyTrainers(userId: number) {
         inArray(clients.status, ["active", "pending"])
       )
     );
-  
+
   if (clientRecords.length === 0) return [];
-  
+
   // Get trainer IDs
   const trainerIds = clientRecords.map(c => c.trainerId);
-  
+
   // Get trainer details
   const trainers = await db
     .select()
     .from(users)
     .where(inArray(users.id, trainerIds));
-  
+
   // Combine trainer info with relationship info
   return trainers.map(trainer => {
     const clientRecord = clientRecords.find(c => c.trainerId === trainer.id);
@@ -1072,7 +1154,7 @@ export async function getMyTrainers(userId: number) {
 export async function getActiveBundlesCount(trainerId: number, clientUserId: number) {
   const db = await getDb();
   if (!db) return 0;
-  
+
   // Find the client record
   const clientRecord = await db
     .select()
@@ -1084,9 +1166,9 @@ export async function getActiveBundlesCount(trainerId: number, clientUserId: num
       )
     )
     .limit(1);
-  
+
   if (clientRecord.length === 0) return 0;
-  
+
   // Count active subscriptions
   const subs = await db
     .select({ count: sql<number>`count(*)` })
@@ -1097,7 +1179,7 @@ export async function getActiveBundlesCount(trainerId: number, clientUserId: num
         eq(subscriptions.status, "active")
       )
     );
-  
+
   return subs[0]?.count ?? 0;
 }
 
@@ -1107,7 +1189,7 @@ export async function getActiveBundlesCount(trainerId: number, clientUserId: num
 export async function removeTrainerFromClient(trainerId: number, clientUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   await db
     .update(clients)
     .set({ status: "removed" })
@@ -1125,7 +1207,7 @@ export async function removeTrainerFromClient(trainerId: number, clientUserId: n
 export async function getAvailableTrainers(userId: number, search?: string, specialty?: string) {
   const db = await getDb();
   if (!db) return [];
-  
+
   // Get IDs of trainers already connected to this user
   const existingConnections = await db
     .select({ trainerId: clients.trainerId })
@@ -1136,17 +1218,17 @@ export async function getAvailableTrainers(userId: number, search?: string, spec
         inArray(clients.status, ["active", "pending"])
       )
     );
-  
+
   const connectedTrainerIds = existingConnections.map(c => c.trainerId);
-  
+
   // Build conditions for trainer search
   const conditions = [eq(users.role, "trainer"), eq(users.active, true)];
-  
+
   // Exclude already connected trainers
   if (connectedTrainerIds.length > 0) {
     conditions.push(sql`${users.id} NOT IN (${connectedTrainerIds.join(",")})`);
   }
-  
+
   // Add search filter
   if (search) {
     conditions.push(
@@ -1157,7 +1239,7 @@ export async function getAvailableTrainers(userId: number, search?: string, spec
       )!
     );
   }
-  
+
   return db
     .select()
     .from(users)
@@ -1172,7 +1254,7 @@ export async function getAvailableTrainers(userId: number, search?: string, spec
 export async function createJoinRequest(trainerId: number, userId: number, message?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   // Check if relationship already exists
   const existing = await db
     .select()
@@ -1184,7 +1266,7 @@ export async function createJoinRequest(trainerId: number, userId: number, messa
       )
     )
     .limit(1);
-  
+
   if (existing.length > 0) {
     // Reactivate if previously removed
     if (existing[0].status === "removed") {
@@ -1196,16 +1278,16 @@ export async function createJoinRequest(trainerId: number, userId: number, messa
     }
     throw new Error("Already connected to this trainer");
   }
-  
+
   // Get user info for the client record
   const user = await db
     .select()
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  
+
   if (user.length === 0) throw new Error("User not found");
-  
+
   // Create new pending client record
   const result = await db.insert(clients).values({
     trainerId,
@@ -1218,7 +1300,7 @@ export async function createJoinRequest(trainerId: number, userId: number, messa
     notes: message,
     invitedAt: new Date(),
   });
-  
+
   return result[0].insertId;
 }
 
@@ -1228,7 +1310,7 @@ export async function createJoinRequest(trainerId: number, userId: number, messa
 export async function getPendingJoinRequests(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  
+
   const pending = await db
     .select()
     .from(clients)
@@ -1238,16 +1320,16 @@ export async function getPendingJoinRequests(userId: number) {
         eq(clients.status, "pending")
       )
     );
-  
+
   if (pending.length === 0) return [];
-  
+
   // Get trainer details
   const trainerIds = pending.map(p => p.trainerId);
   const trainers = await db
     .select()
     .from(users)
     .where(inArray(users.id, trainerIds));
-  
+
   return pending.map(request => ({
     ...request,
     trainer: trainers.find(t => t.id === request.trainerId),
@@ -1260,7 +1342,7 @@ export async function getPendingJoinRequests(userId: number) {
 export async function cancelJoinRequest(requestId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   // Verify the request belongs to this user
   const request = await db
     .select()
@@ -1273,9 +1355,9 @@ export async function cancelJoinRequest(requestId: number, userId: number) {
       )
     )
     .limit(1);
-  
+
   if (request.length === 0) throw new Error("Request not found");
-  
+
   await db.delete(clients).where(eq(clients.id, requestId));
 }
 
@@ -1285,7 +1367,7 @@ export async function cancelJoinRequest(requestId: number, userId: number) {
 export async function getTrainerBundleCount(trainerId: number) {
   const db = await getDb();
   if (!db) return 0;
-  
+
   const result = await db
     .select({ count: sql<number>`count(*)` })
     .from(bundleDrafts)
@@ -1295,7 +1377,7 @@ export async function getTrainerBundleCount(trainerId: number) {
         eq(bundleDrafts.status, "published")
       )
     );
-  
+
   return result[0]?.count ?? 0;
 }
 

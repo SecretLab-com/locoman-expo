@@ -1,5 +1,6 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -58,6 +59,7 @@ const STATUS_TABS: { key: BundleStatus | "all"; label: string }[] = [
 
 export default function ManagerApprovalsScreen() {
   const colors = useColors();
+  const { isAuthenticated } = useAuthContext();
   const colorScheme = useColorScheme();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
@@ -119,6 +121,9 @@ export default function ManagerApprovalsScreen() {
   }, [refetch]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
     connect();
     const unsubscribe = subscribe((message) => {
       if (message.type === "badge_counts_updated") {
@@ -129,7 +134,7 @@ export default function ManagerApprovalsScreen() {
       unsubscribe();
       disconnect();
     };
-  }, [refetch, connect, disconnect, subscribe]);
+  }, [refetch, connect, disconnect, subscribe, isAuthenticated]);
 
   const handleApprove = (bundle: Bundle) => {
     if (Platform.OS === "web") {

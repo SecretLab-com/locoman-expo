@@ -1,21 +1,21 @@
-import { useState } from "react";
-import { router } from "expo-router";
 import { BulkInviteModal } from "@/components/bulk-invite-modal";
-import { trpc } from "@/lib/trpc";
+import { NavigationHeader } from "@/components/navigation-header";
+import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuth } from "@/hooks/use-auth";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
+import { router } from "expo-router";
+import { useState } from "react";
 import {
-  Text,
-  View,
-  TouchableOpacity,
   FlatList,
   RefreshControl,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
-import { NavigationHeader } from "@/components/navigation-header";
-import { useColors } from "@/hooks/use-colors";
-import { IconSymbol } from "@/components/ui/icon-symbol";
 
 // Mock data for trainer's clients
 const MOCK_CLIENTS = [
@@ -73,6 +73,27 @@ const MOCK_CLIENTS = [
 
 type Client = (typeof MOCK_CLIENTS)[0];
 
+function ClientAvatar({ uri }: { uri?: string | null }) {
+  const colors = useColors();
+  const [hasError, setHasError] = useState(false);
+  const isValidUri = typeof uri === "string" && uri.trim().length > 0;
+
+  return (
+    <View className="w-14 h-14 rounded-full bg-muted/30 overflow-hidden items-center justify-center">
+      {isValidUri && !hasError ? (
+        <Image
+          source={{ uri }}
+          className="w-14 h-14 rounded-full"
+          contentFit="cover"
+          onError={() => setHasError(true)}
+        />
+      ) : (
+        <IconSymbol name="person.fill" size={22} color={colors.muted} />
+      )}
+    </View>
+  );
+}
+
 function ClientCard({ client, onPress }: { client: Client; onPress: () => void }) {
   const colors = useColors();
 
@@ -81,19 +102,18 @@ function ClientCard({ client, onPress }: { client: Client; onPress: () => void }
       className="bg-surface rounded-xl p-4 mb-3 border border-border"
       onPress={onPress}
       activeOpacity={0.8}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${client.name} details`}
+      testID={`trainer-client-${client.id}`}
     >
       <View className="flex-row items-center">
-        <Image
-          source={{ uri: client.avatar }}
-          className="w-14 h-14 rounded-full"
-        />
+        <ClientAvatar uri={client.avatar} />
         <View className="flex-1 ml-4">
           <View className="flex-row items-center">
             <Text className="text-base font-semibold text-foreground">{client.name}</Text>
             <View
-              className={`w-2 h-2 rounded-full ml-2 ${
-                client.status === "active" ? "bg-success" : "bg-muted"
-              }`}
+              className={`w-2 h-2 rounded-full ml-2 ${client.status === "active" ? "bg-success" : "bg-muted"
+                }`}
             />
           </View>
           <Text className="text-sm text-muted mt-0.5">{client.email}</Text>
@@ -118,27 +138,28 @@ export default function TrainerClientsScreen() {
   const colors = useColors();
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
   const [showBulkInvite, setShowBulkInvite] = useState(false);
 
+  // Fetch real clients from tRPC
+  const { data: clientsData, isLoading, refetch } = trpc.clients.list.useQuery();
   const bulkInviteMutation = trpc.clients.bulkInvite.useMutation();
 
-  const filteredClients = MOCK_CLIENTS.filter(
+  const clients = clientsData || [];
+
+  const filteredClients = clients.filter(
     (client) =>
       client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      client.email.toLowerCase().includes(searchQuery.toLowerCase())
+      (client.email && client.email.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const activeClients = filteredClients.filter((c) => c.status === "active");
-  const inactiveClients = filteredClients.filter((c) => c.status === "inactive");
+  const inactiveClients = filteredClients.filter((c) => c.status !== "active");
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
+    await refetch();
   };
 
-  const handleClientPress = (client: Client) => {
+  const handleClientPress = (client: any) => {
     router.push(`/client-detail/${client.id}` as any);
   };
 
@@ -147,7 +168,7 @@ export default function TrainerClientsScreen() {
       {/* Navigation Header */}
       <NavigationHeader
         title="Clients"
-        subtitle={`${MOCK_CLIENTS.length} total clients`}
+        subtitle={`${clients.length} total clients`}
         rightAction={{
           icon: "person.badge.plus",
           onPress: () => setShowBulkInvite(true),
@@ -207,7 +228,7 @@ export default function TrainerClientsScreen() {
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={colors.primary} />
         }
         ListEmptyComponent={
           <View className="items-center py-12">

@@ -5,6 +5,7 @@ import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
+import { useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
 type StatCardProps = {
   title: string;
@@ -63,6 +64,48 @@ function QuickAction({ title, icon, onPress }: QuickActionProps) {
   );
 }
 
+function ClientAvatar({ uri }: { uri?: string | null }) {
+  const colors = useColors();
+  const [hasError, setHasError] = useState(false);
+  const isValidUri = typeof uri === "string" && uri.trim().length > 0;
+
+  return (
+    <View className="w-8 h-8 rounded-full bg-muted/30 overflow-hidden items-center justify-center">
+      {isValidUri && !hasError ? (
+        <Image
+          source={{ uri }}
+          className="w-8 h-8 rounded-full"
+          contentFit="cover"
+          onError={() => setHasError(true)}
+        />
+      ) : (
+        <IconSymbol name="person.fill" size={14} color={colors.muted} />
+      )}
+    </View>
+  );
+}
+
+function TrendingItemImage({ uri }: { uri?: string | null }) {
+  const colors = useColors();
+  const [hasError, setHasError] = useState(false);
+  const isValidUri = typeof uri === "string" && uri.trim().length > 0;
+
+  return (
+    <View className="w-12 h-12 rounded-xl bg-muted/30 overflow-hidden items-center justify-center mr-3">
+      {isValidUri && !hasError ? (
+        <Image
+          source={{ uri }}
+          className="w-12 h-12"
+          contentFit="cover"
+          onError={() => setHasError(true)}
+        />
+      ) : (
+        <IconSymbol name="shippingbox.fill" size={18} color={colors.muted} />
+      )}
+    </View>
+  );
+}
+
 export default function TrainerDashboardScreen() {
   const colors = useColors();
   const { user, effectiveUser, effectiveRole } = useAuthContext();
@@ -80,6 +123,7 @@ export default function TrainerDashboardScreen() {
   // Fetch trainer stats from API
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = trpc.trainerDashboard.stats.useQuery();
   const { data: points, refetch: refetchPoints } = trpc.trainerDashboard.points.useQuery();
+  const { data: clientsData, refetch: refetchClients } = trpc.clients.list.useQuery();
 
   const isLoading = statsLoading;
   const isRefetching = false;
@@ -88,6 +132,7 @@ export default function TrainerDashboardScreen() {
     await Promise.all([
       refetchStats(),
       refetchPoints(),
+      refetchClients(),
     ]);
   };
 
@@ -117,11 +162,12 @@ export default function TrainerDashboardScreen() {
     nextPayout: "Feb 28",
   };
 
-  const clientPreview = [
-    { id: "c1", name: "Alex", tag: "Hyrox", photoUrl: "https://i.pravatar.cc/150?img=12" },
-    { id: "c2", name: "Sam", tag: "Marathon", photoUrl: "https://i.pravatar.cc/150?img=32" },
-    { id: "c3", name: "Tom", tag: "Strength", photoUrl: "https://i.pravatar.cc/150?img=44" },
-  ];
+  const clientPreview = (clientsData || []).slice(0, 5).map(c => ({
+    id: c.id.toString(),
+    name: c.name.split(' ')[0],
+    tag: c.status === 'active' ? 'Active' : 'Pending',
+    photoUrl: c.photoUrl
+  }));
 
   const servicesPreview = ["1:1 PT Sessions", "Group Training", "Online Coaching", "Assessments"];
 
@@ -314,17 +360,7 @@ export default function TrainerDashboardScreen() {
                   className="bg-surface border border-border rounded-xl px-4 py-3 min-w-[120px]"
                 >
                   <View className="flex-row items-center gap-2">
-                    <View className="w-8 h-8 rounded-full bg-muted/30 overflow-hidden items-center justify-center">
-                      {client.photoUrl ? (
-                        <Image
-                          source={{ uri: client.photoUrl }}
-                          className="w-8 h-8 rounded-full"
-                          contentFit="cover"
-                        />
-                      ) : (
-                        <IconSymbol name="person.fill" size={14} color={colors.muted} />
-                      )}
-                    </View>
+                    <ClientAvatar uri={client.photoUrl} />
                     <Text className="text-base font-semibold text-foreground">{client.name}</Text>
                   </View>
                   <Text className="text-xs text-muted mt-2">{client.tag}</Text>
@@ -406,17 +442,7 @@ export default function TrainerDashboardScreen() {
                 onPress={() => router.push("/(trainer)/products" as any)}
                 activeOpacity={0.8}
               >
-                <View className="w-12 h-12 rounded-xl bg-muted/30 overflow-hidden items-center justify-center mr-3">
-                  {item.imageUrl ? (
-                    <Image
-                      source={{ uri: item.imageUrl }}
-                      className="w-12 h-12"
-                      contentFit="cover"
-                    />
-                  ) : (
-                    <IconSymbol name="shippingbox.fill" size={18} color={colors.muted} />
-                  )}
-                </View>
+                <TrendingItemImage uri={item.imageUrl} />
                 <View className="flex-1">
                   <Text className="text-base font-semibold text-foreground">{item.title}</Text>
                   <Text className="text-sm text-muted mt-1">{item.subtitle}</Text>

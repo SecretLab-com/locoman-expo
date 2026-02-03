@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "LocoMotivate",
-    "slug": "LocoMotivate",
-    "version": "1.0.0",
+    "slug": "locomotivate",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "locomotivate",

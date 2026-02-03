@@ -1,0 +1,12 @@
+node_modules
+.expo
+.git
+dist
+web-build
+*.log
+.DS_Store
+.env
+.manus
+.cursor
+.idea
+.vscode

@@ -47,13 +47,13 @@ function buildUserResponse(
   user:
     | Awaited<ReturnType<typeof getUserByOpenId>>
     | {
-        openId: string;
-        name?: string | null;
-        email?: string | null;
-        loginMethod?: string | null;
-        lastSignedIn?: Date | null;
-        role?: string | null;
-      },
+      openId: string;
+      name?: string | null;
+      email?: string | null;
+      loginMethod?: string | null;
+      lastSignedIn?: Date | null;
+      role?: string | null;
+    },
 ) {
   return {
     id: (user as any)?.id ?? null,
@@ -78,25 +78,88 @@ export function registerOAuthRoutes(app: Express) {
     }
 
     try {
-      const tokenResponse = await sdk.exchangeCodeForToken(code, state);
-      const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
-      const savedUser = await syncUser(userInfo);
-      const sessionToken = await sdk.createSessionToken(userInfo.openId!, {
-        name: userInfo.name || "",
-        expiresInMs: ONE_YEAR_MS,
-      });
+      let userInfo: any;
+      let sessionToken = "";
+      let savedUser: any;
+
+      // Decode redirectUri from state
+      let redirectUri: string | undefined;
+      try {
+        if (state) {
+          redirectUri = Buffer.from(state, "base64").toString("utf-8");
+          console.log("[OAuth] Decoded redirectUri from state:", redirectUri);
+        }
+      } catch (err) {
+        console.warn("[OAuth] Failed to decode state as base64:", err);
+      }
+
+      const portalUrl = (process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "").trim();
+      const shouldUseManus = Boolean(process.env.OAUTH_SERVER_URL) && portalUrl.length > 0;
+
+      if (shouldUseManus) {
+        try {
+          // Try Manus/Portal exchange first
+          const tokenResponse = await sdk.exchangeCodeForToken(code, state);
+          userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+          savedUser = await syncUser(userInfo);
+          sessionToken = await sdk.createSessionToken(userInfo.openId!, {
+            name: userInfo.name || "",
+            expiresInMs: ONE_YEAR_MS,
+          });
+        } catch (manusError) {
+          console.log(
+            "[OAuth] Manus exchange failed, trying direct Google exchange...",
+            (manusError as any)?.message,
+          );
+        }
+      }
+
+      if (!userInfo) {
+        // Direct Google exchange
+        const googleRedirectUri = `${req.protocol}://${req.get("host")}/api/oauth/callback`;
+        const googleToken = await sdk.exchangeGoogleCodeForToken(code, googleRedirectUri);
+        const googleUser = await sdk.getGoogleUserInfo(googleToken.access_token);
+
+        userInfo = {
+          openId: `google_${googleUser.sub}`,
+          name: googleUser.name,
+          email: googleUser.email,
+          loginMethod: "google",
+        };
+        savedUser = await syncUser(userInfo);
+        sessionToken = await sdk.createSessionToken(userInfo.openId!, {
+          name: userInfo.name || "",
+          expiresInMs: ONE_YEAR_MS,
+        });
+      }
+
+      if (!sessionToken) {
+        throw new Error("OAuth session token missing after exchange");
+      }
+
       logEvent("auth.oauth_callback_success", { openId: userInfo.openId, role: (savedUser as any)?.role });
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-      // Redirect to the frontend URL (Expo web on port 8081)
-      // Cookie is set with parent domain so it works across both 3000 and 8081 subdomains
       const frontendUrl =
+        redirectUri ||
         process.env.EXPO_WEB_PREVIEW_URL ||
         process.env.EXPO_PACKAGER_PROXY_URL ||
-        "http://localhost:8081";
-      res.redirect(302, frontendUrl);
+        (process.env.NODE_ENV === "production"
+          ? "https://locoman-web-870100645593.us-central1.run.app"
+          : "http://localhost:8081");
+
+      const userPayload = Buffer.from(
+        JSON.stringify(buildUserResponse(savedUser)),
+        "utf-8",
+      ).toString("base64");
+      const redirect = new URL(frontendUrl);
+      redirect.searchParams.set("sessionToken", sessionToken);
+      redirect.searchParams.set("user", userPayload);
+
+      console.log("[OAuth] Redirecting to:", redirect.toString());
+      res.redirect(302, redirect.toString());
     } catch (error) {
       logError("auth.oauth_callback_failed", error);
       res.status(500).json({ error: "OAuth callback failed" });
@@ -175,34 +238,34 @@ export function registerOAuthRoutes(app: Express) {
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
-      
+
       // Test user credentials - superuser (coordinator) role
-      if (email === "testuser@secretlab.com" && password === "supertest") {
+      if ((email === "testuser@secretlab.com" || email === "jason@secretlab.com") && password === "supertest") {
         // Create a test user session with coordinator role
-        const testOpenId = "test_user_coordinator";
+        const testOpenId = email === "jason@secretlab.com" ? "jason_secretlab_coordinator" : "test_user_coordinator";
         const testUser = {
           openId: testOpenId,
-          name: "Test User",
+          name: email === "jason@secretlab.com" ? "Jason" : "Test User",
           email: email,
           loginMethod: "email",
           role: "coordinator" as const,
         };
-        
+
         await syncUser(testUser);
         const sessionToken = await sdk.createSessionToken(testOpenId, {
           name: testUser.name,
           expiresInMs: ONE_YEAR_MS,
         });
-        
+
         const cookieOptions = getSessionCookieOptions(req);
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        
+
         const savedUser = await getUserByOpenId(testOpenId);
         logEvent("auth.login_success", { role: "coordinator", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || testUser), sessionToken });
         return;
       }
-      
+
       // Trainer test account - has trainer role for testing bundle creation
       if (email === "trainer@secretlab.com" && password === "supertest") {
         const trainerOpenId = "test_trainer_account";
@@ -213,22 +276,22 @@ export function registerOAuthRoutes(app: Express) {
           loginMethod: "email",
           role: "trainer" as const,
         };
-        
+
         await syncUser(trainerUser);
         const sessionToken = await sdk.createSessionToken(trainerOpenId, {
           name: trainerUser.name,
           expiresInMs: ONE_YEAR_MS,
         });
-        
+
         const cookieOptions = getSessionCookieOptions(req);
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        
+
         const savedUser = await getUserByOpenId(trainerOpenId);
         logEvent("auth.login_success", { role: "trainer", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || trainerUser), sessionToken });
         return;
       }
-      
+
       // Client test account - has client role for testing client features
       if (email === "client@secretlab.com" && password === "supertest") {
         const clientOpenId = "test_client_account";
@@ -239,22 +302,22 @@ export function registerOAuthRoutes(app: Express) {
           loginMethod: "email",
           role: "client" as const,
         };
-        
+
         await syncUser(clientUser);
         const sessionToken = await sdk.createSessionToken(clientOpenId, {
           name: clientUser.name,
           expiresInMs: ONE_YEAR_MS,
         });
-        
+
         const cookieOptions = getSessionCookieOptions(req);
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        
+
         const savedUser = await getUserByOpenId(clientOpenId);
         logEvent("auth.login_success", { role: "client", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || clientUser), sessionToken });
         return;
       }
-      
+
       // Manager test account - has manager role for testing admin features
       if (email === "manager@secretlab.com" && password === "supertest") {
         const managerOpenId = "test_manager_account";
@@ -265,22 +328,22 @@ export function registerOAuthRoutes(app: Express) {
           loginMethod: "email",
           role: "manager" as const,
         };
-        
+
         await syncUser(managerUser);
         const sessionToken = await sdk.createSessionToken(managerOpenId, {
           name: managerUser.name,
           expiresInMs: ONE_YEAR_MS,
         });
-        
+
         const cookieOptions = getSessionCookieOptions(req);
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        
+
         const savedUser = await getUserByOpenId(managerOpenId);
         logEvent("auth.login_success", { role: "manager", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || managerUser), sessionToken });
         return;
       }
-      
+
       // Coordinator test account - has coordinator role for testing impersonation
       if (email === "coordinator@secretlab.com" && password === "supertest") {
         const coordinatorOpenId = "test_coordinator_account";
@@ -291,22 +354,22 @@ export function registerOAuthRoutes(app: Express) {
           loginMethod: "email",
           role: "coordinator" as const,
         };
-        
+
         await syncUser(coordinatorUser);
         const sessionToken = await sdk.createSessionToken(coordinatorOpenId, {
           name: coordinatorUser.name,
           expiresInMs: ONE_YEAR_MS,
         });
-        
+
         const cookieOptions = getSessionCookieOptions(req);
         res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-        
+
         const savedUser = await getUserByOpenId(coordinatorOpenId);
         logEvent("auth.login_success", { role: "coordinator", method: "email" });
         res.json({ success: true, user: buildUserResponse(savedUser || coordinatorUser), sessionToken });
         return;
       }
-      
+
       // For other users, check database
       // In production, you would verify password hash here
       res.status(401).json({ error: "Invalid email or password", message: "Invalid email or password" });

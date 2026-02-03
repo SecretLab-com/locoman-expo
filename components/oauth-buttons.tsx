@@ -1,11 +1,11 @@
-import { View, Text, TouchableOpacity, Platform, StyleSheet, Alert } from "react-native";
-import * as AppleAuthentication from "expo-apple-authentication";
-import * as WebBrowser from "expo-web-browser";
-import { useColors } from "@/hooks/use-colors";
+import { getApiBaseUrl, startOAuthLogin } from "@/constants/oauth";
 import { useAuthContext } from "@/contexts/auth-context";
-import { router } from "expo-router";
-import { startOAuthLogin, getApiBaseUrl } from "@/constants/oauth";
+import { useColors } from "@/hooks/use-colors";
 import * as Auth from "@/lib/_core/auth";
+import * as AppleAuthentication from "expo-apple-authentication";
+import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 // Ensure web browser redirects are handled
 WebBrowser.maybeCompleteAuthSession();
@@ -30,7 +30,7 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
 
       // Extract user info from credential
       const { user, email, fullName, identityToken } = credential;
-      
+
       if (identityToken) {
         // Send to backend for verification and session creation
         const apiBaseUrl = getApiBaseUrl();
@@ -69,9 +69,7 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
 
   const handleGoogleSignIn = async () => {
     try {
-      const portalUrl = (process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "").trim();
-      const shouldUseDevLogin =
-        !portalUrl || /localhost|127\.0\.0\.1/.test(portalUrl);
+      const shouldUseDevLogin = process.env.EXPO_PUBLIC_DEV_LOGIN === "true";
 
       if (shouldUseDevLogin) {
         const apiBaseUrl = getApiBaseUrl();
@@ -121,16 +119,17 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
         return;
       }
 
-      // Use the centralized OAuth login flow which handles both web and native
+      // Use the centralized OAuth login flow which handles web + native
       await startOAuthLogin();
-      // The OAuth callback will handle the rest via deep link or redirect
+      // The OAuth callback will handle the rest via deep link
       onSuccess?.();
     } catch (error: any) {
-      console.error("Google Sign In error:", error);
+      console.error("Google Sign In error detailed:", error);
+      const errorMessage = error?.message || String(error);
+
       Alert.alert(
-        "OAuth not configured",
-        error?.message ||
-          "OAuth portal URL is not configured. Set EXPO_PUBLIC_OAUTH_PORTAL_URL to continue.",
+        "Login Failed",
+        `Details: ${errorMessage}\n\nIf variables were recently added to .env, please restart your dev server with 'npx expo start --clear'.`,
       );
       onError?.(error);
     }

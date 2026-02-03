@@ -1,18 +1,18 @@
-import { useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-  Alert,
-} from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useColors } from "@/hooks/use-colors";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
+import { useState } from "react";
+import {
+    Alert,
+    RefreshControl,
+    ScrollView,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 // Mock data
 const MOCK_STATS = {
@@ -204,7 +204,7 @@ export default function ManagerDashboardScreen() {
           <View className="flex-row gap-3 mb-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/templates" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -220,7 +220,7 @@ export default function ManagerDashboardScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/invitations" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -236,7 +236,7 @@ export default function ManagerDashboardScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/analytics" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -254,7 +254,7 @@ export default function ManagerDashboardScreen() {
           <View className="flex-row gap-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/deliveries" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -270,7 +270,7 @@ export default function ManagerDashboardScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/products" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
             >
               <LinearGradient
                 colors={quickActionGradient}
@@ -286,7 +286,7 @@ export default function ManagerDashboardScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/approvals" as any)}
-              className="flex-1 rounded-xl overflow-hidden"
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
             >
               <LinearGradient
                 colors={warningGradient}

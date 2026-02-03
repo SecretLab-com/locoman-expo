@@ -16,6 +16,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Conversation = {
   id: string;
@@ -135,6 +136,9 @@ export default function MessagesScreen() {
   const colors = useColors();
   const { isAuthenticated, isTrainer, effectiveRole } = useAuthContext();
   const bottomNavHeight = useBottomNavHeight();
+  const insets = useSafeAreaInsets();
+  const bottomPadding = Math.max(insets.bottom, 8);
+  const fabOffset = Math.max(8, bottomNavHeight - bottomPadding - 6);
   const roleBase =
     effectiveRole === "client"
       ? "/(client)"
@@ -295,7 +299,7 @@ export default function MessagesScreen() {
       <TouchableOpacity
         onPress={handleNewMessage}
         className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
-        style={{ right: 16, bottom: 16 - bottomNavHeight }}
+        style={{ right: 16, bottom: fabOffset }}
         accessibilityRole="button"
         accessibilityLabel="Start a new message"
         testID="messages-new-fab"

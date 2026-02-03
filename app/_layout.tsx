@@ -10,10 +10,10 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 import {
-    SafeAreaFrameContext,
-    SafeAreaInsetsContext,
-    SafeAreaProvider,
-    initialWindowMetrics,
+  SafeAreaFrameContext,
+  SafeAreaInsetsContext,
+  SafeAreaProvider,
+  initialWindowMetrics,
 } from "react-native-safe-area-context";
 
 import { ImpersonationBanner } from "@/components/impersonation-banner";
@@ -25,10 +25,10 @@ import { BadgeProvider } from "@/contexts/badge-context";
 import { CartProvider } from "@/contexts/cart-context";
 import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
+import { useDeepLink } from "@/hooks/use-deep-link";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 import { navigateToHome } from "@/lib/navigation";
 import { createTRPCClient, trpc } from "@/lib/trpc";
-import { useDeepLink } from "@/hooks/use-deep-link";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
@@ -78,7 +78,7 @@ function getHeaderTitle(routeName: string): string {
 }
 
 export const unstable_settings = {
-  anchor: "(tabs)",
+  initialRouteName: "(tabs)",
 };
 
 export default function RootLayout() {
@@ -87,6 +87,11 @@ export default function RootLayout() {
 
   const [insets, setInsets] = useState<EdgeInsets>(initialInsets);
   const [frame, setFrame] = useState<Rect>(initialFrame);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   // Initialize Manus runtime for cookie injection from parent container
   useEffect(() => {
@@ -140,9 +145,10 @@ export default function RootLayout() {
   );
   const [trpcClient] = useState(() => createTRPCClient());
 
-  // Ensure minimum 8px padding for top and bottom on mobile
+  // Ensure minimum 8px padding for top and bottom on mobile/web
+  // On web, we default to 0 during server-render to ensure hydration stability
   const providerInitialMetrics = useMemo(() => {
-    const metrics = initialWindowMetrics ?? { insets: initialInsets, frame: initialFrame };
+    const metrics = (isHydrated && initialWindowMetrics) ? initialWindowMetrics : { insets: initialInsets, frame: initialFrame };
     return {
       ...metrics,
       insets: {
@@ -151,7 +157,7 @@ export default function RootLayout() {
         bottom: Math.max(metrics.insets.bottom, 12),
       },
     };
-  }, [initialInsets, initialFrame]);
+  }, [initialInsets, initialFrame, isHydrated]);
 
   const content = (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -161,66 +167,69 @@ export default function RootLayout() {
             <NotificationProvider>
               <CartProvider>
                 <BadgeProvider>
-                <OfflineProvider>
-                  <View style={{ flex: 1 }}>
-                    <ImpersonationBanner />
-                    <View style={{ flex: 1 }}>
-                      <ProfileFAB />
-                      <OfflineIndicator />
-                      {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
-                      {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
-                      {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
-                      {/* Enable swipe-back gesture globally for native iOS/Android feel */}
-                      <Stack
-                        screenOptions={{
-                          headerShown: true,
-                          header: ({ route }) => (
-                            <NavigationHeader
-                              title={getHeaderTitle(route.name)}
-                              onBack={() => navigateToHome()}
-                            />
-                          ),
-                          // Enable swipe-back gesture on all screens by default
-                          gestureEnabled: true,
-                          // iOS: Full-width swipe from left edge
-                          fullScreenGestureEnabled: true,
-                          // Animation configuration for smooth transitions
-                          animation: "slide_from_right",
-                          // Gesture direction for swipe-back
-                          gestureDirection: "horizontal",
-                        }}
-                      >
-                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                    <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
-                    <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
-                    <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
-                    <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
-                    <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false, animation: "fade" }} />
-                    <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
-                    <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="activity/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="discover-bundles/index" options={{ presentation: "card" }} />
-                    <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
-                    <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="new-message" options={{ presentation: "card" }} />
-                    <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                    <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
-                    <Stack.Screen name="(client)" options={{ headerShown: false }} />
-                    <Stack.Screen name="(manager)" options={{ headerShown: false }} />
-                    <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
-                    <Stack.Screen name="oauth/callback" />
-                      </Stack>
-                      <StatusBar style="auto" />
+                  <OfflineProvider>
+                    <View
+                      style={{ flex: 1 }}
+                      {...(Platform.OS === 'web' ? { suppressHydrationWarning: true } : {})}
+                    >
+                      <ImpersonationBanner />
+                      <View style={{ flex: 1 }}>
+                        <ProfileFAB />
+                        <OfflineIndicator />
+                        {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
+                        {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
+                        {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
+                        {/* Enable swipe-back gesture globally for native iOS/Android feel */}
+                        <Stack
+                          screenOptions={{
+                            headerShown: true,
+                            header: ({ route }) => (
+                              <NavigationHeader
+                                title={getHeaderTitle(route.name)}
+                                onBack={() => navigateToHome()}
+                              />
+                            ),
+                            // Enable swipe-back gesture on all screens by default
+                            gestureEnabled: true,
+                            // iOS: Full-width swipe from left edge
+                            fullScreenGestureEnabled: true,
+                            // Animation configuration for smooth transitions
+                            animation: "slide_from_right",
+                            // Gesture direction for swipe-back
+                            gestureDirection: "horizontal",
+                          }}
+                        >
+                          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                          <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
+                          <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
+                          <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
+                          <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
+                          <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
+                          <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false, animation: "fade" }} />
+                          <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
+                          <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
+                          <Stack.Screen name="activity/index" options={{ presentation: "card" }} />
+                          <Stack.Screen name="discover-bundles/index" options={{ presentation: "card" }} />
+                          <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
+                          <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="new-message" options={{ presentation: "card" }} />
+                          <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
+                          <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
+                          <Stack.Screen name="(client)" options={{ headerShown: false }} />
+                          <Stack.Screen name="(manager)" options={{ headerShown: false }} />
+                          <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
+                          <Stack.Screen name="oauth/callback" />
+                        </Stack>
+                        <StatusBar style="auto" />
+                      </View>
                     </View>
-                  </View>
-                </OfflineProvider>
+                  </OfflineProvider>
                 </BadgeProvider>
               </CartProvider>
             </NotificationProvider>

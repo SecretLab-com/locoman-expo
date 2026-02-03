@@ -1,6 +1,6 @@
-import { useEffect, useCallback } from "react";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
+import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
 
 /**
@@ -80,6 +80,16 @@ const DEEP_LINK_ROUTES: DeepLinkRoute[] = [
   {
     pattern: "discover",
     routerPath: "/discover-bundles",
+  },
+  // Login: /login -> /login
+  {
+    pattern: "login",
+    routerPath: "/login",
+  },
+  // Register: /register -> /register
+  {
+    pattern: "register",
+    routerPath: "/register",
   },
 ];
 
@@ -189,7 +199,9 @@ export function useDeepLink() {
     }
 
     // Listen for URL events (app already open)
-    const subscription = Linking.addEventListener("url", handleUrl);
+    const subscription = Platform.OS !== "web"
+      ? Linking.addEventListener("url", handleUrl)
+      : { remove: () => { } };
 
     return () => {
       subscription.remove();
@@ -229,7 +241,7 @@ export function handleNotificationDeepLink(deepLinkOrPath: string): boolean {
   if (deepLinkOrPath.includes("://")) {
     return handleDeepLink(deepLinkOrPath);
   }
-  
+
   // Otherwise, treat it as a path and try to match directly
   const match = matchRoute(deepLinkOrPath);
   if (!match) {
@@ -247,4 +259,5 @@ export function handleNotificationDeepLink(deepLinkOrPath: string): boolean {
   return true;
 }
 
-export { handleDeepLink, matchRoute, DEEP_LINK_ROUTES };
+export { DEEP_LINK_ROUTES, handleDeepLink, matchRoute };
+

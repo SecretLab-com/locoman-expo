@@ -41,7 +41,7 @@ for (const [systemVar, expoVar] of Object.entries(mappings)) {
 // e.g., "my-app" created at 2024-01-15 10:30:45 -> "space.manus.my.app.t20240115103045"
 // Bundle ID can only contain letters, numbers, and dots
 // Android requires each dot-separated segment to start with a letter
-const rawBundleId = "space.manus.locoman.expo.t20260125130603";
+const rawBundleId = "com.bright.blue.locomotivate";
 const bundleId =
   rawBundleId
     .replace(/[-_]/g, ".") // Replace hyphens/underscores with dots
@@ -64,7 +64,7 @@ const schemeFromBundleId = `manus${timestamp}`;
 const env = {
   // App branding - update these values directly (do not use env vars)
   appName: "LocoMotivate",
-  appSlug: "locoman-expo",
+  appSlug: "locomotivate",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
   logoUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663073371114/gKkMcwkvsPFREczr.png",
@@ -83,15 +83,26 @@ const config: ExpoConfig = {
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
   extra: {
+    eas: {
+      projectId: "8980c95b-d28f-4d80-ad42-54b4d5fdd3e7",
+    },
     // API base URL for native platforms - this is bundled into the app
     // Using the public tunnel URL so Expo Go can reach the API server
-    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://3002-i4anndi9mla842misgiwl-a70979ba.sg1.manus.computer",
+    apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "https://locoman-backend-870100645593.us-central1.run.app",
   },
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
+    googleServicesFile: "./assets/GoogleService-Info.plist",
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      CFBundleURLTypes: [
+        {
+          CFBundleURLSchemes: [
+            "com.googleusercontent.apps.870100645593-po1mtmilfq2vi3ivba0bm8c1gpbhrg9g",
+          ],
+        },
+      ],
     },
     associatedDomains: [
       "applinks:locomotivate.app",

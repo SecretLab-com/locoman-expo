@@ -11,7 +11,7 @@ import { storagePut } from "./storage";
 
 export const appRouter = router({
   system: systemRouter,
-  
+
   // ============================================================================
   // AUTH
   // ============================================================================
@@ -31,23 +31,23 @@ export const appRouter = router({
     bundles: publicProcedure.query(async () => {
       return db.getPublishedBundles();
     }),
-    
+
     bundleDetail: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         return db.getBundleDraftById(input.id);
       }),
-    
+
     trainers: publicProcedure.query(async () => {
       return db.getTrainers();
     }),
-    
+
     trainerProfile: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         return db.getUserById(input.id);
       }),
-    
+
     products: publicProcedure.query(async () => {
       const shopifyProducts = await shopify.fetchProducts();
       type ProductCategory =
@@ -97,7 +97,7 @@ export const appRouter = router({
 
       return db.getProducts();
     }),
-    
+
     searchProducts: publicProcedure
       .input(z.object({ query: z.string() }))
       .query(async ({ input }) => {
@@ -112,13 +112,13 @@ export const appRouter = router({
     list: trainerProcedure.query(async ({ ctx }) => {
       return db.getBundleDraftsByTrainer(ctx.user.id);
     }),
-    
+
     get: trainerProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         return db.getBundleDraftById(input.id);
       }),
-    
+
     create: trainerProcedure
       .input(z.object({
         title: z.string().min(1).max(255),
@@ -147,7 +147,7 @@ export const appRouter = router({
           productsJson: input.productsJson,
         });
       }),
-    
+
     update: trainerProcedure
       .input(z.object({
         id: z.number(),
@@ -165,7 +165,7 @@ export const appRouter = router({
         await db.updateBundleDraft(id, data);
         return { success: true };
       }),
-    
+
     submitForReview: trainerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
@@ -177,7 +177,7 @@ export const appRouter = router({
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
-    
+
     templates: trainerProcedure.query(async () => {
       return db.getBundleTemplates();
     }),
@@ -188,15 +188,26 @@ export const appRouter = router({
   // ============================================================================
   clients: router({
     list: trainerProcedure.query(async ({ ctx }) => {
-      return db.getClientsByTrainer(ctx.user.id);
+      const trainerClients = await db.getClientsByTrainer(ctx.user.id);
+      return Promise.all(
+        trainerClients.map(async (client) => {
+          const activeBundles = await db.getActiveBundlesCountForClient(client.id);
+          const totalSpent = await db.getTotalSpentByClient(client.id);
+          return {
+            ...client,
+            activeBundles,
+            totalSpent,
+          };
+        }),
+      );
     }),
-    
+
     get: trainerProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         return db.getClientById(input.id);
       }),
-    
+
     create: trainerProcedure
       .input(z.object({
         name: z.string().min(1).max(255),
@@ -215,7 +226,7 @@ export const appRouter = router({
           notes: input.notes,
         });
       }),
-    
+
     update: trainerProcedure
       .input(z.object({
         id: z.number(),
@@ -231,7 +242,7 @@ export const appRouter = router({
         await db.updateClient(id, data);
         return { success: true };
       }),
-    
+
     invite: trainerProcedure
       .input(z.object({
         email: z.string().email(),
@@ -251,7 +262,7 @@ export const appRouter = router({
         });
         return { token, expiresAt };
       }),
-    
+
     invitations: trainerProcedure.query(async ({ ctx }) => {
       return db.getInvitationsByTrainer(ctx.user.id);
     }),
@@ -295,12 +306,12 @@ export const appRouter = router({
       // For now, return subscriptions where user is the client
       return [];
     }),
-    
+
     // Trainer gets subscriptions for their clients
     list: trainerProcedure.query(async ({ ctx }) => {
       return db.getSubscriptionsByTrainer(ctx.user.id);
     }),
-    
+
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
@@ -310,7 +321,7 @@ export const appRouter = router({
         const subs = await db.getSubscriptionsByClient(input.id);
         return subs[0];
       }),
-    
+
     create: trainerProcedure
       .input(z.object({
         clientId: z.number(),
@@ -332,14 +343,14 @@ export const appRouter = router({
           startDate: input.startDate || new Date(),
         });
       }),
-    
+
     // Get session usage stats for a subscription
     sessionStats: protectedProcedure
       .input(z.object({ subscriptionId: z.number() }))
       .query(async ({ input }) => {
         const db2 = await db.getDb();
         if (!db2) return { included: 0, used: 0, remaining: 0 };
-        
+
         // This would need to query the subscription
         return { included: 10, used: 3, remaining: 7 };
       }),
@@ -353,17 +364,17 @@ export const appRouter = router({
     list: trainerProcedure.query(async ({ ctx }) => {
       return db.getSessionsByTrainer(ctx.user.id);
     }),
-    
+
     upcoming: trainerProcedure.query(async ({ ctx }) => {
       return db.getUpcomingSessions(ctx.user.id);
     }),
-    
+
     // Client gets their sessions
     mySessions: protectedProcedure.query(async ({ ctx }) => {
       // Would need to find client record first
       return [];
     }),
-    
+
     create: trainerProcedure
       .input(z.object({
         clientId: z.number(),
@@ -386,7 +397,7 @@ export const appRouter = router({
           notes: input.notes,
         });
       }),
-    
+
     // Mark session as completed - this increments the usage count
     complete: trainerProcedure
       .input(z.object({ id: z.number() }))
@@ -394,14 +405,14 @@ export const appRouter = router({
         await db.completeSession(input.id);
         return { success: true };
       }),
-    
+
     cancel: trainerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.updateSession(input.id, { status: "cancelled" });
         return { success: true };
       }),
-    
+
     markNoShow: trainerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
@@ -418,12 +429,12 @@ export const appRouter = router({
     myOrders: protectedProcedure.query(async ({ ctx }) => {
       return db.getOrdersByClient(ctx.user.id);
     }),
-    
+
     // Trainer gets orders attributed to them
     list: trainerProcedure.query(async ({ ctx }) => {
       return db.getOrdersByTrainer(ctx.user.id);
     }),
-    
+
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
@@ -444,16 +455,16 @@ export const appRouter = router({
       // For clients, we query by clientId which is the user's ID
       return db.getDeliveriesByClient(ctx.user.id);
     }),
-    
+
     // Trainer gets deliveries they need to fulfill
     list: trainerProcedure.query(async ({ ctx }) => {
       return db.getDeliveriesByTrainer(ctx.user.id);
     }),
-    
+
     pending: trainerProcedure.query(async ({ ctx }) => {
       return db.getPendingDeliveries(ctx.user.id);
     }),
-    
+
     markReady: trainerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
@@ -464,7 +475,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    
+
     markDelivered: trainerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
@@ -475,7 +486,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    
+
     // Client confirms receipt
     confirmReceipt: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -487,7 +498,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    
+
     // Client reports issue
     reportIssue: protectedProcedure
       .input(z.object({
@@ -505,7 +516,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    
+
     // Client requests reschedule
     requestReschedule: protectedProcedure
       .input(z.object({
@@ -524,7 +535,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    
+
     // Trainer approves reschedule
     approveReschedule: trainerProcedure
       .input(z.object({
@@ -542,7 +553,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    
+
     // Trainer rejects reschedule
     rejectReschedule: trainerProcedure
       .input(z.object({
@@ -560,7 +571,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    
+
     // Create delivery records for an order (called after order is placed)
     createForOrder: trainerProcedure
       .input(z.object({
@@ -602,13 +613,13 @@ export const appRouter = router({
     conversations: protectedProcedure.query(async ({ ctx }) => {
       return db.getConversations(ctx.user.id);
     }),
-    
+
     thread: protectedProcedure
       .input(z.object({ conversationId: z.string() }))
       .query(async ({ input }) => {
         return db.getMessagesByConversation(input.conversationId);
       }),
-    
+
     send: protectedProcedure
       .input(z.object({
         receiverId: z.number(),
@@ -617,9 +628,9 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         // Generate conversation ID if not provided
-        const conversationId = input.conversationId || 
+        const conversationId = input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
-        
+
         return db.createMessage({
           senderId: ctx.user.id,
           receiverId: input.receiverId,
@@ -647,14 +658,14 @@ export const appRouter = router({
         }
         return { conversationId };
       }),
-    
+
     markRead: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.markMessageRead(input.id);
         return { success: true };
       }),
-    
+
     // Send message with attachment
     sendWithAttachment: protectedProcedure
       .input(z.object({
@@ -668,9 +679,9 @@ export const appRouter = router({
         attachmentMimeType: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const conversationId = input.conversationId || 
+        const conversationId = input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
-        
+
         return db.createMessage({
           senderId: ctx.user.id,
           receiverId: input.receiverId,
@@ -713,14 +724,14 @@ export const appRouter = router({
         }
         return { conversationId };
       }),
-    
+
     // Get reactions for a message
     getReactions: protectedProcedure
       .input(z.object({ messageId: z.number() }))
       .query(async ({ input }) => {
         return db.getMessageReactions(input.messageId);
       }),
-    
+
     // Add reaction to a message
     addReaction: protectedProcedure
       .input(z.object({
@@ -734,7 +745,7 @@ export const appRouter = router({
           reaction: input.reaction,
         });
       }),
-    
+
     // Remove reaction from a message
     removeReaction: protectedProcedure
       .input(z.object({
@@ -745,14 +756,14 @@ export const appRouter = router({
         await db.removeMessageReaction(input.messageId, ctx.user.id, input.reaction);
         return { success: true };
       }),
-    
+
     // Get all reactions for messages in a conversation
     getConversationReactions: protectedProcedure
       .input(z.object({ conversationId: z.string() }))
       .query(async ({ input }) => {
         return db.getConversationReactions(input.conversationId);
       }),
-    
+
     // Upload attachment for message
     uploadAttachment: protectedProcedure
       .input(z.object({
@@ -766,11 +777,11 @@ export const appRouter = router({
         const randomSuffix = Math.random().toString(36).substring(2, 8);
         const ext = input.fileName.split(".").pop() || "bin";
         const key = `messages/${ctx.user.id}/${timestamp}-${randomSuffix}.${ext}`;
-        
+
         // Decode base64 and upload
         const buffer = Buffer.from(input.fileData, "base64");
         const { url } = await storagePut(key, buffer, input.mimeType);
-        
+
         return { url, key };
       }),
   }),
@@ -782,7 +793,7 @@ export const appRouter = router({
     list: trainerProcedure.query(async ({ ctx }) => {
       return db.getEarningsByTrainer(ctx.user.id);
     }),
-    
+
     summary: trainerProcedure.query(async ({ ctx }) => {
       return db.getEarningsSummary(ctx.user.id);
     }),
@@ -795,7 +806,7 @@ export const appRouter = router({
     events: protectedProcedure.query(async ({ ctx }) => {
       return db.getCalendarEvents(ctx.user.id);
     }),
-    
+
     create: protectedProcedure
       .input(z.object({
         title: z.string().min(1).max(255),
@@ -812,7 +823,7 @@ export const appRouter = router({
           ...input,
         });
       }),
-    
+
     update: protectedProcedure
       .input(z.object({
         id: z.number(),
@@ -836,7 +847,7 @@ export const appRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       return db.getUserById(ctx.user.id);
     }),
-    
+
     update: protectedProcedure
       .input(z.object({
         name: z.string().optional(),
@@ -859,7 +870,7 @@ export const appRouter = router({
     // Get all trainers the current user is working with
     list: protectedProcedure.query(async ({ ctx }) => {
       const trainers = await db.getMyTrainers(ctx.user.id);
-      
+
       // Enrich with active bundles count
       const enrichedTrainers = await Promise.all(
         trainers.map(async (trainer) => {
@@ -870,10 +881,10 @@ export const appRouter = router({
           };
         })
       );
-      
+
       return enrichedTrainers;
     }),
-    
+
     // Remove a trainer from the client's roster
     remove: protectedProcedure
       .input(z.object({ trainerId: z.number() }))
@@ -881,7 +892,7 @@ export const appRouter = router({
         await db.removeTrainerFromClient(input.trainerId, ctx.user.id);
         return { success: true };
       }),
-    
+
     // Get available trainers for discovery (not already connected)
     discover: protectedProcedure
       .input(z.object({
@@ -894,7 +905,7 @@ export const appRouter = router({
           input?.search,
           input?.specialty
         );
-        
+
         // Enrich with bundle count
         const enrichedTrainers = await Promise.all(
           trainers.map(async (trainer) => {
@@ -923,10 +934,10 @@ export const appRouter = router({
             };
           })
         );
-        
+
         return enrichedTrainers;
       }),
-    
+
     // Send a join request to a trainer
     requestToJoin: protectedProcedure
       .input(z.object({
@@ -942,12 +953,12 @@ export const appRouter = router({
         notifyBadgeCounts([ctx.user.id, input.trainerId]);
         return { success: true, requestId };
       }),
-    
+
     // Get pending join requests (requests the user has sent)
     pendingRequests: protectedProcedure.query(async ({ ctx }) => {
       return db.getPendingJoinRequests(ctx.user.id);
     }),
-    
+
     // Cancel a pending join request
     cancelRequest: protectedProcedure
       .input(z.object({ requestId: z.number() }))
@@ -965,7 +976,7 @@ export const appRouter = router({
     users: managerProcedure.query(async () => {
       return db.getAllUsers();
     }),
-    
+
     usersWithFilters: managerProcedure
       .input(z.object({
         limit: z.number().min(1).max(100).default(20),
@@ -987,13 +998,13 @@ export const appRouter = router({
           joinedBefore: input.joinedBefore ? new Date(input.joinedBefore) : undefined,
         });
       }),
-    
+
     searchUsers: managerProcedure
       .input(z.object({ query: z.string() }))
       .query(async ({ input }) => {
         return db.searchUsers(input.query);
       }),
-    
+
     updateUserRole: managerProcedure
       .input(z.object({
         userId: z.number(),
@@ -1003,7 +1014,7 @@ export const appRouter = router({
         await db.updateUserRole(input.userId, input.role);
         return { success: true };
       }),
-    
+
     updateUserStatus: managerProcedure
       .input(z.object({
         userId: z.number(),
@@ -1013,7 +1024,7 @@ export const appRouter = router({
         await db.updateUserStatus(input.userId, input.active);
         return { success: true };
       }),
-    
+
     bulkUpdateRole: managerProcedure
       .input(z.object({
         userIds: z.array(z.number()).min(1),
@@ -1023,7 +1034,7 @@ export const appRouter = router({
         await db.bulkUpdateUserRole(input.userIds, input.role);
         return { success: true, count: input.userIds.length };
       }),
-    
+
     bulkUpdateStatus: managerProcedure
       .input(z.object({
         userIds: z.array(z.number()).min(1),
@@ -1033,11 +1044,11 @@ export const appRouter = router({
         await db.bulkUpdateUserStatus(input.userIds, input.active);
         return { success: true, count: input.userIds.length };
       }),
-    
+
     pendingBundles: managerProcedure.query(async () => {
       return db.getPendingReviewBundles();
     }),
-    
+
     approveBundle: managerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -1050,7 +1061,7 @@ export const appRouter = router({
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
-    
+
     rejectBundle: managerProcedure
       .input(z.object({
         id: z.number(),
@@ -1067,7 +1078,7 @@ export const appRouter = router({
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
-    
+
     requestChanges: managerProcedure
       .input(z.object({
         id: z.number(),
@@ -1084,7 +1095,7 @@ export const appRouter = router({
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
-    
+
     // Template management
     createTemplate: managerProcedure
       .input(z.object({
@@ -1101,20 +1112,20 @@ export const appRouter = router({
           createdBy: ctx.user.id,
         });
       }),
-    
+
     // User Activity Logs
     getUserActivityLogs: managerProcedure
       .input(z.object({ userId: z.number(), limit: z.number().default(50) }))
       .query(async ({ input }) => {
         return db.getUserActivityLogs(input.userId, input.limit);
       }),
-    
+
     getRecentActivityLogs: managerProcedure
       .input(z.object({ limit: z.number().default(100) }))
       .query(async ({ input }) => {
         return db.getRecentActivityLogs(input.limit);
       }),
-    
+
     logUserAction: managerProcedure
       .input(z.object({
         targetUserId: z.number(),
@@ -1134,14 +1145,14 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    
+
     // User Impersonation
     getUserForImpersonation: managerProcedure
       .input(z.object({ userId: z.number() }))
       .query(async ({ input }) => {
         return db.getUserById(input.userId);
       }),
-    
+
     // User Invitations
     createUserInvitation: managerProcedure
       .input(z.object({
@@ -1153,7 +1164,7 @@ export const appRouter = router({
         const token = crypto.randomUUID().replace(/-/g, "");
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 7); // Expires in 7 days
-        
+
         const id = await db.createUserInvitation({
           invitedBy: ctx.user.id,
           email: input.email,
@@ -1162,7 +1173,7 @@ export const appRouter = router({
           token,
           expiresAt,
         });
-        
+
         // Log the invitation
         await db.logUserActivity({
           targetUserId: 0, // No target user yet
@@ -1171,10 +1182,10 @@ export const appRouter = router({
           newValue: input.role,
           notes: `Invited ${input.email} as ${input.role}`,
         });
-        
+
         return { success: true, id, token };
       }),
-    
+
     getUserInvitations: managerProcedure
       .input(z.object({
         limit: z.number().default(20),
@@ -1184,7 +1195,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getUserInvitations(input);
       }),
-    
+
     revokeUserInvitation: managerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
@@ -1202,14 +1213,14 @@ export const appRouter = router({
       const bundles = await db.getBundleDraftsByTrainer(ctx.user.id);
       const orders = await db.getOrdersByTrainer(ctx.user.id);
       const earnings = await db.getEarningsByTrainer(ctx.user.id);
-      
+
       const totalEarnings = earnings.reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthlyEarnings = earnings
         .filter(e => new Date(e.createdAt) >= startOfMonth)
         .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
-      
+
       return {
         totalEarnings,
         monthlyEarnings,
@@ -1219,34 +1230,34 @@ export const appRouter = router({
         completedDeliveries: 0, // Would need delivery query
       };
     }),
-    
+
     recentOrders: trainerProcedure.query(async ({ ctx }) => {
       const orders = await db.getOrdersByTrainer(ctx.user.id);
       return orders.slice(0, 5);
     }),
-    
+
     todaySessions: trainerProcedure.query(async ({ ctx }) => {
       const sessions = await db.getUpcomingSessions(ctx.user.id);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      
+
       return sessions.filter(s => {
         const sessionDate = new Date(s.sessionDate);
         return sessionDate >= today && sessionDate < tomorrow;
       });
     }),
-    
+
     points: trainerProcedure.query(async ({ ctx }) => {
       const user = await db.getUserById(ctx.user.id);
       const totalPoints = (user as any)?.totalPoints || 0;
-      
+
       let statusTier = "Bronze";
       if (totalPoints >= 5000) statusTier = "Platinum";
       else if (totalPoints >= 2000) statusTier = "Gold";
       else if (totalPoints >= 1000) statusTier = "Silver";
-      
+
       return { totalPoints, statusTier };
     }),
   }),
@@ -1266,7 +1277,7 @@ export const appRouter = router({
         });
         return { url: result.url };
       }),
-    
+
     generateBundleImage: protectedProcedure
       .input(z.object({
         title: z.string().min(1).max(255),
@@ -1283,9 +1294,9 @@ export const appRouter = router({
           professional: "professional, corporate style with clean lines and business aesthetics",
         };
         const styleDesc = styleDescriptions[input.style || "fitness"];
-        
+
         const prompt = `Create a professional fitness bundle cover image for "${input.title}". ${input.description ? `The bundle is about: ${input.description}.` : ""} ${goalsText}. Style: ${styleDesc}. The image should be suitable as a product thumbnail, with no text overlays, high quality, and visually appealing for a fitness/wellness mobile app.`;
-        
+
         const result = await generateImage({ prompt });
         return { url: result.url };
       }),
@@ -1295,6 +1306,18 @@ export const appRouter = router({
   // COORDINATOR (Impersonation and system config)
   // ============================================================================
   coordinator: router({
+    stats: coordinatorProcedure.query(async () => {
+      return db.getCoordinatorStats();
+    }),
+
+    topTrainers: coordinatorProcedure.query(async () => {
+      return db.getTopTrainers(5);
+    }),
+
+    topBundles: coordinatorProcedure.query(async () => {
+      return db.getTopBundles(5);
+    }),
+
     impersonate: coordinatorProcedure
       .input(z.object({ userId: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -1334,7 +1357,7 @@ export const appRouter = router({
         imageUrl: p.images[0]?.src || null,
       }));
     }),
-    
+
     product: managerProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
@@ -1353,17 +1376,17 @@ export const appRouter = router({
           imageUrl: product.images[0]?.src || null,
         };
       }),
-    
+
     sync: managerProcedure.mutation(async () => {
       const shopifyProducts = await shopify.fetchProducts();
       let synced = 0;
       let errors = 0;
-      
+
       for (const product of shopifyProducts) {
         try {
           const variant = product.variants[0];
           const image = product.images[0];
-          
+
           await db.upsertProduct({
             shopifyProductId: product.id,
             shopifyVariantId: variant?.id,
@@ -1381,10 +1404,10 @@ export const appRouter = router({
           errors++;
         }
       }
-      
+
       return { synced, errors };
     }),
-    
+
     publishBundle: trainerProcedure
       .input(z.object({
         bundleId: z.number(),
@@ -1403,13 +1426,13 @@ export const appRouter = router({
           trainerId: ctx.user.id,
           trainerName: ctx.user.name || "Trainer",
         });
-        
+
         // Update bundle with Shopify IDs
         await db.updateBundleDraft(input.bundleId, {
           shopifyProductId: result.productId,
           shopifyVariantId: result.variantId,
         });
-        
+
         return result;
       }),
   }),

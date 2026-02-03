@@ -1,12 +1,12 @@
+import { getApiBaseUrl } from "@/lib/api-config";
 import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
-import { getApiBaseUrl } from "@/lib/api-config";
 
 // Extract scheme from bundle ID (last segment timestamp, prefixed with "manus")
-// e.g., "space.manus.my.app.t20240115103045" -> "manus20240115103045"
-const bundleId = "space.manus.locoman.expo.t20260125130603";
+// e.g., "com.example.app" -> "manus"
+const bundleId = "com.bright.blue.locomotivate";
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = `manus${timestamp}`;
+const schemeFromBundleId = timestamp ? `manus${timestamp}` : "manus";
 
 const env = {
   portal: process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "",
@@ -15,6 +15,9 @@ const env = {
   ownerId: process.env.EXPO_PUBLIC_OWNER_OPEN_ID ?? "",
   ownerName: process.env.EXPO_PUBLIC_OWNER_NAME ?? "",
   deepLinkScheme: schemeFromBundleId,
+  googleWebClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? "",
+  oauthRedirectBase: process.env.EXPO_PUBLIC_OAUTH_REDIRECT_BASE ?? "",
+  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? "",
 };
 
 export const OAUTH_PORTAL_URL = env.portal;
@@ -22,6 +25,22 @@ export const OAUTH_SERVER_URL = env.server;
 export const APP_ID = env.appId;
 export const OWNER_OPEN_ID = env.ownerId;
 export const OWNER_NAME = env.ownerName;
+export const GOOGLE_WEB_CLIENT_ID = env.googleWebClientId;
+
+const isPrivateHostname = (hostname: string) => {
+  if (!hostname) return true;
+  if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+  if (hostname.endsWith(".local")) return true;
+  if (/^10\./.test(hostname)) return true;
+  if (/^192\.168\./.test(hostname)) return true;
+  return /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
+};
+
+console.log("[OAuth Config] Base URLs:", {
+  portal: OAUTH_PORTAL_URL || "(empty)",
+  server: OAUTH_SERVER_URL || "(empty)",
+  googleClientId: GOOGLE_WEB_CLIENT_ID ? `${GOOGLE_WEB_CLIENT_ID.slice(0, 10)}...` : "(empty)",
+});
 
 // Re-export getApiBaseUrl for backward compatibility
 export { getApiBaseUrl };
@@ -45,37 +64,75 @@ const encodeState = (value: string) => {
  * - Web: uses API server callback endpoint
  * - Native: uses deep link scheme
  */
-export const getRedirectUri = () => {
+export const getPostAuthRedirectUri = () => {
   if (ReactNative.Platform.OS === "web") {
-    return `${getApiBaseUrl()}/api/oauth/callback`;
-  } else {
-    return Linking.createURL("/oauth/callback", {
-      scheme: env.deepLinkScheme,
-    });
+    if (typeof window !== "undefined") {
+      return window.location.origin;
+    }
+    return "http://localhost:8081";
   }
+  return Linking.createURL("/oauth/callback", {
+    scheme: env.deepLinkScheme,
+  });
+};
+
+export const getAuthRedirectUri = () => {
+  const defaultBase = getApiBaseUrl();
+  const preferredBase =
+    env.oauthRedirectBase || env.apiBaseUrl || defaultBase;
+
+  if (ReactNative.Platform.OS !== "web") {
+    try {
+      const parsed = new URL(preferredBase);
+      if (isPrivateHostname(parsed.hostname) && env.apiBaseUrl) {
+        return `${env.apiBaseUrl.replace(/\/$/, "")}/api/oauth/callback`;
+      }
+    } catch {
+      // fall through to default
+    }
+  }
+
+  return `${preferredBase.replace(/\/$/, "")}/api/oauth/callback`;
 };
 
 export const getLoginUrl = () => {
-  const redirectUri = getRedirectUri();
-  const state = encodeState(redirectUri);
+  const postAuthRedirectUri = getPostAuthRedirectUri();
+  const state = encodeState(postAuthRedirectUri);
 
-  const portalUrl = OAUTH_PORTAL_URL || getApiBaseUrl();
-  if (!portalUrl) {
-    throw new Error("OAuth portal URL is not configured.");
+  const portalUrl = OAUTH_PORTAL_URL.trim();
+
+  // Only use portal if explicitly configured AND it's not localhost in production
+  if (portalUrl && portalUrl !== "http://localhost:3000") {
+    const isLocalhost = /localhost|127\.0\.0\.1/.test(portalUrl);
+    if (isLocalhost && process.env.NODE_ENV === "production") {
+      console.warn("[OAuth] Portal URL points to localhost in production, falling back to direct Google.");
+    } else {
+      const url = new URL(`${portalUrl}/app-auth`);
+      url.searchParams.set("appId", APP_ID);
+      url.searchParams.set("redirectUri", getAuthRedirectUri());
+      url.searchParams.set("state", state);
+      url.searchParams.set("type", "signIn");
+      return url.toString();
+    }
   }
-  const isLocalhost = /localhost|127\.0\.0\.1/.test(portalUrl);
-  if (isLocalhost && process.env.NODE_ENV === "production") {
+
+  // Fallback to direct Google OAuth
+  if (!GOOGLE_WEB_CLIENT_ID) {
     throw new Error(
-      "OAuth portal URL points to localhost. Set EXPO_PUBLIC_OAUTH_PORTAL_URL to the real OAuth portal.",
+      "Google OAuth is not configured. " +
+      "Please set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in your environment."
     );
   }
-  const url = new URL(`${portalUrl}/app-auth`);
-  url.searchParams.set("appId", APP_ID);
-  url.searchParams.set("redirectUri", redirectUri);
-  url.searchParams.set("state", state);
-  url.searchParams.set("type", "signIn");
 
-  return url.toString();
+  const googleUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  googleUrl.searchParams.set("client_id", GOOGLE_WEB_CLIENT_ID);
+  googleUrl.searchParams.set("redirect_uri", getAuthRedirectUri());
+  googleUrl.searchParams.set("response_type", "code");
+  googleUrl.searchParams.set("scope", "openid email profile");
+  googleUrl.searchParams.set("access_type", "offline");
+  googleUrl.searchParams.set("prompt", "select_account");
+  googleUrl.searchParams.set("state", state);
+  return googleUrl.toString();
 };
 
 /**

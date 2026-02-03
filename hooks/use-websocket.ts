@@ -1,6 +1,6 @@
+import * as Auth from "@/lib/_core/auth";
 import { getApiBaseUrl } from "@/lib/api-config";
 import { COOKIE_NAME } from "@/shared/const";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useRef, useState } from "react";
 import { Platform } from "react-native";
 
@@ -72,12 +72,25 @@ export function useWebSocket() {
       }
       sharedConnection.isConnecting = true;
 
-      // Get auth token
-      const token = Platform.OS === "web" ? null : await SecureStore.getItemAsync(COOKIE_NAME);
-      if (!token && Platform.OS !== "web") {
-        console.log("[WebSocket] No auth token, skipping connection");
-        sharedConnection.isConnecting = false;
-        return;
+      // Skip when not authenticated
+      let token: string | null = null;
+      if (Platform.OS === "web") {
+        const hasCookie =
+          typeof document !== "undefined" &&
+          typeof document.cookie === "string" &&
+          document.cookie.includes(COOKIE_NAME);
+        if (!hasCookie) {
+          console.log("[WebSocket] No auth cookie, skipping connection");
+          sharedConnection.isConnecting = false;
+          return;
+        }
+      } else {
+        token = await Auth.getSessionToken();
+        if (!token) {
+          console.log("[WebSocket] No auth token, skipping connection");
+          sharedConnection.isConnecting = false;
+          return;
+        }
       }
 
       // Get API base URL

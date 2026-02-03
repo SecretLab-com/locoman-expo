@@ -1,3 +1,4 @@
+import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -5,21 +6,21 @@ import { useCart } from "@/contexts/cart-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+    useWindowDimensions,
 } from "react-native";
 import RenderHTML from "react-native-render-html";
 
@@ -42,6 +43,15 @@ type Product = {
   syncedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type Bundle = {
+  id: number;
+  title: string;
+  description: string | null;
+  imageUrl: string | null;
+  price: string | null;
+  cadence: "one_time" | "weekly" | "monthly" | null;
 };
 
 const ALLOWED_DESCRIPTION_TAGS = [
@@ -93,12 +103,14 @@ export default function ProductsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const { canManage, effectiveRole, isClient } = useAuthContext();
+  const bottomNavHeight = useBottomNavHeight();
   const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
   const { width } = useWindowDimensions();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
     : "rgba(15, 23, 42, 0.18)";
   const { addItem } = useCart();
+  const [viewMode, setViewMode] = useState<"categories" | "az">("categories");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortBy, setSortBy] = useState("popular");
@@ -119,9 +131,20 @@ export default function ProductsScreen() {
     }
     const searchParam = Array.isArray(q) ? q[0] : q;
     if (typeof searchParam === "string" && searchParam.trim().length > 0) {
+      setViewMode("az");
       setSearchQuery(searchParam);
     }
   }, [sort, q]);
+
+  useEffect(() => {
+    if (viewMode === "categories") {
+      setSelectedCategory("bundle");
+      setSearchQuery("");
+    } else {
+      setSelectedCategory("all");
+      setSortBy("name");
+    }
+  }, [viewMode]);
 
   // Fetch products via tRPC
   const {
@@ -131,6 +154,9 @@ export default function ProductsScreen() {
     refetch,
     isRefetching,
   } = trpc.catalog.products.useQuery(undefined, {
+    staleTime: 60000,
+  });
+  const { data: bundles } = trpc.catalog.bundles.useQuery(undefined, {
     staleTime: 60000,
   });
   const shopifySync = trpc.shopify.sync.useMutation({
@@ -152,7 +178,6 @@ export default function ProductsScreen() {
 
   // Category options
   const categories = [
-    { value: "all", label: "All" },
     { value: "protein", label: "Protein" },
     { value: "pre_workout", label: "Pre-Workout" },
     { value: "post_workout", label: "Post-Workout" },
@@ -177,35 +202,68 @@ export default function ProductsScreen() {
     return Array.from(deduped.values());
   }, [products]);
 
-  // Filter and sort products
-  const filteredProducts = useMemo(() => {
+  const filteredBundles = useMemo(() => {
+    return (bundles as Bundle[] | undefined) ?? [];
+  }, [bundles]);
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const product of baseProducts) {
+      const key = product.category || "other";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return counts;
+  }, [baseProducts]);
+
+  const categoryProducts = useMemo(() => {
     if (!baseProducts.length) return [];
-
-    let result = baseProducts.filter((product: Product) => {
-      const matchesSearch =
-        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (product.description || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (product.brand || "").toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory =
-        selectedCategory === "all" || product.category === selectedCategory;
-      return matchesSearch && matchesCategory;
-    });
-
-    // Sort
+    let result = baseProducts;
+    if (selectedCategory !== "all") {
+      result = result.filter((product) => product.category === selectedCategory);
+    }
     if (sortBy === "price_low") {
       result = [...result].sort(
-        (a: Product, b: Product) => parseFloat(a.price) - parseFloat(b.price)
+        (a: Product, b: Product) => parseFloat(a.price) - parseFloat(b.price),
       );
     } else if (sortBy === "price_high") {
       result = [...result].sort(
-        (a: Product, b: Product) => parseFloat(b.price) - parseFloat(a.price)
+        (a: Product, b: Product) => parseFloat(b.price) - parseFloat(a.price),
       );
     } else if (sortBy === "name") {
       result = [...result].sort((a: Product, b: Product) => a.name.localeCompare(b.name));
     }
-
     return result;
-  }, [baseProducts, searchQuery, selectedCategory, sortBy]);
+  }, [baseProducts, selectedCategory, sortBy]);
+
+  const alphaProducts = useMemo(() => {
+    if (!baseProducts.length) return [];
+    let result = baseProducts;
+    if (searchQuery.trim().length > 0) {
+      const term = searchQuery.toLowerCase();
+      result = result.filter(
+        (product) =>
+          product.name.toLowerCase().includes(term) ||
+          (product.description || "").toLowerCase().includes(term) ||
+          (product.brand || "").toLowerCase().includes(term),
+      );
+    }
+    return [...result].sort((a: Product, b: Product) => a.name.localeCompare(b.name));
+  }, [baseProducts, searchQuery]);
+
+  const alphaBundles = useMemo(() => {
+    const list = (filteredBundles as Bundle[]) ?? [];
+    if (!list.length) return [];
+    let result = list;
+    if (searchQuery.trim().length > 0) {
+      const term = searchQuery.toLowerCase();
+      result = result.filter(
+        (bundle) =>
+          bundle.title.toLowerCase().includes(term) ||
+          (bundle.description || "").toLowerCase().includes(term),
+      );
+    }
+    return [...result].sort((a: Bundle, b: Bundle) => a.title.localeCompare(b.title));
+  }, [filteredBundles, searchQuery]);
 
   // Handle add to cart
   const handleAddToCart = (product: Product) => {
@@ -230,9 +288,31 @@ export default function ProductsScreen() {
   // Get category label
   const getCategoryLabel = (category: string | null) => {
     if (!category) return null;
+    if (category === "bundle") return "Bundles";
+    if (category === "all") return "All Products";
     const cat = categories.find((c) => c.value === category);
     return cat?.label || category.replace(/_/g, " ");
   };
+
+  const showingBundles = viewMode === "categories" && selectedCategory === "bundle";
+  const isAzMode = viewMode === "az";
+  const azResults = useMemo(() => {
+    return [
+      ...alphaBundles.map((bundle) => ({ type: "bundle" as const, bundle })),
+      ...alphaProducts.map((product) => ({ type: "product" as const, product })),
+    ];
+  }, [alphaBundles, alphaProducts]);
+  const productsToShow = viewMode === "az" ? alphaProducts : categoryProducts;
+  const featuredProductsByCategory = useMemo(() => {
+    const featured = new Map<string, Product>();
+    for (const product of baseProducts) {
+      if (product.category && !featured.has(product.category)) {
+        featured.set(product.category, product);
+      }
+    }
+    return featured;
+  }, [baseProducts]);
+  const featuredBundle = filteredBundles[0];
 
   return (
     <ScreenContainer className="flex-1">
@@ -242,59 +322,141 @@ export default function ProductsScreen() {
         <Text className="text-sm text-muted mt-1">Browse wellness products</Text>
       </View>
 
-      {/* Search Bar */}
+      {/* Browse Mode Tabs */}
       <View className="px-4 mb-3">
-        <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
-          <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
-          <TextInput
-            placeholder="Search products..."
-            placeholderTextColor={colors.muted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            className="flex-1 ml-3 text-foreground text-base"
-            returnKeyType="search"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
-              <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
-            </TouchableOpacity>
-          )}
+        <View className="flex-row bg-surface border border-border rounded-xl p-1">
+          <TouchableOpacity
+            onPress={() => setViewMode("categories")}
+            className={`flex-1 py-2 rounded-lg ${viewMode === "categories" ? "bg-primary" : ""}`}
+            accessibilityRole="button"
+            accessibilityLabel="Browse by category"
+            testID="products-tab-categories"
+          >
+            <Text
+              className={`text-center font-medium ${
+                viewMode === "categories" ? "text-background" : "text-foreground"
+              }`}
+            >
+              Categories
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setViewMode("az")}
+            className={`flex-1 py-2 rounded-lg ${viewMode === "az" ? "bg-primary" : ""}`}
+            accessibilityRole="button"
+            accessibilityLabel="Browse products alphabetically"
+            testID="products-tab-az"
+          >
+            <Text
+              className={`text-center font-medium ${
+                viewMode === "az" ? "text-background" : "text-foreground"
+              }`}
+            >
+              A-Z
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* Filters Row */}
-      <View className="flex-row px-4 mb-4 gap-2">
-        <TouchableOpacity
-          onPress={() => setFilterModalOpen(true)}
-          className="flex-row items-center bg-surface rounded-lg px-3 py-2 border border-border"
-          accessibilityRole="button"
-          accessibilityLabel="Filter products by category"
-          testID="products-filter"
-        >
-          <IconSymbol name="line.3.horizontal.decrease" size={16} color={colors.foreground} />
-          <Text className="text-foreground ml-2 text-sm">
-            {selectedCategory === "all" ? "All Categories" : getCategoryLabel(selectedCategory)}
-          </Text>
-        </TouchableOpacity>
+      {/* Search Bar */}
+      {viewMode === "az" && (
+        <View className="px-4 mb-3">
+          <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
+            <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
+            <TextInput
+              placeholder="Search products..."
+              placeholderTextColor={colors.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              className="flex-1 ml-3 text-foreground text-base"
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
-        <TouchableOpacity
-          onPress={() => {
-            const sorts = ["popular", "price_low", "price_high", "name"];
-            const currentIndex = sorts.indexOf(sortBy);
-            setSortBy(sorts[(currentIndex + 1) % sorts.length]);
-          }}
-          className="flex-row items-center bg-surface rounded-lg px-3 py-2 border border-border"
-          accessibilityRole="button"
-          accessibilityLabel="Change product sort"
-          testID="products-sort"
-        >
-          <IconSymbol name="arrow.up.arrow.down" size={16} color={colors.foreground} />
-          <Text className="text-foreground ml-2 text-sm">
-            {sortBy === "popular" ? "Popular" : sortBy === "price_low" ? "Price ↑" : sortBy === "price_high" ? "Price ↓" : "A-Z"}
-          </Text>
-        </TouchableOpacity>
+      {viewMode === "categories" && (
+        <View className="px-4 mb-4">
+          <Text className="text-sm font-semibold text-muted uppercase mb-2">Browse by category</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mx-4 px-4">
+            <View className="flex-row gap-3">
+              {[
+                { value: "bundle", label: "Bundles", count: filteredBundles.length },
+                ...categories.map((cat) => ({
+                  value: cat.value,
+                  label: cat.label,
+                  count: categoryCounts[cat.value] ?? 0,
+                })),
+                { value: "all", label: "All Products", count: baseProducts.length },
+              ].map((category) => {
+                const isSelected = selectedCategory === category.value;
+                const featuredProduct =
+                  category.value !== "bundle" && category.value !== "all"
+                    ? featuredProductsByCategory.get(category.value)
+                    : undefined;
+                const imageUrl =
+                  category.value === "bundle"
+                    ? featuredBundle?.imageUrl || null
+                    : featuredProduct?.imageUrl || null;
+                return (
+                  <TouchableOpacity
+                    key={category.value}
+                    onPress={() => setSelectedCategory(category.value)}
+                    className={`rounded-full border px-3 py-2 flex-row items-center gap-2 ${
+                      isSelected ? "border-primary bg-primary/10" : "border-border bg-surface"
+                    }`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Browse ${category.label}`}
+                    testID={`products-category-${category.value}`}
+                  >
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (category.value === "bundle" && featuredBundle) {
+                          router.push(`/bundle/${featuredBundle.id}` as any);
+                          return;
+                        }
+                        if (featuredProduct) {
+                          openProductDetail(featuredProduct);
+                        }
+                      }}
+                      className="bg-background items-center justify-center rounded-full overflow-hidden"
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open featured ${category.label}`}
+                      testID={`products-category-featured-${category.value}`}
+                      disabled={category.value === "all" || (!featuredProduct && !featuredBundle)}
+                      style={{ width: 36, height: 36 }}
+                    >
+                      {imageUrl ? (
+                        <Image
+                          source={{ uri: imageUrl }}
+                          className="w-full h-full"
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <IconSymbol name="cube.box" size={28} color={colors.muted} />
+                      )}
+                    </TouchableOpacity>
+                    <View>
+                      <Text className="text-sm font-semibold text-foreground" numberOfLines={1}>
+                        {category.label}
+                      </Text>
+                      <Text className="text-xs text-muted">{category.count}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      )}
 
-        {canManage && (
+      {canManage && (
+        <View className="flex-row px-4 mb-4">
           <TouchableOpacity
             onPress={() => {
               if (syncInFlight) return;
@@ -311,14 +473,14 @@ export default function ProductsScreen() {
             {syncInFlight ? (
               <ActivityIndicator size="small" color={colors.foreground} />
             ) : (
-            <IconSymbol name="refresh" size={16} color={colors.foreground} />
+              <IconSymbol name="refresh" size={16} color={colors.foreground} />
             )}
             <Text className="text-foreground ml-2 text-sm">
               {syncInFlight ? "Syncing..." : "Sync"}
             </Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* Loading State */}
       {isLoading && (
@@ -353,7 +515,11 @@ export default function ProductsScreen() {
       {/* Results Count */}
       {!isLoading && !error && (
         <Text className="px-4 text-sm text-muted mb-3">
-          Showing {filteredProducts.length} product{filteredProducts.length !== 1 ? "s" : ""}
+          {showingBundles
+            ? `Showing ${filteredBundles.length} bundle${filteredBundles.length !== 1 ? "s" : ""}`
+            : isAzMode
+              ? `Showing ${azResults.length} result${azResults.length !== 1 ? "s" : ""}`
+              : `Showing ${productsToShow.length} product${productsToShow.length !== 1 ? "s" : ""}`}
         </Text>
       )}
 
@@ -370,125 +536,247 @@ export default function ProductsScreen() {
             />
           }
         >
-          <View className="flex-row flex-wrap justify-between pb-24">
-            {filteredProducts.map((product: Product) => {
-              const price = parseFloat(product.price);
-              const comparePrice = product.compareAtPrice ? parseFloat(product.compareAtPrice) : null;
-              const inStock = product.availability === "available" && (product.inventoryQuantity || 0) > 0;
-
-              return (
+          {showingBundles ? (
+            <View className="gap-3 pb-24">
+              {filteredBundles.map((bundle) => (
                 <TouchableOpacity
-                  key={product.id}
-                  onPress={() => openProductDetail(product)}
-                  className="mb-4 bg-surface rounded-xl overflow-hidden border border-border"
-                  style={{
-                    opacity: inStock ? 1 : 0.6,
-                    width: "46%",
-                    maxWidth: 180,
-                  }}
+                  key={bundle.id}
+                  onPress={() => router.push(`/bundle/${bundle.id}` as any)}
+                  className="bg-surface rounded-xl overflow-hidden border border-border flex-row"
                   accessibilityRole="button"
-                  accessibilityLabel={`View ${product.name}`}
-                  testID={`product-card-${product.id}`}
+                  accessibilityLabel={`View ${bundle.title}`}
+                  testID={`bundle-card-${bundle.id}`}
                 >
-                  {/* Image */}
-                  <View className="bg-background items-center justify-center" style={{ height: 140 }}>
-                    {product.imageUrl ? (
+                  <View className="w-24 h-24 bg-background items-center justify-center">
+                    {bundle.imageUrl ? (
                       <Image
-                        source={{ uri: product.imageUrl }}
+                        source={{ uri: bundle.imageUrl }}
                         className="w-full h-full"
                         resizeMode="cover"
                       />
                     ) : (
-                      <IconSymbol name="cube.box" size={40} color={colors.muted} />
+                      <IconSymbol name="cube.box" size={32} color={colors.muted} />
                     )}
                   </View>
-
-                  {/* Content */}
-                  <View className="p-2.5">
-                    {product.category && (
-                      <View className="bg-primary/10 self-start px-2 py-0.5 rounded mb-1">
-                        <Text className="text-xs text-primary">{getCategoryLabel(product.category)}</Text>
-                      </View>
-                    )}
-                    
-                    <View className="flex-row items-center">
-                      <Text className="text-base font-bold text-foreground">${price.toFixed(2)}</Text>
-                      {comparePrice && comparePrice > price && (
-                        <Text className="text-xs text-muted line-through ml-2">${comparePrice.toFixed(2)}</Text>
-                      )}
-                    </View>
-                    
-                    <Text className="text-xs text-foreground mt-1" numberOfLines={2}>
-                      {product.name}
+                  <View className="flex-1 p-3">
+                    <Text className="text-base font-semibold text-foreground" numberOfLines={2}>
+                      {bundle.title}
                     </Text>
-
-                    {/* Stock status */}
-                    <View className="flex-row items-center mt-1.5">
-                      <View
-                        className={`w-2 h-2 rounded-full ${inStock ? "bg-success" : "bg-error"}`}
-                      />
-                      <Text
-                        className={`text-[11px] ml-1 ${inStock ? "text-success" : "text-error"}`}
-                      >
-                        {inStock ? `${product.inventoryQuantity} in stock` : "Out of stock"}
+                    {bundle.price && (
+                      <Text className="text-sm font-semibold text-primary mt-1">
+                        ${parseFloat(bundle.price).toFixed(2)}
+                        {bundle.cadence && bundle.cadence !== "one_time" ? ` / ${bundle.cadence}` : ""}
                       </Text>
-                    </View>
-
-                    {/* Brand */}
-                    {product.brand && (
-                      <Text className="text-[11px] text-muted mt-1">by {product.brand}</Text>
                     )}
-                  </View>
-
-                  {/* Add to Cart Button */}
-                  <View className="px-2.5 pb-2.5">
-                    {canPurchase ? (
-                      <TouchableOpacity
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleAddToCart(product);
-                        }}
-                        disabled={!inStock}
-                        className={`py-1.5 rounded-lg items-center ${inStock ? "bg-primary" : "bg-muted"}`}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Add ${product.name} to cart`}
-                        testID={`product-add-${product.id}`}
-                      >
-                        <Text className={`text-xs font-semibold ${inStock ? "text-white" : "text-foreground"}`}>
-                          {inStock ? "Add to Cart" : "Sold Out"}
-                        </Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <View className="py-1.5 rounded-lg items-center border border-border bg-surface">
-                        <Text className="text-xs font-semibold text-foreground">Review only</Text>
-                      </View>
+                    {bundle.description && (
+                      <Text className="text-xs text-muted mt-1" numberOfLines={2}>
+                        {bundle.description}
+                      </Text>
                     )}
                   </View>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
+              ))}
 
-          {/* Empty State */}
-          {filteredProducts.length === 0 && (
-            <View className="items-center py-16">
-              <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
-                <IconSymbol name="magnifyingglass" size={32} color={colors.muted} />
-              </View>
-              <Text className="text-lg font-semibold text-foreground mb-2">No products found</Text>
-              <Text className="text-muted text-center mb-4">
-                Try adjusting your search or filter criteria
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setSearchQuery("");
-                  setSelectedCategory("all");
-                }}
-                className="px-4 py-2 border border-border rounded-lg"
-              >
-                <Text className="text-foreground">Clear filters</Text>
-              </TouchableOpacity>
+              {filteredBundles.length === 0 && (
+                <View className="items-center py-16">
+                  <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                    <IconSymbol name="cube.box" size={32} color={colors.muted} />
+                  </View>
+                  <Text className="text-lg font-semibold text-foreground mb-2">No bundles found</Text>
+                  <Text className="text-muted text-center mb-4">
+                    New bundles will appear here once published.
+                  </Text>
+                </View>
+              )}
             </View>
+          ) : (
+            <>
+              <View className="flex-row flex-wrap justify-between pb-24">
+                {(isAzMode ? azResults : productsToShow.map((product) => ({ type: "product" as const, product }))).map(
+                  (item) => {
+                    if (item.type === "bundle") {
+                      const bundle = item.bundle;
+                      return (
+                        <TouchableOpacity
+                          key={`bundle-${bundle.id}`}
+                          onPress={() => router.push(`/bundle/${bundle.id}` as any)}
+                          className="mb-4 bg-surface rounded-xl overflow-hidden border border-border"
+                          style={{ width: "46%", maxWidth: 180 }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`View ${bundle.title}`}
+                          testID={`bundle-card-${bundle.id}`}
+                        >
+                          <View className="bg-background items-center justify-center" style={{ height: 140 }}>
+                            {bundle.imageUrl ? (
+                              <Image
+                                source={{ uri: bundle.imageUrl }}
+                                className="w-full h-full"
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <IconSymbol name="cube.box" size={40} color={colors.muted} />
+                            )}
+                          </View>
+
+                          <View className="p-2.5">
+                            <View className="bg-primary/10 self-start px-2 py-0.5 rounded mb-1">
+                              <Text className="text-xs text-primary">Bundle</Text>
+                            </View>
+
+                            {bundle.price && (
+                              <Text className="text-base font-bold text-foreground">
+                                ${parseFloat(bundle.price).toFixed(2)}
+                              </Text>
+                            )}
+
+                            <Text className="text-xs text-foreground mt-1" numberOfLines={2}>
+                              {bundle.title}
+                            </Text>
+                          </View>
+
+                          <View className="px-2.5 pb-2.5">
+                            <View className="py-1.5 rounded-lg items-center border border-border bg-surface">
+                              <Text className="text-xs font-semibold text-foreground">Review only</Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    }
+
+                    const product = item.product;
+                    const price = parseFloat(product.price);
+                    const comparePrice = product.compareAtPrice ? parseFloat(product.compareAtPrice) : null;
+                    const inStock =
+                      product.availability === "available" && (product.inventoryQuantity || 0) > 0;
+
+                    return (
+                      <TouchableOpacity
+                        key={product.id}
+                        onPress={() => openProductDetail(product)}
+                        className="mb-4 bg-surface rounded-xl overflow-hidden border border-border"
+                        style={{
+                          opacity: inStock ? 1 : 0.6,
+                          width: "46%",
+                          maxWidth: 180,
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${product.name}`}
+                        testID={`product-card-${product.id}`}
+                      >
+                        {/* Image */}
+                        <View className="bg-background items-center justify-center" style={{ height: 140 }}>
+                          {product.imageUrl ? (
+                            <Image
+                              source={{ uri: product.imageUrl }}
+                              className="w-full h-full"
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <IconSymbol name="cube.box" size={40} color={colors.muted} />
+                          )}
+                        </View>
+
+                        {/* Content */}
+                        <View className="p-2.5">
+                          {product.category && (
+                            <View className="bg-primary/10 self-start px-2 py-0.5 rounded mb-1">
+                              <Text className="text-xs text-primary">
+                                {getCategoryLabel(product.category)}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View className="flex-row items-center">
+                            <Text className="text-base font-bold text-foreground">${price.toFixed(2)}</Text>
+                            {comparePrice && comparePrice > price && (
+                              <Text className="text-xs text-muted line-through ml-2">
+                                ${comparePrice.toFixed(2)}
+                              </Text>
+                            )}
+                          </View>
+
+                          <Text className="text-xs text-foreground mt-1" numberOfLines={2}>
+                            {product.name}
+                          </Text>
+
+                          {/* Stock status */}
+                          <View className="flex-row items-center mt-1.5">
+                            <View
+                              className={`w-2 h-2 rounded-full ${inStock ? "bg-success" : "bg-error"}`}
+                            />
+                            <Text
+                              className={`text-[11px] ml-1 ${inStock ? "text-success" : "text-error"}`}
+                            >
+                              {inStock ? `${product.inventoryQuantity} in stock` : "Out of stock"}
+                            </Text>
+                          </View>
+
+                          {/* Brand */}
+                          {product.brand && (
+                            <Text className="text-[11px] text-muted mt-1">by {product.brand}</Text>
+                          )}
+                        </View>
+
+                        {/* Add to Cart Button */}
+                        <View className="px-2.5 pb-2.5">
+                          {canPurchase ? (
+                            <TouchableOpacity
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                handleAddToCart(product);
+                              }}
+                              disabled={!inStock}
+                              className={`py-1.5 rounded-lg items-center ${
+                                inStock ? "bg-primary" : "bg-muted"
+                              }`}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Add ${product.name} to cart`}
+                              testID={`product-add-${product.id}`}
+                            >
+                              <Text
+                                className={`text-xs font-semibold ${
+                                  inStock ? "text-white" : "text-foreground"
+                                }`}
+                              >
+                                {inStock ? "Add to Cart" : "Sold Out"}
+                              </Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <View className="py-1.5 rounded-lg items-center border border-border bg-surface">
+                              <Text className="text-xs font-semibold text-foreground">Review only</Text>
+                            </View>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  },
+                )}
+              </View>
+
+              {/* Empty State */}
+              {(isAzMode ? azResults.length === 0 : productsToShow.length === 0) && (
+                <View className="items-center py-16">
+                  <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                    <IconSymbol name="magnifyingglass" size={32} color={colors.muted} />
+                  </View>
+                  <Text className="text-lg font-semibold text-foreground mb-2">
+                    No {isAzMode ? "results" : "products"} found
+                  </Text>
+                  <Text className="text-muted text-center mb-4">
+                    Try adjusting your search or filter criteria
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchQuery("");
+                      setSelectedCategory("all");
+                    }}
+                    className="px-4 py-2 border border-border rounded-lg"
+                  >
+                    <Text className="text-foreground">Clear filters</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
           )}
         </ScrollView>
       )}
@@ -743,6 +1031,19 @@ export default function ProductsScreen() {
           ) : null}
         </Pressable>
       </Modal>
+
+      {canManage && (
+        <TouchableOpacity
+          onPress={() => router.push("/bundle-editor/new" as any)}
+          className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+          style={{ right: 16, bottom: 16 - bottomNavHeight }}
+          accessibilityRole="button"
+          accessibilityLabel="Create a new bundle"
+          testID="products-new-bundle-fab"
+        >
+          <IconSymbol name="plus" size={24} color={colors.background} />
+        </TouchableOpacity>
+      )}
     </ScreenContainer>
   );
 }

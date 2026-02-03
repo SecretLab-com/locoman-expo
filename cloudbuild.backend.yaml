@@ -1,0 +1,13 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "build",
+        "-t",
+        "gcr.io/locoman-486301/locoman-backend",
+        "-f",
+        "Dockerfile.backend",
+        ".",
+      ]
+images:
+  - "gcr.io/locoman-486301/locoman-backend"

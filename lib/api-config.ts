@@ -13,12 +13,10 @@ import { NativeModules, Platform } from "react-native";
 // This URL must be publicly accessible from the internet
 const NATIVE_API_URL = "https://3002-i4anndi9mla842misgiwl-a70979ba.sg1.manus.computer";
 const WEB_API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.VITE_API_BASE_URL || "";
+const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
 // Web API URL derivation from current hostname
 function getWebApiUrl(): string {
-  if (WEB_API_URL) {
-    return WEB_API_URL;
-  }
   const location = typeof window !== "undefined" ? window.location : undefined;
   if (location) {
     const { protocol, hostname, port } = location;
@@ -29,6 +27,9 @@ function getWebApiUrl(): string {
     // Local LAN access (e.g. 192.168.x.x:8081)
     if (port === "8081") {
       return `${protocol}//${hostname}:3000`;
+    }
+    if (WEB_API_URL) {
+      return WEB_API_URL;
     }
     // Pattern: 8081-sandboxid.region.domain -> 3002-sandboxid.region.domain
     const apiHostname = hostname.replace(/^8081-/, "3002-");
@@ -44,9 +45,6 @@ function getWebApiUrl(): string {
 }
 
 function getNativeApiUrl(): string {
-  if (WEB_API_URL) {
-    return WEB_API_URL;
-  }
   const scriptURL = NativeModules?.SourceCode?.scriptURL as string | undefined;
   const hostUri = Constants?.expoConfig?.hostUri || Constants?.manifest?.hostUri;
   const rawUrl = scriptURL || (hostUri ? `http://${hostUri}` : "");
@@ -56,10 +54,15 @@ function getNativeApiUrl(): string {
       const hostname = parsed.hostname;
       const port = parsed.port || "8081";
       const apiPort = port === "8081" ? "3000" : port;
-      return `${parsed.protocol}//${hostname}:${apiPort}`;
+      if (IS_DEV) {
+        return `${parsed.protocol}//${hostname}:${apiPort}`;
+      }
     } catch {
       // fallthrough
     }
+  }
+  if (WEB_API_URL) {
+    return WEB_API_URL;
   }
   return NATIVE_API_URL;
 }

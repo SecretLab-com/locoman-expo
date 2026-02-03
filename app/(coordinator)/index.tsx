@@ -3,6 +3,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useBadgeContext } from "@/contexts/badge-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
@@ -75,15 +76,15 @@ function StatPill({
       className="flex-1 rounded-2xl border border-border bg-surface px-4 py-3"
       {...(onPress
         ? {
-            onPress: async () => {
-              await haptics.light();
-              onPress();
-            },
-            activeOpacity: 0.7,
-            accessibilityRole: "button",
-            accessibilityLabel: label,
-            testID,
-          }
+          onPress: async () => {
+            await haptics.light();
+            onPress();
+          },
+          activeOpacity: 0.7,
+          accessibilityRole: "button",
+          accessibilityLabel: label,
+          testID,
+        }
         : {})}
     >
       <Text className="text-xs font-semibold text-muted uppercase">{label}</Text>
@@ -112,58 +113,44 @@ export default function CoordinatorHomeScreen() {
   const colors = useColors();
   const { refetch } = useBadgeContext();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Fetch data from tRPC
+  const { data: coordinatorStats, isLoading: statsLoading, refetch: refetchStats } = trpc.coordinator.stats.useQuery();
+  const { data: topTrainersData, refetch: refetchTrainers } = trpc.coordinator.topTrainers.useQuery();
+  const { data: topBundlesData, refetch: refetchBundles } = trpc.coordinator.topBundles.useQuery();
+
   const userGrowth = useMemo(() => [14, 18, 22, 16, 24, 28, 31], []);
   const revenueTrend = useMemo(() => [22, 30, 26, 34, 42, 38, 46], []);
-  const topTrainers = useMemo(
-    () => [
-      { id: 101, name: "Ava Brooks", clients: 42, avatar: "https://i.pravatar.cc/100?img=11" },
-      { id: 102, name: "Kai Rivera", clients: 38, avatar: "https://i.pravatar.cc/100?img=32" },
-      { id: 103, name: "Noah Patel", clients: 34, avatar: "https://i.pravatar.cc/100?img=26" },
-    ],
-    []
-  );
-  const topBundles = useMemo(
-    () => [
-      {
-        id: 501,
-        title: "Strength Starter",
-        orders: 128,
-        image: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=300",
-      },
-      {
-        id: 502,
-        title: "Lean Nutrition",
-        orders: 104,
-        image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300",
-      },
-      {
-        id: 503,
-        title: "Endurance Pro",
-        orders: 92,
-        image: "https://images.unsplash.com/photo-1517832207067-4db24a2ae47c?w=300",
-      },
-    ],
-    []
-  );
-  const pendingActions = useMemo(
-    () => [
-      {
-        label: "Approvals",
-        value: "12",
-        tone: "warning" as const,
-        onPress: () => router.push("/(coordinator)/approvals" as any),
-        testID: "coord-pending-approvals",
-      },
-      {
-        label: "Deliveries",
-        value: "7",
-        tone: "primary" as const,
-        onPress: () => router.push("/(coordinator)/deliveries" as any),
-        testID: "coord-pending-deliveries",
-      },
-    ],
-    []
-  );
+
+  const topTrainers = (topTrainersData || []).map(t => ({
+    id: t.id,
+    name: t.name,
+    clients: t.clientCount,
+    avatar: t.photoUrl || `https://i.pravatar.cc/100?u=${t.id}`
+  }));
+
+  const topBundles = (topBundlesData || []).map(b => ({
+    id: b.id,
+    title: b.title,
+    orders: b.orderCount,
+    image: b.imageUrl
+  }));
+  const pendingActions = [
+    {
+      label: "Approvals",
+      value: coordinatorStats?.pendingApprovals.toString() || "0",
+      tone: "warning" as const,
+      onPress: () => router.push("/(coordinator)/approvals" as any),
+      testID: "coord-pending-approvals",
+    },
+    {
+      label: "Deliveries",
+      value: "0", // placeholder for now
+      tone: "primary" as const,
+      onPress: () => router.push("/(coordinator)/deliveries" as any),
+      testID: "coord-pending-deliveries",
+    },
+  ];
   const alerts = useMemo(
     () => [
       {
@@ -204,13 +191,18 @@ export default function CoordinatorHomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
+    await Promise.all([
+      refetch(),
+      refetchStats(),
+      refetchTrainers(),
+      refetchBundles(),
+    ]);
     setRefreshing(false);
-  }, [refetch]);
+  }, [refetch, refetchStats, refetchTrainers, refetchBundles]);
 
   return (
     <ScreenContainer>
-      <ScrollView 
+      <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -325,22 +317,22 @@ export default function CoordinatorHomeScreen() {
             <View className="flex-row items-center justify-between">
               <View>
                 <Text className="text-sm text-muted">New users</Text>
-                <Text className="text-2xl font-bold text-foreground">142</Text>
+                <Text className="text-2xl font-bold text-foreground">{coordinatorStats?.newUsersThisMonth || 0}</Text>
               </View>
               <MiniBarChart values={userGrowth} color={colors.success} />
             </View>
             <View className="mt-4 flex-row justify-between">
               <View>
-                <Text className="text-xs text-muted">Active users</Text>
-                <Text className="text-base font-semibold text-foreground">1,284</Text>
+                <Text className="text-xs text-muted">Total users</Text>
+                <Text className="text-base font-semibold text-foreground">{coordinatorStats?.totalUsers || 0}</Text>
               </View>
               <View>
-                <Text className="text-xs text-muted">Retention</Text>
-                <Text className="text-base font-semibold text-foreground">68%</Text>
+                <Text className="text-xs text-muted">Total bundles</Text>
+                <Text className="text-base font-semibold text-foreground">{coordinatorStats?.totalBundles || 0}</Text>
               </View>
               <View>
-                <Text className="text-xs text-muted">New trainers</Text>
-                <Text className="text-base font-semibold text-foreground">8</Text>
+                <Text className="text-xs text-muted">Pending</Text>
+                <Text className="text-base font-semibold text-foreground">{coordinatorStats?.pendingApprovals || 0}</Text>
               </View>
             </View>
           </View>

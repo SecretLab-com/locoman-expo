@@ -8,11 +8,11 @@ import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "../../shared/const.j
 import * as db from "../db";
 import { ENV } from "./env";
 import type {
-    ExchangeTokenRequest,
-    ExchangeTokenResponse,
-    GetUserInfoResponse,
-    GetUserInfoWithJwtRequest,
-    GetUserInfoWithJwtResponse,
+  ExchangeTokenRequest,
+  ExchangeTokenResponse,
+  GetUserInfoResponse,
+  GetUserInfoWithJwtRequest,
+  GetUserInfoWithJwtResponse,
 } from "./types/manusTypes";
 // Utility function
 const isNonEmptyString = (value: unknown): value is string =>
@@ -24,34 +24,32 @@ export type SessionPayload = {
   name: string;
 };
 
-const DEV_TEST_USERS = new Map(
+const DEV_TEST_USERS = new Map<
+  string,
+  { name: string; email: string; role: User["role"] }
+>([
   [
-    [
-      "test_user_coordinator",
-      { name: "Test User", email: "testuser@secretlab.com", role: "coordinator" },
-    ],
-    [
-      "test_trainer_account",
-      { name: "Test Trainer", email: "trainer@secretlab.com", role: "trainer" },
-    ],
-    [
-      "test_client_account",
-      { name: "Test Client", email: "client@secretlab.com", role: "client" },
-    ],
-    [
-      "test_manager_account",
-      { name: "Test Manager", email: "manager@secretlab.com", role: "manager" },
-    ],
-    [
-      "test_coordinator_account",
-      {
-        name: "Test Coordinator",
-        email: "coordinator@secretlab.com",
-        role: "coordinator",
-      },
-    ],
-  ] as const,
-);
+    "test_user_coordinator",
+    { name: "Test User", email: "testuser@secretlab.com", role: "coordinator" },
+  ],
+  [
+    "test_trainer_account",
+    { name: "Test Trainer", email: "trainer@secretlab.com", role: "trainer" },
+  ],
+  ["test_client_account", { name: "Test Client", email: "client@secretlab.com", role: "client" }],
+  [
+    "test_manager_account",
+    { name: "Test Manager", email: "manager@secretlab.com", role: "manager" },
+  ],
+  [
+    "test_coordinator_account",
+    {
+      name: "Test Coordinator",
+      email: "coordinator@secretlab.com",
+      role: "coordinator",
+    },
+  ],
+]);
 
 const buildDevUser = (openId: string): User | null => {
   const devUser = DEV_TEST_USERS.get(openId);
@@ -66,6 +64,33 @@ const buildDevUser = (openId: string): User | null => {
     photoUrl: null,
     loginMethod: "email",
     role: devUser.role,
+    username: null,
+    bio: null,
+    specialties: null,
+    socialLinks: null,
+    trainerId: null,
+    active: true,
+    metadata: null,
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now,
+    passwordHash: null,
+  };
+};
+
+const buildSessionUser = (session: { openId: string; name: string }): User => {
+  const devUser = buildDevUser(session.openId);
+  if (devUser) return devUser;
+  const now = new Date();
+  return {
+    id: 0,
+    openId: session.openId,
+    name: session.name || "User",
+    email: null,
+    phone: null,
+    photoUrl: null,
+    loginMethod: "email",
+    role: "shopper",
     username: null,
     bio: null,
     specialties: null,
@@ -160,6 +185,35 @@ class SDKServer {
    */
   async exchangeCodeForToken(code: string, state: string): Promise<ExchangeTokenResponse> {
     return this.oauthService.getTokenByCode(code, state);
+  }
+
+  /**
+   * Exchange Google OAuth code for token
+   */
+  async exchangeGoogleCodeForToken(code: string, redirectUri: string): Promise<any> {
+    if (!ENV.googleClientId || !ENV.googleClientSecret) {
+      throw new Error("Google OAuth credentials not configured on backend");
+    }
+
+    const { data } = await axios.post("https://oauth2.googleapis.com/token", {
+      code,
+      client_id: ENV.googleClientId,
+      client_secret: ENV.googleClientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    });
+
+    return data;
+  }
+
+  /**
+   * Get Google user info
+   */
+  async getGoogleUserInfo(accessToken: string): Promise<any> {
+    const { data } = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return data;
   }
 
   /**
@@ -311,11 +365,12 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
-    const devUser = !ENV.isProduction ? buildDevUser(sessionUserId) : null;
     const dbInstance = await db.getDb();
-    if (!dbInstance && devUser) {
-      return devUser;
+    if (!dbInstance) {
+      console.warn("[Auth] Database unavailable, using session-only user");
+      return buildSessionUser({ openId: sessionUserId, name: session.name });
     }
+    const devUser = !ENV.isProduction ? buildDevUser(sessionUserId) : null;
     let user = await db.getUserByOpenId(sessionUserId);
 
     // If user not in DB, sync from OAuth server automatically

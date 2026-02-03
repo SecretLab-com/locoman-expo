@@ -1,5 +1,5 @@
 import { NavigationHeader } from "@/components/navigation-header";
-import { RoleBottomNav, type RoleNavItem, useBottomNavHeight } from "@/components/role-bottom-nav";
+import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -9,7 +9,7 @@ import { haptics } from "@/hooks/use-haptics";
 import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
 import { Image } from "expo-image";
-import { router } from "expo-router";
+import { router, useSegments } from "expo-router";
 import { Alert, Platform, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 type MenuItemProps = {
@@ -93,7 +93,11 @@ function RoleBadge({ role }: { role: string }) {
 
 export default function SharedProfileScreen() {
   const colors = useColors();
-  const navHeight = useBottomNavHeight();
+  const segments = useSegments();
+  const hasRoleLayout = segments.some((segment) =>
+    ["(tabs)", "(trainer)", "(manager)", "(coordinator)", "(client)"].includes(segment),
+  );
+  const showBottomNav = !hasRoleLayout;
   const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, isCoordinator, effectiveRole } =
     useAuthContext();
   const { counts } = useBadgeContext();
@@ -204,7 +208,7 @@ export default function SharedProfileScreen() {
       return [
         { label: "Home", icon: "house.fill", href: "/(coordinator)", testID: "tab-home" },
         { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
-        { label: "Bundles", icon: "cube.box.fill", href: "/(coordinator)/bundles", testID: "tab-bundles" },
+        { label: "Products", icon: "storefront.fill", href: "/(coordinator)/products", testID: "tab-products" },
         {
           label: "Alerts",
           icon: "exclamationmark.triangle.fill",
@@ -355,42 +359,16 @@ export default function SharedProfileScreen() {
               icon="person.fill"
               title="Edit Profile"
               subtitle="Update your personal information"
-              onPress={() => {
-                if (Platform.OS === "web") {
-                  alert("Profile editing coming soon!");
-                } else {
-                  Alert.alert("Coming Soon", "Profile editing coming soon!");
-                }
-              }}
+              onPress={() => router.push("/settings" as any)}
             />
-            <MenuItem
-              icon="bag.fill"
-              title="My Orders"
-              subtitle="View your order history"
-              onPress={() => {
-                if (isClient) {
-                  router.push("/(client)/orders" as any);
-                } else {
-                  if (Platform.OS === "web") {
-                    alert("Orders page coming soon!");
-                  } else {
-                    Alert.alert("Coming Soon", "Orders page coming soon!");
-                  }
-                }
-              }}
-            />
-            <MenuItem
-              icon="heart.fill"
-              title="Favorites"
-              subtitle="Your saved bundles"
-              onPress={() => {
-                if (Platform.OS === "web") {
-                  alert("Favorites coming soon!");
-                } else {
-                  Alert.alert("Coming Soon", "Favorites coming soon!");
-                }
-              }}
-            />
+            {isClient && (
+              <MenuItem
+                icon="bag.fill"
+                title="My Orders"
+                subtitle="View your order history"
+                onPress={() => router.push("/(client)/orders" as any)}
+              />
+            )}
           </View>
 
           {/* Trainer Quick Actions */}
@@ -512,10 +490,10 @@ export default function SharedProfileScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <View style={{ flex: 1, paddingBottom: navHeight }}>
+      <View style={{ flex: 1 }}>
         {content}
       </View>
-      <RoleBottomNav items={navItems} />
+      {showBottomNav && <RoleBottomNav items={navItems} />}
     </View>
   );
 }

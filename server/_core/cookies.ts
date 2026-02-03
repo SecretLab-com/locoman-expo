@@ -37,6 +37,11 @@ function getParentDomain(hostname: string): string | undefined {
     return undefined;
   }
 
+  // Avoid setting cookies on public suffixes like run.app
+  if (hostname.endsWith(".run.app")) {
+    return undefined;
+  }
+
   // Split hostname into parts
   const parts = hostname.split(".");
 

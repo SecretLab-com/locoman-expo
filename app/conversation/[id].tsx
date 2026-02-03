@@ -6,6 +6,7 @@ import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -480,6 +481,7 @@ export default function ConversationScreen() {
       utils.messages.conversations.invalidate();
     },
   });
+  const uploadAttachment = trpc.messages.uploadAttachment.useMutation();
 
   // Add reaction mutation
   const addReaction = trpc.messages.addReaction.useMutation({
@@ -617,11 +619,24 @@ export default function ConversationScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
+      base64: true,
     });
 
     if (!result.canceled && result.assets[0]) {
-      // In a real app, you'd upload the image to storage first
-      // For now, we'll just send a placeholder
+      const asset = result.assets[0];
+      const fileName = asset.fileName || `image-${Date.now()}.jpg`;
+      const mimeType = asset.mimeType || "image/jpeg";
+      const base64 =
+        asset.base64 ||
+        (await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: "base64",
+        }));
+      const uploadResult = await uploadAttachment.mutateAsync({
+        fileName,
+        fileData: base64,
+        mimeType,
+      });
+
       await haptics.light();
       const ids = participantIds
         ? participantIds
@@ -638,10 +653,10 @@ export default function ConversationScreen() {
           content: "Image",
           conversationId: id,
           messageType: "image",
-          attachmentUrl: result.assets[0].uri,
-          attachmentName: result.assets[0].fileName || "image.jpg",
-          attachmentSize: result.assets[0].fileSize,
-          attachmentMimeType: result.assets[0].mimeType || "image/jpeg",
+          attachmentUrl: uploadResult.url,
+          attachmentName: fileName,
+          attachmentSize: asset.fileSize,
+          attachmentMimeType: mimeType,
         });
         return;
       }
@@ -650,10 +665,10 @@ export default function ConversationScreen() {
         content: "Image",
         conversationId: id,
         messageType: "image",
-        attachmentUrl: result.assets[0].uri,
-        attachmentName: result.assets[0].fileName || "image.jpg",
-        attachmentSize: result.assets[0].fileSize,
-        attachmentMimeType: result.assets[0].mimeType || "image/jpeg",
+        attachmentUrl: uploadResult.url,
+        attachmentName: fileName,
+        attachmentSize: asset.fileSize,
+        attachmentMimeType: mimeType,
       });
     }
   };
@@ -664,7 +679,18 @@ export default function ConversationScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      // In a real app, you'd upload the file to storage first
+      const asset = result.assets[0];
+      const fileName = asset.name || `file-${Date.now()}`;
+      const mimeType = asset.mimeType || "application/octet-stream";
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: "base64",
+      });
+      const uploadResult = await uploadAttachment.mutateAsync({
+        fileName,
+        fileData: base64,
+        mimeType,
+      });
+
       await haptics.light();
       const ids = participantIds
         ? participantIds
@@ -678,25 +704,25 @@ export default function ConversationScreen() {
       if (ids.length === 1) {
         sendWithAttachment.mutate({
           receiverId: ids[0],
-          content: result.assets[0].name,
+          content: fileName,
           conversationId: id,
           messageType: "file",
-          attachmentUrl: result.assets[0].uri,
-          attachmentName: result.assets[0].name,
-          attachmentSize: result.assets[0].size,
-          attachmentMimeType: result.assets[0].mimeType || "application/octet-stream",
+          attachmentUrl: uploadResult.url,
+          attachmentName: fileName,
+          attachmentSize: asset.size,
+          attachmentMimeType: mimeType,
         });
         return;
       }
       sendGroupWithAttachment.mutate({
         receiverIds: ids,
-        content: result.assets[0].name,
+        content: fileName,
         conversationId: id,
         messageType: "file",
-        attachmentUrl: result.assets[0].uri,
-        attachmentName: result.assets[0].name,
-        attachmentSize: result.assets[0].size,
-        attachmentMimeType: result.assets[0].mimeType || "application/octet-stream",
+        attachmentUrl: uploadResult.url,
+        attachmentName: fileName,
+        attachmentSize: asset.size,
+        attachmentMimeType: mimeType,
       });
     }
   };

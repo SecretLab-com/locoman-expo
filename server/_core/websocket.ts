@@ -1,9 +1,9 @@
 import type { IncomingMessage } from "http";
 import { Server } from "http";
-import { sdk } from "./sdk";
 import { logError, logEvent } from "./logger";
+import { sdk } from "./sdk";
 
-const { WebSocketServer, WebSocket } = require("ws");
+import { WebSocket, WebSocketServer } from "ws";
 
 // Store connected clients by user ID
 const clients = new Map<number, Set<WebSocket>>();
@@ -11,7 +11,7 @@ const clients = new Map<number, Set<WebSocket>>();
 // Store typing status by conversation
 const typingStatus = new Map<string, Map<number, NodeJS.Timeout>>();
 
-export type WSMessage = 
+export type WSMessage =
   | { type: "new_message"; conversationId: string; message: any }
   | { type: "typing_start"; conversationId: string; userId: number; userName: string }
   | { type: "typing_stop"; conversationId: string; userId: number }
