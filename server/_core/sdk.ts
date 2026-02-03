@@ -195,15 +195,21 @@ class SDKServer {
       throw new Error("Google OAuth credentials not configured on backend");
     }
 
-    const { data } = await axios.post("https://oauth2.googleapis.com/token", {
-      code,
-      client_id: ENV.googleClientId,
-      client_secret: ENV.googleClientSecret,
-      redirect_uri: redirectUri,
-      grant_type: "authorization_code",
-    });
+    try {
+      const { data } = await axios.post("https://oauth2.googleapis.com/token", {
+        code,
+        client_id: ENV.googleClientId,
+        client_secret: ENV.googleClientSecret,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      });
 
-    return data;
+      return data;
+    } catch (error: any) {
+      console.error("[OAuth] Google token exchange failed:",
+        error.response?.data || error.message);
+      throw error;
+    }
   }
 
   /**

@@ -116,7 +116,19 @@ export function registerOAuthRoutes(app: Express) {
 
       if (!userInfo) {
         // Direct Google exchange
-        const googleRedirectUri = `${req.protocol}://${req.get("host")}/api/oauth/callback`;
+        // Use isSecureRequest from cookies.ts logic to handle Cloud Run HTTPS termination
+        const isSecure = (req: Request) => {
+          if (req.protocol === "https") return true;
+          const forwardedProto = req.headers["x-forwarded-proto"];
+          if (!forwardedProto) return false;
+          const protoList = Array.isArray(forwardedProto) ? forwardedProto : forwardedProto.split(",");
+          return protoList.some((proto) => proto.trim().toLowerCase() === "https");
+        };
+
+        const protocol = isSecure(req) ? "https" : "http";
+        const googleRedirectUri = `${protocol}://${req.get("host")}/api/oauth/callback`;
+        console.log("[OAuth] Exchanging Google code with redirectUri:", googleRedirectUri);
+
         const googleToken = await sdk.exchangeGoogleCodeForToken(code, googleRedirectUri);
         const googleUser = await sdk.getGoogleUserInfo(googleToken.access_token);
 
@@ -160,9 +172,20 @@ export function registerOAuthRoutes(app: Express) {
 
       console.log("[OAuth] Redirecting to:", redirect.toString());
       res.redirect(302, redirect.toString());
-    } catch (error) {
-      logError("auth.oauth_callback_failed", error);
-      res.status(500).json({ error: "OAuth callback failed" });
+    } catch (error: any) {
+      const errorMessage = error?.response?.data
+        ? JSON.stringify(error.response.data)
+        : (error instanceof Error ? error.message : String(error));
+
+      logError("auth.oauth_callback_failed", {
+        message: errorMessage,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      res.status(500).json({
+        error: "OAuth callback failed",
+        details: process.env.NODE_ENV !== "production" ? errorMessage : undefined
+      });
     }
   });
 
