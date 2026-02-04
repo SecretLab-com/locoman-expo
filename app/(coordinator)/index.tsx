@@ -453,7 +453,7 @@ export default function CoordinatorHomeScreen() {
                 <View className="h-20 w-full bg-muted/30 items-center justify-center">
                   <IconSymbol name="shippingbox.fill" size={20} color={colors.muted} />
                   <Image
-                    source={{ uri: bundle.image }}
+                    source={bundle.image ? { uri: bundle.image } : undefined}
                     style={styles.coverImage}
                     contentFit="cover"
                     transition={150}

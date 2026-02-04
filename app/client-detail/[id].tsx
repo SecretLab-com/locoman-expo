@@ -4,6 +4,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
@@ -32,6 +33,7 @@ type Subscription = {
   cadence: "weekly" | "monthly" | "yearly";
   sessionsIncluded: number;
   sessionsUsed: number;
+  sessionsRemaining: number; // remaining sessions for tracking
   startDate: string;
   status: "active" | "paused" | "cancelled" | "expired";
 };
@@ -75,6 +77,7 @@ const MOCK_CLIENT: ClientData = {
     cadence: "monthly",
     sessionsIncluded: 8,
     sessionsUsed: 3,
+    sessionsRemaining: 5,
     startDate: "2024-01-15",
     status: "active",
   },
@@ -158,8 +161,7 @@ function SessionCard({ session, onMarkComplete, onCancel }: {
           className="px-3 py-1 rounded-full border border-current"
           style={{
             backgroundColor: getStatusColor(session.status) + "10",
-            borderColor: getStatusColor(session.status) + "30",
-            color: getStatusColor(session.status)
+            borderColor: getStatusColor(session.status) + "30"
           }}
         >
           <Text
@@ -177,7 +179,7 @@ function SessionCard({ session, onMarkComplete, onCancel }: {
             className="flex-1 py-2.5 rounded-xl bg-primary shadow-sm active:opacity-80"
             onPress={onMarkComplete}
           >
-            <Text className="text-background text-center font-bold text-sm">Complete</Text>
+            <Text className="text-background text-center font-bold text-sm">Mark Complete</Text>
           </TouchableOpacity>
           <TouchableOpacity
             className="flex-1 py-2.5 rounded-xl border border-border bg-surface/30 active:opacity-80"
@@ -225,8 +227,7 @@ function DeliveryCard({ delivery, onMarkReady, onMarkDelivered }: {
           className="px-3 py-1 rounded-full border border-current"
           style={{
             backgroundColor: getStatusColor(delivery.status) + "10",
-            borderColor: getStatusColor(delivery.status) + "30",
-            color: getStatusColor(delivery.status)
+            borderColor: getStatusColor(delivery.status) + "30"
           }}
         >
           <Text
@@ -536,7 +537,7 @@ export default function ClientDetailScreen() {
               <View className="flex-row items-center mt-2">
                 <IconSymbol name="clock.fill" size={12} color={colors.muted} />
                 <Text className="text-xs text-muted ml-1 font-medium">
-                  {sessionsRemaining} left • Resets in {client.subscription.cadence}
+                  {sessionsRemaining} sessions remaining • Resets in {client.subscription.cadence}
                 </Text>
               </View>
             </View>

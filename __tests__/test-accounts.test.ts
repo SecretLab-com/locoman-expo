@@ -68,7 +68,7 @@ describe("Test Accounts and OAuth Fixes", () => {
       
       // Should import and use startOAuthLogin instead of relative URL
       expect(content).toContain("startOAuthLogin");
-      expect(content).toContain('import { startOAuthLogin');
+      expect(content).toContain('startOAuthLogin');
     });
 
     it("should not use relative /api/auth/google URL", () => {

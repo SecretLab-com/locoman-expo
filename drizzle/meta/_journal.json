@@ -57,6 +57,13 @@
       "when": 1769895707439,
       "tag": "0007_overrated_sleepwalker",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1770248532779,
+      "tag": "0008_first_triathlon",
+      "breakpoints": true
     }
   ]
 }

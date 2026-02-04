@@ -128,7 +128,7 @@ async function seed() {
     await createBundleDraft({
       ...b,
       trainerId: seededTrainers[i % seededTrainers.length].id,
-      publishedAt: new Date(),
+      status: "published" as const,
     });
     console.log(`[Seed] Created published bundle: ${b.title}`);
   }
