@@ -49,52 +49,7 @@ export const appRouter = router({
       }),
 
     products: publicProcedure.query(async () => {
-      const shopifyProducts = await shopify.fetchProducts();
-      type ProductCategory =
-        | "protein"
-        | "pre_workout"
-        | "post_workout"
-        | "recovery"
-        | "strength"
-        | "wellness"
-        | "hydration"
-        | "vitamins";
-
-      const toCategory = (productType?: string): ProductCategory | null => {
-        if (!productType) return null;
-        const normalized = productType.toLowerCase().replace(/[\s-]+/g, "_");
-        const allowed = new Set<ProductCategory>([
-          "protein",
-          "pre_workout",
-          "post_workout",
-          "recovery",
-          "strength",
-          "wellness",
-          "hydration",
-          "vitamins",
-        ]);
-        const normalizedCategory = normalized as ProductCategory;
-        return allowed.has(normalizedCategory) ? normalizedCategory : null;
-      };
-
-      for (const product of shopifyProducts) {
-        const variant = product.variants[0];
-        const image = product.images[0];
-        await db.upsertProduct({
-          shopifyProductId: product.id,
-          shopifyVariantId: variant?.id,
-          name: product.title,
-          description: product.body_html || null,
-          price: variant?.price || "0.00",
-          imageUrl: image?.src || null,
-          brand: product.vendor || null,
-          category: toCategory(product.product_type),
-          inventoryQuantity: variant?.inventory_quantity || 0,
-          availability: (variant?.inventory_quantity || 0) > 0 ? "available" : "out_of_stock",
-          syncedAt: new Date(),
-        });
-      }
-
+      // Always serve from local database. Shopify sync happens separately.
       return db.getProducts();
     }),
 
@@ -611,7 +566,23 @@ export const appRouter = router({
   // ============================================================================
   messages: router({
     conversations: protectedProcedure.query(async ({ ctx }) => {
-      return db.getConversations(ctx.user.id);
+      const summaries = await db.getConversationSummaries(ctx.user.id);
+      return summaries.map(s => {
+        const otherUser = s.participants[0];
+        return {
+          id: s.conversationId,
+          conversationId: s.conversationId,
+          otherUserId: otherUser?.id,
+          otherUserName: otherUser?.name,
+          otherUserAvatar: otherUser?.photoUrl,
+          otherUserRole: otherUser?.role,
+          lastMessageContent: s.lastMessage?.content,
+          lastMessageSenderId: s.lastMessage?.senderId,
+          unreadCount: s.unreadCount,
+          updatedAt: s.lastMessage?.createdAt,
+          currentUserId: ctx.user.id,
+        };
+      });
     }),
 
     thread: protectedProcedure
@@ -854,6 +825,7 @@ export const appRouter = router({
         phone: z.string().optional(),
         bio: z.string().optional(),
         username: z.string().optional(),
+        photoUrl: z.string().optional(),
         specialties: z.any().optional(),
         socialLinks: z.any().optional(),
       }))
@@ -1378,34 +1350,7 @@ export const appRouter = router({
       }),
 
     sync: managerProcedure.mutation(async () => {
-      const shopifyProducts = await shopify.fetchProducts();
-      let synced = 0;
-      let errors = 0;
-
-      for (const product of shopifyProducts) {
-        try {
-          const variant = product.variants[0];
-          const image = product.images[0];
-
-          await db.upsertProduct({
-            shopifyProductId: product.id,
-            shopifyVariantId: variant?.id,
-            name: product.title,
-            description: product.body_html || null,
-            price: variant?.price || "0.00",
-            imageUrl: image?.src || null,
-            brand: product.vendor || null,
-            inventoryQuantity: variant?.inventory_quantity || 0,
-            syncedAt: new Date(),
-          });
-          synced++;
-        } catch (error) {
-          console.error(`[Shopify] Failed to sync product ${product.id}:`, error);
-          errors++;
-        }
-      }
-
-      return { synced, errors };
+      return shopify.syncProductsFromShopify();
     }),
 
     publishBundle: trainerProcedure

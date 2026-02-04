@@ -25,14 +25,25 @@ interface RoleFlags {
 
 /**
  * Get the home route path.
- * Always returns the unified tabs - role adaptation happens within the Home screen.
+ * Always returns the appropriate dashboard for authenticated users with specific roles,
+ * or the unified tabs for shoppers and guests.
  */
-export function getHomeRoute(_roleFlags?: RoleFlags): string {
-  const roleFlags = _roleFlags ?? {};
-  if (roleFlags.isCoordinator) return "/(coordinator)";
-  if (roleFlags.isManager) return "/(manager)";
-  if (roleFlags.isTrainer) return "/(trainer)";
-  if (roleFlags.isClient) return "/(client)";
+export function getHomeRoute(roleOrFlags?: RoleFlags | string | null): string {
+  if (!roleOrFlags) return "/(tabs)";
+
+  if (typeof roleOrFlags === "string") {
+    if (roleOrFlags === "coordinator") return "/(coordinator)";
+    if (roleOrFlags === "manager") return "/(manager)";
+    if (roleOrFlags === "trainer") return "/(trainer)";
+    if (roleOrFlags === "client") return "/(client)";
+    return "/(tabs)";
+  }
+
+  const flags = roleOrFlags as RoleFlags;
+  if (flags.isCoordinator) return "/(coordinator)";
+  if (flags.isManager) return "/(manager)";
+  if (flags.isTrainer) return "/(trainer)";
+  if (flags.isClient) return "/(client)";
   return "/(tabs)";
 }
 
@@ -64,7 +75,7 @@ export function getHomeLabel(): string {
  */
 export function getHomeLabelWithRole(roleFlags: RoleFlags): string {
   const { isCoordinator, isManager, isTrainer, isClient } = roleFlags;
-  
+
   if (isCoordinator) return "Coordinator Home";
   if (isManager) return "Manager Home";
   if (isTrainer) return "Trainer Home";

@@ -67,9 +67,9 @@ const encodeState = (value: string) => {
 export const getPostAuthRedirectUri = () => {
   if (ReactNative.Platform.OS === "web") {
     if (typeof window !== "undefined") {
-      return window.location.origin;
+      return `${window.location.origin}/oauth/callback`;
     }
-    return "http://localhost:8081";
+    return "http://localhost:8081/oauth/callback";
   }
   return Linking.createURL("/oauth/callback", {
     scheme: env.deepLinkScheme,
@@ -84,7 +84,11 @@ export const getAuthRedirectUri = () => {
   if (ReactNative.Platform.OS !== "web") {
     try {
       const parsed = new URL(preferredBase);
-      if (isPrivateHostname(parsed.hostname) && env.apiBaseUrl) {
+      // If we're on a private hostname (like localhost) and have a public API base,
+      // we might want to use the public one so Google can reach it.
+      // BUT if we're in dev mode, it's safer to stick to what we have (likely localhost)
+      // because production and dev likely have different JWT secrets.
+      if (isPrivateHostname(parsed.hostname) && env.apiBaseUrl && !__DEV__) {
         return `${env.apiBaseUrl.replace(/\/$/, "")}/api/oauth/callback`;
       }
     } catch {

@@ -61,17 +61,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [auth.isAuthenticated, impersonatedUser]);
 
-  const startImpersonation = useCallback((user: Auth.User) => {
+  const startImpersonation = useCallback(async (user: Auth.User) => {
     setImpersonatedUser(user);
-    AsyncStorage.setItem(IMPERSONATION_KEY, JSON.stringify(user));
+    await AsyncStorage.setItem(IMPERSONATION_KEY, JSON.stringify(user));
     logEvent("impersonation.start", { userId: user.id, role: user.role });
-  }, []);
+    // Re-fetch user to synchronize backend state (will use X-Impersonate-User-Id header)
+    await auth.refresh();
+  }, [auth]);
 
-  const stopImpersonation = useCallback(() => {
+  const stopImpersonation = useCallback(async () => {
     setImpersonatedUser(null);
-    AsyncStorage.removeItem(IMPERSONATION_KEY);
+    await AsyncStorage.removeItem(IMPERSONATION_KEY);
     logEvent("impersonation.stop");
-  }, []);
+    // Re-fetch user to revert to coordinator identity
+    await auth.refresh();
+  }, [auth]);
 
   // Determine effective user (impersonated or real)
   const effectiveUser = impersonatedUser || auth.user;
@@ -80,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Role helpers
   const role = (auth.user?.role as UserRole) || null;
   const effectiveRole = (effectiveUser?.role as UserRole) || null;
-  
+
   const isTrainer = effectiveRole === "trainer" || effectiveRole === "manager" || effectiveRole === "coordinator";
   const isClient = effectiveRole === "client";
   const isManager = effectiveRole === "manager" || effectiveRole === "coordinator";

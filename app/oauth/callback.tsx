@@ -59,7 +59,7 @@ export default function OAuthCallback() {
       try {
         // Check for sessionToken in params first (web OAuth callback from server redirect)
         if (params.sessionToken) {
-          console.log("[OAuth] Session token found in params (web callback)");
+          console.log("[OAuth] Session token found in params (direct token flow)");
           await Auth.setSessionToken(params.sessionToken);
 
           // Web platform: establish session cookie on backend if needed
@@ -87,8 +87,13 @@ export default function OAuthCallback() {
           }
 
           setStatus("success");
-          console.log("[OAuth] Web authentication successful, refreshing state...");
+          console.log("[OAuth] Authentication successful, refreshing context state...");
+
           await refresh();
+
+          // Small delay to ensure React state has propagated through context to all components
+          await new Promise((resolve) => setTimeout(resolve, 300));
+
           console.log("[OAuth] State refreshed, redirecting to home...");
           router.replace("/(tabs)");
           return;

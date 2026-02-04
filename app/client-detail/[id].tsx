@@ -1,20 +1,20 @@
-import { useState, useEffect } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
-import { NavigationHeader } from "@/components/navigation-header";
 import { BreadcrumbNav } from "@/components/breadcrumb-nav";
-import { useColors } from "@/hooks/use-colors";
+import { NavigationHeader } from "@/components/navigation-header";
+import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColors } from "@/hooks/use-colors";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 // Types for client data
 type Session = {
@@ -133,30 +133,37 @@ function SessionCard({ session, onMarkComplete, onCancel }: {
   };
 
   return (
-    <View className="bg-surface border border-border rounded-xl p-4 mb-3">
+    <View className="bg-surface border border-border/50 rounded-2xl p-4 mb-3 shadow-sm">
       <View className="flex-row items-center">
         <View
-          className="w-10 h-10 rounded-full items-center justify-center mr-3"
-          style={{ backgroundColor: getStatusColor(session.status) + "20" }}
+          className="w-12 h-12 rounded-xl items-center justify-center mr-4"
+          style={{ backgroundColor: getStatusColor(session.status) + "15" }}
         >
           <IconSymbol
             name={getSessionIcon(session.type) as any}
-            size={20}
+            size={22}
             color={getStatusColor(session.status)}
           />
         </View>
         <View className="flex-1">
-          <Text className="text-foreground font-medium capitalize">
+          <Text className="text-foreground font-bold text-base capitalize">
             {session.type.replace("_", " ")}
           </Text>
-          <Text className="text-muted text-sm">{formatDate(session.date)}</Text>
+          <View className="flex-row items-center mt-0.5">
+            <IconSymbol name="calendar" size={12} color={colors.muted} />
+            <Text className="text-muted text-xs ml-1 font-medium">{formatDate(session.date)}</Text>
+          </View>
         </View>
         <View
-          className="px-2 py-1 rounded-full"
-          style={{ backgroundColor: getStatusColor(session.status) + "20" }}
+          className="px-3 py-1 rounded-full border border-current"
+          style={{
+            backgroundColor: getStatusColor(session.status) + "10",
+            borderColor: getStatusColor(session.status) + "30",
+            color: getStatusColor(session.status)
+          }}
         >
           <Text
-            className="text-xs font-medium capitalize"
+            className="text-[10px] font-bold uppercase tracking-tight"
             style={{ color: getStatusColor(session.status) }}
           >
             {session.status}
@@ -165,18 +172,18 @@ function SessionCard({ session, onMarkComplete, onCancel }: {
       </View>
 
       {session.status === "scheduled" && (
-        <View className="flex-row mt-3 pt-3 border-t border-border gap-2">
+        <View className="flex-row mt-4 pt-4 border-t border-border/40 gap-3">
           <TouchableOpacity
-            className="flex-1 py-2 rounded-lg bg-primary"
+            className="flex-1 py-2.5 rounded-xl bg-primary shadow-sm active:opacity-80"
             onPress={onMarkComplete}
           >
-            <Text className="text-background text-center font-medium text-sm">Mark Complete</Text>
+            <Text className="text-background text-center font-bold text-sm">Complete</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            className="flex-1 py-2 rounded-lg border border-border"
+            className="flex-1 py-2.5 rounded-xl border border-border bg-surface/30 active:opacity-80"
             onPress={onCancel}
           >
-            <Text className="text-muted text-center font-medium text-sm">Cancel</Text>
+            <Text className="text-muted text-center font-bold text-sm">Cancel</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -202,21 +209,28 @@ function DeliveryCard({ delivery, onMarkReady, onMarkDelivered }: {
   };
 
   return (
-    <View className="bg-surface border border-border rounded-xl p-4 mb-3">
+    <View className="bg-surface border border-border/50 rounded-2xl p-4 mb-3 shadow-sm">
       <View className="flex-row items-center">
-        <View className="w-10 h-10 rounded-full bg-primary/20 items-center justify-center mr-3">
-          <IconSymbol name="bag.fill" size={20} color={colors.primary} />
+        <View className="w-12 h-12 rounded-xl bg-primary/10 items-center justify-center mr-4">
+          <IconSymbol name="bag.fill" size={22} color={colors.primary} />
         </View>
         <View className="flex-1">
-          <Text className="text-foreground font-medium">{delivery.productName}</Text>
-          <Text className="text-muted text-sm">Scheduled: {delivery.scheduledDate}</Text>
+          <Text className="text-foreground font-bold text-base">{delivery.productName}</Text>
+          <View className="flex-row items-center mt-0.5">
+            <IconSymbol name="calendar" size={12} color={colors.muted} />
+            <Text className="text-muted text-xs ml-1 font-medium">Scheduled: {delivery.scheduledDate}</Text>
+          </View>
         </View>
         <View
-          className="px-2 py-1 rounded-full"
-          style={{ backgroundColor: getStatusColor(delivery.status) + "20" }}
+          className="px-3 py-1 rounded-full border border-current"
+          style={{
+            backgroundColor: getStatusColor(delivery.status) + "10",
+            borderColor: getStatusColor(delivery.status) + "30",
+            color: getStatusColor(delivery.status)
+          }}
         >
           <Text
-            className="text-xs font-medium capitalize"
+            className="text-[10px] font-bold uppercase tracking-tight"
             style={{ color: getStatusColor(delivery.status) }}
           >
             {delivery.status}
@@ -225,21 +239,21 @@ function DeliveryCard({ delivery, onMarkReady, onMarkDelivered }: {
       </View>
 
       {(delivery.status === "pending" || delivery.status === "ready") && (
-        <View className="flex-row mt-3 pt-3 border-t border-border gap-2">
+        <View className="flex-row mt-4 pt-4 border-t border-border/40 gap-3">
           {delivery.status === "pending" && (
             <TouchableOpacity
-              className="flex-1 py-2 rounded-lg bg-primary"
+              className="flex-1 py-2.5 rounded-xl bg-primary shadow-sm active:opacity-80"
               onPress={onMarkReady}
             >
-              <Text className="text-background text-center font-medium text-sm">Mark Ready</Text>
+              <Text className="text-background text-center font-bold text-sm">Ready</Text>
             </TouchableOpacity>
           )}
           {delivery.status === "ready" && (
             <TouchableOpacity
-              className="flex-1 py-2 rounded-lg bg-success"
+              className="flex-1 py-2.5 rounded-xl bg-success shadow-sm active:opacity-80"
               onPress={onMarkDelivered}
             >
-              <Text className="text-background text-center font-medium text-sm">Mark Delivered</Text>
+              <Text className="text-white text-center font-bold text-sm">Delivered</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -285,7 +299,7 @@ export default function ClientDetailScreen() {
             try {
               // TODO: API call to complete session
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              
+
               // Update local state
               if (client && client.subscription) {
                 setClient({
@@ -418,32 +432,68 @@ export default function ClientDetailScreen() {
       />
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        {/* Client Profile */}
-        <View className="p-4 items-center">
-          {client.photoUrl ? (
-            <Image
-              source={{ uri: client.photoUrl }}
-              className="w-24 h-24 rounded-full"
-              contentFit="cover"
-            />
-          ) : (
-            <View className="w-24 h-24 rounded-full bg-primary/20 items-center justify-center">
-              <Text className="text-3xl font-bold text-primary">
-                {client.name.charAt(0)}
-              </Text>
-            </View>
-          )}
-          <Text className="text-xl font-bold text-foreground mt-3">{client.name}</Text>
-          <Text className="text-muted">{client.email}</Text>
-          <Text className="text-muted text-sm">{client.phone}</Text>
+        {/* Client Profile Header */}
+        <View className="relative">
+          <LinearGradient
+            colors={[colors.primary + "1A", colors.background]}
+            className="absolute top-0 left-0 right-0 h-48"
+          />
 
-          {/* Goals */}
-          <View className="flex-row flex-wrap justify-center mt-3 gap-2">
-            {client.goals.map((goal) => (
-              <View key={goal} className="bg-primary/20 px-3 py-1 rounded-full">
-                <Text className="text-primary text-sm">{goal}</Text>
+          <View className="p-6 items-center">
+            <View className="relative">
+              {client.photoUrl ? (
+                <Image
+                  source={{ uri: client.photoUrl }}
+                  className="w-28 h-28 rounded-full border-4 border-background shadow-lg"
+                  contentFit="cover"
+                />
+              ) : (
+                <View className="w-28 h-28 rounded-full bg-primary/20 items-center justify-center border-4 border-background shadow-lg">
+                  <Text className="text-4xl font-bold text-primary">
+                    {client.name.charAt(0)}
+                  </Text>
+                </View>
+              )}
+              <View className="absolute bottom-1 right-1 w-6 h-6 bg-success rounded-full border-2 border-background" />
+            </View>
+
+            <Text className="text-2xl font-bold text-foreground mt-4">{client.name}</Text>
+            <View className="flex-row items-center mt-1">
+              <IconSymbol name="envelope.fill" size={12} color={colors.muted} />
+              <Text className="text-muted text-sm ml-1">{client.email}</Text>
+            </View>
+
+            <View className="flex-row items-center mt-2 bg-surface/50 border border-border px-3 py-1.5 rounded-full">
+              <IconSymbol name="calendar" size={12} color={colors.primary} />
+              <Text className="text-xs text-muted ml-1.5">Joined {new Date(client.joinedDate).toLocaleDateString()}</Text>
+            </View>
+
+            {/* Quick Stats Row */}
+            <View className="flex-row mt-6 w-full justify-around bg-surface border border-border rounded-2xl p-4 shadow-sm">
+              <View className="items-center">
+                <Text className="text-foreground font-bold text-lg">{client.pastSessions.length}</Text>
+                <Text className="text-muted text-[10px] uppercase font-bold tracking-wider">Sessions</Text>
               </View>
-            ))}
+              <View className="w-px h-8 bg-border" />
+              <View className="items-center">
+                <Text className="text-foreground font-bold text-lg">{client.pendingDeliveries.length}</Text>
+                <Text className="text-muted text-[10px] uppercase font-bold tracking-wider">Orders</Text>
+              </View>
+              <View className="w-px h-8 bg-border" />
+              <View className="items-center">
+                <Text className="text-foreground font-bold text-lg">{client.goals.length}</Text>
+                <Text className="text-muted text-[10px] uppercase font-bold tracking-wider">Goals</Text>
+              </View>
+            </View>
+
+            {/* Goals */}
+            <View className="flex-row flex-wrap justify-center mt-4 gap-2">
+              {client.goals.map((goal) => (
+                <View key={goal} className="bg-primary/10 border border-primary/20 px-4 py-1.5 rounded-full">
+                  <Text className="text-primary text-xs font-semibold">{goal}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -460,24 +510,35 @@ export default function ClientDetailScreen() {
             </View>
 
             {/* Session Progress */}
-            <View className="mb-3">
-              <View className="flex-row justify-between mb-2">
-                <Text className="text-muted text-sm">Sessions Used</Text>
-                <Text className="text-foreground font-medium">
-                  {client.subscription.sessionsUsed} / {client.subscription.sessionsIncluded}
-                </Text>
+            <View className="mb-4">
+              <View className="flex-row justify-between mb-2 items-baseline">
+                <Text className="text-muted text-sm font-medium">Session Credits</Text>
+                <View className="flex-row items-baseline">
+                  <Text className="text-2xl font-bold text-foreground">
+                    {client.subscription.sessionsUsed}
+                  </Text>
+                  <Text className="text-muted text-sm font-medium ml-1">
+                    / {client.subscription.sessionsIncluded} used
+                  </Text>
+                </View>
               </View>
-              <View className="h-2 bg-border rounded-full overflow-hidden">
-                <View
-                  className="h-full bg-primary rounded-full"
+              <View className="h-3 bg-border rounded-full overflow-hidden">
+                <LinearGradient
+                  colors={[colors.primary, colors.primary + "CC"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  className="h-full rounded-full"
                   style={{
                     width: `${(client.subscription.sessionsUsed / client.subscription.sessionsIncluded) * 100}%`,
                   }}
                 />
               </View>
-              <Text className="text-sm text-muted mt-1">
-                {sessionsRemaining} sessions remaining this {client.subscription.cadence}
-              </Text>
+              <View className="flex-row items-center mt-2">
+                <IconSymbol name="clock.fill" size={12} color={colors.muted} />
+                <Text className="text-xs text-muted ml-1 font-medium">
+                  {sessionsRemaining} left • Resets in {client.subscription.cadence}
+                </Text>
+              </View>
             </View>
 
             <View className="flex-row justify-between pt-3 border-t border-border">
@@ -496,22 +557,26 @@ export default function ClientDetailScreen() {
         )}
 
         {/* Tab Navigation */}
-        <View className="flex-row mx-4 bg-surface rounded-xl p-1 mb-4">
-          {(["overview", "sessions", "deliveries"] as const).map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              className={`flex-1 py-2 rounded-lg ${activeTab === tab ? "bg-primary" : ""}`}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text
-                className={`text-center font-medium capitalize ${
-                  activeTab === tab ? "text-background" : "text-muted"
-                }`}
+        <View className="mx-4 mb-4">
+          <View className="flex-row bg-surface border border-border p-1.5 rounded-2xl shadow-sm">
+            {(["overview", "sessions", "deliveries"] as const).map((tab) => (
+              <TouchableOpacity
+                key={tab}
+                className={`flex-1 py-2.5 rounded-xl ${activeTab === tab ? "bg-primary shadow-sm" : ""}`}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setActiveTab(tab);
+                }}
               >
-                {tab}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  className={`text-center font-bold text-xs uppercase tracking-wider ${activeTab === tab ? "text-background" : "text-muted"
+                    }`}
+                >
+                  {tab}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {/* Tab Content */}
@@ -519,19 +584,26 @@ export default function ClientDetailScreen() {
           {activeTab === "overview" && (
             <View>
               {/* Notes */}
-              <View className="bg-surface border border-border rounded-xl p-4 mb-4">
-                <Text className="text-foreground font-semibold mb-2">Notes</Text>
-                <Text className="text-muted">{client.notes || "No notes added yet."}</Text>
+              <View className="bg-surface border border-border/50 rounded-2xl p-5 mb-5 shadow-sm">
+                <View className="flex-row items-center mb-3">
+                  <View className="w-8 h-8 rounded-lg bg-warning/10 items-center justify-center mr-2">
+                    <IconSymbol name="note.text" size={16} color={colors.warning} />
+                  </View>
+                  <Text className="text-foreground font-bold text-base">Trainer Notes</Text>
+                </View>
+                <Text className="text-muted leading-relaxed">
+                  {client.notes || "No notes added yet. Use this space to track progress and preferences."}
+                </Text>
               </View>
 
               {/* Quick Actions */}
-              <View className="flex-row gap-3">
+              <View className="flex-row gap-4">
                 <TouchableOpacity
-                  className="flex-1 bg-primary py-3 rounded-xl flex-row items-center justify-center"
+                  className="flex-1 bg-primary py-4 rounded-2xl flex-row items-center justify-center shadow-lg active:opacity-90"
                   onPress={handleScheduleSession}
                 >
-                  <IconSymbol name="calendar" size={18} color={colors.background} />
-                  <Text className="text-background font-semibold ml-2">Schedule Session</Text>
+                  <IconSymbol name="calendar.badge.plus" size={20} color={colors.background} />
+                  <Text className="text-background font-bold ml-2">Schedule Session</Text>
                 </TouchableOpacity>
               </View>
             </View>

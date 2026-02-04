@@ -1,13 +1,13 @@
-import { Text, View, TouchableOpacity, ScrollView, Alert, Pressable } from "react-native";
 import { router } from "expo-router";
+import { Alert, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
-import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { useAuthContext } from "@/contexts/auth-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { useThemeContext } from "@/lib/theme-provider";
+import { Image } from "expo-image";
 
 type MenuItemProps = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -34,8 +34,8 @@ function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger =
         paddingVertical: 16,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
-        backgroundColor: pressed 
-          ? (highlight ? "rgba(59, 130, 246, 0.15)" : "rgba(59, 130, 246, 0.08)") 
+        backgroundColor: pressed
+          ? (highlight ? "rgba(59, 130, 246, 0.15)" : "rgba(59, 130, 246, 0.08)")
           : (highlight ? "rgba(59, 130, 246, 0.05)" : "transparent"),
       })}
     >
@@ -136,8 +136,8 @@ export default function ProfileScreen() {
           style: "destructive",
           onPress: async () => {
             await logout();
-            // Navigate to login screen after logout
-            router.replace("/login");
+            // Navigate to welcome screen after logout
+            router.replace("/welcome");
           },
         },
       ]

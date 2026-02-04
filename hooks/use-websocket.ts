@@ -1,10 +1,11 @@
 import * as Auth from "@/lib/_core/auth";
 import { getApiBaseUrl } from "@/lib/api-config";
 import { COOKIE_NAME } from "@/shared/const";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useRef, useState } from "react";
 import { Platform } from "react-native";
 
-type WSMessage = 
+type WSMessage =
   | { type: "connected"; userId: number }
   | { type: "new_message"; conversationId: string; message: any }
   | { type: "typing_start"; conversationId: string; userId: number; userName: string }
@@ -96,9 +97,17 @@ export function useWebSocket() {
       // Get API base URL
       const apiUrl = getApiBaseUrl() || process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000";
       const wsBase = apiUrl.replace(/^http/, "ws");
-      const wsUrl = token
+
+      const impersonated = await AsyncStorage.getItem("locomotivate_impersonation");
+      const impersonateUserId = impersonated ? JSON.parse(impersonated)?.id : null;
+
+      let wsUrl = token
         ? `${wsBase}/ws?token=${encodeURIComponent(token)}`
         : `${wsBase}/ws`;
+
+      if (impersonateUserId) {
+        wsUrl += (wsUrl.includes("?") ? "&" : "?") + `impersonateUserId=${impersonateUserId}`;
+      }
 
       console.log("[WebSocket] Connecting to:", wsUrl.split("?")[0]);
 

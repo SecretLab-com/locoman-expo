@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { trpc } from "@/lib/trpc";
+import { useCallback, useEffect, useState } from "react";
 
 export type BadgeCounts = {
   pendingDeliveries: number;
@@ -15,7 +15,7 @@ export type BadgeCounts = {
  * Returns counts for various notification types based on user role
  */
 export function useBadgeCounts() {
-  const { isAuthenticated, isTrainer, isManager, isClient } = useAuthContext();
+  const { user, effectiveUser, isAuthenticated, isTrainer, isManager, isClient } = useAuthContext();
   const [counts, setCounts] = useState<BadgeCounts>({
     pendingDeliveries: 0,
     pendingApprovals: 0,
@@ -76,7 +76,7 @@ export function useBadgeCounts() {
   useEffect(() => {
     const trainerDeliveries = trainerDeliveriesQuery.data?.length ?? 0;
     const clientDeliveries = clientDeliveriesQuery.data?.filter(d => d.status === "pending" || d.status === "ready")?.length ?? 0;
-    
+
     setCounts({
       pendingDeliveries: isTrainer ? trainerDeliveries : clientDeliveries,
       pendingApprovals: approvalsQuery.data?.length ?? 0,
@@ -108,7 +108,7 @@ export function useBadgeCounts() {
       unsubscribe();
       disconnect();
     };
-  }, [isAuthenticated, refetch, connect, disconnect, subscribe]);
+  }, [isAuthenticated, effectiveUser?.id, refetch, connect, disconnect, subscribe]);
 
   return {
     counts,

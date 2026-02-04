@@ -1,6 +1,8 @@
 // Preconfigured storage helpers for Manus WebDev templates
 // Uses the Biz-provided storage proxy (Authorization: Bearer <token>)
 
+import fs from "fs/promises";
+import path from "path";
 import { ENV } from "./_core/env";
 
 type StorageConfig = { baseUrl: string; apiKey: string };
@@ -22,6 +24,10 @@ function buildUploadUrl(baseUrl: string, relKey: string): URL {
   const url = new URL("v1/storage/upload", ensureTrailingSlash(baseUrl));
   url.searchParams.set("path", normalizeKey(relKey));
   return url;
+}
+
+function isForgeConfigured(): boolean {
+  return !!ENV.forgeApiUrl && !!ENV.forgeApiKey;
 }
 
 async function buildDownloadUrl(baseUrl: string, relKey: string, apiKey: string): Promise<string> {
@@ -65,8 +71,34 @@ export async function storagePut(
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
 ): Promise<{ key: string; url: string }> {
-  const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
+
+  if (!isForgeConfigured()) {
+    console.log(`[Storage] Forge not configured, using local fallback for ${key}`);
+    const uploadsDir = path.resolve(process.cwd(), "public", "uploads");
+    await fs.mkdir(uploadsDir, { recursive: true });
+
+    const filePath = path.join(uploadsDir, key);
+    const fileDir = path.dirname(filePath);
+    await fs.mkdir(fileDir, { recursive: true });
+
+    let buffer: Buffer;
+    if (typeof data === "string") {
+      // Handle base64 or raw string
+      if (data.includes(";base64,")) {
+        buffer = Buffer.from(data.split(";base64,").pop()!, "base64");
+      } else {
+        buffer = Buffer.from(data, "utf-8");
+      }
+    } else {
+      buffer = Buffer.from(data);
+    }
+
+    await fs.writeFile(filePath, buffer);
+    return { key, url: `/uploads/${key}` };
+  }
+
+  const { baseUrl, apiKey } = getStorageConfig();
   const uploadUrl = buildUploadUrl(baseUrl, key);
   const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
   const response = await fetch(uploadUrl, {
@@ -86,8 +118,16 @@ export async function storagePut(
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
-  const { baseUrl, apiKey } = getStorageConfig();
   const key = normalizeKey(relKey);
+
+  if (!isForgeConfigured()) {
+    return {
+      key,
+      url: `/uploads/${key}`,
+    };
+  }
+
+  const { baseUrl, apiKey } = getStorageConfig();
   return {
     key,
     url: await buildDownloadUrl(baseUrl, key, apiKey),

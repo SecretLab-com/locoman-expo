@@ -7,6 +7,7 @@ import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import * as Auth from "@/lib/_core/auth";
+import { getHomeRoute } from "@/lib/navigation";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -66,7 +67,7 @@ export default function LoginScreen() {
   const handleLogin = async (testEmail?: string, testPassword?: string) => {
     await haptics.light();
 
-    const finalEmail = (testEmail || email).trim();
+    const finalEmail = String(testEmail || email || "").trim();
     const finalPassword = testPassword || password;
 
     if (!finalEmail || !finalPassword) {
@@ -139,16 +140,7 @@ export default function LoginScreen() {
         }
 
         // Navigate to appropriate dashboard based on role
-        let targetRoute = "/(tabs)";
-        if (userRole === "trainer") {
-          targetRoute = "/(trainer)";
-        } else if (userRole === "client") {
-          targetRoute = "/(client)";
-        } else if (userRole === "manager") {
-          targetRoute = "/(manager)";
-        } else if (userRole === "coordinator") {
-          targetRoute = "/(coordinator)";
-        }
+        const targetRoute = getHomeRoute(userRole);
 
         // Navigate to the appropriate dashboard
         console.log("[Login] Navigating to:", targetRoute, "Platform:", Platform.OS);

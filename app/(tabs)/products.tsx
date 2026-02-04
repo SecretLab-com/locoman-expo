@@ -6,6 +6,7 @@ import { useCart } from "@/contexts/cart-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -31,6 +32,7 @@ type Product = {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  media?: unknown;
   price: string;
   compareAtPrice: string | null;
   brand: string | null;
@@ -117,8 +119,11 @@ export default function ProductsScreen() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [imageZoomOpen, setImageZoomOpen] = useState(false);
+  const [mediaModalOpen, setMediaModalOpen] = useState(false);
+  const [mediaItems, setMediaItems] = useState<Array<{ type: "image" | "video"; uri: string }>>([]);
+  const [mediaIndex, setMediaIndex] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const { sort, q } = useLocalSearchParams();
 
   useEffect(() => {
@@ -314,6 +319,59 @@ export default function ProductsScreen() {
   }, [baseProducts]);
   const featuredBundle = filteredBundles[0];
 
+  const markImageFailed = (key: string) => {
+    setFailedImages((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  };
+
+  const normalizeMedia = (media: Product["media"]): { images: string[]; videos: string[] } => {
+    if (!media) return { images: [], videos: [] };
+    if (typeof media === "string") {
+      try {
+        const parsed = JSON.parse(media) as { images?: string[]; videos?: string[] };
+        return { images: parsed.images ?? [], videos: parsed.videos ?? [] };
+      } catch {
+        return { images: [], videos: [] };
+      }
+    }
+    if (typeof media === "object") {
+      const record = media as { images?: string[]; videos?: string[] };
+      return { images: record.images ?? [], videos: record.videos ?? [] };
+    }
+    return { images: [], videos: [] };
+  };
+
+  const getMediaItems = (product: Product) => {
+    const { images, videos } = normalizeMedia(product.media);
+    const set = new Set<string>();
+    const items: Array<{ type: "image" | "video"; uri: string }> = [];
+    if (product.imageUrl) {
+      set.add(product.imageUrl);
+      items.push({ type: "image", uri: product.imageUrl });
+    }
+    for (const url of images) {
+      if (url && !set.has(url)) {
+        set.add(url);
+        items.push({ type: "image", uri: url });
+      }
+    }
+    for (const url of videos) {
+      if (url && !set.has(url)) {
+        set.add(url);
+        items.push({ type: "video", uri: url });
+      }
+    }
+    return items;
+  };
+
+  const openMediaViewer = (product: Product, initialUrl?: string | null) => {
+    const items = getMediaItems(product);
+    if (!items.length) return;
+    const index = initialUrl ? items.findIndex((item) => item.uri === initialUrl) : 0;
+    setMediaItems(items);
+    setMediaIndex(index >= 0 ? index : 0);
+    setMediaModalOpen(true);
+  };
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header */}
@@ -431,11 +489,12 @@ export default function ProductsScreen() {
                       disabled={category.value === "all" || (!featuredProduct && !featuredBundle)}
                       style={{ width: 36, height: 36 }}
                     >
-                      {imageUrl ? (
+                    {imageUrl && !failedImages[`category-${category.value}`] ? (
                         <Image
                           source={{ uri: imageUrl }}
                           className="w-full h-full"
                           resizeMode="cover"
+                          onError={() => markImageFailed(`category-${category.value}`)}
                         />
                       ) : (
                         <IconSymbol name="cube.box" size={28} color={colors.muted} />
@@ -548,11 +607,12 @@ export default function ProductsScreen() {
                   testID={`bundle-card-${bundle.id}`}
                 >
                   <View className="w-24 h-24 bg-background items-center justify-center">
-                    {bundle.imageUrl ? (
+                    {bundle.imageUrl && !failedImages[`bundle-${bundle.id}`] ? (
                       <Image
                         source={{ uri: bundle.imageUrl }}
                         className="w-full h-full"
                         resizeMode="cover"
+                        onError={() => markImageFailed(`bundle-${bundle.id}`)}
                       />
                     ) : (
                       <IconSymbol name="cube.box" size={32} color={colors.muted} />
@@ -607,11 +667,12 @@ export default function ProductsScreen() {
                           testID={`bundle-card-${bundle.id}`}
                         >
                           <View className="bg-background items-center justify-center" style={{ height: 140 }}>
-                            {bundle.imageUrl ? (
+                            {bundle.imageUrl && !failedImages[`bundle-${bundle.id}`] ? (
                               <Image
                                 source={{ uri: bundle.imageUrl }}
                                 className="w-full h-full"
                                 resizeMode="cover"
+                                onError={() => markImageFailed(`bundle-${bundle.id}`)}
                               />
                             ) : (
                               <IconSymbol name="cube.box" size={40} color={colors.muted} />
@@ -665,11 +726,12 @@ export default function ProductsScreen() {
                       >
                         {/* Image */}
                         <View className="bg-background items-center justify-center" style={{ height: 140 }}>
-                          {product.imageUrl ? (
+                          {product.imageUrl && !failedImages[`product-${product.id}`] ? (
                             <Image
                               source={{ uri: product.imageUrl }}
                               className="w-full h-full"
                               resizeMode="cover"
+                              onError={() => markImageFailed(`product-${product.id}`)}
                             />
                           ) : (
                             <IconSymbol name="cube.box" size={40} color={colors.muted} />
@@ -851,9 +913,9 @@ export default function ProductsScreen() {
                 <View className="p-6">
                   <View className="flex-row items-start">
                     <View className="w-28 h-28 rounded-xl bg-surface items-center justify-center overflow-hidden mr-4">
-                      {selectedProduct.imageUrl ? (
+                      {selectedProduct.imageUrl && !failedImages[`product-${selectedProduct.id}`] ? (
                         <Pressable
-                          onPress={() => setImageZoomOpen(true)}
+                          onPress={() => openMediaViewer(selectedProduct, selectedProduct.imageUrl)}
                           accessibilityRole="button"
                           accessibilityLabel="Zoom product image"
                           testID="product-image-zoom"
@@ -863,6 +925,7 @@ export default function ProductsScreen() {
                             source={{ uri: selectedProduct.imageUrl }}
                             className="w-full h-full"
                             resizeMode="cover"
+                            onError={() => markImageFailed(`product-${selectedProduct.id}`)}
                           />
                         </Pressable>
                       ) : (
@@ -1007,28 +1070,34 @@ export default function ProductsScreen() {
         </Pressable>
       </Modal>
 
-      {/* Image Zoom Modal */}
+      {/* Media Viewer Modal */}
       <Modal
-        visible={imageZoomOpen}
+        visible={mediaModalOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setImageZoomOpen(false)}
+        onRequestClose={() => setMediaModalOpen(false)}
       >
         <Pressable
           className="flex-1 items-center justify-center"
-          onPress={() => setImageZoomOpen(false)}
+          onPress={() => setMediaModalOpen(false)}
           style={{ backgroundColor: overlayColor }}
           accessibilityRole="button"
-          accessibilityLabel="Close image zoom"
-          testID="product-image-zoom-close"
+          accessibilityLabel="Close media viewer"
+          testID="product-media-close"
         >
-          {selectedProduct?.imageUrl ? (
-            <Image
-              source={{ uri: selectedProduct.imageUrl }}
-              style={{ width: "90%", height: "90%" }}
-              resizeMode="contain"
-            />
-          ) : null}
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: mediaIndex * Math.max(width, 1), y: 0 }}
+            style={{ width: "100%" }}
+          >
+            {mediaItems.map((item, idx) => (
+              <View key={`${item.type}-${item.uri}-${idx}`} style={{ width: Math.max(width, 1), height: "100%" }}>
+                <MediaSlide item={item} width={Math.max(width, 1)} height={Math.max(width, 1)} />
+              </View>
+            ))}
+          </ScrollView>
         </Pressable>
       </Modal>
 
@@ -1045,5 +1114,37 @@ export default function ProductsScreen() {
         </TouchableOpacity>
       )}
     </ScreenContainer>
+  );
+}
+
+function MediaSlide({
+  item,
+  width,
+  height,
+}: {
+  item: { type: "image" | "video"; uri: string };
+  width: number;
+  height: number;
+}) {
+  if (item.type === "video") {
+    const player = useVideoPlayer(item.uri, (video) => {
+      video.loop = true;
+      video.play();
+    });
+    return (
+      <VideoView
+        player={player}
+        style={{ width, height }}
+        contentFit="contain"
+        nativeControls={false}
+      />
+    );
+  }
+  return (
+    <Image
+      source={{ uri: item.uri }}
+      style={{ width, height }}
+      resizeMode="contain"
+    />
   );
 }

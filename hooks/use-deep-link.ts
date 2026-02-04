@@ -91,6 +91,11 @@ const DEEP_LINK_ROUTES: DeepLinkRoute[] = [
     pattern: "register",
     routerPath: "/register",
   },
+  // OAuth Callback: /oauth/callback -> /oauth/callback
+  {
+    pattern: "oauth/callback",
+    routerPath: "/oauth/callback",
+  },
 ];
 
 /**
@@ -152,10 +157,10 @@ function handleDeepLink(url: string): boolean {
 
     console.log("[DeepLink] Navigating to:", match.route.routerPath, "with params:", match.params);
 
-    // Navigate to the matched route
+    // Navigate to the matched route with both path params and query params
     router.push({
       pathname: match.route.routerPath as any,
-      params: match.params,
+      params: { ...match.params, ...(parsed.queryParams as any) },
     });
 
     return true;

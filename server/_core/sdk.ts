@@ -405,6 +405,18 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
+    // Support impersonation for coordinators
+    const impersonateHeader = req.headers["x-impersonate-user-id"] || req.headers["X-Impersonate-User-Id"];
+    const impersonateUserId = typeof impersonateHeader === "string" ? parseInt(impersonateHeader) : undefined;
+
+    if (impersonateUserId && user.role === "coordinator") {
+      const impersonatedUser = await db.getUserById(impersonateUserId);
+      if (impersonatedUser) {
+        console.log(`[Auth] Coordinator ${user.id} impersonating user ${impersonatedUser.id}`);
+        return impersonatedUser;
+      }
+    }
+
     await db.upsertUser({
       openId: user.openId,
       lastSignedIn: signedInAt,

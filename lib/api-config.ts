@@ -45,22 +45,43 @@ function getWebApiUrl(): string {
 }
 
 function getNativeApiUrl(): string {
+  // 1. Check for manual environment override
+  const envNativeUrl = process.env.EXPO_PUBLIC_NATIVE_API_URL;
+  if (envNativeUrl) {
+    return envNativeUrl;
+  }
+
+  // 2. Try to derive from Metro dev server address
   const scriptURL = NativeModules?.SourceCode?.scriptURL as string | undefined;
   const hostUri = Constants?.expoConfig?.hostUri || Constants?.manifest?.hostUri;
   const rawUrl = scriptURL || (hostUri ? `http://${hostUri}` : "");
+
   if (rawUrl) {
     try {
       const parsed = new URL(rawUrl);
       const hostname = parsed.hostname;
       const port = parsed.port || "8081";
-      const apiPort = port === "8081" ? "3000" : port;
-      if (IS_DEV) {
-        return `${parsed.protocol}//${hostname}:${apiPort}`;
+
+      // If we're on a sandbox (e.g. 8081-xxx), the API is likely on 3002-xxx (proxy to 3000)
+      if (hostname.startsWith("8081-")) {
+        const apiHostname = hostname.replace(/^8081-/, "3002-");
+        return `https://${apiHostname}`;
       }
+
+      // Standard local development
+      if (hostname === "localhost" || hostname === "127.0.0.1") {
+        return `http://${hostname}:3000`;
+      }
+
+      // LAN development (e.g. 192.168.x.x)
+      const apiPort = port === "8081" ? "3000" : port;
+      return `${parsed.protocol}//${hostname}:${apiPort}`;
     } catch {
       // fallthrough
     }
   }
+
+  // 3. Fallback to hardcoded URL if all else fails
   if (WEB_API_URL) {
     return WEB_API_URL;
   }

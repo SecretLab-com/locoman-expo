@@ -2,7 +2,9 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
+import path from "path";
 import { appRouter } from "../routers";
+import * as shopify from "../shopify";
 import { createContext } from "./context";
 import { logError, logEvent } from "./logger";
 import { registerOAuthRoutes } from "./oauth";
@@ -33,8 +35,34 @@ async function startServer() {
     next();
   });
 
+  app.post("/api/shopify/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const hmac = req.get("x-shopify-hmac-sha256") || "";
+    const rawBody = req.body as Buffer;
+    if (!Buffer.isBuffer(rawBody) || !shopify.verifyShopifyWebhook(rawBody, hmac)) {
+      logError("shopify.webhook_invalid", new Error("Invalid webhook signature"));
+      res.status(401).json({ error: "Invalid webhook signature" });
+      return;
+    }
+
+    res.status(200).json({ ok: true });
+
+    setImmediate(() => {
+      shopify
+        .syncProductsFromShopify()
+        .then(({ synced, errors }) => {
+          logEvent("shopify.webhook_synced", { synced, errors });
+        })
+        .catch((error) => {
+          logError("shopify.webhook_sync_failed", error);
+        });
+    });
+  });
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Serve static uploads
+  app.use("/uploads", express.static(path.join(process.cwd(), "public/uploads")));
 
   registerOAuthRoutes(app);
 

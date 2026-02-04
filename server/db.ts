@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   activityLogs,
@@ -324,7 +324,7 @@ export async function getPublishedBundles() {
     return db
       .select()
       .from(bundleDrafts)
-      .where(eq(bundleDrafts.status, "published"))
+      .where(and(eq(bundleDrafts.status, "published"), isNotNull(bundleDrafts.shopifyProductId)))
       .orderBy(desc(bundleDrafts.updatedAt));
   } catch (error) {
     console.error("[Database] Failed to load published bundles:", error);
@@ -351,31 +351,102 @@ export async function getPendingReviewBundles() {
 // PRODUCTS
 // ============================================================================
 
+let productsHasMediaColumn: boolean | null = null;
+
+async function hasProductsMediaColumn(db: ReturnType<typeof drizzle>) {
+  if (productsHasMediaColumn !== null) {
+    return productsHasMediaColumn;
+  }
+  try {
+    const result: any = await db.execute(sql`
+      select column_name
+      from information_schema.columns
+      where table_schema = database()
+        and table_name = 'products'
+        and column_name = 'media'
+      limit 1
+    `);
+    const rows = Array.isArray(result)
+      ? result
+      : result?.rows ?? result?.[0] ?? [];
+    productsHasMediaColumn = Array.isArray(rows) && rows.length > 0;
+  } catch (error) {
+    console.warn("[Database] Failed to check products.media column:", error);
+    productsHasMediaColumn = false;
+  }
+  return productsHasMediaColumn;
+}
+
 export async function getProducts() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(products).where(eq(products.availability, "available")).orderBy(asc(products.name));
+  const hasMedia = await hasProductsMediaColumn(db);
+  if (hasMedia) {
+    return db
+      .select()
+      .from(products)
+      .where(eq(products.availability, "available"))
+      .orderBy(asc(products.name));
+  }
+  const rows = await db.execute(sql`
+    select
+      id, shopifyProductId, shopifyVariantId, name, description, imageUrl,
+      price, compareAtPrice, brand, category, phase, fulfillmentOptions,
+      inventoryQuantity, availability, isApproved, syncedAt, createdAt, updatedAt
+    from products
+    where availability = 'available'
+    order by name asc
+  `);
+  return rows as any[];
 }
 
 export async function getProductById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  const hasMedia = await hasProductsMediaColumn(db);
+  if (hasMedia) {
+    const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
+    return result.length > 0 ? result[0] : undefined;
+  }
+  const rows = await db.execute(sql`
+    select
+      id, shopifyProductId, shopifyVariantId, name, description, imageUrl,
+      price, compareAtPrice, brand, category, phase, fulfillmentOptions,
+      inventoryQuantity, availability, isApproved, syncedAt, createdAt, updatedAt
+    from products
+    where id = ${id}
+    limit 1
+  `);
+  return (rows as any[])[0];
 }
 
 export async function searchProducts(query: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(products).where(
-    and(
-      eq(products.availability, "available"),
-      or(
-        like(products.name, `%${query}%`),
-        like(products.brand, `%${query}%`)
+  const hasMedia = await hasProductsMediaColumn(db);
+  if (hasMedia) {
+    return db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.availability, "available"),
+          or(like(products.name, `%${query}%`), like(products.brand, `%${query}%`)),
+        ),
       )
-    )
-  ).limit(50);
+      .limit(50);
+  }
+  const rows = await db.execute(sql`
+    select
+      id, shopifyProductId, shopifyVariantId, name, description, imageUrl,
+      price, compareAtPrice, brand, category, phase, fulfillmentOptions,
+      inventoryQuantity, availability, isApproved, syncedAt, createdAt, updatedAt
+    from products
+    where availability = 'available'
+      and (name like ${`%${query}%`} or brand like ${`%${query}%`})
+    limit 50
+  `);
+  return rows as any[];
 }
 
 export async function upsertProduct(data: InsertProduct) {

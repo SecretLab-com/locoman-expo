@@ -1,0 +1,2 @@
+ALTER TABLE `products`
+ADD COLUMN `media` JSON NULL;

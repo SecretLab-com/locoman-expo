@@ -804,7 +804,7 @@ export default function BundleEditorScreen() {
                     updateForm("imageSource", "custom");
                   }}
                   aspectRatio={[16, 9]}
-                  placeholder="Add Bundle Cover Image"
+                  placeholder="Add Bundle Cover Image to Override AI generation of an image"
                 />
 
                 {/* AI Generate Button */}

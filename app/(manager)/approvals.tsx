@@ -9,16 +9,16 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    Platform,
-    RefreshControl,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Platform,
+  RefreshControl,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 type BundleStatus = "draft" | "pending_review" | "changes_requested" | "published" | "rejected";
@@ -59,7 +59,7 @@ const STATUS_TABS: { key: BundleStatus | "all"; label: string }[] = [
 
 export default function ManagerApprovalsScreen() {
   const colors = useColors();
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, effectiveUser } = useAuthContext();
   const colorScheme = useColorScheme();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
@@ -81,7 +81,7 @@ export default function ManagerApprovalsScreen() {
       refetchOnWindowFocus: false,
     }
   );
-  
+
   const approveMutation = trpc.admin.approveBundle.useMutation({
     onSuccess: () => {
       utils.admin.pendingBundles.invalidate();
@@ -90,7 +90,7 @@ export default function ManagerApprovalsScreen() {
       }
     },
   });
-  
+
   const rejectMutation = trpc.admin.rejectBundle.useMutation({
     onSuccess: () => {
       utils.admin.pendingBundles.invalidate();
@@ -99,7 +99,7 @@ export default function ManagerApprovalsScreen() {
       }
     },
   });
-  
+
   const requestChangesMutation = trpc.admin.requestChanges.useMutation({
     onSuccess: () => {
       utils.admin.pendingBundles.invalidate();
@@ -134,7 +134,7 @@ export default function ManagerApprovalsScreen() {
       unsubscribe();
       disconnect();
     };
-  }, [refetch, connect, disconnect, subscribe, isAuthenticated]);
+  }, [refetch, connect, disconnect, subscribe, isAuthenticated, effectiveUser?.id]);
 
   const handleApprove = (bundle: Bundle) => {
     if (Platform.OS === "web") {
@@ -410,15 +410,13 @@ export default function ManagerApprovalsScreen() {
           keyExtractor={(item) => item.key}
           renderItem={({ item }) => (
             <TouchableOpacity
-              className={`px-4 py-2 mr-2 rounded-full ${
-                activeTab === item.key ? "bg-primary" : "bg-surface border border-border"
-              }`}
+              className={`px-4 py-2 mr-2 rounded-full ${activeTab === item.key ? "bg-primary" : "bg-surface border border-border"
+                }`}
               onPress={() => setActiveTab(item.key)}
             >
               <Text
-                className={`font-medium ${
-                  activeTab === item.key ? "text-background" : "text-foreground"
-                }`}
+                className={`font-medium ${activeTab === item.key ? "text-background" : "text-foreground"
+                  }`}
               >
                 {item.label}
               </Text>
@@ -466,7 +464,7 @@ export default function ManagerApprovalsScreen() {
             <Text className="text-muted mb-4">
               Provide feedback for {selectedBundle?.title ? `"${selectedBundle.title}"` : "this bundle"}
             </Text>
-            
+
             <TextInput
               className="bg-background border border-border rounded-lg p-4 text-foreground min-h-[120px] mb-4"
               placeholder="Enter your feedback and requested changes..."

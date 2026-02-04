@@ -44,7 +44,7 @@ export default function UnifiedHomeScreen() {
         console.log("[UnifiedHome] Navigating to dashboard...");
         navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
       }
-    } else if (!guest) {
+    } else if (!guest || guest === "false") {
       // Not authenticated -> Landing Page
       // Only redirect if we're sure we're not just about to log in
       console.log("[UnifiedHome] Not authenticated, redirecting to welcome...");

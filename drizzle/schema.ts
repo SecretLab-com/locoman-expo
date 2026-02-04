@@ -120,6 +120,7 @@ export const products = mysqlTable("products", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   imageUrl: text("imageUrl"),
+  media: json("media"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   compareAtPrice: decimal("compareAtPrice", { precision: 10, scale: 2 }),
   brand: varchar("brand", { length: 100 }),

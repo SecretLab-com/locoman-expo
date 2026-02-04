@@ -3,11 +3,16 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { getApiBaseUrl } from "@/lib/api-config";
 import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
+import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   Switch,
@@ -33,30 +38,73 @@ export default function SettingsScreen() {
   const bottomNavHeight = useBottomNavHeight();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
   const { isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
-  
-  // Profile settings
-  const [username, setUsername] = useState("@fitcoach");
-  const [bio, setBio] = useState("Certified personal trainer specializing in weight loss and strength training. 10+ years of experience helping clients achieve their fitness goals.");
-  const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>(["weight_loss", "strength"]);
-  
-  // Social links
+  const utils = trpc.useUtils();
+
+  const { data: user, isLoading: isLoadingProfile } = trpc.profile.get.useQuery();
+  const updateProfile = trpc.profile.update.useMutation({
+    onSuccess: () => {
+      utils.profile.get.invalidate();
+    },
+  });
+  const uploadAttachment = trpc.messages.uploadAttachment.useMutation();
+
+  // Profile settings state
+  const [username, setUsername] = useState("");
+  const [bio, setBio] = useState("");
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
+
+  // Social links state
   const [instagram, setInstagram] = useState("");
   const [twitter, setTwitter] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [website, setWebsite] = useState("");
-  
-  // Notification settings
+
+  // Sync state with user data
+  useEffect(() => {
+    if (user) {
+      setUsername(user.username || "");
+      setBio(user.bio || "");
+      setPhotoUrl(user.photoUrl || null);
+
+      try {
+        const specs = typeof user.specialties === 'string' ? JSON.parse(user.specialties) : user.specialties;
+        setSelectedSpecialties(Array.isArray(specs) ? specs : []);
+      } catch {
+        setSelectedSpecialties([]);
+      }
+
+      try {
+        const links = typeof user.socialLinks === 'string' ? JSON.parse(user.socialLinks) : user.socialLinks;
+        if (links && typeof links === 'object') {
+          setInstagram(links.instagram || "");
+          setTwitter(links.twitter || "");
+          setLinkedin(links.linkedin || "");
+          setWebsite(links.website || "");
+        }
+      } catch {
+        // Ignore JSON errors
+      }
+    }
+  }, [user]);
+
+  // Settings state defaults
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [orderAlerts, setOrderAlerts] = useState(true);
   const [sessionReminders, setSessionReminders] = useState(true);
-  
-  // Availability
   const [isAvailable, setIsAvailable] = useState(true);
-  
-  const [isSaving, setIsSaving] = useState(false);
 
-  // Toggle specialty
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const resolveImageUrl = (url: string | null) => {
+    if (!url) return null;
+    if (url.startsWith("http")) return url;
+    const baseUrl = getApiBaseUrl();
+    return `${baseUrl}${url.startsWith("/") ? "" : "/"}${url}`;
+  };
+
   const toggleSpecialty = (value: string) => {
     if (selectedSpecialties.includes(value)) {
       setSelectedSpecialties(selectedSpecialties.filter((s) => s !== value));
@@ -69,14 +117,60 @@ export default function SettingsScreen() {
     }
   };
 
-  // Save settings
+  const handlePickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Allow access to photos to change your profile picture.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      setIsUploading(true);
+      try {
+        const asset = result.assets[0];
+        const res = await uploadAttachment.mutateAsync({
+          fileName: asset.fileName || `profile_${Date.now()}.jpg`,
+          fileData: asset.base64,
+          mimeType: asset.mimeType || "image/jpeg",
+        });
+
+        await updateProfile.mutateAsync({ photoUrl: res.url });
+        setPhotoUrl(res.url);
+        Alert.alert("Success", "Profile photo updated!");
+      } catch (error) {
+        console.error("[Settings] Upload failed:", error);
+        Alert.alert("Error", "Failed to upload photo.");
+      } finally {
+        setIsUploading(false);
+      }
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // TODO: Save settings via tRPC
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      Alert.alert("Success", "Settings saved successfully!");
-    } catch {
+      await updateProfile.mutateAsync({
+        username,
+        bio,
+        specialties: selectedSpecialties,
+        socialLinks: {
+          instagram,
+          twitter,
+          linkedin,
+          website,
+        },
+      });
+      Alert.alert("Success", "Profile saved successfully!");
+    } catch (error) {
+      console.error("[Settings] Save failed:", error);
       Alert.alert("Error", "Failed to save settings. Please try again.");
     } finally {
       setIsSaving(false);
@@ -91,28 +185,28 @@ export default function SettingsScreen() {
     navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
   };
 
+  if (isLoadingProfile) {
+    return (
+      <ScreenContainer className="items-center justify-center">
+        <ActivityIndicator size="large" color={colors.primary} />
+      </ScreenContainer>
+    );
+  }
+
+  const profileImageUrl = resolveImageUrl(photoUrl);
+
   return (
     <ScreenContainer className="flex-1">
-      {/* Header - leave space on right for ProfileFAB */}
+      {/* Header */}
       <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center pr-12">
           <TouchableOpacity
             onPress={handleBack}
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-2"
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-4"
             accessibilityRole="button"
             accessibilityLabel="Go back"
-            testID="settings-back"
           >
-            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => navigateToHome({ isCoordinator, isManager, isTrainer, isClient })}
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
-            accessibilityRole="button"
-            accessibilityLabel="Go to home"
-            testID="settings-home"
-          >
-            <IconSymbol name="house.fill" size={20} color={colors.foreground} />
+            <IconSymbol name="arrow.left" size={22} color={colors.foreground} />
           </TouchableOpacity>
           <Text className="text-2xl font-bold text-foreground">Settings</Text>
         </View>
@@ -121,36 +215,47 @@ export default function SettingsScreen() {
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Profile Section */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Profile</Text>
-          
-          {/* Avatar */}
-          <View className="items-center mb-4">
+          <Text className="text-lg font-semibold text-foreground mb-4">Profile</Text>
+
+          <View className="items-center mb-6">
             <View className="w-24 h-24 rounded-full bg-surface items-center justify-center overflow-hidden border-4 border-primary/20">
-              <IconSymbol name="person.fill" size={40} color={colors.muted} />
+              {profileImageUrl ? (
+                <Image
+                  source={{ uri: profileImageUrl }}
+                  style={{ width: '100%', height: '100%' }}
+                  contentFit="cover"
+                  transition={200}
+                />
+              ) : (
+                <IconSymbol name="person.fill" size={40} color={colors.muted} />
+              )}
+              {isUploading && (
+                <View className="absolute inset-0 bg-black/40 items-center justify-center">
+                  <ActivityIndicator color="#fff" />
+                </View>
+              )}
             </View>
-            <TouchableOpacity className="mt-2">
-              <Text className="text-primary font-medium">Change Photo</Text>
+            <TouchableOpacity className="mt-3" onPress={handlePickPhoto} disabled={isUploading}>
+              <Text className="text-primary font-semibold text-base">
+                {isUploading ? "Uploading..." : "Change Photo"}
+              </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Username */}
           <View className="mb-4">
-            <Text className="text-sm font-medium text-foreground/80 mb-1">Username</Text>
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Username</Text>
             <TextInput
               value={username}
               onChangeText={setUsername}
               placeholder="@username"
               placeholderTextColor={colors.muted}
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+              autoCapitalize="none"
+              className="bg-surface border border-border rounded-xl px-4 py-3.5 text-foreground dark:text-white text-base"
             />
-            <Text className="text-xs text-foreground/50 mt-1">
-              This will be your public profile URL: locomotivate.com/t/{username.replace("@", "")}
-            </Text>
           </View>
 
-          {/* Bio */}
           <View className="mb-4">
-            <Text className="text-sm font-medium text-foreground/80 mb-1">Bio</Text>
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Bio</Text>
             <TextInput
               value={bio}
               onChangeText={setBio}
@@ -159,39 +264,24 @@ export default function SettingsScreen() {
               multiline
               numberOfLines={4}
               textAlignVertical="top"
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground min-h-[100px]"
+              className="bg-surface border border-border rounded-xl px-4 py-3.5 text-foreground dark:text-white min-h-[120px] text-base"
             />
-            <Text className="text-xs text-foreground/50 mt-1">
-              {bio.length}/500 characters
-            </Text>
           </View>
         </View>
 
         {isTrainer && (
-          <View className="mb-6">
-            <Text className="text-lg font-semibold text-foreground mb-1">Specialties</Text>
-            <Text className="text-sm text-foreground/60 mb-3">Select up to 5 specialties</Text>
-
+          <View className="mb-8">
+            <Text className="text-lg font-semibold text-foreground mb-3">Specialties</Text>
             <View className="flex-row flex-wrap gap-2">
-              {SPECIALTIES.map((specialty) => {
-                const isSelected = selectedSpecialties.includes(specialty.value);
+              {SPECIALTIES.map((spec) => {
+                const isSelected = selectedSpecialties.includes(spec.value);
                 return (
                   <TouchableOpacity
-                    key={specialty.value}
-                    onPress={() => toggleSpecialty(specialty.value)}
-                    className={`px-4 py-2 rounded-full border ${
-                      isSelected
-                        ? "bg-primary border-primary"
-                        : "bg-surface border-border"
-                    }`}
+                    key={spec.value}
+                    onPress={() => toggleSpecialty(spec.value)}
+                    className={`px-4 py-2.5 rounded-full border ${isSelected ? "bg-primary border-primary" : "bg-surface border-border"}`}
                   >
-                    <Text
-                      className={`text-sm ${
-                        isSelected ? "text-white font-semibold" : "text-foreground"
-                      }`}
-                    >
-                      {specialty.label}
-                    </Text>
+                    <Text className={`text-sm ${isSelected ? "text-white font-semibold" : "text-foreground"}`}>{spec.label}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -199,83 +289,72 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Social Links Section */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Social Links</Text>
-          
-          {/* Instagram */}
-          <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground/80 mb-1">Instagram</Text>
+        {/* Social Links */}
+        <View className="mb-8">
+          <Text className="text-lg font-semibold text-foreground mb-4">Social Links</Text>
+
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Instagram</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-foreground/50">instagram.com/</Text>
+              <Text className="text-foreground/60 dark:text-white/50 font-medium">instagram.com/</Text>
               <TextInput
                 value={instagram}
                 onChangeText={setInstagram}
                 placeholder="username"
                 placeholderTextColor={colors.muted}
-                className="flex-1 py-3 text-foreground"
+                className="flex-1 py-3.5 ml-1 text-foreground dark:text-white text-base"
               />
             </View>
           </View>
 
-          {/* Twitter */}
-          <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground/80 mb-1">Twitter</Text>
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Twitter</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-foreground/50">twitter.com/</Text>
+              <Text className="text-foreground/60 dark:text-white/50 font-medium">twitter.com/</Text>
               <TextInput
                 value={twitter}
                 onChangeText={setTwitter}
                 placeholder="username"
                 placeholderTextColor={colors.muted}
-                className="flex-1 py-3 text-foreground"
+                className="flex-1 py-3.5 ml-1 text-foreground dark:text-white text-base"
               />
             </View>
           </View>
 
-          {/* LinkedIn */}
-          <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground/80 mb-1">LinkedIn</Text>
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">LinkedIn</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-foreground/50">linkedin.com/in/</Text>
+              <Text className="text-foreground/60 dark:text-white/50 font-medium">linkedin.com/in/</Text>
               <TextInput
                 value={linkedin}
                 onChangeText={setLinkedin}
                 placeholder="username"
                 placeholderTextColor={colors.muted}
-                className="flex-1 py-3 text-foreground"
+                className="flex-1 py-3.5 ml-1 text-foreground dark:text-white text-base"
               />
             </View>
           </View>
 
-          {/* Website */}
-          <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground/80 mb-1">Website</Text>
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Website</Text>
             <TextInput
               value={website}
               onChangeText={setWebsite}
               placeholder="https://yourwebsite.com"
               placeholderTextColor={colors.muted}
-              keyboardType="url"
-              autoCapitalize="none"
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+              className="bg-surface border border-border rounded-xl px-4 py-3.5 text-foreground dark:text-white text-base"
             />
           </View>
         </View>
 
         {isTrainer && (
-          <View className="mb-6">
-            <Text className="text-lg font-semibold text-foreground mb-3">Availability</Text>
-
-            <View className="bg-surface rounded-xl p-4 border border-border">
+          <View className="mb-8">
+            <Text className="text-lg font-semibold text-foreground mb-4">Availability</Text>
+            <View className="bg-surface rounded-2xl p-4 border border-border">
               <View className="flex-row items-center justify-between">
                 <View className="flex-1">
-                  <Text className="text-base font-medium text-primary">
-                    Accepting New Clients
-                  </Text>
-                  <Text className="text-sm text-foreground/60">
-                    Show your profile in the trainer directory
-                  </Text>
+                  <Text className="text-base font-semibold text-foreground">Accepting New Clients</Text>
+                  <Text className="text-sm text-foreground/60 mt-0.5">Show profile in directory</Text>
                 </View>
                 <Switch
                   value={isAvailable}
@@ -288,184 +367,71 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Appearance Section */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Appearance</Text>
-          
-          <View className="bg-surface rounded-xl border border-border">
-            <View className="p-4">
-              <Text className="text-base font-medium text-foreground mb-3">Theme</Text>
-              <View className="flex-row gap-2">
-                {(["system", "light", "dark"] as const).map((option) => {
-                  const isSelected = themePreference === option;
-                  const icons = {
-                    system: "gearshape.fill",
-                    light: "sun.max.fill",
-                    dark: "moon.fill",
-                  } as const;
-                  const labels = {
-                    system: "System",
-                    light: "Light",
-                    dark: "Dark",
-                  };
-                  return (
-                    <TouchableOpacity
-                      key={option}
-                      onPress={() => setThemePreference(option)}
-                      className={`flex-1 items-center py-3 rounded-xl border ${
-                        isSelected
-                          ? "bg-primary/10 border-primary"
-                          : "bg-background border-border"
-                      }`}
-                    >
-                      <IconSymbol
-                        name={icons[option]}
-                        size={24}
-                        color={isSelected ? colors.primary : colors.muted}
-                      />
-                      <Text
-                        className={`text-sm mt-1 font-medium ${
-                          isSelected ? "text-primary" : "text-foreground/60"
-                        }`}
-                      >
-                        {labels[option]}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <Text className="text-xs text-foreground/50 mt-2 text-center">
-                {themePreference === "system"
-                  ? `Following system preference (currently ${colorScheme})`
-                  : `Using ${themePreference} mode`}
-              </Text>
+        <View className="mb-8">
+          <Text className="text-lg font-semibold text-foreground mb-4">Appearance</Text>
+          <View className="bg-surface rounded-2xl border border-border overflow-hidden p-4">
+            <View className="flex-row gap-3">
+              {(["system", "light", "dark"] as const).map((option) => {
+                const isSelected = themePreference === option;
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    onPress={() => setThemePreference(option)}
+                    className={`flex-1 items-center py-4 rounded-xl border ${isSelected ? "bg-primary/10 border-primary" : "bg-background border-border"}`}
+                  >
+                    <IconSymbol name={option === 'system' ? 'gearshape.fill' : option === 'light' ? 'sun.max.fill' : 'moon.fill'} size={24} color={isSelected ? colors.primary : colors.muted} />
+                    <Text className={`text-sm mt-2 font-semibold ${isSelected ? "text-primary" : "text-foreground/60"}`}>{option.charAt(0).toUpperCase() + option.slice(1)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         </View>
 
-        {/* Notifications Section */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Notifications</Text>
-          
-          <View className="bg-surface rounded-xl border border-border divide-y divide-border">
-            {/* Email Notifications */}
-            <View className="flex-row items-center justify-between p-4">
-              <View className="flex-1">
-                <Text className="text-base font-medium text-primary">
-                  Email Notifications
-                </Text>
-                <Text className="text-sm text-foreground/60">
-                  Receive updates via email
-                </Text>
+        <View className="mb-10">
+          <Text className="text-lg font-semibold text-foreground mb-4">Notifications</Text>
+          <View className="bg-surface rounded-2xl border border-border divide-y divide-border overflow-hidden">
+            {[
+              { label: "Email Notifications", val: emailNotifications, set: setEmailNotifications },
+              { label: "Push Notifications", val: pushNotifications, set: setPushNotifications },
+              { label: "Order Alerts", val: orderAlerts, set: setOrderAlerts },
+              { label: "Session Reminders", val: sessionReminders, set: setSessionReminders },
+            ].map((item, idx) => (
+              <View key={idx} className="flex-row items-center justify-between p-4 py-5">
+                <Text className="text-base font-semibold text-foreground">{item.label}</Text>
+                <Switch
+                  value={item.val}
+                  onValueChange={item.set}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor="#fff"
+                />
               </View>
-              <Switch
-                value={emailNotifications}
-                onValueChange={setEmailNotifications}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
-            </View>
-
-            {/* Push Notifications */}
-            <View className="flex-row items-center justify-between p-4">
-              <View className="flex-1">
-                <Text className="text-base font-medium text-primary">
-                  Push Notifications
-                </Text>
-                <Text className="text-sm text-foreground/60">
-                  Receive push notifications on your device
-                </Text>
-              </View>
-              <Switch
-                value={pushNotifications}
-                onValueChange={setPushNotifications}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
-            </View>
-
-            {/* Order Alerts */}
-            <View className="flex-row items-center justify-between p-4">
-              <View className="flex-1">
-                <Text className="text-base font-medium text-primary">
-                  Order Alerts
-                </Text>
-                <Text className="text-sm text-foreground/60">
-                  Get notified when clients place orders
-                </Text>
-              </View>
-              <Switch
-                value={orderAlerts}
-                onValueChange={setOrderAlerts}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
-            </View>
-
-            {/* Session Reminders */}
-            <View className="flex-row items-center justify-between p-4">
-              <View className="flex-1">
-                <Text className="text-base font-medium text-primary">
-                  Session Reminders
-                </Text>
-                <Text className="text-sm text-foreground/60">
-                  Get reminders before scheduled sessions
-                </Text>
-              </View>
-              <Switch
-                value={sessionReminders}
-                onValueChange={setSessionReminders}
-                trackColor={{ false: colors.border, true: colors.primary }}
-                thumbColor="#fff"
-              />
-            </View>
+            ))}
           </View>
         </View>
 
-        {/* Danger Zone */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Account</Text>
-          
+        <View className="mb-12">
           <TouchableOpacity
-            onPress={() => {
-              Alert.alert(
-                "Delete Account",
-                "Are you sure you want to delete your account? This action cannot be undone.",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Delete", style: "destructive", onPress: () => {} },
-                ]
-              );
-            }}
-            className="bg-error/10 border border-error/20 rounded-xl p-4"
+            onPress={() => Alert.alert("Delete Account", "This action cannot be undone.", [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive" }])}
+            className="bg-error/5 border border-error/10 rounded-xl p-4"
           >
             <View className="flex-row items-center">
               <IconSymbol name="trash.fill" size={20} color="#EF4444" />
-              <Text className="text-error font-medium ml-2">Delete Account</Text>
+              <Text className="text-error font-semibold ml-3 text-base">Delete Account</Text>
             </View>
-            <Text className="text-error/70 text-sm mt-1">
-              Permanently delete your account and all data
-            </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Bottom padding for save button */}
         <View className="h-24" />
       </ScrollView>
 
-      {/* Sticky Save Button */}
-      <View
-        className="absolute left-0 right-0 px-4 py-3 bg-background border-t border-border"
-        style={{ bottom: -(bottomNavHeight - 12) }}
-      >
+      <View className="absolute left-0 right-0 px-4 py-6 bg-background/95 border-t border-border" style={{ bottom: -(bottomNavHeight - 12) }}>
         <TouchableOpacity
           onPress={handleSave}
-          disabled={isSaving}
-          className={`w-full py-3 rounded-xl items-center ${isSaving ? "bg-muted" : "bg-primary"}`}
+          disabled={isSaving || isUploading}
+          className={`w-full py-4 rounded-2xl items-center shadow-lg ${isSaving || isUploading ? "bg-muted shadow-none" : "bg-primary"}`}
         >
-          <Text className="text-white font-semibold text-base">
-            {isSaving ? "Saving..." : "Save Changes"}
-          </Text>
+          {isSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text className="text-white font-bold text-lg">Save Profile Changes</Text>}
         </TouchableOpacity>
       </View>
     </ScreenContainer>

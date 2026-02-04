@@ -399,9 +399,9 @@ export function SingleImagePicker({
             </TouchableOpacity>
           </View>
         ) : (
-          <View className="flex-1 items-center justify-center">
-            <IconSymbol name="photo" size={40} color={colors.muted} />
-            <Text className="text-muted mt-2">{placeholder}</Text>
+          <View className="flex-1 items-center justify-center px-6">
+            <IconSymbol name="photo" size={32} color={colors.muted} />
+            <Text className="text-muted mt-2 text-xs text-center">{placeholder}</Text>
           </View>
         )}
       </TouchableOpacity>

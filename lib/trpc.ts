@@ -1,9 +1,10 @@
-import { createTRPCReact } from "@trpc/react-query";
-import { httpBatchLink } from "@trpc/client";
-import superjson from "superjson";
-import type { AppRouter } from "@/server/routers";
-import { getApiBaseUrl, getTrpcUrl } from "@/lib/api-config";
 import * as Auth from "@/lib/_core/auth";
+import { getApiBaseUrl, getTrpcUrl } from "@/lib/api-config";
+import type { AppRouter } from "@/server/routers";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { httpBatchLink } from "@trpc/client";
+import { createTRPCReact } from "@trpc/react-query";
+import superjson from "superjson";
 
 /**
  * tRPC React client for type-safe API calls.
@@ -20,10 +21,10 @@ export const trpc = createTRPCReact<AppRouter>();
  */
 export function createTRPCClient() {
   const trpcUrl = getTrpcUrl();
-  
+
   // Debug logging to help diagnose connection issues
   console.log("[tRPC] Full tRPC URL:", trpcUrl);
-  
+
   return trpc.createClient({
     links: [
       httpBatchLink({
@@ -32,7 +33,22 @@ export function createTRPCClient() {
         transformer: superjson,
         async headers() {
           const token = await Auth.getSessionToken();
-          return token ? { Authorization: `Bearer ${token}` } : {};
+          const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+          // Add impersonation header if present
+          try {
+            const impersonated = await AsyncStorage.getItem("locomotivate_impersonation");
+            if (impersonated) {
+              const user = JSON.parse(impersonated);
+              if (user?.id) {
+                headers["X-Impersonate-User-Id"] = user.id.toString();
+              }
+            }
+          } catch (e) {
+            // Ignore storage errors
+          }
+
+          return headers;
         },
         // Custom fetch to include credentials for cookie-based auth
         fetch(url, options) {

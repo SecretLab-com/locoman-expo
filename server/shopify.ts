@@ -3,10 +3,14 @@
  * Handles all Shopify Admin API interactions for product sync,
  * bundle publishing, and order processing.
  */
+import crypto from "crypto";
+import * as db from "./db";
 
 // Environment variables for Shopify
 const SHOPIFY_STORE_NAME = process.env.SHOPIFY_STORE_NAME || "";
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_API_ACCESS_TOKEN || "";
+const SHOPIFY_WEBHOOK_SECRET =
+  process.env.SHOPIFY_WEBHOOK_SECRET || process.env.SHOPIFY_CLIENT_SECRET || "";
 // Only use mock data when explicitly enabled
 const MOCK_SHOPIFY = process.env.MOCK_SHOPIFY === "true";
 
@@ -71,6 +75,46 @@ export interface ShopifyLineItem {
   quantity: number;
   price: string;
 }
+
+type ProductCategory =
+  | "protein"
+  | "pre_workout"
+  | "post_workout"
+  | "recovery"
+  | "strength"
+  | "wellness"
+  | "hydration"
+  | "vitamins";
+
+const toCategory = (productType?: string): ProductCategory | null => {
+  if (!productType) return null;
+  const normalized = productType.toLowerCase().replace(/[\s-]+/g, "_");
+  const allowed = new Set<ProductCategory>([
+    "protein",
+    "pre_workout",
+    "post_workout",
+    "recovery",
+    "strength",
+    "wellness",
+    "hydration",
+    "vitamins",
+  ]);
+  const normalizedCategory = normalized as ProductCategory;
+  return allowed.has(normalizedCategory) ? normalizedCategory : null;
+};
+
+type ProductMedia = {
+  images: string[];
+  videos: string[];
+};
+
+type ShopifyMedia = {
+  id: number;
+  media_type: string;
+  image?: { src?: string };
+  preview_image?: { src?: string };
+  sources?: { url?: string }[];
+};
 
 // ============================================================================
 // MOCK DATA
@@ -235,6 +279,33 @@ export async function fetchProduct(productId: number): Promise<ShopifyProduct | 
   return response.product;
 }
 
+async function fetchProductMedia(productId: number): Promise<ProductMedia> {
+  if (MOCK_SHOPIFY) {
+    const product = mockProducts.find((p) => p.id === productId);
+    return {
+      images: product?.images.map((img) => img.src) || [],
+      videos: [],
+    };
+  }
+
+  const response = await shopifyRequest<{ media: ShopifyMedia[] }>(
+    `/products/${productId}/media.json`,
+  );
+  const images: string[] = [];
+  const videos: string[] = [];
+  for (const media of response.media || []) {
+    const type = media.media_type?.toLowerCase();
+    if (type === "image") {
+      if (media.image?.src) images.push(media.image.src);
+      else if (media.preview_image?.src) images.push(media.preview_image.src);
+    } else if (type === "video" || type === "external_video") {
+      const url = media.sources?.[0]?.url || media.preview_image?.src;
+      if (url) videos.push(url);
+    }
+  }
+  return { images, videos };
+}
+
 /**
  * Sync products from Shopify to database
  */
@@ -249,6 +320,7 @@ export async function syncProductsToDatabase(
     productType: string;
     inventory: number;
     sku: string;
+    media?: { images: string[]; videos: string[] };
   }) => Promise<void>
 ): Promise<{ synced: number; errors: number }> {
   const products = await fetchProducts();
@@ -256,9 +328,14 @@ export async function syncProductsToDatabase(
   let errors = 0;
 
   for (const product of products) {
+    if (product.status !== "active") {
+      console.log(`[Shopify] Skipping non-active product: ${product.id} (${product.status})`);
+      continue;
+    }
     try {
       const variant = product.variants[0];
       const image = product.images[0];
+      const media = await fetchProductMedia(product.id);
 
       await upsertProduct({
         shopifyId: product.id,
@@ -270,8 +347,48 @@ export async function syncProductsToDatabase(
         productType: product.product_type || "",
         inventory: variant?.inventory_quantity || 0,
         sku: variant?.sku || "",
+        media,
       });
 
+      synced++;
+    } catch (error) {
+      console.error(`[Shopify] Failed to sync product ${product.id}:`, error);
+      errors++;
+    }
+  }
+
+  console.log(`[Shopify] Sync complete: ${synced} synced, ${errors} errors`);
+  return { synced, errors };
+}
+
+export async function syncProductsFromShopify(): Promise<{ synced: number; errors: number }> {
+  const products = await fetchProducts();
+  let synced = 0;
+  let errors = 0;
+
+  for (const product of products) {
+    if (product.status !== "active") {
+      console.log(`[Shopify] Skipping non-active product: ${product.id} (${product.status})`);
+      continue;
+    }
+    try {
+      const variant = product.variants[0];
+      const image = product.images[0];
+      const media = await fetchProductMedia(product.id);
+      await db.upsertProduct({
+        shopifyProductId: product.id,
+        shopifyVariantId: variant?.id,
+        name: product.title,
+        description: product.body_html || null,
+        price: variant?.price || "0.00",
+        imageUrl: image?.src || null,
+        brand: product.vendor || null,
+        category: toCategory(product.product_type),
+        inventoryQuantity: variant?.inventory_quantity || 0,
+        availability: (variant?.inventory_quantity || 0) > 0 ? "available" : "out_of_stock",
+        syncedAt: new Date(),
+        media,
+      });
       synced++;
     } catch (error) {
       console.error(`[Shopify] Failed to sync product ${product.id}:`, error);
@@ -443,6 +560,22 @@ export async function createCheckout(
  */
 export function isShopifyConfigured(): boolean {
   return !MOCK_SHOPIFY && !!SHOPIFY_ACCESS_TOKEN;
+}
+
+export function verifyShopifyWebhook(rawBody: Buffer, hmacHeader?: string): boolean {
+  if (!SHOPIFY_WEBHOOK_SECRET) {
+    console.warn("[Shopify] Missing webhook secret, rejecting webhook");
+    return false;
+  }
+  if (!hmacHeader) return false;
+  const digest = crypto
+    .createHmac("sha256", SHOPIFY_WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest("base64");
+  const a = Buffer.from(digest);
+  const b = Buffer.from(hmacHeader);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 /**

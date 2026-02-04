@@ -215,10 +215,49 @@ export function registerOAuthRoutes(app: Express) {
     }
 
     try {
-      const tokenResponse = await sdk.exchangeCodeForToken(code, state);
-      const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+      let userInfo: any;
+      let sessionToken = "";
 
-      // Parse state for trainerId in mobile flow too
+      const portalUrl = (process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "").trim();
+      const shouldUsePortal = Boolean(process.env.OAUTH_SERVER_URL) && portalUrl.length > 0;
+
+      if (shouldUsePortal) {
+        try {
+          const tokenResponse = await sdk.exchangeCodeForToken(code, state);
+          userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+        } catch (portalError) {
+          console.log("[OAuth/Mobile] Portal exchange failed, will try direct Google...", (portalError as any)?.message);
+        }
+      }
+
+      if (!userInfo) {
+        // Fallback to direct Google exchange
+        // We need a redirectUri that's registered in Google Cloud Console
+        // For mobile, it's usually the same as the web callback since the server is the one exchanging the code.
+        const isSecure = (req: Request) => {
+          if (req.protocol === "https") return true;
+          const forwardedProto = req.headers["x-forwarded-proto"];
+          if (!forwardedProto) return false;
+          const protoList = Array.isArray(forwardedProto) ? forwardedProto : forwardedProto.split(",");
+          return protoList.some((proto) => proto.trim().toLowerCase() === "https");
+        };
+
+        const protocol = isSecure(req) ? "https" : "http";
+        const googleRedirectUri = `${protocol}://${req.get("host")}/api/oauth/callback`;
+        console.log("[OAuth/Mobile] Exchanging Google code with redirectUri:", googleRedirectUri);
+
+        const googleToken = await sdk.exchangeGoogleCodeForToken(code, googleRedirectUri);
+        const googleUser = await sdk.getGoogleUserInfo(googleToken.access_token);
+
+        userInfo = {
+          openId: `google_${googleUser.sub}`,
+          name: googleUser.name,
+          email: googleUser.email,
+          loginMethod: "google",
+        };
+      }
+
+      // Parse state for trainerId
       try {
         const decoded = Buffer.from(state, "base64").toString("utf-8");
         const parsed = JSON.parse(decoded);
@@ -231,10 +270,11 @@ export function registerOAuthRoutes(app: Express) {
 
       const user = await syncUser(userInfo);
 
-      const sessionToken = await sdk.createSessionToken(userInfo.openId!, {
+      sessionToken = await sdk.createSessionToken(userInfo.openId!, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
       });
+
       logEvent("auth.oauth_mobile_success", { openId: userInfo.openId, role: (user as any)?.role });
 
       const cookieOptions = getSessionCookieOptions(req);
@@ -244,9 +284,12 @@ export function registerOAuthRoutes(app: Express) {
         app_session_id: sessionToken,
         user: buildUserResponse(user),
       });
-    } catch (error) {
+    } catch (error: any) {
       logError("auth.oauth_mobile_failed", error);
-      res.status(500).json({ error: "OAuth mobile exchange failed" });
+      res.status(500).json({
+        error: "OAuth mobile exchange failed",
+        details: process.env.NODE_ENV !== "production" ? error.message : undefined
+      });
     }
   });
 

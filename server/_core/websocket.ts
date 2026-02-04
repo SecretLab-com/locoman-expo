@@ -27,7 +27,12 @@ export function setupWebSocket(server: Server) {
     // Extract token from query string
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const token = url.searchParams.get("token");
+    const impersonateUserId = url.searchParams.get("impersonateUserId");
     const cookieHeader = req.headers.cookie || "";
+
+    if (impersonateUserId) {
+      req.headers["x-impersonate-user-id"] = impersonateUserId;
+    }
 
     try {
       let userId: number | null = null;

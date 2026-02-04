@@ -15,9 +15,8 @@ import { useAuthContext } from "@/contexts/auth-context";
  * - Profile: Settings, account
  */
 export default function UnifiedTabLayout() {
-  const { role, isTrainer } = useAuthContext();
-  const isAdmin = role === "manager" || role === "coordinator";
-  const showCart = !isAdmin && !isTrainer;
+  const { isTrainer, canManage } = useAuthContext();
+  const showCart = !canManage && !isTrainer;
 
   const navItems: RoleNavItem[] = [
     {
