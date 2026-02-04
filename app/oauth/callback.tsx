@@ -1,4 +1,5 @@
 import { ThemedView } from "@/components/themed-view";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import * as Linking from "expo-linking";
@@ -71,6 +72,7 @@ export default function OAuthCallback() {
               const userInfo = normalizeUserData(userData);
               await Auth.setUserInfo(userInfo);
               console.log("[OAuth] User info stored:", userInfo);
+              triggerAuthRefresh();
             } catch (err) {
               console.error("[OAuth] Failed to parse user data:", err);
             }
@@ -174,6 +176,8 @@ export default function OAuthCallback() {
           // User info is already in the OAuth callback response
           // No need to fetch from API
           setStatus("success");
+          console.log("[OAuth] User data already in URL params, triggering refresh...");
+          triggerAuthRefresh();
           console.log("[OAuth] Redirecting to home...");
           setTimeout(() => {
             router.replace("/(tabs)");
@@ -215,8 +219,10 @@ export default function OAuthCallback() {
             const userInfo = normalizeUserData(result.user as Record<string, unknown>);
             await Auth.setUserInfo(userInfo);
             console.log("[OAuth] User info stored:", userInfo);
+            triggerAuthRefresh();
           } else {
-            console.log("[OAuth] No user data in result");
+            console.log("[OAuth] No user data in result, triggering refresh anyway...");
+            triggerAuthRefresh();
           }
 
           setStatus("success");
