@@ -6,7 +6,7 @@ import * as Auth from "@/lib/_core/auth";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text } from "react-native";
+import { ActivityIndicator, Platform, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // Helper to normalize user data from various sources to full User type
@@ -61,6 +61,12 @@ export default function OAuthCallback() {
         if (params.sessionToken) {
           console.log("[OAuth] Session token found in params (web callback)");
           await Auth.setSessionToken(params.sessionToken);
+
+          // Web platform: establish session cookie on backend if needed
+          if (Platform.OS === "web") {
+            console.log("[OAuth] Web: establishing backend session cookie...");
+            await Api.establishSession(params.sessionToken);
+          }
 
           // Decode and store user info if available
           if (params.user) {
@@ -174,6 +180,12 @@ export default function OAuthCallback() {
         if (sessionToken) {
           console.log("[OAuth] Session token found in URL, storing...");
           await Auth.setSessionToken(sessionToken);
+
+          // Web platform: establish session cookie on backend if needed
+          if (Platform.OS === "web") {
+            console.log("[OAuth] Web: establishing backend session cookie...");
+            await Api.establishSession(sessionToken);
+          }
           console.log("[OAuth] Session token stored successfully");
           // User info is already in the OAuth callback response
           // No need to fetch from API
@@ -211,6 +223,12 @@ export default function OAuthCallback() {
           console.log("[OAuth] Session token received, storing...");
           // Store session token
           await Auth.setSessionToken(result.sessionToken);
+
+          // Web platform: establish session cookie on backend if needed
+          if (Platform.OS === "web") {
+            console.log("[OAuth] Web: establishing backend session cookie...");
+            await Api.establishSession(result.sessionToken);
+          }
           console.log("[OAuth] Session token stored successfully");
 
           // Store user info if available
