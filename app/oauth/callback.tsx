@@ -1,4 +1,5 @@
 import { ThemedView } from "@/components/themed-view";
+import { useAuthContext } from "@/contexts/auth-context";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
@@ -34,6 +35,7 @@ function normalizeUserData(userData: Record<string, unknown>): Auth.User {
 
 export default function OAuthCallback() {
   const router = useRouter();
+  const { refresh } = useAuthContext();
   const params = useLocalSearchParams<{
     code?: string;
     state?: string;
@@ -79,10 +81,10 @@ export default function OAuthCallback() {
           }
 
           setStatus("success");
-          console.log("[OAuth] Web authentication successful, redirecting to home...");
-          setTimeout(() => {
-            router.replace("/(tabs)");
-          }, 1000);
+          console.log("[OAuth] Web authentication successful, refreshing state...");
+          await refresh();
+          console.log("[OAuth] State refreshed, redirecting to home...");
+          router.replace("/(tabs)");
           return;
         }
 
@@ -176,12 +178,10 @@ export default function OAuthCallback() {
           // User info is already in the OAuth callback response
           // No need to fetch from API
           setStatus("success");
-          console.log("[OAuth] User data already in URL params, triggering refresh...");
-          triggerAuthRefresh();
-          console.log("[OAuth] Redirecting to home...");
-          setTimeout(() => {
-            router.replace("/(tabs)");
-          }, 1000);
+          console.log("[OAuth] User data already in URL params, refreshing state...");
+          await refresh();
+          console.log("[OAuth] State refreshed, redirecting to home...");
+          router.replace("/(tabs)");
           return;
         }
 
@@ -226,13 +226,16 @@ export default function OAuthCallback() {
           }
 
           setStatus("success");
-          console.log("[OAuth] Authentication successful, redirecting to home...");
+          console.log("[OAuth] Authentication successful, refreshing context state...");
 
-          // Redirect to home after a short delay
-          setTimeout(() => {
-            console.log("[OAuth] Executing redirect...");
-            router.replace("/(tabs)");
-          }, 1000);
+          // CRITICAL: Await context to sync before navigation
+          await refresh();
+
+          // Small delay to ensure React state has propagated through context to all components
+          await new Promise((resolve) => setTimeout(resolve, 300));
+
+          console.log("[OAuth] State synchronized, navigating to main tabs...");
+          router.replace("/(tabs)");
         } else {
           console.error("[OAuth] No session token in result:", result);
           setStatus("error");

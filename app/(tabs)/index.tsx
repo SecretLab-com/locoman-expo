@@ -35,14 +35,19 @@ export default function UnifiedHomeScreen() {
   const { guest } = useLocalSearchParams<{ guest: string }>();
 
   useEffect(() => {
+    // Wait for hydration and a small mount delay to prevent flakiness
     if (loading) return;
 
     if (isAuthenticated) {
+      console.log("[UnifiedHome] Authenticated as:", effectiveRole);
       if (effectiveRole && effectiveRole !== "shopper") {
+        console.log("[UnifiedHome] Navigating to dashboard...");
         navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
       }
     } else if (!guest) {
-      // Not authenticated and not explicitly browsing as guest -> Landing Page
+      // Not authenticated -> Landing Page
+      // Only redirect if we're sure we're not just about to log in
+      console.log("[UnifiedHome] Not authenticated, redirecting to welcome...");
       router.replace("/welcome");
     }
   }, [loading, isAuthenticated, effectiveRole, isCoordinator, isManager, isTrainer, isClient, guest]);
