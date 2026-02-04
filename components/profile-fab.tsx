@@ -7,13 +7,13 @@ import { Image } from "expo-image";
 import { router, usePathname } from "expo-router";
 import { useState } from "react";
 import {
-    Modal,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -50,7 +50,7 @@ export function ProfileFAB() {
     pathname === `${roleBase}/profile` ||
     pathname.startsWith(`${roleBase}/profile/`);
   const isOnMessageThread = pathname.includes("/messages/") || pathname.includes("/conversation/");
-  if (isOnProfileScreen || isOnMessageThread) {
+  if (isOnProfileScreen || isOnMessageThread || pathname === "/welcome") {
     return null;
   }
 
@@ -97,43 +97,43 @@ export function ProfileFAB() {
 
   const menuItems: MenuItem[] = isUserAuthenticated
     ? [
-        {
-          icon: "person.fill",
-          label: "My Profile",
-          onPress: navigateToProfile,
+      {
+        icon: "person.fill",
+        label: "My Profile",
+        onPress: navigateToProfile,
+      },
+      {
+        icon: "gear",
+        label: "Settings",
+        onPress: navigateToSettings,
+      },
+      {
+        icon: "message.fill",
+        label: "Messages",
+        onPress: () => router.push(`${roleBase}/messages` as any),
+      },
+      {
+        icon: "rectangle.portrait.and.arrow.right",
+        label: "Logout",
+        onPress: async () => {
+          await logout();
+          router.replace("/(tabs)");
         },
-        {
-          icon: "gear",
-          label: "Settings",
-          onPress: navigateToSettings,
-        },
-        {
-          icon: "message.fill",
-          label: "Messages",
-          onPress: () => router.push(`${roleBase}/messages` as any),
-        },
-        {
-          icon: "rectangle.portrait.and.arrow.right",
-          label: "Logout",
-          onPress: async () => {
-            await logout();
-            router.replace("/(tabs)");
-          },
-          destructive: true,
-        },
-      ]
+        destructive: true,
+      },
+    ]
     : [
-        {
-          icon: "person.fill",
-          label: "Sign In",
-          onPress: () => router.push("/login"),
-        },
-        {
-          icon: "person.badge.plus",
-          label: "Create Account",
-          onPress: () => router.push("/register"),
-        },
-      ];
+      {
+        icon: "person.fill",
+        label: "Sign In",
+        onPress: () => router.push("/login"),
+      },
+      {
+        icon: "person.badge.plus",
+        label: "Create Account",
+        onPress: () => router.push("/register"),
+      },
+    ];
 
   // Get user initials for avatar fallback
   const getInitials = () => {
@@ -210,8 +210,8 @@ export function ProfileFAB() {
                   {effectiveUser?.role
                     ? effectiveUser.role.charAt(0).toUpperCase() + effectiveUser.role.slice(1)
                     : user?.role
-                    ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
-                    : "User"}
+                      ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+                      : "User"}
                 </Text>
               </View>
             )}

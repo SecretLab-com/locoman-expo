@@ -1,5 +1,6 @@
 import "dotenv/config";
 import {
+  createBundleDraft,
   createBundleTemplate,
   createClient,
   createDelivery,
@@ -95,6 +96,42 @@ async function seed() {
     rulesJson: { items: ["Protein", "Creatine", "Bands"] }
   });
   console.log("[Seed] Upserted bundle template.");
+
+  // 4b. Seed Actual Published Bundles
+  console.log("[Seed] Seeding actual published bundles for catalog...");
+  const sampleBundles = [
+    {
+      title: "Fat Loss Essentials",
+      description: "A complete bundle for sustainable weight loss and metabolic health.",
+      price: "199.99",
+      status: "published" as const,
+      imageUrl: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800",
+    },
+    {
+      title: "Hypertrophy Mastery",
+      description: "Mass building program with high-quality protein and recovery tools.",
+      price: "249.99",
+      status: "published" as const,
+      imageUrl: "https://images.unsplash.com/photo-1541534741688-6078c64b591d?w=800",
+    },
+    {
+      title: "Morning Yoga & Wellness",
+      description: "Balance your body and mind with our mobility and hydration pack.",
+      price: "89.00",
+      status: "published" as const,
+      imageUrl: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=800",
+    }
+  ];
+
+  for (let i = 0; i < sampleBundles.length; i++) {
+    const b = sampleBundles[i];
+    await createBundleDraft({
+      ...b,
+      trainerId: seededTrainers[i % seededTrainers.length].id,
+      publishedAt: new Date(),
+    });
+    console.log(`[Seed] Created published bundle: ${b.title}`);
+  }
 
   // 5. Seed Clients & Orders
   console.log("[Seed] Seeding clients and orders...");

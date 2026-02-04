@@ -2,11 +2,11 @@ import { getApiBaseUrl } from "@/lib/api-config";
 import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
 
-// Extract scheme from bundle ID (last segment timestamp, prefixed with "manus")
-// e.g., "com.example.app" -> "manus"
+// Extract scheme from bundle ID
+// e.g., "com.example.app" -> "locomotivate"
 const bundleId = "com.bright.blue.locomotivate";
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = timestamp ? `manus${timestamp}` : "manus";
+const schemeFromBundleId = timestamp || "locomotivate";
 
 const env = {
   portal: process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "",
@@ -46,7 +46,7 @@ console.log("[OAuth Config] Base URLs:", {
 export { getApiBaseUrl };
 
 export const SESSION_TOKEN_KEY = "app_session_token";
-export const USER_INFO_KEY = "manus-runtime-user-info";
+export const USER_INFO_KEY = "loco-runtime-user-info";
 
 const encodeState = (value: string) => {
   if (typeof globalThis.btoa === "function") {
@@ -95,9 +95,15 @@ export const getAuthRedirectUri = () => {
   return `${preferredBase.replace(/\/$/, "")}/api/oauth/callback`;
 };
 
-export const getLoginUrl = () => {
+export const getLoginUrl = (trainerId?: string) => {
   const postAuthRedirectUri = getPostAuthRedirectUri();
-  const state = encodeState(postAuthRedirectUri);
+
+  // Combine redirect URI and trainerId if present
+  const stateObj = {
+    redirectUri: postAuthRedirectUri,
+    trainerId: trainerId || undefined
+  };
+  const state = encodeState(JSON.stringify(stateObj));
 
   const portalUrl = OAUTH_PORTAL_URL.trim();
 
@@ -145,8 +151,8 @@ export const getLoginUrl = () => {
  *
  * @returns Always null, the callback is handled via deep link.
  */
-export async function startOAuthLogin(): Promise<string | null> {
-  const loginUrl = getLoginUrl();
+export async function startOAuthLogin(trainerId?: string): Promise<string | null> {
+  const loginUrl = getLoginUrl(trainerId);
 
   if (ReactNative.Platform.OS === "web") {
     // On web, just redirect

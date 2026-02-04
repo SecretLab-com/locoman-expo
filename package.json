@@ -16,7 +16,15 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "qr": "node scripts/generate_qr.mjs"
+    "qr": "node scripts/generate_qr.mjs",
+    "deploy:backend": "docker build --platform linux/amd64 -f Dockerfile.backend -t gcr.io/locoman-486301/locoman-backend . && docker push gcr.io/locoman-486301/locoman-backend && gcloud run deploy locoman-backend --image gcr.io/locoman-486301/locoman-backend --platform managed --region us-central1 --allow-unauthenticated",
+    "deploy:web": "docker build --platform linux/amd64 -f Dockerfile.web -t gcr.io/locoman-486301/locoman-web . && docker push gcr.io/locoman-486301/locoman-web && gcloud run deploy locoman-web --image gcr.io/locoman-486301/locoman-web --platform managed --region us-central1 --allow-unauthenticated",
+    "deploy:full": "pnpm run deploy:backend && pnpm run deploy:web",
+    "deploy:ios": "eas build --platform ios --auto-submit",
+    "deploy:android": "eas build --platform android --auto-submit",
+    "deploy:ota": "eas update --channel production",
+    "deploy:ios:ota": "eas update --channel production --platform ios",
+    "deploy:android:ota": "eas update --channel production --platform android"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -58,6 +66,7 @@
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
     "expo-system-ui": "~6.0.9",
+    "expo-updates": "~29.0.16",
     "expo-video": "~3.0.15",
     "expo-web-browser": "~15.0.10",
     "express": "^4.22.1",

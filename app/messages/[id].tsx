@@ -1,22 +1,22 @@
-import { useState, useRef, useEffect } from "react";
+import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
+import { haptics } from "@/hooks/use-haptics";
+import { navigateToHome } from "@/lib/navigation";
+import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
+import { useEffect, useRef, useState } from "react";
 import {
-  Text,
-  View,
-  TouchableOpacity,
   FlatList,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { navigateToHome } from "@/lib/navigation";
-import { Image } from "expo-image";
-import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import { haptics } from "@/hooks/use-haptics";
-import { useAuthContext } from "@/contexts/auth-context";
-import * as Haptics from "expo-haptics";
-import * as ImagePicker from "expo-image-picker";
 
 type Message = {
   id: number;
@@ -137,11 +137,10 @@ function MessageBubble({ message }: { message: Message }) {
   return (
     <View className={`flex-row mb-2 ${message.isMe ? "justify-end" : "justify-start"}`}>
       <View
-        className={`max-w-[80%] px-4 py-3 rounded-2xl ${
-          message.isMe
+        className={`max-w-[80%] px-4 py-3 rounded-2xl ${message.isMe
             ? "bg-primary rounded-br-md"
             : "bg-surface border border-border rounded-bl-md"
-        }`}
+          }`}
       >
         {message.attachmentUrl && message.attachmentType === "image" && (
           <Image
@@ -294,8 +293,8 @@ export default function MessageDetailScreen() {
     <ScreenContainer edges={["top", "left", "right"]}>
       {/* Header with back and home buttons */}
       <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <TouchableOpacity 
-          onPress={() => { haptics.light(); navigateToHome({ isCoordinator, isManager, isTrainer, isClient }); }} 
+        <TouchableOpacity
+          onPress={() => { haptics.light(); navigateToHome({ isCoordinator, isManager, isTrainer, isClient }); }}
           className="p-2 -ml-2"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           accessibilityRole="button"
@@ -305,11 +304,11 @@ export default function MessageDetailScreen() {
           <IconSymbol name="chevron.left" size={24} color={colors.primary} />
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          onPress={() => { 
-            haptics.light(); 
+        <TouchableOpacity
+          onPress={() => {
+            haptics.light();
             navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
-          }} 
+          }}
           className="p-2"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           accessibilityRole="button"
@@ -368,12 +367,12 @@ export default function MessageDetailScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
         <FlatList
           ref={flatListRef}
           data={flattenedData}
-          keyExtractor={(item, index) => 
+          keyExtractor={(item, index) =>
             item.type === "date" ? `date-${item.date}` : `msg-${item.message.id}`
           }
           renderItem={renderItem}

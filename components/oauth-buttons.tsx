@@ -150,7 +150,7 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
         />
       )}
 
-      {/* Google/Manus OAuth Sign In */}
+      {/* Google/Portal OAuth Sign In */}
       <TouchableOpacity
         className="flex-row items-center justify-center border border-border rounded-xl py-4 px-6"
         onPress={handleGoogleSignIn}

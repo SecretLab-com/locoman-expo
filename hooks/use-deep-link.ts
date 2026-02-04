@@ -215,7 +215,7 @@ export function useDeepLink() {
  * Usage:
  * ```tsx
  * const url = createDeepLink("bundle/123");
- * // Returns: manus20260125130603://bundle/123
+ * // Returns: locomotivate20260125130603://bundle/123
  * ```
  */
 export function createDeepLink(path: string, queryParams?: Record<string, string>): string {

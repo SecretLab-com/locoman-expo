@@ -60,6 +60,17 @@ export function useAuth(options?: UseAuthOptions) {
       // Web platform: use cookie-based auth, fetch user from API
       if (Platform.OS === "web") {
         console.log("[useAuth] Web platform: fetching user from API...");
+
+        // Check cached user info first for faster initial load
+        const cachedUser = await Auth.getUserInfo();
+        if (cachedUser) {
+          console.log("[useAuth] Web: using cached user immediately", cachedUser);
+          setUser(cachedUser);
+          if (!options?.suppressLoading) {
+            setLoading(false);
+          }
+        }
+
         const apiUser = await Api.getMe();
         console.log("[useAuth] API user response:", apiUser);
 
@@ -74,34 +85,35 @@ export function useAuth(options?: UseAuthOptions) {
           setUser(null);
           await Auth.clearUserInfo();
         }
-        return;
-      }
-
-      // Native platform: validate token against API
-      console.log("[useAuth] Native platform: checking for session token...");
-      const sessionToken = await Auth.getSessionToken();
-      console.log(
-        "[useAuth] Session token:",
-        sessionToken ? `present (${sessionToken.substring(0, 20)}...)` : "missing",
-      );
-      if (!sessionToken) {
-        console.log("[useAuth] No session token, setting user to null");
-        setUser(null);
-        await Auth.clearUserInfo();
-        return;
-      }
-
-      const apiUser = await Api.getMe();
-      if (apiUser) {
-        const userInfo = normalizeUser(apiUser as Record<string, unknown>);
-        setUser(userInfo);
-        await Auth.setUserInfo(userInfo);
-        console.log("[useAuth] Native user set from API:", userInfo);
+        // Do not return here, let it fall through to finally block for native/common logic if any
+        // but for now native is separate. However, we must ensure setLoading(false) runs.
       } else {
-        console.log("[useAuth] Native: No authenticated user from API");
-        setUser(null);
-        await Auth.clearUserInfo();
-        await Auth.removeSessionToken();
+        // Native platform: validate token against API
+        console.log("[useAuth] Native platform: checking for session token...");
+        const sessionToken = await Auth.getSessionToken();
+        console.log(
+          "[useAuth] Session token:",
+          sessionToken ? `present (${sessionToken.substring(0, 20)}...)` : "missing",
+        );
+        if (!sessionToken) {
+          console.log("[useAuth] No session token, setting user to null");
+          setUser(null);
+          await Auth.clearUserInfo();
+          return;
+        }
+
+        const apiUser = await Api.getMe();
+        if (apiUser) {
+          const userInfo = normalizeUser(apiUser as Record<string, unknown>);
+          setUser(userInfo);
+          await Auth.setUserInfo(userInfo);
+          console.log("[useAuth] Native user set from API:", userInfo);
+        } else {
+          console.log("[useAuth] Native: No authenticated user from API");
+          setUser(null);
+          await Auth.clearUserInfo();
+          await Auth.removeSessionToken();
+        }
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error("Failed to fetch user");
@@ -141,9 +153,15 @@ export function useAuth(options?: UseAuthOptions) {
 
   // Register global refresh callback
   useEffect(() => {
-    globalRefreshCallback = fetchUser;
+    const refresh = () => {
+      console.log("[useAuth] Global refresh callback triggered");
+      fetchUser();
+    };
+    globalRefreshCallback = refresh;
     return () => {
-      globalRefreshCallback = null;
+      if (globalRefreshCallback === refresh) {
+        globalRefreshCallback = null;
+      }
     };
   }, [fetchUser]);
 

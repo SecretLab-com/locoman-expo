@@ -37,8 +37,8 @@ for (const [systemVar, expoVar] of Object.entries(mappings)) {
   }
 }
 
-// Bundle ID format: space.manus.<project_name_dots>.<timestamp>
-// e.g., "my-app" created at 2024-01-15 10:30:45 -> "space.manus.my.app.t20240115103045"
+// Bundle ID format: com.loco.<project_name_dots>.<timestamp>
+// e.g., "my-app" created at 2024-01-15 10:30:45 -> "com.loco.my.app.t20240115103045"
 // Bundle ID can only contain letters, numbers, and dots
 // Android requires each dot-separated segment to start with a letter
 const rawBundleId = "com.bright.blue.locomotivate";
@@ -55,11 +55,11 @@ const bundleId =
       // Prefix with 'x' if segment starts with a digit
       return /^[a-zA-Z]/.test(segment) ? segment : "x" + segment;
     })
-    .join(".") || "space.manus.app";
-// Extract timestamp from bundle ID and prefix with "manus" for deep link scheme
-// e.g., "space.manus.my.app.t20240115103045" -> "manus20240115103045"
+    .join(".") || "com.loco.app";
+// Extract timestamp from bundle ID for deep link scheme
+// e.g., "com.loco.my.app.t20240115103045" -> "locomotivate20240115103045"
 const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
-const schemeFromBundleId = `manus${timestamp}`;
+const schemeFromBundleId = timestamp || "locomotivate";
 
 const env = {
   // App branding - update these values directly (do not use env vars)
@@ -67,7 +67,7 @@ const env = {
   appSlug: "locomotivate",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
-  logoUrl: "https://files.manuscdn.com/user_upload_by_module/session_file/310519663073371114/gKkMcwkvsPFREczr.png",
+  logoUrl: "",
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
@@ -78,10 +78,19 @@ const config: ExpoConfig = {
   slug: env.appSlug,
   version: "1.0.0",
   orientation: "portrait",
-  icon: "./assets/images/icon.png",
+  icon: "./assets/images/Logo.png",
   scheme: env.scheme,
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
+  updates: {
+    url: "https://u.expo.dev/8980c95b-d28f-4d80-ad42-54b4d5fdd3e7",
+    enabled: true,
+    checkOnLaunch: "ALWAYS",
+    fallbackToCacheTimeout: 0,
+  },
+  runtimeVersion: {
+    policy: "appVersion",
+  },
   extra: {
     eas: {
       projectId: "8980c95b-d28f-4d80-ad42-54b4d5fdd3e7",
@@ -100,6 +109,9 @@ const config: ExpoConfig = {
         {
           CFBundleURLSchemes: [
             "com.googleusercontent.apps.870100645593-po1mtmilfq2vi3ivba0bm8c1gpbhrg9g",
+            "locolocomotivate",
+            "locomotivate",
+            "com.bright.blue.locomotivate",
           ],
         },
       ],
@@ -112,9 +124,7 @@ const config: ExpoConfig = {
   android: {
     adaptiveIcon: {
       backgroundColor: "#0A0A14",
-      foregroundImage: "./assets/images/android-icon-foreground.png",
-      backgroundImage: "./assets/images/android-icon-background.png",
-      monochromeImage: "./assets/images/android-icon-monochrome.png",
+      foregroundImage: "./assets/images/Logo.png",
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
@@ -199,7 +209,7 @@ const config: ExpoConfig = {
   web: {
     bundler: "metro",
     output: "static",
-    favicon: "./assets/images/favicon.png",
+    favicon: "./assets/images/Logo.png",
   },
   plugins: [
     "expo-router",

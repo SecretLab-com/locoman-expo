@@ -1,10 +1,11 @@
-import { View, Text, TouchableOpacity } from "react-native";
-import { navigateToHome } from "@/lib/navigation";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
-import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
+import { navigateToHome } from "@/lib/navigation";
+import { usePathname } from "expo-router";
+import { Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 /**
  * Banner shown when a coordinator is impersonating another user.
@@ -14,8 +15,10 @@ export function ImpersonationBanner() {
   const colors = useColors();
   const { isImpersonating, impersonatedUser, stopImpersonation } = useAuthContext();
 
-  // Only show if actually impersonating
-  if (!isImpersonating || !impersonatedUser) {
+  const pathname = usePathname();
+
+  // Only show if actually impersonating and not on the welcome page
+  if (!isImpersonating || !impersonatedUser || pathname === "/welcome") {
     return null;
   }
 
@@ -27,7 +30,7 @@ export function ImpersonationBanner() {
   };
 
   return (
-    <SafeAreaView 
+    <SafeAreaView
       edges={["top", "left", "right"]}
       className="bg-warning/20 border-b border-warning"
       style={{ zIndex: 1000 }}

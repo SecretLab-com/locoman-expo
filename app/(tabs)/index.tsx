@@ -4,6 +4,7 @@ import { ActivityIndicator } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useAuthContext } from "@/contexts/auth-context";
 import { navigateToHome } from "@/lib/navigation";
+import { router, useLocalSearchParams } from "expo-router";
 import ShopperHome from "../../components/shopper-home";
 
 /**
@@ -31,15 +32,25 @@ export default function UnifiedHomeScreen() {
     isClient,
   } = useAuthContext();
 
+  const { guest } = useLocalSearchParams<{ guest: string }>();
+
   useEffect(() => {
     if (loading) return;
-    if (isAuthenticated && effectiveRole && effectiveRole !== "shopper") {
-      navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
-    }
-  }, [loading, isAuthenticated, effectiveRole, isCoordinator, isManager, isTrainer, isClient]);
 
-  // Not authenticated or shopper → Show shopper experience
+    if (isAuthenticated) {
+      if (effectiveRole && effectiveRole !== "shopper") {
+        navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
+      }
+    } else if (!guest) {
+      // Not authenticated and not explicitly browsing as guest -> Landing Page
+      router.replace("/welcome");
+    }
+  }, [loading, isAuthenticated, effectiveRole, isCoordinator, isManager, isTrainer, isClient, guest]);
+
+  // Not authenticated or shopper → Decide between Welcome or Shopper experience
   if (!isAuthenticated || effectiveRole === "shopper" || !effectiveRole) {
+    // If not authenticated, we prefer showing the high-impact landing page first
+    // unless they explicitly chose to browse programs.
     return <ShopperHome />;
   }
 

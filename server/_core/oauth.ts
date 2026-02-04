@@ -17,6 +17,7 @@ async function syncUser(userInfo: {
   loginMethod?: string | null;
   platform?: string | null;
   role?: "shopper" | "client" | "trainer" | "manager" | "coordinator" | null;
+  trainerId?: number | null;
 }) {
   if (!userInfo.openId) {
     throw new Error("openId missing from user info");
@@ -29,7 +30,8 @@ async function syncUser(userInfo: {
     email: userInfo.email ?? null,
     loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
     lastSignedIn,
-    role: userInfo.role ?? undefined,
+    role: userInfo.role ?? (userInfo.trainerId ? "client" : undefined),
+    trainerId: userInfo.trainerId ?? undefined,
   });
   const saved = await getUserByOpenId(userInfo.openId);
   return (
@@ -82,34 +84,46 @@ export function registerOAuthRoutes(app: Express) {
       let sessionToken = "";
       let savedUser: any;
 
-      // Decode redirectUri from state
       let redirectUri: string | undefined;
+      let trainerIdFromState: number | undefined;
+
       try {
         if (state) {
-          redirectUri = Buffer.from(state, "base64").toString("utf-8");
-          console.log("[OAuth] Decoded redirectUri from state:", redirectUri);
+          const decoded = Buffer.from(state, "base64").toString("utf-8");
+          console.log("[OAuth] Decoded state:", decoded);
+          try {
+            const parsed = JSON.parse(decoded);
+            redirectUri = parsed.redirectUri;
+            if (parsed.trainerId) {
+              trainerIdFromState = parseInt(parsed.trainerId);
+            }
+          } catch {
+            // Legacy state (just the redirect URI)
+            redirectUri = decoded;
+          }
         }
       } catch (err) {
         console.warn("[OAuth] Failed to decode state as base64:", err);
       }
 
       const portalUrl = (process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL ?? "").trim();
-      const shouldUseManus = Boolean(process.env.OAUTH_SERVER_URL) && portalUrl.length > 0;
+      const shouldUsePortal = Boolean(process.env.OAUTH_SERVER_URL) && portalUrl.length > 0;
 
-      if (shouldUseManus) {
+      if (shouldUsePortal) {
         try {
-          // Try Manus/Portal exchange first
+          // Try Portal exchange first
           const tokenResponse = await sdk.exchangeCodeForToken(code, state);
           userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+          if (trainerIdFromState) userInfo.trainerId = trainerIdFromState;
           savedUser = await syncUser(userInfo);
           sessionToken = await sdk.createSessionToken(userInfo.openId!, {
             name: userInfo.name || "",
             expiresInMs: ONE_YEAR_MS,
           });
-        } catch (manusError) {
+        } catch (portalError) {
           console.log(
-            "[OAuth] Manus exchange failed, trying direct Google exchange...",
-            (manusError as any)?.message,
+            "[OAuth] Portal exchange failed, trying direct Google exchange...",
+            (portalError as any)?.message,
           );
         }
       }
@@ -138,6 +152,7 @@ export function registerOAuthRoutes(app: Express) {
           email: googleUser.email,
           loginMethod: "google",
         };
+        if (trainerIdFromState) userInfo.trainerId = trainerIdFromState;
         savedUser = await syncUser(userInfo);
         sessionToken = await sdk.createSessionToken(userInfo.openId!, {
           name: userInfo.name || "",
@@ -202,6 +217,18 @@ export function registerOAuthRoutes(app: Express) {
     try {
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+
+      // Parse state for trainerId in mobile flow too
+      try {
+        const decoded = Buffer.from(state, "base64").toString("utf-8");
+        const parsed = JSON.parse(decoded);
+        if (parsed.trainerId) {
+          userInfo.trainerId = parseInt(parsed.trainerId);
+        }
+      } catch {
+        // Ignore parsing errors for legacy states
+      }
+
       const user = await syncUser(userInfo);
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId!, {

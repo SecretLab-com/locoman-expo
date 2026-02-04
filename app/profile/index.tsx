@@ -37,8 +37,8 @@ function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger =
         paddingVertical: 16,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
-        backgroundColor: pressed 
-          ? (highlight ? "rgba(59, 130, 246, 0.15)" : "rgba(59, 130, 246, 0.08)") 
+        backgroundColor: pressed
+          ? (highlight ? "rgba(59, 130, 246, 0.15)" : "rgba(59, 130, 246, 0.08)")
           : (highlight ? "rgba(59, 130, 246, 0.05)" : "transparent"),
       })}
     >
@@ -153,7 +153,7 @@ export default function SharedProfileScreen() {
     if (Platform.OS === "web") {
       if (window.confirm("Are you sure you want to logout?")) {
         await logout();
-        router.replace("/(tabs)");
+        router.replace("/login");
       }
     } else {
       Alert.alert(
@@ -166,7 +166,7 @@ export default function SharedProfileScreen() {
             style: "destructive",
             onPress: async () => {
               await logout();
-              router.replace("/(tabs)");
+              router.replace("/login");
             },
           },
         ]
@@ -260,25 +260,25 @@ export default function SharedProfileScreen() {
 
   const content = !isAuthenticated ? (
     <ScreenContainer className="items-center justify-center px-6">
-        <View className="w-24 h-24 rounded-full bg-surface items-center justify-center mb-6">
-          <IconSymbol name="person.fill" size={48} color={colors.muted} />
-        </View>
-        <Text className="text-xl font-semibold text-foreground">
-          Welcome to LocoMotivate
-        </Text>
-        <Text className="text-muted text-center mt-2 mb-6">
-          Sign in to access your profile, orders, and personalized recommendations
-        </Text>
-        <TouchableOpacity
-          className="bg-primary px-8 py-4 rounded-full mb-4"
-          onPress={() => router.push("/login")}
-        >
-          <Text className="text-background font-semibold text-lg">Sign In</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push("/register" as any)}>
-          <Text className="text-primary font-semibold">Create Account</Text>
-        </TouchableOpacity>
-      </ScreenContainer>
+      <View className="w-24 h-24 rounded-full bg-surface items-center justify-center mb-6">
+        <IconSymbol name="person.fill" size={48} color={colors.muted} />
+      </View>
+      <Text className="text-xl font-semibold text-foreground">
+        Welcome to LocoMotivate
+      </Text>
+      <Text className="text-muted text-center mt-2 mb-6">
+        Sign in to access your profile, orders, and personalized recommendations
+      </Text>
+      <TouchableOpacity
+        className="bg-primary px-8 py-4 rounded-full mb-4"
+        onPress={() => router.push("/login")}
+      >
+        <Text className="text-background font-semibold text-lg">Sign In</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => router.push("/register" as any)}>
+        <Text className="text-primary font-semibold">Create Account</Text>
+      </TouchableOpacity>
+    </ScreenContainer>
   ) : (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>

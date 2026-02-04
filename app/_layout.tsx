@@ -26,7 +26,7 @@ import { CartProvider } from "@/contexts/cart-context";
 import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
 import { useDeepLink } from "@/hooks/use-deep-link";
-import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
+import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
 import { navigateToHome } from "@/lib/navigation";
 import { createTRPCClient, trpc } from "@/lib/trpc";
 
@@ -93,9 +93,9 @@ export default function RootLayout() {
     setIsHydrated(true);
   }, []);
 
-  // Initialize Manus runtime for cookie injection from parent container
+  // Initialize Portal runtime for cookie injection from parent container
   useEffect(() => {
-    initManusRuntime();
+    initPortalRuntime();
   }, []);
 
   // Handle incoming deep links from push notifications and external links
@@ -224,6 +224,7 @@ export default function RootLayout() {
                           <Stack.Screen name="(client)" options={{ headerShown: false }} />
                           <Stack.Screen name="(manager)" options={{ headerShown: false }} />
                           <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
+                          <Stack.Screen name="welcome" options={{ headerShown: false }} />
                           <Stack.Screen name="oauth/callback" />
                         </Stack>
                         <StatusBar style="auto" />

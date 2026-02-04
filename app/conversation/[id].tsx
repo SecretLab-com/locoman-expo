@@ -5,31 +5,31 @@ import { haptics } from "@/hooks/use-haptics";
 import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Animated, {
-    SharedValue,
-    useAnimatedStyle,
-    useSharedValue,
-    withDelay,
-    withRepeat,
-    withSequence,
-    withTiming,
+  SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -118,14 +118,14 @@ function TypingIndicator({ name, colors }: { name: string; colors: any }) {
 function ReadReceipt({ isRead, colors }: { isRead: boolean; colors: any }) {
   return (
     <View className="flex-row items-center ml-1">
-      <IconSymbol 
-        name="checkmark" 
-        size={12} 
-        color={isRead ? colors.primary : colors.muted} 
+      <IconSymbol
+        name="checkmark"
+        size={12}
+        color={isRead ? colors.primary : colors.muted}
       />
-      <IconSymbol 
-        name="checkmark" 
-        size={12} 
+      <IconSymbol
+        name="checkmark"
+        size={12}
         color={isRead ? colors.primary : colors.muted}
         style={{ marginLeft: -6 }}
       />
@@ -134,14 +134,14 @@ function ReadReceipt({ isRead, colors }: { isRead: boolean; colors: any }) {
 }
 
 // Emoji picker modal
-function EmojiPicker({ 
-  visible, 
-  onClose, 
+function EmojiPicker({
+  visible,
+  onClose,
   onSelect,
   colors,
-}: { 
-  visible: boolean; 
-  onClose: () => void; 
+}: {
+  visible: boolean;
+  onClose: () => void;
   onSelect: (emoji: string) => void;
   colors: any;
 }) {
@@ -152,7 +152,7 @@ function EmojiPicker({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable 
+      <Pressable
         className="flex-1 justify-center items-center bg-black/50"
         onPress={onClose}
       >
@@ -201,7 +201,7 @@ function AttachmentPicker({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <Pressable 
+      <Pressable
         className="flex-1 justify-end bg-black/50"
         onPress={onClose}
       >
@@ -247,13 +247,13 @@ function AttachmentPicker({
 }
 
 // Message reactions display
-function MessageReactions({ 
-  reactions, 
+function MessageReactions({
+  reactions,
   messageId,
   userId,
   onToggleReaction,
   colors,
-}: { 
+}: {
   reactions: Reaction[];
   messageId: number;
   userId: number;
@@ -279,9 +279,8 @@ function MessageReactions({
       {Object.entries(grouped).map(([emoji, data]) => (
         <TouchableOpacity
           key={emoji}
-          className={`flex-row items-center px-2 py-0.5 rounded-full ${
-            data.hasUserReacted ? "bg-primary/20" : "bg-surface"
-          }`}
+          className={`flex-row items-center px-2 py-0.5 rounded-full ${data.hasUserReacted ? "bg-primary/20" : "bg-surface"
+            }`}
           onPress={() => onToggleReaction(messageId, emoji)}
         >
           <Text className="text-sm">{emoji}</Text>
@@ -302,17 +301,17 @@ function formatFileSize(bytes: number): string {
 }
 
 // Message bubble with reactions and attachments
-function MessageBubble({ 
-  message, 
-  isOwn, 
+function MessageBubble({
+  message,
+  isOwn,
   colors,
   reactions,
   userId,
   onLongPress,
   onToggleReaction,
-}: { 
-  message: Message; 
-  isOwn: boolean; 
+}: {
+  message: Message;
+  isOwn: boolean;
   colors: any;
   reactions: Reaction[];
   userId: number;
@@ -347,13 +346,12 @@ function MessageBubble({
     if (message.messageType === "file" && message.attachmentUrl) {
       return (
         <TouchableOpacity className="flex-row items-center">
-          <View className={`w-10 h-10 rounded-lg items-center justify-center mr-2 ${
-            isOwn ? "bg-white/20" : "bg-primary/10"
-          }`}>
+          <View className={`w-10 h-10 rounded-lg items-center justify-center mr-2 ${isOwn ? "bg-white/20" : "bg-primary/10"
+            }`}>
             <IconSymbol name="doc.fill" size={20} color={isOwn ? "#fff" : colors.primary} />
           </View>
           <View className="flex-1">
-            <Text 
+            <Text
               className={`font-medium ${isOwn ? "text-white" : "text-foreground"}`}
               numberOfLines={1}
             >
@@ -383,16 +381,15 @@ function MessageBubble({
         delayLongPress={300}
       >
         <View
-          className={`max-w-[80%] px-4 py-2.5 rounded-2xl ${
-            isOwn 
-              ? "bg-primary rounded-br-sm" 
+          className={`max-w-[80%] px-4 py-2.5 rounded-2xl ${isOwn
+              ? "bg-primary rounded-br-sm"
               : "bg-surface border border-border rounded-bl-sm"
-          }`}
+            }`}
         >
           {renderContent()}
         </View>
       </Pressable>
-      <MessageReactions 
+      <MessageReactions
         reactions={messageReactions}
         messageId={message.id}
         userId={userId}
@@ -412,9 +409,9 @@ function MessageBubble({
 export default function ConversationScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { id, name, participantId, participantIds, groupIcon } = useLocalSearchParams<{ 
-    id: string; 
-    name: string; 
+  const { id, name, participantId, participantIds, groupIcon } = useLocalSearchParams<{
+    id: string;
+    name: string;
     participantId: string;
     participantIds: string;
     groupIcon: string;
@@ -438,7 +435,7 @@ export default function ConversationScreen() {
     refetch,
   } = trpc.messages.thread.useQuery(
     { conversationId: id || "" },
-    { 
+    {
       enabled: !!id,
       refetchInterval: 3000, // Poll for new messages every 3 seconds
     }
@@ -538,15 +535,15 @@ export default function ConversationScreen() {
   // Handle text input changes for typing indicator
   const handleTextChange = useCallback((text: string) => {
     setMessageText(text);
-    
+
     if (text.length > 0 && !isTyping) {
       setIsTyping(true);
     }
-    
+
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    
+
     typingTimeoutRef.current = setTimeout(() => {
       setIsTyping(false);
     }, 2000);
@@ -557,9 +554,9 @@ export default function ConversationScreen() {
 
     const ids = participantIds
       ? participantIds
-          .split(",")
-          .map((value) => parseInt(value, 10))
-          .filter((value) => !Number.isNaN(value))
+        .split(",")
+        .map((value) => parseInt(value, 10))
+        .filter((value) => !Number.isNaN(value))
       : participantId
         ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
         : [];
@@ -595,12 +592,12 @@ export default function ConversationScreen() {
   const handleToggleReaction = async (messageId: number, reaction: string) => {
     if (!user) return;
     await haptics.light();
-    
+
     // Check if user already reacted with this emoji
     const existingReaction = (reactions as Reaction[]).find(
       r => r.messageId === messageId && r.userId === user.id && r.reaction === reaction
     );
-    
+
     if (existingReaction) {
       removeReaction.mutate({ messageId, reaction });
     } else {
@@ -640,9 +637,9 @@ export default function ConversationScreen() {
       await haptics.light();
       const ids = participantIds
         ? participantIds
-            .split(",")
-            .map((value) => parseInt(value, 10))
-            .filter((value) => !Number.isNaN(value))
+          .split(",")
+          .map((value) => parseInt(value, 10))
+          .filter((value) => !Number.isNaN(value))
         : participantId
           ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
           : [];
@@ -694,9 +691,9 @@ export default function ConversationScreen() {
       await haptics.light();
       const ids = participantIds
         ? participantIds
-            .split(",")
-            .map((value) => parseInt(value, 10))
-            .filter((value) => !Number.isNaN(value))
+          .split(",")
+          .map((value) => parseInt(value, 10))
+          .filter((value) => !Number.isNaN(value))
         : participantId
           ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
           : [];
@@ -744,7 +741,7 @@ export default function ConversationScreen() {
   return (
     <View className="flex-1 bg-background">
       {/* Header */}
-      <View 
+      <View
         className="flex-row items-center px-4 py-3 bg-surface border-b border-border"
         style={{ paddingTop: insets.top + 8 }}
       >
@@ -757,11 +754,11 @@ export default function ConversationScreen() {
         >
           <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        
+
         <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center ml-1">
           <IconSymbol name={(groupIcon as any) || "person.fill"} size={20} color={colors.primary} />
         </View>
-        
+
         <View className="flex-1 ml-3">
           <Text className="text-foreground font-semibold text-lg" numberOfLines={1}>
             {name || "Conversation"}
@@ -772,65 +769,64 @@ export default function ConversationScreen() {
         </View>
       </View>
 
-      {/* Messages */}
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={messageList}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <MessageBubble
-              message={item}
-              isOwn={item.senderId === user?.id}
-              colors={colors}
-              reactions={reactions as Reaction[]}
-              userId={user?.id || 0}
-              onLongPress={handleLongPress}
-              onToggleReaction={handleToggleReaction}
-            />
-          )}
-          contentContainerStyle={{ 
-            flexGrow: 1, 
-            paddingVertical: 16,
-            justifyContent: messageList.length === 0 ? "center" : "flex-start",
-          }}
-          ListEmptyComponent={
-            <View className="items-center px-4">
-              <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
-                <IconSymbol name="message.fill" size={32} color={colors.muted} />
-              </View>
-              <Text className="text-foreground font-semibold text-lg mb-1">
-                Start the conversation
-              </Text>
-              <Text className="text-muted text-center">
-                Send a message to {name || "this person"}
-              </Text>
-            </View>
-          }
-          ListFooterComponent={
-            otherUserTyping ? (
-              <TypingIndicator name={name || "User"} colors={colors} />
-            ) : null
-          }
-          onContentSizeChange={() => {
-            if (messageList.length > 0) {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }
-          }}
-        />
-      )}
-
-      {/* Input Area */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined}
-        keyboardVerticalOffset={0}
-        enabled={Platform.OS !== "web"}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        className="flex-1"
       >
-        <View 
+        {/* Messages */}
+        {isLoading ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messageList}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => (
+              <MessageBubble
+                message={item}
+                isOwn={item.senderId === user?.id}
+                colors={colors}
+                reactions={reactions as Reaction[]}
+                userId={user?.id || 0}
+                onLongPress={handleLongPress}
+                onToggleReaction={handleToggleReaction}
+              />
+            )}
+            contentContainerStyle={{
+              flexGrow: 1,
+              paddingVertical: 16,
+              justifyContent: messageList.length === 0 ? "center" : "flex-start",
+            }}
+            ListEmptyComponent={
+              <View className="items-center px-4">
+                <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                  <IconSymbol name="message.fill" size={32} color={colors.muted} />
+                </View>
+                <Text className="text-foreground font-semibold text-lg mb-1">
+                  Start the conversation
+                </Text>
+                <Text className="text-muted text-center">
+                  Send a message to {name || "this person"}
+                </Text>
+              </View>
+            }
+            ListFooterComponent={
+              otherUserTyping ? (
+                <TypingIndicator name={name || "User"} colors={colors} />
+              ) : null
+            }
+            onContentSizeChange={() => {
+              if (messageList.length > 0) {
+                flatListRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
+          />
+        )}
+
+        <View
           className="flex-row items-end px-4 py-3 bg-surface border-t border-border"
           style={{
             paddingBottom: Platform.OS === "web" ? 12 : Math.max(insets.bottom, 12),
@@ -853,14 +849,14 @@ export default function ConversationScreen() {
               style={
                 Platform.OS === "web"
                   ? ({
-                      outlineWidth: 0,
-                      outlineStyle: "solid",
-                      outlineColor: "transparent",
-                      boxShadow: "none",
-                      WebkitBoxShadow: "none",
-                      borderWidth: 0,
-                      WebkitTapHighlightColor: "transparent",
-                    } as any)
+                    outlineWidth: 0,
+                    outlineStyle: "solid",
+                    outlineColor: "transparent",
+                    boxShadow: "none",
+                    WebkitBoxShadow: "none",
+                    borderWidth: 0,
+                    WebkitTapHighlightColor: "transparent",
+                  } as any)
                   : undefined
               }
               value={messageText}
@@ -881,19 +877,18 @@ export default function ConversationScreen() {
             />
           </View>
           <TouchableOpacity
-            className={`w-11 h-11 rounded-full items-center justify-center ${
-              messageText.trim() ? "bg-primary" : "bg-surface border border-border"
-            }`}
+            className={`w-11 h-11 rounded-full items-center justify-center ${messageText.trim() ? "bg-primary" : "bg-surface border border-border"
+              }`}
             onPress={handleSend}
             disabled={!messageText.trim() || sendMessage.isPending}
           >
             {sendMessage.isPending ? (
               <ActivityIndicator size="small" color={messageText.trim() ? "#fff" : colors.muted} />
             ) : (
-              <IconSymbol 
-                name="paperplane.fill" 
-                size={20} 
-                color={messageText.trim() ? "#fff" : colors.muted} 
+              <IconSymbol
+                name="paperplane.fill"
+                size={20}
+                color={messageText.trim() ? "#fff" : colors.muted}
               />
             )}
           </TouchableOpacity>

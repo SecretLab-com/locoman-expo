@@ -1,28 +1,29 @@
-import { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  Share,
-  Platform,
-  TextInput,
-  Modal,
-  ActivityIndicator,
-} from "react-native";
-import { useLocalSearchParams, router } from "expo-router";
-import { navigateToHome } from "@/lib/navigation";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useColors } from "@/hooks/use-colors";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
+import { navigateToHome } from "@/lib/navigation";
 import * as Haptics from "expo-haptics";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
+  Share,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 type InvitationData = {
   id: number;
   token: string;
   trainerName: string;
+  trainerId: number;
   trainerAvatar?: string;
   bundleTitle: string;
   bundleDescription: string;
@@ -49,6 +50,7 @@ const MOCK_INVITATION: InvitationData = {
   id: 1,
   token: "abc123",
   trainerName: "Coach Mike",
+  trainerId: 101, // Mock trainer ID
   bundleTitle: "Weight Loss Program",
   bundleDescription:
     "A comprehensive 12-week program designed to help you lose weight and build healthy habits. Includes personalized nutrition guidance and workout plans.",
@@ -78,14 +80,14 @@ const MOCK_INVITATION: InvitationData = {
 
 export default function InvitationScreen() {
   const colors = useColors();
-  const { isClient } = useAuthContext();
+  const { isAuthenticated, isClient, loading: authLoading } = useAuthContext();
   const { token } = useLocalSearchParams<{ token: string }>();
   const [invitation, setInvitation] = useState<InvitationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
-  
+
   // Mock payment form state
   const [cardNumber, setCardNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
@@ -389,22 +391,42 @@ export default function InvitationScreen() {
 
         {/* Actions */}
         <View className="px-4 pb-8">
-          {isClient ? (
+          {isAuthenticated ? (
+            isClient ? (
+              <TouchableOpacity
+                onPress={handleAccept}
+                className="bg-primary py-4 rounded-xl items-center mb-3 shadow-lg shadow-primary/20"
+              >
+                <Text className="text-white font-bold text-lg">
+                  Accept & Pay ${invitation.bundlePrice}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View className="bg-surface border border-border rounded-xl p-4 mb-3">
+                <Text className="text-foreground font-semibold">Client-only invitation</Text>
+                <Text className="text-muted mt-1">
+                  This invitation can only be accepted and purchased by a client account.
+                </Text>
+              </View>
+            )
+          ) : (
             <TouchableOpacity
-              onPress={handleAccept}
-              className="bg-primary py-4 rounded-xl items-center mb-3"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push({
+                  pathname: "/register",
+                  params: {
+                    trainerId: invitation.trainerId,
+                    inviteToken: invitation.token
+                  }
+                });
+              }}
+              className="bg-primary py-4 rounded-xl items-center mb-3 shadow-lg shadow-primary/20"
             >
               <Text className="text-white font-bold text-lg">
-                Accept & Pay ${invitation.bundlePrice}
+                Sign Up to Accept & Pay
               </Text>
             </TouchableOpacity>
-          ) : (
-            <View className="bg-surface border border-border rounded-xl p-4 mb-3">
-              <Text className="text-foreground font-semibold">Client-only invitation</Text>
-              <Text className="text-muted mt-1">
-                This invitation can only be accepted and purchased by a client.
-              </Text>
-            </View>
           )}
           <TouchableOpacity
             onPress={handleDecline}
@@ -539,9 +561,8 @@ export default function InvitationScreen() {
               <TouchableOpacity
                 onPress={handleProcessPayment}
                 disabled={!isPaymentValid() || processingPayment}
-                className={`py-4 rounded-xl items-center flex-row justify-center ${
-                  isPaymentValid() && !processingPayment ? "bg-primary" : "bg-muted/30"
-                }`}
+                className={`py-4 rounded-xl items-center flex-row justify-center ${isPaymentValid() && !processingPayment ? "bg-primary" : "bg-muted/30"
+                  }`}
               >
                 {processingPayment ? (
                   <>

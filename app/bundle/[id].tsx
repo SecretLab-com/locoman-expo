@@ -1,18 +1,18 @@
-import { useState } from "react";
-import {
-  Text,
-  View,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-} from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { ShareButton } from "@/components/share-button";
-import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
+import { Image } from "expo-image";
+import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
+import {
+  Alert,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 // Mock bundle data - in production this would come from tRPC
 const MOCK_BUNDLES: Record<string, any> = {
@@ -97,15 +97,22 @@ export default function BundleDetailScreen() {
   };
 
   const handleInviteClient = () => {
+    const params = {
+      bundleId: id,
+      bundleTitle: bundle.title,
+      bundlePrice: String(bundle.price),
+      trainerName: bundle.trainerName,
+    };
+
     if (isCoordinator) {
-      router.push("/(coordinator)/invite" as any);
+      router.push({ pathname: "/(coordinator)/invite", params } as any);
       return;
     }
     if (isManager) {
-      router.push("/(manager)/invite" as any);
+      router.push({ pathname: "/(manager)/invite", params } as any);
       return;
     }
-    router.push("/(trainer)/invite" as any);
+    router.push({ pathname: "/(trainer)/invite", params } as any);
   };
 
   const handleToggleFavorite = () => {

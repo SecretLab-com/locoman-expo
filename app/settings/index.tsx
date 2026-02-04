@@ -1,4 +1,4 @@
-import { useSegments } from "expo-router";
+import { Stack, useSegments } from "expo-router";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
@@ -101,6 +101,7 @@ export default function SettingsIndexScreen() {
 
   return (
     <View className="flex-1 bg-background">
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={{ flex: 1 }}>
         <SettingsScreen />
       </View>

@@ -1,21 +1,21 @@
+import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
+import * as Haptics from "expo-haptics";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Share,
   Alert,
   Clipboard,
   Platform,
+  ScrollView,
+  Share,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { router } from "expo-router";
-import { ScreenContainer } from "@/components/screen-container";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useColors } from "@/hooks/use-colors";
-import { useAuthContext } from "@/contexts/auth-context";
-import * as Haptics from "expo-haptics";
 
 type Bundle = {
   id: number;
@@ -34,13 +34,29 @@ const MOCK_BUNDLES: Bundle[] = [
 export default function InviteScreen() {
   const colors = useColors();
   const { isTrainer, isManager, isCoordinator, user } = useAuthContext();
-  const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
+  const { bundleId, bundleTitle, bundlePrice, trainerName } = useLocalSearchParams<{
+    bundleId?: string;
+    bundleTitle?: string;
+    bundlePrice?: string;
+    trainerName?: string;
+  }>();
+
+  const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(
+    bundleId
+      ? {
+        id: parseInt(bundleId, 10),
+        title: bundleTitle || "Selected Bundle",
+        price: bundlePrice || "0.00",
+        cadence: "monthly",
+      }
+      : null
+  );
   const [clientEmail, setClientEmail] = useState("");
   const [clientName, setClientName] = useState("");
   const [personalMessage, setPersonalMessage] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
-  const [assignedTrainer, setAssignedTrainer] = useState(user?.name || "");
+  const [assignedTrainer, setAssignedTrainer] = useState(trainerName || user?.name || "");
 
   // Generate invite link
   const generateInviteLink = () => {
@@ -169,54 +185,71 @@ export default function InviteScreen() {
 
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
         {/* Select Bundle */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">
-            Select Bundle
-          </Text>
-          <View className="gap-3">
-            {MOCK_BUNDLES.map((bundle) => {
-              const isSelected = selectedBundle?.id === bundle.id;
-              return (
-                <TouchableOpacity
-                  key={bundle.id}
-                  onPress={() => {
-                    setSelectedBundle(bundle);
-                    setInviteLink(null);
-                  }}
-                  className={`p-4 rounded-xl border ${
-                    isSelected
+        {!bundleId ? (
+          <View className="mb-6">
+            <Text className="text-lg font-semibold text-foreground mb-3">
+              Select Bundle
+            </Text>
+            <View className="gap-3">
+              {MOCK_BUNDLES.map((bundle) => {
+                const isSelected = selectedBundle?.id === bundle.id;
+                return (
+                  <TouchableOpacity
+                    key={bundle.id}
+                    onPress={() => {
+                      setSelectedBundle(bundle);
+                      setInviteLink(null);
+                    }}
+                    className={`p-4 rounded-xl border ${isSelected
                       ? "bg-primary/10 border-primary"
                       : "bg-surface border-border"
-                  }`}
-                >
-                  <View className="flex-row items-center justify-between">
-                    <View className="flex-1">
-                      <Text
-                        className={`text-base font-semibold ${
-                          isSelected ? "text-primary" : "text-foreground"
-                        }`}
-                      >
-                        {bundle.title}
-                      </Text>
-                      <Text className="text-sm text-muted">
-                        ${bundle.price}/{bundle.cadence === "weekly" ? "week" : "month"}
-                      </Text>
-                    </View>
-                    <View
-                      className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                        isSelected ? "border-primary bg-primary" : "border-border"
                       }`}
-                    >
-                      {isSelected && (
-                        <IconSymbol name="checkmark" size={14} color="#fff" />
-                      )}
+                  >
+                    <View className="flex-row items-center justify-between">
+                      <View className="flex-1">
+                        <Text
+                          className={`text-base font-semibold ${isSelected ? "text-primary" : "text-foreground"
+                            }`}
+                        >
+                          {bundle.title}
+                        </Text>
+                        <Text className="text-sm text-muted">
+                          ${bundle.price}/{bundle.cadence === "weekly" ? "week" : "month"}
+                        </Text>
+                      </View>
+                      <View
+                        className={`w-6 h-6 rounded-full border-2 items-center justify-center ${isSelected ? "border-primary bg-primary" : "border-border"
+                          }`}
+                      >
+                        {isSelected && (
+                          <IconSymbol name="checkmark" size={14} color="#fff" />
+                        )}
+                      </View>
                     </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        </View>
+        ) : (
+          <View className="mb-6 bg-primary/5 border border-primary/20 rounded-2xl p-4">
+            <View className="flex-row items-center mb-2">
+              <View className="w-8 h-8 rounded-full bg-primary/20 items-center justify-center mr-3">
+                <IconSymbol name="cart.fill" size={16} color={colors.primary} />
+              </View>
+              <Text className="text-lg font-bold text-foreground">
+                Bundle Selected
+              </Text>
+            </View>
+            <View className="bg-surface rounded-xl p-3 border border-border">
+              <Text className="text-base font-semibold text-foreground">{bundleTitle}</Text>
+              <Text className="text-sm text-primary font-medium mt-1">Price: ${bundlePrice}</Text>
+            </View>
+            <Text className="text-xs text-muted mt-3 italic">
+              * This invite is context-locked to the bundle you were viewing.
+            </Text>
+          </View>
+        )}
 
         {/* Assigned Trainer */}
         <View className="mb-6">
@@ -242,6 +275,14 @@ export default function InviteScreen() {
                 placeholderTextColor={colors.muted}
                 className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
               />
+              {trainerName && (
+                <View className="flex-row items-center mt-2 px-1">
+                  <IconSymbol name="info.circle.fill" size={14} color={colors.primary} />
+                  <Text className="text-xs text-primary font-medium ml-1">
+                    Pre-assigned from the bundle owner.
+                  </Text>
+                </View>
+              )}
               <Text className="text-xs text-muted mt-2">
                 Required for manager/coordinator invites.
               </Text>
@@ -340,9 +381,8 @@ export default function InviteScreen() {
             <TouchableOpacity
               onPress={generateInviteLink}
               disabled={!selectedBundle}
-              className={`py-4 rounded-xl items-center ${
-                selectedBundle ? "bg-primary" : "bg-muted"
-              }`}
+              className={`py-4 rounded-xl items-center ${selectedBundle ? "bg-primary" : "bg-muted"
+                }`}
             >
               <View className="flex-row items-center">
                 <IconSymbol name="link" size={20} color="#fff" />
@@ -363,11 +403,10 @@ export default function InviteScreen() {
           <TouchableOpacity
             onPress={sendEmailInvite}
             disabled={isSending || !selectedBundle}
-            className={`py-4 rounded-xl items-center border ${
-              selectedBundle && !isSending
-                ? "bg-surface border-primary"
-                : "bg-muted/20 border-border"
-            }`}
+            className={`py-4 rounded-xl items-center border ${selectedBundle && !isSending
+              ? "bg-surface border-primary"
+              : "bg-muted/20 border-border"
+              }`}
           >
             <View className="flex-row items-center">
               <IconSymbol
@@ -376,9 +415,8 @@ export default function InviteScreen() {
                 color={selectedBundle && !isSending ? colors.primary : colors.muted}
               />
               <Text
-                className={`font-semibold ml-2 ${
-                  selectedBundle && !isSending ? "text-primary" : "text-muted"
-                }`}
+                className={`font-semibold ml-2 ${selectedBundle && !isSending ? "text-primary" : "text-muted"
+                  }`}
               >
                 {isSending ? "Sending..." : "Send Email Invitation"}
               </Text>
