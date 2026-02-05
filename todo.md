@@ -880,3 +880,6 @@
 - [x] Configure universal links for web-to-app navigation (Apple App Site Association, Android App Links)
 - [ ] Fix users not loading issue
 - [x] Fix dev server instability - OOM killer was terminating Metro due to memory pressure from tsc --watch
+
+## Bug Fixes
+- [x] Fix coordinator login button - API URL was using port 3002 instead of 3000

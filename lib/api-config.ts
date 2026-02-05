@@ -11,9 +11,8 @@ import { NativeModules, Platform } from "react-native";
 
 // Hardcoded API URL for native platforms (Expo Go on physical devices)
 // This URL must be publicly accessible from the internet
-const NATIVE_API_URL = "https://3002-i4anndi9mla842misgiwl-a70979ba.sg1.manus.computer";
+const NATIVE_API_URL = "https://3000-izvdhlmjpfefvbdkeunxg-4c5075e3.us2.manus.computer";
 const WEB_API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.VITE_API_BASE_URL || "";
-const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
 // Web API URL derivation from current hostname
 function getWebApiUrl(): string {
@@ -28,11 +27,8 @@ function getWebApiUrl(): string {
     if (port === "8081") {
       return `${protocol}//${hostname}:3000`;
     }
-    if (WEB_API_URL) {
-      return WEB_API_URL;
-    }
-    // Pattern: 8081-sandboxid.region.domain -> 3002-sandboxid.region.domain
-    const apiHostname = hostname.replace(/^8081-/, "3002-");
+    // Pattern: 8081-sandboxid.region.domain -> 3000-sandboxid.region.domain
+    const apiHostname = hostname.replace(/^8081-/, "3000-");
     if (apiHostname !== hostname) {
       return `${protocol}//${apiHostname}`;
     }
@@ -62,9 +58,9 @@ function getNativeApiUrl(): string {
       const hostname = parsed.hostname;
       const port = parsed.port || "8081";
 
-      // If we're on a sandbox (e.g. 8081-xxx), the API is likely on 3002-xxx (proxy to 3000)
+      // If we're on a sandbox (e.g. 8081-xxx), the API is on 3000-xxx
       if (hostname.startsWith("8081-")) {
-        const apiHostname = hostname.replace(/^8081-/, "3002-");
+        const apiHostname = hostname.replace(/^8081-/, "3000-");
         return `https://${apiHostname}`;
       }
 
@@ -82,16 +78,13 @@ function getNativeApiUrl(): string {
   }
 
   // 3. Fallback to hardcoded URL if all else fails
-  if (WEB_API_URL) {
-    return WEB_API_URL;
-  }
   return NATIVE_API_URL;
 }
 
 /**
  * Get the API base URL for the current platform.
  *
- * - On web: derives from current hostname (8081 -> 3002)
+ * - On web: derives from current hostname (8081 -> 3000)
  * - On native (iOS/Android): uses env override, then dev server host, then hardcoded URL
  */
 export function getApiBaseUrl(): string {
