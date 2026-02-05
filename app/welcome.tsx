@@ -23,10 +23,8 @@ export default function WelcomeScreen() {
     }
   }, [isAuthenticated, loading]);
 
-  // Initialize the video player with the local asset (native) or CDN URL (web)
-  const videoSource = Platform.OS === 'web' 
-    ? { uri: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663073371114/hCQKGlQChdngsHrv.mp4' }
-    : require("../assets/background.mp4");
+  // Initialize the video player with CDN URL (local file moved to reduce bundle size)
+  const videoSource = { uri: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663073371114/hCQKGlQChdngsHrv.mp4' };
   const player = useVideoPlayer(videoSource, (player) => {
     player.loop = true;
     player.muted = true;
@@ -34,15 +32,10 @@ export default function WelcomeScreen() {
     player.play();
   });
 
-  // For web fallback, resolve asset URI
+  // For web fallback, use the CDN URL directly
   const webVideoUri = useMemo(() => {
     if (Platform.OS !== 'web') return null;
-    try {
-      return Asset.fromModule(videoSource).uri;
-    } catch (e) {
-      console.warn("[Welcome] Failed to resolve video asset:", e);
-      return null;
-    }
+    return videoSource.uri;
   }, [videoSource]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
