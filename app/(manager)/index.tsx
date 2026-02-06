@@ -203,6 +203,25 @@ export default function ManagerDashboardScreen() {
           <Text className="text-lg font-semibold text-foreground mb-3">Quick Actions</Text>
           <View className="flex-row gap-3 mb-3">
             <TouchableOpacity
+              onPress={() => router.push("/bundle-editor/new" as any)}
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
+              accessibilityRole="button"
+              accessibilityLabel="Create new bundle"
+              testID="manager-create-bundle"
+            >
+              <LinearGradient
+                colors={quickActionGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+                  <IconSymbol name="plus" size={24} color={colors.primary} />
+                </View>
+                <Text className="text-sm font-medium text-primary">Create Bundle</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+            <TouchableOpacity
               onPress={() => router.push("/(manager)/templates" as any)}
               className="flex-1 rounded-xl overflow-hidden border-2 border-border"
             >
@@ -218,6 +237,8 @@ export default function ManagerDashboardScreen() {
                 <Text className="text-sm font-medium text-primary">Templates</Text>
               </LinearGradient>
             </TouchableOpacity>
+          </View>
+          <View className="flex-row gap-3 mb-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/invitations" as any)}
               className="flex-1 rounded-xl overflow-hidden border-2 border-border"

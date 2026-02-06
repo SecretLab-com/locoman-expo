@@ -81,18 +81,12 @@ export const getAuthRedirectUri = () => {
   const preferredBase =
     env.oauthRedirectBase || env.apiBaseUrl || defaultBase;
 
-  if (ReactNative.Platform.OS !== "web") {
-    try {
-      const parsed = new URL(preferredBase);
-      // If we're on a private hostname (like localhost) and have a public API base,
-      // we might want to use the public one so Google can reach it.
-      // BUT if we're in dev mode, it's safer to stick to what we have (likely localhost)
-      // because production and dev likely have different JWT secrets.
-      if (isPrivateHostname(parsed.hostname) && env.apiBaseUrl && !__DEV__) {
-        return `${env.apiBaseUrl.replace(/\/$/, "")}/api/oauth/callback`;
-      }
-    } catch {
-      // fall through to default
+  // CRITICAL: On local dev (localhost), we MUST use the local API base
+  // to avoid redirecting to production backend which has different state/secrets.
+  if (typeof window !== "undefined") {
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return `${defaultBase.replace(/\/$/, "")}/api/oauth/callback`;
     }
   }
 

@@ -2,6 +2,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { useWebSocket } from "@/hooks/use-websocket";
 import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as DocumentPicker from "expo-document-picker";
@@ -416,7 +417,7 @@ export default function ConversationScreen() {
     participantIds: string;
     groupIcon: string;
   }>();
-  const { user } = useAuthContext();
+  const { user, isAuthenticated } = useAuthContext();
   const [messageText, setMessageText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
@@ -428,6 +429,8 @@ export default function ConversationScreen() {
 
   const utils = trpc.useUtils();
 
+  const { connect, disconnect, subscribe } = useWebSocket();
+
   // Fetch messages for this conversation
   const {
     data: messages,
@@ -437,9 +440,24 @@ export default function ConversationScreen() {
     { conversationId: id || "" },
     {
       enabled: !!id,
-      refetchInterval: 3000, // Poll for new messages every 3 seconds
     }
   );
+
+  // Real-time message updates via WebSocket
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    connect();
+    const unsubscribe = subscribe((msg) => {
+      if (msg.type === "new_message" && msg.conversationId === id) {
+        refetch();
+        utils.messages.conversations.invalidate();
+      }
+    });
+    return () => {
+      unsubscribe();
+      disconnect();
+    };
+  }, [id, isAuthenticated, connect, disconnect, subscribe, refetch, utils]);
 
   // Fetch reactions for this conversation
   const { data: reactions = [] } = trpc.messages.getConversationReactions.useQuery(

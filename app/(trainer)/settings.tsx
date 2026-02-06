@@ -138,7 +138,7 @@ export default function SettingsScreen() {
         const asset = result.assets[0];
         const res = await uploadAttachment.mutateAsync({
           fileName: asset.fileName || `profile_${Date.now()}.jpg`,
-          fileData: asset.base64,
+          fileData: asset.base64 || "",
           mimeType: asset.mimeType || "image/jpeg",
         });
 

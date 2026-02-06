@@ -497,3 +497,87 @@ export const userActivityLogs = mysqlTable("user_activity_logs", {
 
 export type UserActivityLog = typeof userActivityLogs.$inferSelect;
 export type InsertUserActivityLog = typeof userActivityLogs.$inferInsert;
+
+// ============================================================================
+// PAYMENT SESSIONS (Adyen checkout sessions)
+// ============================================================================
+
+export const paymentSessions = mysqlTable("payment_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Adyen session ID */
+  adyenSessionId: varchar("adyenSessionId", { length: 255 }).unique(),
+  /** Adyen session data (JSON blob returned by Adyen) */
+  adyenSessionData: text("adyenSessionData"),
+  /** Adyen payment reference (merchantReference) */
+  merchantReference: varchar("merchantReference", { length: 128 }).notNull().unique(),
+  /** Who requested the payment (trainer) */
+  requestedBy: int("requestedBy").notNull(),
+  /** Who should pay (client) — nullable for QR / link payments */
+  payerId: int("payerId"),
+  /** Amount in minor units (e.g. 1000 = £10.00) */
+  amountMinor: int("amountMinor").notNull(),
+  /** ISO currency code */
+  currency: varchar("currency", { length: 3 }).default("GBP").notNull(),
+  /** Human-readable description */
+  description: varchar("description", { length: 500 }),
+  /** Payment method type: qr, link, tap, card, apple_pay */
+  method: mysqlEnum("method", ["qr", "link", "tap", "card", "apple_pay"]),
+  /** Status tracking */
+  status: mysqlEnum("status", [
+    "created",
+    "pending",
+    "authorised",
+    "captured",
+    "refused",
+    "cancelled",
+    "error",
+    "refunded",
+  ]).default("created").notNull(),
+  /** Adyen PSP reference (set after authorisation) */
+  pspReference: varchar("pspReference", { length: 128 }),
+  /** Associated order/subscription */
+  orderId: int("orderId"),
+  subscriptionId: int("subscriptionId"),
+  /** Adyen payment link URL (for link/QR payments) */
+  paymentLink: text("paymentLink"),
+  /** Metadata */
+  metadata: json("metadata"),
+  expiresAt: timestamp("expiresAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PaymentSession = typeof paymentSessions.$inferSelect;
+export type InsertPaymentSession = typeof paymentSessions.$inferInsert;
+
+// ============================================================================
+// PAYMENT LOGS (Webhook events + audit trail)
+// ============================================================================
+
+export const paymentLogs = mysqlTable("payment_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Link to payment session */
+  paymentSessionId: int("paymentSessionId"),
+  /** Adyen PSP reference */
+  pspReference: varchar("pspReference", { length: 128 }),
+  /** Adyen merchant reference */
+  merchantReference: varchar("merchantReference", { length: 128 }),
+  /** Event type: AUTHORISATION, CAPTURE, REFUND, CANCELLATION, etc. */
+  eventCode: varchar("eventCode", { length: 64 }).notNull(),
+  /** Whether the event was successful */
+  success: boolean("success").default(false).notNull(),
+  /** Amount in minor units */
+  amountMinor: int("amountMinor"),
+  currency: varchar("currency", { length: 3 }),
+  /** Payment method used */
+  paymentMethod: varchar("paymentMethod", { length: 64 }),
+  /** Raw Adyen webhook payload (for debugging) */
+  rawPayload: json("rawPayload"),
+  /** Reason / refusal reason */
+  reason: text("reason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PaymentLog = typeof paymentLogs.$inferSelect;
+export type InsertPaymentLog = typeof paymentLogs.$inferInsert;

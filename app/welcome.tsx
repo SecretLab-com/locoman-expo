@@ -24,7 +24,7 @@ export default function WelcomeScreen() {
   }, [isAuthenticated, loading]);
 
   // Initialize the video player with the local asset
-  const videoSource = require("../assets/background.mp4");
+  const videoSource = require("../assets/background.m4v");
   const player = useVideoPlayer(videoSource, (player) => {
     player.loop = true;
     player.muted = true;

@@ -4,10 +4,30 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { generateImage } from "./_core/imageGeneration";
 import { systemRouter } from "./_core/systemRouter";
 import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
-import { notifyBadgeCounts } from "./_core/websocket";
+import { notifyBadgeCounts, notifyNewMessage } from "./_core/websocket";
+import * as adyen from "./adyen";
 import * as db from "./db";
 import * as shopify from "./shopify";
 import { storagePut } from "./storage";
+
+const BOT_REPLIES = [
+  "Thanks for your message! How can I help you today?",
+  "That's a great question! Let me think about it...",
+  "I appreciate you reaching out. Is there anything specific you need?",
+  "Got it! I'll make a note of that.",
+  "Sounds good! Anything else I can help with?",
+  "Interesting! Tell me more about that.",
+  "I'm here to help. What would you like to know?",
+  "Thanks for the update! I'll keep that in mind.",
+];
+
+function getBotReply(userMessage: string): string {
+  if (/hello|hi|hey/i.test(userMessage)) return "Hey there! How can I help you today?";
+  if (/bye|goodbye|later/i.test(userMessage)) return "Goodbye! Chat again anytime.";
+  if (/help/i.test(userMessage)) return "I'm the test bot. Send me any message and I'll reply to help you test the messaging system!";
+  if (/thanks|thank you/i.test(userMessage)) return "You're welcome! Let me know if you need anything else.";
+  return BOT_REPLIES[Math.floor(Math.random() * BOT_REPLIES.length)];
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -598,16 +618,27 @@ export const appRouter = router({
         conversationId: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        // Generate conversation ID if not provided
         const conversationId = input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
 
-        return db.createMessage({
+        const messageId = await db.createMessage({
           senderId: ctx.user.id,
           receiverId: input.receiverId,
           conversationId,
           content: input.content,
         });
+
+        // Real-time notification
+        notifyNewMessage(conversationId, {
+          id: messageId,
+          senderId: ctx.user.id,
+          receiverId: input.receiverId,
+          content: input.content,
+          conversationId,
+        }, [input.receiverId, ctx.user.id]);
+        notifyBadgeCounts([input.receiverId]);
+
+        return messageId;
       }),
 
     sendGroup: protectedProcedure
@@ -653,7 +684,7 @@ export const appRouter = router({
         const conversationId = input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
 
-        return db.createMessage({
+        const messageId = await db.createMessage({
           senderId: ctx.user.id,
           receiverId: input.receiverId,
           conversationId,
@@ -664,6 +695,17 @@ export const appRouter = router({
           attachmentSize: input.attachmentSize,
           attachmentMimeType: input.attachmentMimeType,
         });
+
+        notifyNewMessage(conversationId, {
+          id: messageId,
+          senderId: ctx.user.id,
+          receiverId: input.receiverId,
+          content: input.content,
+          conversationId,
+        }, [input.receiverId, ctx.user.id]);
+        notifyBadgeCounts([input.receiverId]);
+
+        return messageId;
       }),
 
     sendGroupWithAttachment: protectedProcedure
@@ -754,6 +796,59 @@ export const appRouter = router({
         const { url } = await storagePut(key, buffer, input.mimeType);
 
         return { url, key };
+      }),
+
+    // Send a message to the test bot — bot replies after 1s
+    sendToBot: protectedProcedure
+      .input(z.object({
+        content: z.string().min(1),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const BOT_USER_ID = 0; // System bot
+        const conversationId = `bot-${ctx.user.id}`;
+
+        // Save user's message
+        const userMsgId = await db.createMessage({
+          senderId: ctx.user.id,
+          receiverId: BOT_USER_ID,
+          conversationId,
+          content: input.content,
+        });
+
+        notifyNewMessage(conversationId, {
+          id: userMsgId,
+          senderId: ctx.user.id,
+          receiverId: BOT_USER_ID,
+          content: input.content,
+          conversationId,
+        }, [ctx.user.id]);
+
+        // Bot replies after 1 second
+        const userId = ctx.user.id;
+        setTimeout(async () => {
+          try {
+            const botReply = getBotReply(input.content);
+            const botMsgId = await db.createMessage({
+              senderId: BOT_USER_ID,
+              receiverId: userId,
+              conversationId,
+              content: botReply,
+            });
+
+            notifyNewMessage(conversationId, {
+              id: botMsgId,
+              senderId: BOT_USER_ID,
+              receiverId: userId,
+              content: botReply,
+              conversationId,
+            }, [userId]);
+            notifyBadgeCounts([userId]);
+          } catch (err) {
+            console.error("[Bot] Failed to reply:", err);
+          }
+        }, 1000);
+
+        return { conversationId, messageId: userMsgId };
       }),
   }),
 
@@ -1308,6 +1403,121 @@ export const appRouter = router({
         // Return target user info for client to use
         return { targetUser };
       }),
+  }),
+
+  // ============================================================================
+  // PAYMENTS (Adyen integration)
+  // ============================================================================
+  payments: router({
+    /** Get Adyen client config (safe for frontend) */
+    config: protectedProcedure.query(() => {
+      return {
+        clientKey: adyen.getClientKey(),
+        environment: adyen.getEnvironment(),
+        configured: adyen.isAdyenConfigured(),
+      };
+    }),
+
+    /** Create a checkout session for card/Apple Pay */
+    createSession: trainerProcedure
+      .input(z.object({
+        amountMinor: z.number().min(1),
+        currency: z.string().default("GBP"),
+        description: z.string().optional(),
+        payerId: z.number().optional(),
+        method: z.enum(["card", "apple_pay", "tap"]).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const ref = adyen.generateMerchantReference("PAY");
+        const session = await adyen.createCheckoutSession({
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          merchantReference: ref,
+          shopperEmail: ctx.user.email || undefined,
+        });
+
+        await db.createPaymentSession({
+          adyenSessionId: session.id,
+          adyenSessionData: session.sessionData,
+          merchantReference: ref,
+          requestedBy: ctx.user.id,
+          payerId: input.payerId,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          description: input.description,
+          method: input.method || "card",
+          status: "created",
+          expiresAt: session.expiresAt ? new Date(session.expiresAt) : undefined,
+        });
+
+        return {
+          sessionId: session.id,
+          sessionData: session.sessionData,
+          merchantReference: ref,
+          clientKey: adyen.getClientKey(),
+          environment: adyen.getEnvironment(),
+        };
+      }),
+
+    /** Create a payment link (for QR codes and shareable URLs) */
+    createLink: trainerProcedure
+      .input(z.object({
+        amountMinor: z.number().min(1),
+        currency: z.string().default("GBP"),
+        description: z.string().optional(),
+        payerId: z.number().optional(),
+        expiresInMinutes: z.number().default(60),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const ref = adyen.generateMerchantReference("LINK");
+        const link = await adyen.createPaymentLink({
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          merchantReference: ref,
+          description: input.description || "Payment request",
+          expiresInMinutes: input.expiresInMinutes,
+        });
+
+        await db.createPaymentSession({
+          adyenSessionId: link.id,
+          merchantReference: ref,
+          requestedBy: ctx.user.id,
+          payerId: input.payerId,
+          amountMinor: input.amountMinor,
+          currency: input.currency,
+          description: input.description,
+          method: "link",
+          status: "created",
+          paymentLink: link.url,
+          expiresAt: link.expiresAt ? new Date(link.expiresAt) : undefined,
+        });
+
+        return {
+          linkUrl: link.url,
+          merchantReference: ref,
+          expiresAt: link.expiresAt ? String(link.expiresAt) : null,
+        };
+      }),
+
+    /** Get payment history for the current trainer */
+    history: trainerProcedure
+      .input(z.object({
+        limit: z.number().default(50),
+        offset: z.number().default(0),
+        status: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        return db.getPaymentHistory(ctx.user.id, {
+          limit: input.limit,
+          offset: input.offset,
+          status: input.status,
+        });
+      }),
+
+    /** Get payment stats for the current trainer */
+    stats: trainerProcedure.query(async ({ ctx }) => {
+      return db.getPaymentStats(ctx.user.id);
+    }),
   }),
 
   // ============================================================================

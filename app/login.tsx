@@ -64,7 +64,11 @@ export default function LoginScreen() {
     }
   }, [authLoading, isAuthenticated]);
 
-  const handleLogin = async (testEmail?: string, testPassword?: string) => {
+  const handleLogin = async (testEmail?: string | any, testPassword?: string) => {
+    // Handle both direct calls with test credentials and button press events
+    if (typeof testEmail !== 'string') {
+      testEmail = undefined;
+    }
     await haptics.light();
 
     const finalEmail = String(testEmail || email || "").trim();

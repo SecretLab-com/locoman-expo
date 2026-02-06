@@ -288,23 +288,30 @@ async function fetchProductMedia(productId: number): Promise<ProductMedia> {
     };
   }
 
-  const response = await shopifyRequest<{ media: ShopifyMedia[] }>(
-    `/products/${productId}/media.json`,
-  );
-  const images: string[] = [];
-  const videos: string[] = [];
-  for (const media of response.media || []) {
-    const type = media.media_type?.toLowerCase();
-    if (type === "image") {
-      if (media.image?.src) images.push(media.image.src);
-      else if (media.preview_image?.src) images.push(media.preview_image.src);
-    } else if (type === "video" || type === "external_video") {
-      const url = media.sources?.[0]?.url || media.preview_image?.src;
-      if (url) videos.push(url);
+  try {
+    const response = await shopifyRequest<{ media: ShopifyMedia[] }>(
+      `/products/${productId}/media.json`,
+    );
+    const images: string[] = [];
+    const videos: string[] = [];
+    for (const media of response.media || []) {
+      const type = media.media_type?.toLowerCase();
+      if (type === "image") {
+        if (media.image?.src) images.push(media.image.src);
+        else if (media.preview_image?.src) images.push(media.preview_image.src);
+      } else if (type === "video" || type === "external_video") {
+        const url = media.sources?.[0]?.url || media.preview_image?.src;
+        if (url) videos.push(url);
+      }
     }
+    return { images, videos };
+  } catch {
+    // Media endpoint may 404 or 429 — gracefully skip
+    return { images: [], videos: [] };
   }
-  return { images, videos };
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Sync products from Shopify to database
@@ -335,7 +342,11 @@ export async function syncProductsToDatabase(
     try {
       const variant = product.variants[0];
       const image = product.images[0];
-      const media = await fetchProductMedia(product.id);
+      // Build media from the product listing images (no extra API call)
+      const media: ProductMedia = {
+        images: product.images.map((img) => img.src),
+        videos: [],
+      };
 
       await upsertProduct({
         shopifyId: product.id,
@@ -361,6 +372,17 @@ export async function syncProductsToDatabase(
   return { synced, errors };
 }
 
+function isBundle(product: ShopifyProduct): boolean {
+  const pt = (product.product_type || "").toLowerCase().trim();
+  if (pt === "bundle") return true;
+  // Products published by our app use the store name as vendor and "Bundle" product_type
+  // Some older bundles may not have product_type set, check vendor + tags
+  const vendor = (product.vendor || "").toLowerCase().trim();
+  const tags = (product.tags || "").toLowerCase();
+  if (vendor === SHOPIFY_STORE_NAME.toLowerCase() && tags.includes("bundle")) return true;
+  return false;
+}
+
 export async function syncProductsFromShopify(): Promise<{ synced: number; errors: number }> {
   const products = await fetchProducts();
   let synced = 0;
@@ -374,7 +396,12 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
     try {
       const variant = product.variants[0];
       const image = product.images[0];
-      const media = await fetchProductMedia(product.id);
+      const media: ProductMedia = {
+        images: product.images.map((img) => img.src),
+        videos: [],
+      };
+      const productIsBundle = isBundle(product);
+
       await db.upsertProduct({
         shopifyProductId: product.id,
         shopifyVariantId: variant?.id,
@@ -383,12 +410,25 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
         price: variant?.price || "0.00",
         imageUrl: image?.src || null,
         brand: product.vendor || null,
-        category: toCategory(product.product_type),
+        category: productIsBundle ? null : toCategory(product.product_type),
         inventoryQuantity: variant?.inventory_quantity || 0,
         availability: (variant?.inventory_quantity || 0) > 0 ? "available" : "out_of_stock",
         syncedAt: new Date(),
         media,
       });
+
+      // If it's a bundle, ensure a corresponding bundle_draft exists
+      if (productIsBundle) {
+        await db.upsertBundleFromShopify({
+          shopifyProductId: product.id,
+          shopifyVariantId: variant?.id,
+          title: product.title,
+          description: product.body_html || null,
+          imageUrl: image?.src || null,
+          price: variant?.price || "0.00",
+        });
+      }
+
       synced++;
     } catch (error) {
       console.error(`[Shopify] Failed to sync product ${product.id}:`, error);
@@ -436,8 +476,9 @@ export async function publishBundle(options: PublishBundleOptions): Promise<{ pr
     product: {
       title,
       body_html: fullDescription,
-      vendor: "LocoMotivate",
+      vendor: SHOPIFY_STORE_NAME || "LocoMotivate",
       product_type: "Bundle",
+      tags: "bundle",
       status: "active",
       variants: [
         {

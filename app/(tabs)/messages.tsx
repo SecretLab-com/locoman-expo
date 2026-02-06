@@ -4,10 +4,11 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { useWebSocket } from "@/hooks/use-websocket";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import {
     ActivityIndicator,
     FlatList,
@@ -150,6 +151,8 @@ export default function MessagesScreen() {
             ? "/(coordinator)"
             : "/(tabs)";
 
+  const { connect, disconnect, subscribe } = useWebSocket();
+
   // Fetch conversations from API
   const {
     data: conversations,
@@ -159,6 +162,21 @@ export default function MessagesScreen() {
   } = trpc.messages.conversations.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+
+  // Real-time conversation updates via WebSocket
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    connect();
+    const unsubscribe = subscribe((msg) => {
+      if (msg.type === "new_message" || msg.type === "badge_counts_updated") {
+        refetch();
+      }
+    });
+    return () => {
+      unsubscribe();
+      disconnect();
+    };
+  }, [isAuthenticated, connect, disconnect, subscribe, refetch]);
 
   const onRefresh = useCallback(async () => {
     await haptics.light();

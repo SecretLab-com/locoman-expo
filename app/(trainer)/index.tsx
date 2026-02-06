@@ -2,11 +2,40 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { haptics } from "@/hooks/use-haptics";
 import { trpc } from "@/lib/trpc";
+// expo-clipboard requires Metro restart after install; use fallback for web
+const copyToClipboard = async (text: string) => {
+  try {
+    if (Platform.OS === "web" && navigator?.clipboard) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const Clipboard = require("expo-clipboard");
+    await Clipboard.setStringAsync(text);
+  } catch {
+    // Fallback: prompt user to copy
+    if (Platform.OS === "web") {
+      window.prompt("Copy this link:", text);
+    }
+  }
+};
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 type StatCardProps = {
   title: string;
   value: string | number;
@@ -124,6 +153,95 @@ export default function TrainerDashboardScreen() {
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = trpc.trainerDashboard.stats.useQuery();
   const { data: points, refetch: refetchPoints } = trpc.trainerDashboard.points.useQuery();
   const { data: clientsData, refetch: refetchClients } = trpc.clients.list.useQuery();
+
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDescription, setPaymentDescription] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"link" | "card">("link");
+
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === "web") {
+      window.alert(`${title}\n\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
+
+  const [paymentLinkResult, setPaymentLinkResult] = useState<string | null>(null);
+
+  const createLink = trpc.payments.createLink.useMutation({
+    onSuccess: (data) => {
+      setPaymentAmount("");
+      setPaymentDescription("");
+      setPaymentLinkResult(data.linkUrl);
+    },
+    onError: (err) => {
+      console.error("[Payments] createLink error:", err);
+      showAlert("Payment Error", err.message);
+    },
+  });
+
+  const handleCopyLink = async () => {
+    if (!paymentLinkResult) return;
+    await copyToClipboard(paymentLinkResult);
+    await haptics.light();
+    showAlert("Copied", "Payment link copied to clipboard");
+  };
+
+  const handleShareLink = async () => {
+    if (!paymentLinkResult) return;
+    try {
+      const { Share } = require("react-native");
+      await Share.share({
+        message: `Please complete your payment: ${paymentLinkResult}`,
+        url: paymentLinkResult,
+      });
+    } catch {
+      handleCopyLink();
+    }
+  };
+
+  const createSession = trpc.payments.createSession.useMutation({
+    onSuccess: (_data) => {
+      // Card session created — in a full dev build, this would open the Adyen Drop-in
+      // For now, fall back to creating a payment link instead
+      console.log("[Payments] Session created, falling back to link for Expo Go");
+      const amountMinor = Math.round(parseFloat(paymentAmount) * 100);
+      createLink.mutate({
+        amountMinor,
+        description: paymentDescription || undefined,
+      });
+    },
+    onError: (err) => {
+      console.error("[Payments] createSession error:", err);
+      showAlert("Payment Error", err.message);
+    },
+  });
+
+  const handleRequestPayment = async () => {
+    await haptics.light();
+    console.log("[Payments] handleRequestPayment called", { paymentAmount, paymentMethod, paymentDescription });
+    const amountFloat = parseFloat(paymentAmount);
+    if (!amountFloat || amountFloat <= 0) {
+      showAlert("Invalid Amount", "Please enter a valid amount.");
+      return;
+    }
+    const amountMinor = Math.round(amountFloat * 100);
+
+    console.log("[Payments] Calling mutation", { paymentMethod, amountMinor });
+    if (paymentMethod === "link") {
+      createLink.mutate({
+        amountMinor,
+        description: paymentDescription || undefined,
+      });
+    } else {
+      createSession.mutate({
+        amountMinor,
+        description: paymentDescription || undefined,
+        method: "card",
+      });
+    }
+  };
 
   const isLoading = statsLoading;
   const isRefetching = false;
@@ -370,6 +488,37 @@ export default function TrainerDashboardScreen() {
           </ScrollView>
         </View>
 
+        {/* QuickPay */}
+        <View className="px-4 mb-6">
+          <Text className="text-lg font-semibold text-foreground mb-3">QuickPay</Text>
+          <View className="bg-surface border border-border rounded-xl p-4">
+            <View className="flex-row gap-3">
+              <TouchableOpacity
+                className="flex-1 bg-primary rounded-xl py-4 items-center"
+                onPress={() => setPaymentModalOpen(true)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Request payment"
+                testID="quickpay-request"
+              >
+                <IconSymbol name="dollarsign.circle.fill" size={28} color="#fff" />
+                <Text className="text-white font-semibold mt-2">Request Payment</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="flex-1 bg-surface border border-border rounded-xl py-4 items-center"
+                onPress={() => router.push("/(trainer)/payment-history" as any)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Payment history"
+                testID="quickpay-history"
+              >
+                <IconSymbol name="clock.fill" size={28} color={colors.primary} />
+                <Text className="text-foreground font-semibold mt-2">Payment History</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
         {/* Quick Actions */}
         <View className="px-4 mb-6">
           <Text className="text-lg font-semibold text-foreground mb-3">Quick Actions</Text>
@@ -454,6 +603,146 @@ export default function TrainerDashboardScreen() {
         </View>
         <View className="h-6" />
       </ScrollView>
+
+      {/* Request Payment Modal */}
+      <Modal
+        visible={paymentModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setPaymentModalOpen(false); setPaymentLinkResult(null); }}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <Pressable style={{ flex: 1 }} onPress={() => setPaymentModalOpen(false)} />
+          <View
+            className="bg-background rounded-t-3xl p-6"
+            onStartShouldSetResponder={() => true}
+          >
+            <View className="flex-row items-center justify-between mb-6">
+              <Text className="text-xl font-bold text-foreground">
+                {paymentLinkResult ? "Payment Link Ready" : "Request Payment"}
+              </Text>
+              <TouchableOpacity onPress={() => { setPaymentModalOpen(false); setPaymentLinkResult(null); }}>
+                <IconSymbol name="xmark" size={20} color={colors.muted} />
+              </TouchableOpacity>
+            </View>
+
+            {paymentLinkResult ? (
+              <View>
+                <View className="bg-success/10 border border-success/30 rounded-xl p-4 mb-4">
+                  <View className="flex-row items-center mb-2">
+                    <IconSymbol name="checkmark.circle.fill" size={20} color={colors.success} />
+                    <Text className="text-success font-semibold ml-2">Payment link created</Text>
+                  </View>
+                  <Text className="text-foreground text-sm" selectable>{paymentLinkResult}</Text>
+                </View>
+
+                <View className="flex-row gap-3 mb-4">
+                  <TouchableOpacity
+                    className="flex-1 bg-primary py-4 rounded-xl items-center"
+                    onPress={handleCopyLink}
+                    activeOpacity={0.8}
+                  >
+                    <Text className="text-white font-bold">Copy Link</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    className="flex-1 bg-surface border border-border py-4 rounded-xl items-center"
+                    onPress={handleShareLink}
+                    activeOpacity={0.8}
+                  >
+                    <Text className="text-foreground font-bold">Share</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  className="py-3 items-center"
+                  onPress={() => { setPaymentLinkResult(null); }}
+                  activeOpacity={0.8}
+                >
+                  <Text className="text-primary font-medium">Create Another</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View>
+
+            {/* Amount */}
+            <Text className="text-sm font-medium text-muted mb-2">Amount (£)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground text-lg font-bold mb-4"
+              placeholder="0.00"
+              placeholderTextColor={colors.muted}
+              value={paymentAmount}
+              onChangeText={setPaymentAmount}
+              keyboardType="decimal-pad"
+              testID="payment-amount"
+            />
+
+            {/* Description */}
+            <Text className="text-sm font-medium text-muted mb-2">Description (optional)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+              placeholder="e.g. Personal training session"
+              placeholderTextColor={colors.muted}
+              value={paymentDescription}
+              onChangeText={setPaymentDescription}
+              testID="payment-description"
+            />
+
+            {/* Payment Method */}
+            <Text className="text-sm font-medium text-muted mb-2">Payment Method</Text>
+            <View className="flex-row gap-3 mb-6">
+              <TouchableOpacity
+                className={`flex-1 py-3 rounded-xl items-center border ${
+                  paymentMethod === "link" ? "border-primary bg-primary/10" : "border-border bg-surface"
+                }`}
+                onPress={() => setPaymentMethod("link")}
+                accessibilityRole="button"
+                accessibilityLabel="QR Code / Link"
+                testID="payment-method-link"
+              >
+                <IconSymbol name="link" size={24} color={paymentMethod === "link" ? colors.primary : colors.muted} />
+                <Text className={`text-sm font-medium mt-1 ${paymentMethod === "link" ? "text-primary" : "text-muted"}`}>
+                  QR / Link
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className={`flex-1 py-3 rounded-xl items-center border ${
+                  paymentMethod === "card" ? "border-primary bg-primary/10" : "border-border bg-surface"
+                }`}
+                onPress={() => setPaymentMethod("card")}
+                accessibilityRole="button"
+                accessibilityLabel="Card payment"
+                testID="payment-method-card"
+              >
+                <IconSymbol name="creditcard.fill" size={24} color={paymentMethod === "card" ? colors.primary : colors.muted} />
+                <Text className={`text-sm font-medium mt-1 ${paymentMethod === "card" ? "text-primary" : "text-muted"}`}>
+                  Card
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Submit */}
+            <TouchableOpacity
+              className="bg-primary py-4 rounded-xl items-center"
+              onPress={handleRequestPayment}
+              disabled={createLink.isPending || createSession.isPending}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Send payment request"
+              testID="payment-submit"
+            >
+              {createLink.isPending || createSession.isPending ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text className="text-white font-bold text-lg">
+                  {paymentMethod === "link" ? "Generate Payment Link" : "Create Payment Session"}
+                </Text>
+              )}
+            </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }

@@ -1,23 +1,21 @@
-import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { navigateToHome } from "@/lib/navigation";
 import { usePathname } from "expo-router";
-import { Text, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /**
- * Banner shown when a coordinator is impersonating another user.
- * Displays the impersonated user's name and provides a button to end impersonation.
+ * Floating banner shown when a coordinator is impersonating another user.
+ * Does not consume vertical space — floats over content.
  */
 export function ImpersonationBanner() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { isImpersonating, impersonatedUser, stopImpersonation } = useAuthContext();
-
   const pathname = usePathname();
 
-  // Only show if actually impersonating and not on the welcome page
   if (!isImpersonating || !impersonatedUser || pathname === "/welcome") {
     return null;
   }
@@ -25,37 +23,78 @@ export function ImpersonationBanner() {
   const handleEndImpersonation = async () => {
     await haptics.medium();
     stopImpersonation();
-    // Navigate back to coordinator dashboard using role-aware navigation
     navigateToHome({ isCoordinator: true });
   };
 
+  const topOffset = Platform.OS === "web" ? 4 : Math.max(insets.top, 4);
+
   return (
-    <SafeAreaView
-      edges={["top", "left", "right"]}
-      className="bg-warning/20 border-b border-warning"
-      style={{ zIndex: 1000 }}
+    <View
+      style={[styles.container, { top: topOffset }]}
+      pointerEvents="box-none"
     >
-      <View className="px-4 pt-2 pb-3 flex-row items-center justify-between">
-        <View className="flex-row items-center flex-1">
-          <IconSymbol name="person.badge.key.fill" size={20} color={colors.warning} />
-          <View className="ml-2 flex-1">
-            <Text className="text-warning font-semibold text-sm">Impersonating</Text>
-            <Text className="text-warning/80 text-xs" numberOfLines={1}>
-              {impersonatedUser.name || impersonatedUser.email || "Unknown User"}
-            </Text>
-          </View>
-        </View>
+      <View style={styles.pill}>
+        <Text style={styles.label}>
+          Impersonating{" "}
+          <Text style={styles.name}>
+            {impersonatedUser.name || impersonatedUser.email || "Unknown"}
+          </Text>
+        </Text>
         <TouchableOpacity
           onPress={handleEndImpersonation}
-          className="bg-warning px-4 py-2 rounded-full"
+          style={styles.button}
           activeOpacity={0.8}
           accessibilityRole="button"
           accessibilityLabel="End impersonation session"
           testID="end-impersonation"
         >
-          <Text className="text-white font-semibold text-sm">End Session</Text>
+          <Text style={styles.buttonText}>End Session</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 9999,
+    alignItems: "center",
+    pointerEvents: "box-none",
+  },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(234, 179, 8, 0.9)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  label: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  name: {
+    fontWeight: "700",
+  },
+  button: {
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+});

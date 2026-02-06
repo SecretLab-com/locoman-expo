@@ -106,16 +106,31 @@ export function ShareButton({
         ? `${content.message}\n\n${webLink}`
         : `Check out ${content.title} on LocoMotivate!\n\n${webLink}`;
 
-      // Open native share sheet
+      // On web, try Web Share API first, then fallback to clipboard
+      if (Platform.OS === "web") {
+        if (typeof navigator !== "undefined" && navigator.share) {
+          await navigator.share({ title: content.title, text: shareMessage, url: webLink });
+          onShareSuccess?.();
+        } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+          await navigator.clipboard.writeText(shareMessage);
+          window.alert("Link copied to clipboard!");
+          onShareSuccess?.();
+        } else {
+          window.prompt("Copy this link:", webLink);
+        }
+        return;
+      }
+
+      // Native share sheet
       const result = await Share.share(
         {
           title: content.title,
           message: shareMessage,
-          url: Platform.OS === "ios" ? webLink : undefined, // iOS supports separate URL
+          url: Platform.OS === "ios" ? webLink : undefined,
         },
         {
           dialogTitle: `Share ${content.title}`,
-          subject: content.title, // For email sharing
+          subject: content.title,
         }
       );
 

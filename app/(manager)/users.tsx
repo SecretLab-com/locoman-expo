@@ -445,15 +445,15 @@ export default function UsersScreen() {
       closeModal();
       
       // Navigate to appropriate dashboard based on impersonated user's role
-      // Uses role-aware navigation helper for consistency
-      navigateToHome({
-        isCoordinator: selectedUser.role === "coordinator",
-        isManager: selectedUser.role === "manager",
-        isTrainer: selectedUser.role === "trainer",
-        isClient: selectedUser.role === "client",
-      });
-      
-      Alert.alert("Impersonation Started", `You are now viewing as ${selectedUser.name}`);
+      // Use setTimeout to let modal close and state update before navigating
+      setTimeout(() => {
+        navigateToHome({
+          isCoordinator: selectedUser.role === "coordinator",
+          isManager: selectedUser.role === "manager",
+          isTrainer: selectedUser.role === "trainer",
+          isClient: selectedUser.role === "client",
+        });
+      }, 300);
     } catch {
       Alert.alert("Error", "Failed to start impersonation");
     }
@@ -1220,7 +1220,8 @@ export default function UsersScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
+            className="bg-background"
+            style={styles.modalContent}
             onPress={(e) => e.stopPropagation()}
           >
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -1506,7 +1507,8 @@ export default function UsersScreen() {
           onPress={() => setBulkActionModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
+            className="bg-background"
+            style={styles.modalContent}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.modalHeader}>
@@ -1596,7 +1598,8 @@ export default function UsersScreen() {
           onPress={() => setInviteModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
+            className="bg-background"
+            style={styles.modalContent}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.modalHeader}>

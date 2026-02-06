@@ -1,4 +1,4 @@
-import { useBottomNavHeight } from "@/components/role-bottom-nav";
+// import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -105,9 +105,9 @@ export default function ProductsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const { canManage, effectiveRole, isClient } = useAuthContext();
-  const bottomNavHeight = useBottomNavHeight();
+  // const bottomNavHeight = useBottomNavHeight();
   const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
     : "rgba(15, 23, 42, 0.18)";
@@ -695,11 +695,6 @@ export default function ProductsScreen() {
                             </Text>
                           </View>
 
-                          <View className="px-2.5 pb-2.5">
-                            <View className="py-1.5 rounded-lg items-center border border-border bg-surface">
-                              <Text className="text-xs font-semibold text-foreground">Review only</Text>
-                            </View>
-                          </View>
                         </TouchableOpacity>
                       );
                     }
@@ -803,11 +798,7 @@ export default function ProductsScreen() {
                                 {inStock ? "Add to Cart" : "Sold Out"}
                               </Text>
                             </TouchableOpacity>
-                          ) : (
-                            <View className="py-1.5 rounded-lg items-center border border-border bg-surface">
-                              <Text className="text-xs font-semibold text-foreground">Review only</Text>
-                            </View>
-                          )}
+                          ) : null}
                         </View>
                       </TouchableOpacity>
                     );
@@ -890,13 +881,15 @@ export default function ProductsScreen() {
         animationType="slide"
         onRequestClose={() => setDetailModalOpen(false)}
       >
-        <Pressable
-          className="flex-1 justify-end"
-          onPress={() => setDetailModalOpen(false)}
-          style={{ backgroundColor: overlayColor }}
-        >
+        <View style={{ flex: 1, backgroundColor: overlayColor }}>
+          {/* Tappable top area — closes the modal */}
+          <Pressable
+            style={{ flex: 1, minHeight: 60 }}
+            onPress={() => setDetailModalOpen(false)}
+          />
+          {/* Sheet — anchored to bottom, above the nav */}
           <View
-            className="bg-background rounded-t-3xl max-h-[95%]"
+            className="bg-background rounded-t-3xl overflow-hidden"
             onStartShouldSetResponder={() => true}
           >
             {selectedProduct && (
@@ -910,47 +903,53 @@ export default function ProductsScreen() {
                 </View>
 
                 {/* Content */}
-                <View className="p-6">
-                  <View className="flex-row items-start">
-                    <View className="w-28 h-28 rounded-xl bg-surface items-center justify-center overflow-hidden mr-4">
-                      {selectedProduct.imageUrl && !failedImages[`product-${selectedProduct.id}`] ? (
-                        <Pressable
-                          onPress={() => openMediaViewer(selectedProduct, selectedProduct.imageUrl)}
-                          accessibilityRole="button"
-                          accessibilityLabel="Zoom product image"
-                          testID="product-image-zoom"
-                          className="w-full h-full"
-                        >
-                          <Image
-                            source={{ uri: selectedProduct.imageUrl }}
-                            className="w-full h-full"
-                            resizeMode="cover"
-                            onError={() => markImageFailed(`product-${selectedProduct.id}`)}
-                          />
-                        </Pressable>
-                      ) : (
-                        <IconSymbol name="cube.box" size={36} color={colors.muted} />
-                      )}
-                    </View>
-                    <View className="flex-1">
-                      {selectedProduct.category && (
-                        <View className="bg-primary/10 self-start px-2 py-0.5 rounded-full mb-2">
-                          <Text className="text-xs text-primary">{getCategoryLabel(selectedProduct.category)}</Text>
-                        </View>
-                      )}
-                      <Text className="text-base font-semibold text-foreground mb-1">
-                        {selectedProduct.name}
-                      </Text>
-                      <View className="flex-row items-center mb-2">
+                <View>
+                  {/* Product Image — full width, tap to zoom */}
+                  <Pressable
+                    onPress={() => openMediaViewer(selectedProduct, selectedProduct.imageUrl)}
+                    className="w-full bg-surface items-center justify-center overflow-hidden"
+                    style={{ height: 240 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="View product images"
+                    testID="product-image-zoom"
+                  >
+                    {selectedProduct.imageUrl && !failedImages[`product-${selectedProduct.id}`] ? (
+                      <Image
+                        source={{ uri: selectedProduct.imageUrl }}
+                        className="w-full h-full"
+                        resizeMode="contain"
+                        onError={() => markImageFailed(`product-${selectedProduct.id}`)}
+                      />
+                    ) : (
+                      <IconSymbol name="cube.box" size={48} color={colors.muted} />
+                    )}
+                  </Pressable>
+
+                  {/* Product Info */}
+                  <View className="px-6 pt-4">
+                    <View className="flex-row items-center justify-between mb-1">
+                      <View className="flex-1 mr-3">
+                        <Text className="text-lg font-bold text-foreground">
+                          {selectedProduct.name}
+                        </Text>
+                      </View>
+                      <View className="items-end">
                         <Text className="text-lg font-bold text-foreground">
                           ${parseFloat(selectedProduct.price).toFixed(2)}
                         </Text>
                         {selectedProduct.compareAtPrice && parseFloat(selectedProduct.compareAtPrice) > parseFloat(selectedProduct.price) && (
-                          <Text className="text-sm text-muted line-through ml-2">
+                          <Text className="text-sm text-muted line-through">
                             ${parseFloat(selectedProduct.compareAtPrice).toFixed(2)}
                           </Text>
                         )}
                       </View>
+                    </View>
+                    <View className="flex-row items-center justify-between mb-3">
+                      {selectedProduct.category ? (
+                        <View className="bg-primary/10 px-2 py-0.5 rounded-full">
+                          <Text className="text-xs text-primary">{getCategoryLabel(selectedProduct.category)}</Text>
+                        </View>
+                      ) : <View />}
                       <View className="flex-row items-center">
                         <View
                           className={`w-2 h-2 rounded-full ${
@@ -960,7 +959,7 @@ export default function ProductsScreen() {
                           }`}
                         />
                         <Text
-                          className={`text-xs ml-2 ${
+                          className={`text-xs ml-1.5 ${
                             selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
                               ? "text-success"
                               : "text-error"
@@ -975,7 +974,7 @@ export default function ProductsScreen() {
                   </View>
 
                   {selectedProduct.description && (
-                    <View className="mt-5">
+                    <View className="mt-3 px-6">
                       <Text className="text-sm font-semibold text-foreground mb-2">Description</Text>
                       <RenderHTML
                         contentWidth={Math.max(0, width - 48)}
@@ -1006,7 +1005,7 @@ export default function ProductsScreen() {
                   )}
 
                   {(selectedProduct.brand || selectedProduct.phase) && (
-                    <View className="mt-4 space-y-2">
+                    <View className="mt-4 px-6 space-y-2">
                       {selectedProduct.brand && (
                         <View className="flex-row items-center">
                           <Text className="text-sm text-muted">Brand: </Text>
@@ -1031,7 +1030,7 @@ export default function ProductsScreen() {
                         setDetailModalOpen(false);
                       }}
                       disabled={selectedProduct.availability !== "available" || (selectedProduct.inventoryQuantity || 0) <= 0}
-                      className={`mt-6 py-3 rounded-xl items-center flex-row justify-center ${
+                      className={`mt-6 mx-6 py-3 rounded-xl items-center flex-row justify-center ${
                         selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
                           ? "bg-primary"
                           : "bg-muted"
@@ -1058,16 +1057,12 @@ export default function ProductsScreen() {
                           : "Sold Out"}
                       </Text>
                     </TouchableOpacity>
-                  ) : (
-                    <View className="mt-6 py-3 rounded-xl items-center border border-border bg-surface">
-                      <Text className="font-semibold text-foreground">Review only</Text>
-                    </View>
-                  )}
+                  ) : null}
                 </View>
               </ScrollView>
             )}
           </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* Media Viewer Modal */}
@@ -1089,14 +1084,18 @@ export default function ProductsScreen() {
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
-            contentOffset={{ x: mediaIndex * Math.max(width, 1), y: 0 }}
-            style={{ width: "100%" }}
+            contentOffset={{ x: mediaIndex * Math.round(width * 0.8), y: 0 }}
+            style={{ width: Math.round(width * 0.8), alignSelf: "center" }}
+            contentContainerStyle={{ alignItems: "center" }}
           >
-            {mediaItems.map((item, idx) => (
-              <View key={`${item.type}-${item.uri}-${idx}`} style={{ width: Math.max(width, 1), height: "100%" }}>
-                <MediaSlide item={item} width={Math.max(width, 1)} height={Math.max(width, 1)} />
-              </View>
-            ))}
+            {mediaItems.map((item, idx) => {
+              const slideSize = Math.round(Math.min(width, windowHeight) * 0.8);
+              return (
+                <View key={`${item.type}-${item.uri}-${idx}`} style={{ width: Math.round(width * 0.8), justifyContent: "center", alignItems: "center" }}>
+                  <MediaSlide item={item} width={slideSize} height={slideSize} />
+                </View>
+              );
+            })}
           </ScrollView>
         </Pressable>
       </Modal>
@@ -1105,7 +1104,7 @@ export default function ProductsScreen() {
         <TouchableOpacity
           onPress={() => router.push("/bundle-editor/new" as any)}
           className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
-          style={{ right: 16, bottom: 16 - bottomNavHeight }}
+          style={{ right: 16, bottom: 16 }}
           accessibilityRole="button"
           accessibilityLabel="Create a new bundle"
           testID="products-new-bundle-fab"
@@ -1127,24 +1126,28 @@ function MediaSlide({
   height: number;
 }) {
   if (item.type === "video") {
-    const player = useVideoPlayer(item.uri, (video) => {
-      video.loop = true;
-      video.play();
-    });
-    return (
-      <VideoView
-        player={player}
-        style={{ width, height }}
-        contentFit="contain"
-        nativeControls={false}
-      />
-    );
+    return <VideoSlide uri={item.uri} width={width} height={height} />;
   }
   return (
     <Image
       source={{ uri: item.uri }}
       style={{ width, height }}
       resizeMode="contain"
+    />
+  );
+}
+
+function VideoSlide({ uri, width, height }: { uri: string; width: number; height: number }) {
+  const player = useVideoPlayer(uri, (video) => {
+    video.loop = true;
+    video.play();
+  });
+  return (
+    <VideoView
+      player={player}
+      style={{ width, height }}
+      contentFit="contain"
+      nativeControls={false}
     />
   );
 }

@@ -453,7 +453,7 @@ export default function CoordinatorHomeScreen() {
                 <View className="h-20 w-full bg-muted/30 items-center justify-center">
                   <IconSymbol name="shippingbox.fill" size={20} color={colors.muted} />
                   <Image
-                    source={{ uri: bundle.image }}
+                    source={bundle.image ? { uri: bundle.image } : undefined}
                     style={styles.coverImage}
                     contentFit="cover"
                     transition={150}
@@ -502,6 +502,14 @@ export default function CoordinatorHomeScreen() {
         {/* Quick Actions */}
         <View className="px-4 mt-6">
           <Text className="text-lg font-semibold text-foreground mb-3">Quick actions</Text>
+
+          <QuickAction
+            icon="plus.circle.fill"
+            title="Create Bundle"
+            subtitle="Build a new wellness bundle"
+            onPress={() => router.push("/bundle-editor/new" as any)}
+            testID="coord-quick-create-bundle"
+          />
 
           <QuickAction
             icon="rectangle.grid.2x2.fill"

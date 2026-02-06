@@ -37,6 +37,10 @@ import {
   userActivityLogs,
   userInvitations,
   users,
+  paymentSessions,
+  paymentLogs,
+  InsertPaymentSession,
+  InsertPaymentLog,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -46,6 +50,7 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       _db = drizzle(process.env.DATABASE_URL);
+      console.log("[Database] Connected successfully");
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -70,47 +75,42 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   try {
-    const values: InsertUser = {
+    // Build values object with only the fields we want to set
+    const values: any = {
       openId: user.openId,
     };
-    const updateSet: Record<string, unknown> = {};
 
     const textFields = ["name", "email", "phone", "photoUrl", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
+    textFields.forEach((field) => {
+      if (user[field] !== undefined) {
+        values[field] = user[field] ?? null;
+      }
+    });
 
     if (user.lastSignedIn !== undefined) {
       values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId || user.email === "jason@secretlab.com") {
-      values.role = "coordinator";
-      updateSet.role = "coordinator";
-    }
-
-    if (!values.lastSignedIn) {
+    } else {
       values.lastSignedIn = new Date();
     }
 
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
+    if (user.role !== undefined) {
+      values.role = user.role;
+    } else if (user.openId === ENV.ownerOpenId || user.email === "jason@secretlab.com") {
+      values.role = "coordinator";
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
+    // Check if user already exists
+    const existing = await db.select().from(users).where(eq(users.openId, values.openId)).limit(1);
+
+    if (existing.length > 0) {
+      // Update
+      const updateSet: any = { ...values };
+      delete updateSet.openId;
+      await db.update(users).set(updateSet).where(eq(users.openId, values.openId));
+    } else {
+      // Insert
+      await db.insert(users).values(values);
+    }
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -317,6 +317,50 @@ export async function updateBundleDraft(id: number, data: Partial<InsertBundleDr
   await db.update(bundleDrafts).set(data).where(eq(bundleDrafts.id, id));
 }
 
+export async function upsertBundleFromShopify(data: {
+  shopifyProductId: number;
+  shopifyVariantId?: number;
+  title: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  price?: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  // Check if a bundle_draft already exists for this shopify product
+  const existing = await db
+    .select()
+    .from(bundleDrafts)
+    .where(eq(bundleDrafts.shopifyProductId, data.shopifyProductId))
+    .limit(1);
+  if (existing.length > 0) {
+    // Update existing
+    await db
+      .update(bundleDrafts)
+      .set({
+        title: data.title,
+        description: data.description,
+        imageUrl: data.imageUrl,
+        price: data.price,
+        shopifyVariantId: data.shopifyVariantId,
+        status: "published",
+      })
+      .where(eq(bundleDrafts.shopifyProductId, data.shopifyProductId));
+  } else {
+    // Create new bundle_draft linked to Shopify
+    await db.insert(bundleDrafts).values({
+      trainerId: 0, // System-imported bundle
+      title: data.title,
+      description: data.description,
+      imageUrl: data.imageUrl,
+      price: data.price,
+      shopifyProductId: data.shopifyProductId,
+      shopifyVariantId: data.shopifyVariantId,
+      status: "published",
+    });
+  }
+}
+
 export async function getPublishedBundles() {
   const db = await getDb();
   if (!db) return [];
@@ -351,102 +395,36 @@ export async function getPendingReviewBundles() {
 // PRODUCTS
 // ============================================================================
 
-let productsHasMediaColumn: boolean | null = null;
-
-async function hasProductsMediaColumn(db: ReturnType<typeof drizzle>) {
-  if (productsHasMediaColumn !== null) {
-    return productsHasMediaColumn;
-  }
-  try {
-    const result: any = await db.execute(sql`
-      select column_name
-      from information_schema.columns
-      where table_schema = database()
-        and table_name = 'products'
-        and column_name = 'media'
-      limit 1
-    `);
-    const rows = Array.isArray(result)
-      ? result
-      : result?.rows ?? result?.[0] ?? [];
-    productsHasMediaColumn = Array.isArray(rows) && rows.length > 0;
-  } catch (error) {
-    console.warn("[Database] Failed to check products.media column:", error);
-    productsHasMediaColumn = false;
-  }
-  return productsHasMediaColumn;
-}
-
 export async function getProducts() {
   const db = await getDb();
   if (!db) return [];
-  const hasMedia = await hasProductsMediaColumn(db);
-  if (hasMedia) {
-    return db
-      .select()
-      .from(products)
-      .where(eq(products.availability, "available"))
-      .orderBy(asc(products.name));
-  }
-  const rows = await db.execute(sql`
-    select
-      id, shopifyProductId, shopifyVariantId, name, description, imageUrl,
-      price, compareAtPrice, brand, category, phase, fulfillmentOptions,
-      inventoryQuantity, availability, isApproved, syncedAt, createdAt, updatedAt
-    from products
-    where availability = 'available'
-    order by name asc
-  `);
-  return rows as any[];
+  return db
+    .select()
+    .from(products)
+    .where(eq(products.availability, "available"))
+    .orderBy(asc(products.name));
 }
 
 export async function getProductById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const hasMedia = await hasProductsMediaColumn(db);
-  if (hasMedia) {
-    const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
-    return result.length > 0 ? result[0] : undefined;
-  }
-  const rows = await db.execute(sql`
-    select
-      id, shopifyProductId, shopifyVariantId, name, description, imageUrl,
-      price, compareAtPrice, brand, category, phase, fulfillmentOptions,
-      inventoryQuantity, availability, isApproved, syncedAt, createdAt, updatedAt
-    from products
-    where id = ${id}
-    limit 1
-  `);
-  return (rows as any[])[0];
+  const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
 }
 
 export async function searchProducts(query: string) {
   const db = await getDb();
   if (!db) return [];
-  const hasMedia = await hasProductsMediaColumn(db);
-  if (hasMedia) {
-    return db
-      .select()
-      .from(products)
-      .where(
-        and(
-          eq(products.availability, "available"),
-          or(like(products.name, `%${query}%`), like(products.brand, `%${query}%`)),
-        ),
-      )
-      .limit(50);
-  }
-  const rows = await db.execute(sql`
-    select
-      id, shopifyProductId, shopifyVariantId, name, description, imageUrl,
-      price, compareAtPrice, brand, category, phase, fulfillmentOptions,
-      inventoryQuantity, availability, isApproved, syncedAt, createdAt, updatedAt
-    from products
-    where availability = 'available'
-      and (name like ${`%${query}%`} or brand like ${`%${query}%`})
-    limit 50
-  `);
-  return rows as any[];
+  return db
+    .select()
+    .from(products)
+    .where(
+      and(
+        eq(products.availability, "available"),
+        or(like(products.name, `%${query}%`), like(products.brand, `%${query}%`)),
+      ),
+    )
+    .limit(50);
 }
 
 export async function upsertProduct(data: InsertProduct) {
@@ -1473,4 +1451,119 @@ export async function getPublishedBundlesPreviewByTrainer(trainerId: number, lim
     )
     .orderBy(desc(bundleDrafts.updatedAt))
     .limit(limit);
+}
+
+// ============================================================================
+// PAYMENT SESSIONS
+// ============================================================================
+
+export async function createPaymentSession(data: InsertPaymentSession) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(paymentSessions).values(data);
+  return result[0].insertId;
+}
+
+export async function getPaymentSessionByReference(merchantReference: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(paymentSessions)
+    .where(eq(paymentSessions.merchantReference, merchantReference))
+    .limit(1);
+  return rows[0];
+}
+
+export async function getPaymentSessionByAdyenId(adyenSessionId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(paymentSessions)
+    .where(eq(paymentSessions.adyenSessionId, adyenSessionId))
+    .limit(1);
+  return rows[0];
+}
+
+export async function updatePaymentSessionByReference(
+  merchantReference: string,
+  data: Partial<InsertPaymentSession>,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(paymentSessions)
+    .set(data)
+    .where(eq(paymentSessions.merchantReference, merchantReference));
+}
+
+export async function getPaymentHistory(
+  userId: number,
+  options: { limit?: number; offset?: number; status?: string } = {},
+) {
+  const db = await getDb();
+  if (!db) return [];
+  const limit = options.limit || 50;
+  const offset = options.offset || 0;
+
+  const conditions = [eq(paymentSessions.requestedBy, userId)];
+  if (options.status) {
+    conditions.push(eq(paymentSessions.status, options.status as any));
+  }
+
+  return db
+    .select()
+    .from(paymentSessions)
+    .where(and(...conditions))
+    .orderBy(desc(paymentSessions.createdAt))
+    .limit(limit)
+    .offset(offset);
+}
+
+export async function getPaymentStats(userId: number) {
+  const db = await getDb();
+  if (!db) return { total: 0, captured: 0, pending: 0, totalAmount: 0 };
+
+  const allSessions = await db
+    .select()
+    .from(paymentSessions)
+    .where(eq(paymentSessions.requestedBy, userId));
+
+  let total = 0;
+  let captured = 0;
+  let pending = 0;
+  let totalAmount = 0;
+
+  for (const s of allSessions) {
+    total++;
+    if (s.status === "captured" || s.status === "authorised") {
+      captured++;
+      totalAmount += s.amountMinor;
+    } else if (s.status === "created" || s.status === "pending") {
+      pending++;
+    }
+  }
+
+  return { total, captured, pending, totalAmount };
+}
+
+// ============================================================================
+// PAYMENT LOGS
+// ============================================================================
+
+export async function createPaymentLog(data: InsertPaymentLog) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(paymentLogs).values(data);
+}
+
+export async function getPaymentLogsByReference(merchantReference: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(paymentLogs)
+    .where(eq(paymentLogs.merchantReference, merchantReference))
+    .orderBy(desc(paymentLogs.createdAt));
 }

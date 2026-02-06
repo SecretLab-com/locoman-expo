@@ -55,10 +55,9 @@ export function useWebSocket() {
     try {
       const now = Date.now();
       if (sharedConnection.lastConnectAt && now - sharedConnection.lastConnectAt < 2000) {
-        console.error("[WebSocket] Rapid reconnect attempt", {
-          deltaMs: now - sharedConnection.lastConnectAt,
-          stack: new Error().stack,
-        });
+        // Multiple components may call connect() simultaneously — this is expected
+        // The shared connection handles deduplication, so just log quietly
+        console.debug("[WebSocket] Duplicate connect (already connecting/connected)");
       }
       sharedConnection.lastConnectAt = now;
 

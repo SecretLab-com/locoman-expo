@@ -131,13 +131,13 @@ export default function BundleDetailScreen() {
           />
           {/* Back Button */}
           <TouchableOpacity
-            className="absolute top-4 left-4 w-10 h-10 rounded-full bg-background/80 items-center justify-center border border-border"
+            className="absolute top-4 left-4 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm"
             onPress={() => router.back()}
           >
-            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            <IconSymbol name="arrow.left" size={20} color="#fff" />
           </TouchableOpacity>
           {/* Share Button */}
-          <View className="absolute top-4 right-16 w-10 h-10 rounded-full bg-background/80 items-center justify-center">
+          <View className="absolute top-4 right-16 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm">
             <ShareButton
               content={{
                 type: "bundle",
@@ -146,19 +146,22 @@ export default function BundleDetailScreen() {
                 message: `Check out ${bundle.title} - ${bundle.description.slice(0, 100)}...`,
               }}
               size={20}
-              color={colors.foreground}
+              color="#fff"
               className="p-0"
             />
           </View>
-          {/* Favorite Button */}
+          {/* Favorite Button — offset below ProfileFAB */}
           <TouchableOpacity
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-background/80 items-center justify-center border border-border"
+            className="absolute top-14 right-4 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm"
             onPress={handleToggleFavorite}
+            accessibilityRole="button"
+            accessibilityLabel={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            testID="bundle-favorite"
           >
             <IconSymbol
               name={isFavorite ? "heart.fill" : "heart"}
               size={20}
-              color={isFavorite ? colors.error : colors.foreground}
+              color={isFavorite ? "#FF6B6B" : "#fff"}
             />
           </TouchableOpacity>
         </View>
