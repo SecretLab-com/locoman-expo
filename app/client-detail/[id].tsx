@@ -125,7 +125,6 @@ function SessionCard({ session, onMarkComplete, onCancel }: {
           style={{
             backgroundColor: getStatusColor(session.status) + "10",
             borderColor: getStatusColor(session.status) + "30",
-            color: getStatusColor(session.status)
           }}
         >
           <Text
@@ -192,7 +191,6 @@ function DeliveryCard({ delivery, onMarkReady, onMarkDelivered }: {
           style={{
             backgroundColor: getStatusColor(delivery.status) + "10",
             borderColor: getStatusColor(delivery.status) + "30",
-            color: getStatusColor(delivery.status)
           }}
         >
           <Text

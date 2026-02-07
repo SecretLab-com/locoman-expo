@@ -53,7 +53,7 @@ function getNativeApiUrl(): string {
 
   // 2. Try to derive from Metro dev server address
   const scriptURL = NativeModules?.SourceCode?.scriptURL as string | undefined;
-  const hostUri = Constants?.expoConfig?.hostUri || Constants?.manifest?.hostUri;
+  const hostUri = Constants?.expoConfig?.hostUri || (Constants?.manifest as any)?.hostUri;
   const rawUrl = scriptURL || (hostUri ? `http://${hostUri}` : "");
 
   if (rawUrl) {
