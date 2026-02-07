@@ -8,18 +8,20 @@ import {
   Modal,
   Pressable,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { trpc } from "@/lib/trpc";
 
 type SubscriptionStatus = "active" | "paused" | "cancelled" | "expired";
 
 type Subscription = {
-  id: number;
-  bundleId: number;
+  id: string;
+  bundleId?: string;
   bundleTitle: string;
   trainerName: string;
   price: string;
@@ -33,57 +35,34 @@ type Subscription = {
   checkInsUsed: number;
 };
 
-// Mock data
-const MOCK_SUBSCRIPTIONS: Subscription[] = [
-  {
-    id: 1,
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    trainerName: "Coach Mike",
-    price: "149.99",
-    cadence: "monthly",
-    status: "active",
-    nextBillingDate: new Date(Date.now() + 15 * 86400000),
-    startDate: new Date(Date.now() - 45 * 86400000),
-    sessionsIncluded: 8,
-    sessionsUsed: 5,
-    checkInsIncluded: 4,
-    checkInsUsed: 2,
-  },
-  {
-    id: 2,
-    bundleId: 2,
-    bundleTitle: "Nutrition Coaching",
-    trainerName: "Coach Sarah",
-    price: "79.99",
-    cadence: "monthly",
-    status: "paused",
-    nextBillingDate: new Date(Date.now() + 30 * 86400000),
-    startDate: new Date(Date.now() - 60 * 86400000),
-    sessionsIncluded: 4,
-    sessionsUsed: 4,
-    checkInsIncluded: 8,
-    checkInsUsed: 6,
-  },
-];
-
 export default function SubscriptionsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
     : "rgba(15, 23, 42, 0.18)";
-  const [subscriptions] = useState<Subscription[]>(MOCK_SUBSCRIPTIONS);
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // Pull to refresh
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
-  };
+  // Fetch real subscriptions
+  const { data: rawSubscriptions, isLoading, refetch, isRefetching } = trpc.subscriptions.mySubscriptions.useQuery();
+
+  // Map API data to UI type
+  const subscriptions: Subscription[] = (rawSubscriptions || []).map((sub: any) => ({
+    id: sub.id,
+    bundleId: sub.bundleDraftId,
+    bundleTitle: sub.bundleTitle || sub.title || "Subscription",
+    trainerName: sub.trainerName || "Trainer",
+    price: sub.price || "0.00",
+    cadence: sub.subscriptionType === "weekly" ? "weekly" : "monthly",
+    status: (sub.status || "active") as SubscriptionStatus,
+    nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : new Date(Date.now() + 30 * 86400000),
+    startDate: new Date(sub.startDate || sub.createdAt),
+    sessionsIncluded: sub.sessionsIncluded || 0,
+    sessionsUsed: sub.sessionsUsed || 0,
+    checkInsIncluded: sub.checkInsIncluded || 0,
+    checkInsUsed: sub.checkInsUsed || 0,
+  }));
 
   // Get status color
   const getStatusColor = (status: SubscriptionStatus) => {
@@ -110,6 +89,9 @@ export default function SubscriptionsScreen() {
     });
   };
 
+  // TODO: Add pause/resume/cancel mutations when subscription management endpoints are created
+  // e.g. trpc.subscriptions.pause.useMutation(), trpc.subscriptions.resume.useMutation(), trpc.subscriptions.cancel.useMutation()
+
   // Handle pause subscription
   const handlePause = (subscription: Subscription) => {
     Alert.alert(
@@ -120,8 +102,9 @@ export default function SubscriptionsScreen() {
         {
           text: "Pause",
           onPress: () => {
-            // TODO: Pause subscription via tRPC
+            // TODO: Call trpc.subscriptions.pause.mutate({ id: subscription.id }) when endpoint exists
             setShowDetailModal(false);
+            refetch();
           },
         },
       ]
@@ -138,8 +121,9 @@ export default function SubscriptionsScreen() {
         {
           text: "Resume",
           onPress: () => {
-            // TODO: Resume subscription via tRPC
+            // TODO: Call trpc.subscriptions.resume.mutate({ id: subscription.id }) when endpoint exists
             setShowDetailModal(false);
+            refetch();
           },
         },
       ]
@@ -157,8 +141,9 @@ export default function SubscriptionsScreen() {
           text: "Cancel Subscription",
           style: "destructive",
           onPress: () => {
-            // TODO: Cancel subscription via tRPC
+            // TODO: Call trpc.subscriptions.cancel.mutate({ id: subscription.id }) when endpoint exists
             setShowDetailModal(false);
+            refetch();
           },
         },
       ]
@@ -189,11 +174,17 @@ export default function SubscriptionsScreen() {
         </View>
       </View>
 
+      {isLoading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading subscriptions...</Text>
+        </View>
+      ) : (
       <ScrollView
         className="flex-1 px-4"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
         }
       >
         {subscriptions.length === 0 ? (
@@ -312,6 +303,7 @@ export default function SubscriptionsScreen() {
         {/* Bottom padding */}
         <View className="h-24" />
       </ScrollView>
+      )}
 
       {/* Subscription Detail Modal */}
       <Modal

@@ -1,20 +1,22 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 
 type SpendingCategory = "subscriptions" | "products" | "sessions" | "other";
 
 type SpendingItem = {
-  id: number;
+  id: string;
   description: string;
   amount: number;
   date: Date;
@@ -30,25 +32,6 @@ type MonthlySpending = {
   sessions: number;
   other: number;
 };
-
-// Mock data
-const MOCK_SPENDING: SpendingItem[] = [
-  { id: 1, description: "Weight Loss Program", amount: 149.99, date: new Date(), category: "subscriptions", trainerName: "Coach Mike" },
-  { id: 2, description: "Protein Powder", amount: 45.00, date: new Date(Date.now() - 86400000), category: "products" },
-  { id: 3, description: "Extra Session", amount: 50.00, date: new Date(Date.now() - 172800000), category: "sessions", trainerName: "Coach Mike" },
-  { id: 4, description: "Nutrition Coaching", amount: 79.99, date: new Date(Date.now() - 259200000), category: "subscriptions", trainerName: "Coach Sarah" },
-  { id: 5, description: "Resistance Bands", amount: 25.00, date: new Date(Date.now() - 345600000), category: "products" },
-  { id: 6, description: "Yoga Mat", amount: 35.00, date: new Date(Date.now() - 432000000), category: "products" },
-];
-
-const MOCK_MONTHLY: MonthlySpending[] = [
-  { month: "Jan", total: 384.98, subscriptions: 229.98, products: 105.00, sessions: 50.00, other: 0 },
-  { month: "Dec", total: 299.98, subscriptions: 229.98, products: 70.00, sessions: 0, other: 0 },
-  { month: "Nov", total: 329.98, subscriptions: 229.98, products: 50.00, sessions: 50.00, other: 0 },
-  { month: "Oct", total: 279.98, subscriptions: 229.98, products: 50.00, sessions: 0, other: 0 },
-  { month: "Sep", total: 229.98, subscriptions: 229.98, products: 0, sessions: 0, other: 0 },
-  { month: "Aug", total: 149.99, subscriptions: 149.99, products: 0, sessions: 0, other: 0 },
-];
 
 const CATEGORY_COLORS: Record<SpendingCategory, string> = {
   subscriptions: "#10B981",
@@ -66,19 +49,62 @@ const CATEGORY_ICONS: Record<SpendingCategory, Parameters<typeof IconSymbol>[0][
 
 export default function SpendingScreen() {
   const colors = useColors();
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"week" | "month" | "year">("month");
 
-  // Pull to refresh
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
-  };
+  // Fetch real order data
+  const { data: orders, isLoading, refetch, isRefetching } = trpc.orders.myOrders.useQuery();
 
-  // Calculate totals
+  // Derive spending items from orders
+  const spendingItems = useMemo((): SpendingItem[] => {
+    if (!orders || orders.length === 0) return [];
+    return orders.map((order: any) => ({
+      id: order.id,
+      description: order.description || order.status || "Order",
+      amount: parseFloat(order.totalAmount || order.amount || "0"),
+      date: new Date(order.createdAt),
+      // TODO: categorize orders properly once order schema includes category
+      category: "products" as SpendingCategory,
+      trainerName: order.trainerName,
+    }));
+  }, [orders]);
+
+  // Build monthly spending from orders
+  const monthlyData = useMemo((): MonthlySpending[] => {
+    if (!orders || orders.length === 0) return [];
+    const monthMap = new Map<string, MonthlySpending>();
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    for (const order of orders as any[]) {
+      const date = new Date(order.createdAt);
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      const monthLabel = monthNames[date.getMonth()];
+      const amount = parseFloat(order.totalAmount || order.amount || "0");
+
+      if (!monthMap.has(key)) {
+        monthMap.set(key, { month: monthLabel, total: 0, subscriptions: 0, products: 0, sessions: 0, other: 0 });
+      }
+      const entry = monthMap.get(key)!;
+      entry.total += amount;
+      // TODO: categorize properly
+      entry.products += amount;
+    }
+
+    return Array.from(monthMap.values())
+      .sort((a, b) => {
+        // Sort most recent first
+        const aIdx = monthNames.indexOf(a.month);
+        const bIdx = monthNames.indexOf(b.month);
+        return bIdx - aIdx;
+      })
+      .slice(0, 6);
+  }, [orders]);
+
+  // Calculate totals for current month
   const totals = useMemo(() => {
-    const currentMonth = MOCK_MONTHLY[0];
+    if (monthlyData.length === 0) {
+      return { total: 0, subscriptions: 0, products: 0, sessions: 0, other: 0 };
+    }
+    const currentMonth = monthlyData[0];
     return {
       total: currentMonth.total,
       subscriptions: currentMonth.subscriptions,
@@ -86,12 +112,13 @@ export default function SpendingScreen() {
       sessions: currentMonth.sessions,
       other: currentMonth.other,
     };
-  }, []);
+  }, [monthlyData]);
 
   // Get max value for chart
   const maxMonthlyTotal = useMemo(() => {
-    return Math.max(...MOCK_MONTHLY.map((m) => m.total));
-  }, []);
+    if (monthlyData.length === 0) return 1;
+    return Math.max(...monthlyData.map((m) => m.total), 1);
+  }, [monthlyData]);
 
   // Format date
   const formatDate = (date: Date) => {
@@ -123,11 +150,17 @@ export default function SpendingScreen() {
         </View>
       </View>
 
+      {isLoading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading spending data...</Text>
+        </View>
+      ) : (
       <ScrollView
         className="flex-1 px-4"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
         }
       >
         {/* Period Selector */}
@@ -193,7 +226,7 @@ export default function SpendingScreen() {
           <Text className="text-lg font-semibold text-foreground mb-3">Monthly Trend</Text>
           <View className="bg-surface rounded-xl p-4">
             <View className="flex-row items-end justify-between h-32">
-              {MOCK_MONTHLY.slice(0, 6).reverse().map((month, index) => {
+              {monthlyData.slice(0, 6).reverse().map((month, index) => {
                 const height = (month.total / maxMonthlyTotal) * 100;
                 return (
                   <View key={month.month} className="items-center flex-1">
@@ -258,7 +291,7 @@ export default function SpendingScreen() {
         <View className="mb-6">
           <Text className="text-lg font-semibold text-foreground mb-3">Recent Transactions</Text>
           <View className="bg-surface rounded-xl divide-y divide-border">
-            {MOCK_SPENDING.map((item) => (
+            {spendingItems.map((item) => (
               <View key={item.id} className="flex-row items-center p-4">
                 <View
                   className="w-10 h-10 rounded-full items-center justify-center"
@@ -296,6 +329,7 @@ export default function SpendingScreen() {
         {/* Bottom padding */}
         <View className="h-24" />
       </ScrollView>
+      )}
     </ScreenContainer>
   );
 }

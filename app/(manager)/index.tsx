@@ -2,10 +2,12 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
+    ActivityIndicator,
     Alert,
     RefreshControl,
     ScrollView,
@@ -14,22 +16,14 @@ import {
     View,
 } from "react-native";
 
-// Mock data
-const MOCK_STATS = {
-  totalUsers: 1245,
-  activeTrainers: 48,
-  totalOrders: 3567,
-  monthlyRevenue: 45890,
-  pendingOrders: 23,
-  lowInventoryItems: 5,
-};
-
+// TODO: Replace with a real tRPC endpoint (e.g. trpc.coordinator.lowInventory.useQuery())
 const MOCK_LOW_INVENTORY = [
   { id: 1, productName: "Protein Powder - Vanilla", currentStock: 3, trainerId: 1, trainerName: "Coach Mike" },
   { id: 2, productName: "Resistance Bands Set", currentStock: 2, trainerId: 2, trainerName: "Coach Sarah" },
   { id: 3, productName: "Pre-Workout Mix", currentStock: 1, trainerId: 1, trainerName: "Coach Mike" },
 ];
 
+// TODO: Replace with a real tRPC endpoint (e.g. trpc.admin.activityFeed.useQuery())
 const MOCK_RECENT_ACTIVITY = [
   { id: 1, type: "new_user", description: "John Doe signed up", time: "5 min ago" },
   { id: 2, type: "order", description: "New order #3567 placed", time: "12 min ago" },
@@ -102,12 +96,18 @@ export default function ManagerDashboardScreen() {
   const warningGradient = isLight
     ? ["#FEF3C7", "#FFFBEB"] as const
     : ["#4A3728", "#2D2118"] as const;
+
+  const utils = trpc.useUtils();
+
+  const statsQuery = trpc.coordinator.stats.useQuery();
+  const stats = statsQuery.data;
+
   const [refreshing, setRefreshing] = useState(false);
   const [lowInventory, setLowInventory] = useState(MOCK_LOW_INVENTORY);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await utils.coordinator.stats.invalidate();
     setRefreshing(false);
   };
 
@@ -151,6 +151,39 @@ export default function ManagerDashboardScreen() {
     }
   };
 
+  // Loading state
+  if (statsQuery.isLoading) {
+    return (
+      <ScreenContainer>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading dashboard...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  // Error state
+  if (statsQuery.isError) {
+    return (
+      <ScreenContainer>
+        <View className="flex-1 items-center justify-center px-8">
+          <IconSymbol name="exclamationmark.triangle.fill" size={48} color={colors.error} />
+          <Text className="text-foreground font-semibold mt-4 text-center">Failed to load dashboard</Text>
+          <Text className="text-muted text-sm mt-2 text-center">{statsQuery.error.message}</Text>
+          <TouchableOpacity
+            onPress={() => statsQuery.refetch()}
+            className="mt-4 bg-primary px-6 py-3 rounded-xl"
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading dashboard"
+          >
+            <Text className="text-white font-semibold">Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer>
       <ScrollView
@@ -170,13 +203,13 @@ export default function ManagerDashboardScreen() {
           <View className="flex-row gap-3 mb-3">
             <StatCard
               title="Total Users"
-              value={MOCK_STATS.totalUsers.toLocaleString()}
+              value={stats?.totalUsers?.toLocaleString() ?? "—"}
               icon="person.2.fill"
               onPress={() => router.push("/(manager)/users" as any)}
             />
             <StatCard
-              title="Active Trainers"
-              value={MOCK_STATS.activeTrainers}
+              title="New This Month"
+              value={stats?.newUsersThisMonth?.toLocaleString() ?? "—"}
               icon="figure.run"
               color={colors.success}
               onPress={() => router.push("/(manager)/trainers" as any)}
@@ -184,16 +217,16 @@ export default function ManagerDashboardScreen() {
           </View>
           <View className="flex-row gap-3 mb-3">
             <StatCard
-              title="Total Orders"
-              value={MOCK_STATS.totalOrders.toLocaleString()}
+              title="Published Bundles"
+              value={stats?.totalBundles?.toLocaleString() ?? "—"}
               icon="bag.fill"
             />
             <StatCard
-              title="Monthly Revenue"
-              value={`$${MOCK_STATS.monthlyRevenue.toLocaleString()}`}
-              icon="dollarsign.circle.fill"
+              title="Pending Approvals"
+              value={stats?.pendingApprovals?.toLocaleString() ?? "—"}
+              icon="checkmark.circle.fill"
               color={colors.success}
-              onPress={() => router.push("/(manager)/analytics" as any)}
+              onPress={() => router.push("/(manager)/approvals" as any)}
             />
           </View>
         </View>
@@ -371,25 +404,28 @@ export default function ManagerDashboardScreen() {
           </View>
         )}
 
-        {/* Pending Orders */}
+        {/* Pending Approvals */}
         <View className="px-4 mb-6">
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Pending Orders</Text>
+            <Text className="text-lg font-semibold text-foreground">Pending Approvals</Text>
             <View className="bg-primary/20 px-3 py-1 rounded-full">
-              <Text className="text-primary text-sm font-semibold">{MOCK_STATS.pendingOrders}</Text>
+              <Text className="text-primary text-sm font-semibold">{stats?.pendingApprovals ?? 0}</Text>
             </View>
           </View>
           <TouchableOpacity
             className="bg-surface rounded-xl p-4 border border-border flex-row items-center justify-between"
             activeOpacity={0.8}
+            onPress={() => router.push("/(manager)/approvals" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="View pending approvals"
           >
             <View className="flex-row items-center">
               <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
-                <IconSymbol name="bag.fill" size={20} color={colors.primary} />
+                <IconSymbol name="checkmark.circle.fill" size={20} color={colors.primary} />
               </View>
               <View className="ml-3">
                 <Text className="text-foreground font-semibold">
-                  {MOCK_STATS.pendingOrders} orders awaiting processing
+                  {stats?.pendingApprovals ?? 0} bundles awaiting review
                 </Text>
                 <Text className="text-sm text-muted">Tap to view and manage</Text>
               </View>

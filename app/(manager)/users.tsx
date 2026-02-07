@@ -30,27 +30,27 @@ type UserStatus = "active" | "inactive";
 type UserSort = "performance" | "newest" | "active" | "alphabetical";
 
 type User = {
-  id: number;
+  id: string;
   name: string | null;
   email: string | null;
   role: UserRole;
   active: boolean;
-  createdAt: Date;
-  lastSignedIn?: Date | null;
+  createdAt: string;
+  lastSignedIn?: string | null;
   phone?: string | null;
   photoUrl?: string | null;
-  openId?: string;
+  openId?: string | null;
 };
 
 type ActivityLogEntry = {
-  id: number;
-  targetUserId: number;
-  performedBy: number;
+  id: string;
+  targetUserId: string;
+  performedBy: string;
   action: string;
   previousValue: string | null;
   newValue: string | null;
   notes: string | null;
-  createdAt: Date;
+  createdAt: string;
 };
 
 const PAGE_SIZE = 20;
@@ -113,7 +113,7 @@ export default function UsersScreen() {
   
   // Bulk selection state
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [bulkActionModalVisible, setBulkActionModalVisible] = useState(false);
   
   // Date filter state
@@ -339,7 +339,7 @@ export default function UsersScreen() {
   };
 
   // Load activity logs for user
-  const loadActivityLogs = async (userId: number) => {
+  const loadActivityLogs = async (userId: string) => {
     setLoadingLogs(true);
     try {
       const utils = trpc.useUtils();
@@ -460,7 +460,7 @@ export default function UsersScreen() {
   };
 
   // Toggle user selection for bulk actions
-  const toggleUserSelection = (userId: number) => {
+  const toggleUserSelection = (userId: string) => {
     setSelectedUserIds((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(userId)) {
@@ -572,7 +572,7 @@ export default function UsersScreen() {
   };
 
   // Revoke invitation
-  const revokeInvitation = async (inviteId: number) => {
+  const revokeInvitation = async (inviteId: string) => {
     Alert.alert(
       "Revoke Invitation",
       "Are you sure you want to revoke this invitation?",
@@ -1162,9 +1162,14 @@ export default function UsersScreen() {
                         if (!currentUser?.id) return;
                         const conversationId = [currentUser.id, user.id].sort().join("-");
                         const name = user.name || "User";
-                        router.push(
-                          `${roleBase}/messages/${conversationId}?participantId=${user.id}&name=${encodeURIComponent(name)}` as any
-                        );
+                        router.push({
+                          pathname: "/conversation/[id]" as any,
+                          params: {
+                            id: conversationId,
+                            participantId: user.id,
+                            name,
+                          },
+                        });
                       }}
                       className="w-8 h-8 rounded-full items-center justify-center bg-surface border border-border"
                       accessibilityRole="button"

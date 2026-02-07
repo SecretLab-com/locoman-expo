@@ -8,10 +8,12 @@ import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
+    Animated,
+    Easing,
     Image,
     Modal,
     Pressable,
@@ -26,7 +28,7 @@ import {
 import RenderHTML from "react-native-render-html";
 
 type Product = {
-  id: number;
+  id: string;
   shopifyProductId: number | null;
   shopifyVariantId: number | null;
   name: string;
@@ -42,13 +44,13 @@ type Product = {
   inventoryQuantity: number | null;
   availability: string | null;
   isApproved: boolean | null;
-  syncedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
+  syncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type Bundle = {
-  id: number;
+  id: string;
   title: string;
   description: string | null;
   imageUrl: string | null;
@@ -56,50 +58,7 @@ type Bundle = {
   cadence: "one_time" | "weekly" | "monthly" | null;
 };
 
-const ALLOWED_DESCRIPTION_TAGS = [
-  "p",
-  "strong",
-  "b",
-  "em",
-  "i",
-  "ul",
-  "ol",
-  "li",
-  "br",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-];
-
-const sanitizeDescriptionHtml = (html: string) => {
-  let sanitized = html;
-  sanitized = sanitized.replace(
-    /<\s*(script|style|iframe|object|embed|link|meta)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
-    "",
-  );
-  sanitized = sanitized.replace(
-    /<\s*(script|style|iframe|object|embed|link|meta)[^>]*\/\s*>/gi,
-    "",
-  );
-  sanitized = sanitized.replace(/\son\w+="[^"]*"/gi, "");
-  sanitized = sanitized.replace(/\son\w+='[^']*'/gi, "");
-  sanitized = sanitized.replace(/\sstyle="[^"]*"/gi, "");
-  sanitized = sanitized.replace(/\sstyle='[^']*'/gi, "");
-  sanitized = sanitized.replace(/<(\/?)(\w+)([^>]*)>/g, (match, slash, tag) => {
-    const lowerTag = String(tag).toLowerCase();
-    if (!ALLOWED_DESCRIPTION_TAGS.includes(lowerTag)) {
-      return "";
-    }
-    if (!slash && lowerTag === "br") {
-      return "<br/>";
-    }
-    return `<${slash}${lowerTag}>`;
-  });
-  return sanitized;
-};
+import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
 
 export default function ProductsScreen() {
   const colors = useColors();
@@ -180,6 +139,28 @@ export default function ProductsScreen() {
     },
   });
   const syncInFlight = isSyncing || shopifySync.isPending;
+
+  // Spinning animation for sync icon
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (syncInFlight) {
+      spinAnim.setValue(0);
+      Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ).start();
+    } else {
+      spinAnim.setValue(0);
+    }
+  }, [syncInFlight, spinAnim]);
+  const spinInterpolate = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
 
   // Category options
   const categories = [
@@ -529,12 +510,10 @@ export default function ProductsScreen() {
             disabled={syncInFlight}
             style={{ opacity: syncInFlight ? 0.6 : 1 }}
           >
-            {syncInFlight ? (
-              <ActivityIndicator size="small" color={colors.foreground} />
-            ) : (
-              <IconSymbol name="refresh" size={16} color={colors.foreground} />
-            )}
-            <Text className="text-foreground ml-2 text-sm">
+            <Animated.View style={syncInFlight ? { transform: [{ rotate: spinInterpolate }] } : undefined}>
+              <IconSymbol name="arrow.triangle.2.circlepath" size={16} color={syncInFlight ? colors.primary : colors.foreground} />
+            </Animated.View>
+            <Text className={`ml-2 text-sm ${syncInFlight ? "text-primary font-medium" : "text-foreground"}`}>
               {syncInFlight ? "Syncing..." : "Sync"}
             </Text>
           </TouchableOpacity>
@@ -630,7 +609,7 @@ export default function ProductsScreen() {
                     )}
                     {bundle.description && (
                       <Text className="text-xs text-muted mt-1" numberOfLines={2}>
-                        {bundle.description}
+                        {stripHtml(bundle.description)}
                       </Text>
                     )}
                   </View>
@@ -978,7 +957,7 @@ export default function ProductsScreen() {
                       <Text className="text-sm font-semibold text-foreground mb-2">Description</Text>
                       <RenderHTML
                         contentWidth={Math.max(0, width - 48)}
-                        source={{ html: sanitizeDescriptionHtml(selectedProduct.description) }}
+                        source={{ html: sanitizeHtml(selectedProduct.description) }}
                         tagsStyles={{
                           p: {
                             color: colors.muted,

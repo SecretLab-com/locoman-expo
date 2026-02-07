@@ -7,12 +7,15 @@ import {
   Modal,
   Pressable,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { trpc } from "@/lib/trpc";
 
 // Days of the week
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -23,57 +26,17 @@ const MONTHS = [
 
 type Session = {
   id: string;
-  clientId: number;
-  clientName: string;
-  bundleId: number;
-  bundleTitle: string;
+  clientId?: string;
+  clientName?: string;
+  bundleId?: string;
+  bundleTitle?: string;
   date: Date;
   time: string;
   duration: number; // minutes
-  type: "session" | "check_in" | "delivery";
-  status: "scheduled" | "completed" | "cancelled" | "no_show";
+  type: "session" | "check_in" | "delivery" | string;
+  status: "scheduled" | "completed" | "cancelled" | "no_show" | string;
   notes?: string;
 };
-
-// Mock data for sessions
-const MOCK_SESSIONS: Session[] = [
-  {
-    id: "1",
-    clientId: 1,
-    clientName: "John Smith",
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    date: new Date(),
-    time: "09:00",
-    duration: 60,
-    type: "session",
-    status: "scheduled",
-  },
-  {
-    id: "2",
-    clientId: 2,
-    clientName: "Sarah Johnson",
-    bundleId: 2,
-    bundleTitle: "Strength Training",
-    date: new Date(),
-    time: "14:00",
-    duration: 45,
-    type: "session",
-    status: "scheduled",
-  },
-  {
-    id: "3",
-    clientId: 3,
-    clientName: "Mike Davis",
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    date: new Date(Date.now() + 86400000), // Tomorrow
-    time: "10:30",
-    duration: 30,
-    type: "check_in",
-    status: "scheduled",
-  },
-];
 
 export default function CalendarScreen() {
   const colors = useColors();
@@ -83,10 +46,53 @@ export default function CalendarScreen() {
     : "rgba(15, 23, 42, 0.18)";
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [sessions] = useState<Session[]>(MOCK_SESSIONS);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+
+  // Fetch sessions from tRPC
+  const { data: sessionsData, isLoading, refetch, isRefetching } = trpc.sessions.list.useQuery();
+
+  // Map API data to Session type
+  const sessions: Session[] = useMemo(() => {
+    return (sessionsData || []).map((s: any) => {
+      const sessionDate = new Date(s.sessionDate || s.date || s.createdAt);
+      const hours = sessionDate.getHours().toString().padStart(2, "0");
+      const minutes = sessionDate.getMinutes().toString().padStart(2, "0");
+      return {
+        id: String(s.id),
+        clientId: s.clientId,
+        clientName: s.clientName || "Unknown Client",
+        bundleId: s.bundleId,
+        bundleTitle: s.bundleTitle || "",
+        date: sessionDate,
+        time: s.time || `${hours}:${minutes}`,
+        duration: s.durationMinutes || s.duration || 60,
+        type: s.sessionType || s.type || "session",
+        status: s.status || "scheduled",
+        notes: s.notes,
+      };
+    });
+  }, [sessionsData]);
+
+  // Session mutations
+  const completeMutation = trpc.sessions.complete.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowSessionModal(false);
+    },
+  });
+
+  const cancelMutation = trpc.sessions.cancel.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowSessionModal(false);
+    },
+  });
+
+  const onRefresh = async () => {
+    await refetch();
+  };
 
   // Get calendar data for current month
   const calendarData = useMemo(() => {
@@ -168,8 +174,7 @@ export default function CalendarScreen() {
         {
           text: "Complete",
           onPress: () => {
-            // TODO: Update session status via tRPC
-            setShowSessionModal(false);
+            completeMutation.mutate({ id: session.id });
           },
         },
       ]
@@ -186,8 +191,7 @@ export default function CalendarScreen() {
           text: "Yes, Cancel",
           style: "destructive",
           onPress: () => {
-            // TODO: Cancel session via tRPC
-            setShowSessionModal(false);
+            cancelMutation.mutate({ id: session.id });
           },
         },
       ]
@@ -318,8 +322,17 @@ export default function CalendarScreen() {
           })}
         </Text>
 
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {selectedDateSessions.length === 0 ? (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
+          }
+        >
+          {isLoading ? (
+            <View className="items-center py-12">
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : selectedDateSessions.length === 0 ? (
             <View className="bg-surface rounded-xl p-6 items-center">
               <IconSymbol name="calendar" size={32} color={colors.muted} />
               <Text className="text-muted mt-2">No sessions scheduled</Text>

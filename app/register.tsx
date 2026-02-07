@@ -27,7 +27,7 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [selectedTrainerId, setSelectedTrainerId] = useState<number | null>(trainerId ? parseInt(trainerId) : null);
+  const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(trainerId || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,7 +78,7 @@ export default function RegisterScreen() {
 
     try {
       // Use OAuth login flow for registration as well
-      await startOAuthLogin(selectedTrainerId?.toString());
+      await startOAuthLogin(selectedTrainerId || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -91,7 +91,7 @@ export default function RegisterScreen() {
     setError(null);
 
     try {
-      await startOAuthLogin(selectedTrainerId?.toString());
+      await startOAuthLogin(selectedTrainerId || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
       setLoading(false);

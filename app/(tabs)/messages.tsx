@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Conversation = {
   id: string;
-  participantId: number;
+  participantId: string;
   participantName: string;
   participantAvatar: string | null;
   participantRole: string;
@@ -195,7 +195,7 @@ export default function MessagesScreen() {
       params: { 
         id: conversation.id,
         name: conversation.participantName,
-        participantId: conversation.participantId.toString(),
+        participantId: conversation.participantId,
       },
     });
   };
@@ -240,19 +240,25 @@ export default function MessagesScreen() {
     );
   }
 
-  // Transform API data to match our component interface
-  const conversationList: Conversation[] = (conversations || []).map((conv: any) => ({
-    id: conv.id || conv.conversationId,
-    participantId: conv.participantId || conv.otherUserId,
-    participantName: conv.participantName || conv.otherUserName || "Unknown",
-    participantAvatar: conv.participantAvatar || conv.otherUserAvatar || null,
-    participantRole: conv.participantRole || conv.otherUserRole || "user",
-    lastMessage: conv.lastMessage || conv.lastMessageContent || null,
-    lastMessageAt: conv.lastMessageAt || conv.updatedAt || null,
-    unreadCount: conv.unreadCount || 0,
-    lastMessageIsOwn: conv.lastMessageIsOwn || conv.lastMessageSenderId === conv.currentUserId || false,
-    lastMessageIsRead: conv.lastMessageIsRead || false,
-  }));
+  // Transform API data to match our component interface, sorted by most recent
+  const conversationList: Conversation[] = (conversations || [])
+    .map((conv: any) => ({
+      id: conv.id || conv.conversationId,
+      participantId: conv.participantId || conv.otherUserId,
+      participantName: conv.participantName || conv.otherUserName || "Unknown",
+      participantAvatar: conv.participantAvatar || conv.otherUserAvatar || null,
+      participantRole: conv.participantRole || conv.otherUserRole || "user",
+      lastMessage: conv.lastMessage || conv.lastMessageContent || null,
+      lastMessageAt: conv.lastMessageAt || conv.updatedAt || null,
+      unreadCount: conv.unreadCount || 0,
+      lastMessageIsOwn: conv.lastMessageIsOwn || conv.lastMessageSenderId === conv.currentUserId || false,
+      lastMessageIsRead: conv.lastMessageIsRead || false,
+    }))
+    .sort((a, b) => {
+      const dateA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const dateB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return dateB - dateA; // newest first
+    });
 
   return (
     <ScreenContainer className="flex-1 relative">

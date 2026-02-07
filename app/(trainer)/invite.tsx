@@ -2,10 +2,12 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Clipboard,
   Platform,
@@ -18,18 +20,11 @@ import {
 } from "react-native";
 
 type Bundle = {
-  id: number;
+  id: string;
   title: string;
   price: string;
   cadence: string;
 };
-
-// Mock bundles
-const MOCK_BUNDLES: Bundle[] = [
-  { id: 1, title: "Weight Loss Program", price: "149.99", cadence: "monthly" },
-  { id: 2, title: "Strength Training", price: "199.99", cadence: "monthly" },
-  { id: 3, title: "Nutrition Coaching", price: "99.99", cadence: "weekly" },
-];
 
 export default function InviteScreen() {
   const colors = useColors();
@@ -41,10 +36,26 @@ export default function InviteScreen() {
     trainerName?: string;
   }>();
 
+  // Fetch bundles from API for selection
+  const { data: rawBundles, isLoading: bundlesLoading } = trpc.bundles.list.useQuery(undefined, {
+    enabled: !bundleId, // Only fetch if no bundle pre-selected
+  });
+
+  // Map API bundles to local type
+  const bundles: Bundle[] = (rawBundles || []).map((b: any) => ({
+    id: b.id,
+    title: b.title,
+    price: b.price || "0.00",
+    cadence: b.cadence || "monthly",
+  }));
+
+  // Invite mutation
+  const inviteMutation = trpc.clients.invite.useMutation();
+
   const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(
     bundleId
       ? {
-        id: parseInt(bundleId, 10),
+        id: bundleId,
         title: bundleTitle || "Selected Bundle",
         price: bundlePrice || "0.00",
         cadence: "monthly",
@@ -58,8 +69,8 @@ export default function InviteScreen() {
   const [isSending, setIsSending] = useState(false);
   const [assignedTrainer, setAssignedTrainer] = useState(trainerName || user?.name || "");
 
-  // Generate invite link
-  const generateInviteLink = () => {
+  // Generate invite link via API
+  const generateInviteLink = async () => {
     if (!selectedBundle) {
       Alert.alert("Select Bundle", "Please select a bundle to invite the client to.");
       return;
@@ -69,13 +80,21 @@ export default function InviteScreen() {
       return;
     }
 
-    // Generate a unique invite code
-    const inviteCode = Math.random().toString(36).substring(2, 10).toUpperCase();
-    const link = `https://locomotivate.com/invite/${inviteCode}`;
-    setInviteLink(link);
+    try {
+      const result = await inviteMutation.mutateAsync({
+        email: clientEmail.trim() || `invite-${Date.now()}@placeholder.com`,
+        name: clientName.trim() || undefined,
+        bundleDraftId: String(selectedBundle.id),
+      });
 
-    if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const link = `https://locomotivate.com/invite/${result.token}`;
+      setInviteLink(link);
+
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to generate invite link. Please try again.");
     }
   };
 
@@ -112,7 +131,7 @@ export default function InviteScreen() {
     }
   };
 
-  // Send email invite
+  // Send email invite via tRPC
   const sendEmailInvite = async () => {
     if (!selectedBundle) {
       Alert.alert("Select Bundle", "Please select a bundle first.");
@@ -134,8 +153,11 @@ export default function InviteScreen() {
     setIsSending(true);
 
     try {
-      // TODO: Send invite via tRPC
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await inviteMutation.mutateAsync({
+        email: clientEmail.trim(),
+        name: clientName.trim() || undefined,
+        bundleDraftId: String(selectedBundle.id),
+      });
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -190,8 +212,22 @@ export default function InviteScreen() {
             <Text className="text-lg font-semibold text-foreground mb-3">
               Select Bundle
             </Text>
+            {bundlesLoading ? (
+              <View className="py-8 items-center">
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text className="text-muted mt-2">Loading bundles...</Text>
+              </View>
+            ) : bundles.length === 0 ? (
+              <View className="bg-surface rounded-xl p-6 items-center border border-border">
+                <IconSymbol name="bag.fill" size={32} color={colors.muted} />
+                <Text className="text-muted mt-2">No bundles created yet</Text>
+                <Text className="text-muted text-sm text-center mt-1">
+                  Create a bundle first to invite clients
+                </Text>
+              </View>
+            ) : (
             <View className="gap-3">
-              {MOCK_BUNDLES.map((bundle) => {
+              {bundles.map((bundle) => {
                 const isSelected = selectedBundle?.id === bundle.id;
                 return (
                   <TouchableOpacity
@@ -230,6 +266,7 @@ export default function InviteScreen() {
                 );
               })}
             </View>
+            )}
           </View>
         ) : (
           <View className="mb-6 bg-primary/5 border border-primary/20 rounded-2xl p-4">

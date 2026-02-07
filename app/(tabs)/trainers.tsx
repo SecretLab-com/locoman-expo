@@ -30,7 +30,7 @@ const SPECIALTIES = [
 ];
 
 type Trainer = {
-  id: number;
+  id: string;
   name: string | null;
   photoUrl: string | null;
   username: string | null;

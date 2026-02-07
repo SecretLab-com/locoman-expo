@@ -102,7 +102,7 @@ async function startServer() {
           await db.updatePaymentSessionByReference(merchantReference, {
             status: "authorised",
             pspReference,
-            completedAt: new Date(),
+            completedAt: new Date().toISOString(),
           });
           logEvent("adyen.payment_authorised", { merchantReference, pspReference });
         } else if (eventCode === "AUTHORISATION" && !success) {

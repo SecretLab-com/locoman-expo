@@ -35,7 +35,7 @@ async function seed() {
     await upsertUser({
       ...user,
       loginMethod: "email",
-      lastSignedIn: new Date(),
+      lastSignedIn: new Date().toISOString(),
     });
     console.log(`[Seed] Upserted superuser: ${user.email}`);
   }
@@ -128,7 +128,6 @@ async function seed() {
     await createBundleDraft({
       ...b,
       trainerId: seededTrainers[i % seededTrainers.length].id,
-      publishedAt: new Date(),
     });
     console.log(`[Seed] Created published bundle: ${b.title}`);
   }
@@ -187,7 +186,7 @@ async function seed() {
         productName: "Starter Strength Bundle",
         quantity: 1,
         status: "scheduled",
-        scheduledDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        scheduledDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       });
       console.log(`[Seed] Created order and delivery for client: ${c.email}`);
     }

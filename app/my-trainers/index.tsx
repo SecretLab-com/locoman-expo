@@ -12,7 +12,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "@/contexts/auth-context";
 
 type MyTrainer = {
-  id: number;
+  id: string;
   name: string | null;
   photoUrl: string | null;
   specialties: string[] | null;
@@ -20,7 +20,7 @@ type MyTrainer = {
   activeBundles: number;
   joinedDate: Date | null;
   isPrimary: boolean;
-  relationshipId: number;
+  relationshipId: string;
   relationshipStatus: string;
 };
 
@@ -135,9 +135,9 @@ function PendingRequestCard({
   onCancel,
 }: {
   request: {
-    id: number;
+    id: string;
     trainer?: {
-      id: number;
+      id: string;
       name: string | null;
       photoUrl: string | null;
       specialties: string[] | null;
@@ -267,7 +267,7 @@ export default function MyTrainersScreen() {
     }
   };
 
-  const handleCancelRequest = (requestId: number) => {
+  const handleCancelRequest = (requestId: string) => {
     const confirmCancel = () => {
       cancelMutation.mutate({ requestId });
     };
@@ -374,7 +374,7 @@ export default function MyTrainersScreen() {
       
       <FlatList
         data={trainers as MyTrainer[]}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TrainerCard 
             trainer={item} 

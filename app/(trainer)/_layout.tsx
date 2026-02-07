@@ -17,10 +17,10 @@ export default function TrainerTabLayout() {
     { label: "Pay", icon: "creditcard.fill", href: "/(trainer)/pay", testID: "tab-pay" },
     { label: "Analytics", icon: "chart.bar.fill", href: "/(trainer)/analytics", testID: "tab-analytics" },
     {
-      label: "Alerts",
-      icon: "exclamationmark.triangle.fill",
-      href: "/(trainer)/alerts",
-      testID: "tab-alerts",
+      label: "Deliveries",
+      icon: "shippingbox.fill",
+      href: "/(trainer)/deliveries",
+      testID: "tab-deliveries",
       badge: counts.pendingDeliveries,
     },
   ];

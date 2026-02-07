@@ -1,17 +1,18 @@
-import * as Api from "@/lib/_core/api";
+/**
+ * useAuth hook — Supabase Auth integration.
+ *
+ * Listens for Supabase auth state changes and fetches the full app-level
+ * user profile (public.users) from the tRPC `auth.me` endpoint.
+ */
 import * as Auth from "@/lib/_core/auth";
+import { supabase } from "@/lib/supabase-client";
 import { logError, logEvent } from "@/lib/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform } from "react-native";
-
-type UseAuthOptions = {
-  autoFetch?: boolean;
-};
 
 // Helper to convert API response to full User type with defaults
 function normalizeUser(apiUser: Record<string, unknown>): Auth.User {
   return {
-    id: apiUser.id as number,
+    id: apiUser.id as string,
     openId: apiUser.openId as string,
     name: (apiUser.name as string | null) ?? null,
     email: (apiUser.email as string | null) ?? null,
@@ -23,16 +24,16 @@ function normalizeUser(apiUser: Record<string, unknown>): Auth.User {
     bio: (apiUser.bio as string | null) ?? null,
     specialties: apiUser.specialties ?? null,
     socialLinks: apiUser.socialLinks ?? null,
-    trainerId: (apiUser.trainerId as number | null) ?? null,
+    trainerId: (apiUser.trainerId as string | null) ?? null,
     active: (apiUser.active as boolean) ?? true,
     metadata: apiUser.metadata ?? null,
-    createdAt: apiUser.createdAt ? new Date(apiUser.createdAt as string) : new Date(),
-    updatedAt: apiUser.updatedAt ? new Date(apiUser.updatedAt as string) : new Date(),
-    lastSignedIn: apiUser.lastSignedIn ? new Date(apiUser.lastSignedIn as string) : new Date(),
+    createdAt: (apiUser.createdAt as string) ?? new Date().toISOString(),
+    updatedAt: (apiUser.updatedAt as string) ?? new Date().toISOString(),
+    lastSignedIn: (apiUser.lastSignedIn as string) ?? new Date().toISOString(),
   };
 }
 
-// Global state to allow login screen to trigger auth refresh
+// Global refresh callback so the login screen can trigger a re-fetch
 let globalRefreshCallback: (() => void) | null = null;
 
 export function triggerAuthRefresh() {
@@ -42,108 +43,89 @@ export function triggerAuthRefresh() {
   }
 }
 
+type UseAuthOptions = {
+  autoFetch?: boolean;
+};
+
 export function useAuth(options?: UseAuthOptions) {
   const { autoFetch = true } = options ?? {};
   const [user, setUser] = useState<Auth.User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const prevUserIdRef = useRef<number | null>(null);
+  const prevUserIdRef = useRef<string | null>(null);
 
-  const fetchUser = useCallback(async (options?: { suppressLoading?: boolean }) => {
+  /**
+   * Fetch the app-level user profile from the backend.
+   * Relies on the Supabase access token being sent automatically
+   * via the tRPC link's Authorization header.
+   */
+  const fetchUser = useCallback(async (opts?: { suppressLoading?: boolean }) => {
     console.log("[useAuth] fetchUser called");
     try {
-      if (!options?.suppressLoading) {
-        setLoading(true);
-      }
+      if (!opts?.suppressLoading) setLoading(true);
       setError(null);
 
-      // Web platform: use cookie-based auth, fetch user from API
-      if (Platform.OS === "web") {
-        console.log("[useAuth] Web platform: fetching user from API...");
+      // Check if we have a Supabase session
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        console.log("[useAuth] No Supabase session, clearing user");
+        setUser(null);
+        await Auth.clearUserInfo();
+        return;
+      }
 
-        // Check cached user info first for faster initial load
-        const cachedUser = await Auth.getUserInfo();
-        if (cachedUser) {
-          console.log("[useAuth] Web: using cached user immediately", cachedUser);
-          setUser(cachedUser);
-          if (!options?.suppressLoading) {
-            setLoading(false);
-          }
-        }
+      // Show cached user immediately while we fetch from API
+      const cachedUser = await Auth.getUserInfo();
+      if (cachedUser && !opts?.suppressLoading) {
+        setUser(cachedUser);
+        setLoading(false);
+      }
 
-        const apiUser = await Api.getMe();
-        console.log("[useAuth] API user response:", apiUser);
+      // Fetch full user profile from backend (tRPC auth.me)
+      const { getApiBaseUrl } = await import("@/lib/api-config");
+      const apiBase = getApiBaseUrl();
+      const token = sessionData.session.access_token;
 
-        if (apiUser) {
-          const userInfo = normalizeUser(apiUser as Record<string, unknown>);
+      const resp = await fetch(`${apiBase}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.user) {
+          const userInfo = normalizeUser(data.user as Record<string, unknown>);
           setUser(userInfo);
-          // Cache user info in localStorage for faster subsequent loads
           await Auth.setUserInfo(userInfo);
-          console.log("[useAuth] Web user set from API:", userInfo);
+          console.log("[useAuth] User set from API:", userInfo.email, userInfo.role);
         } else {
-          console.log("[useAuth] Web: No authenticated user from API");
-          setUser(null);
-          await Auth.clearUserInfo();
+          console.log("[useAuth] No user returned from API");
+          setUser(cachedUser); // keep cached if API returns no user
         }
-        // Do not return here, let it fall through to finally block for native/common logic if any
-        // but for now native is separate. However, we must ensure setLoading(false) runs.
       } else {
-        // Native platform: validate token against API
-        console.log("[useAuth] Native platform: checking for session token...");
-        const sessionToken = await Auth.getSessionToken();
-        console.log(
-          "[useAuth] Session token:",
-          sessionToken ? `present (${sessionToken.substring(0, 20)}...)` : "missing",
-        );
-        if (!sessionToken) {
-          console.log("[useAuth] No session token, setting user to null");
-          setUser(null);
-          await Auth.clearUserInfo();
-          return;
-        }
-
-        const apiUser = await Api.getMe();
-        if (apiUser) {
-          const userInfo = normalizeUser(apiUser as Record<string, unknown>);
-          setUser(userInfo);
-          await Auth.setUserInfo(userInfo);
-          console.log("[useAuth] Native user set from API:", userInfo);
-        } else {
-          console.log("[useAuth] Native: No authenticated user from API");
-          setUser(null);
-          await Auth.clearUserInfo();
-          await Auth.removeSessionToken();
-        }
+        console.warn("[useAuth] API returned", resp.status);
+        // Keep cached user if API fails temporarily
+        if (!cachedUser) setUser(null);
       }
     } catch (err) {
-      const error = err instanceof Error ? err : new Error("Failed to fetch user");
-      console.error("[useAuth] fetchUser error:", error);
-      logError("auth.fetch_failed", error);
-      setError(error);
-      if (Platform.OS === "web") {
-        console.log("[useAuth] Web: Clearing cached user after error");
-        await Auth.clearUserInfo();
-      }
+      const e = err instanceof Error ? err : new Error("Failed to fetch user");
+      console.error("[useAuth] fetchUser error:", e);
+      logError("auth.fetch_failed", e);
+      setError(e);
       setUser(null);
     } finally {
-      if (!options?.suppressLoading) {
-        setLoading(false);
-        console.log("[useAuth] fetchUser completed, loading:", false);
-      }
+      if (!opts?.suppressLoading) setLoading(false);
     }
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      await Api.logout();
       logEvent("auth.logout");
+      await Auth.signOut();
     } catch (err) {
-      console.error("[Auth] Logout API call failed:", err);
+      console.error("[Auth] Logout error:", err);
       logError("auth.logout_failed", err);
-      // Continue with logout even if API call fails
     } finally {
-      await Auth.removeSessionToken();
-      await Auth.clearUserInfo();
       setUser(null);
       setError(null);
     }
@@ -153,55 +135,42 @@ export function useAuth(options?: UseAuthOptions) {
 
   // Register global refresh callback
   useEffect(() => {
-    const refresh = () => {
-      console.log("[useAuth] Global refresh callback triggered");
-      fetchUser();
-    };
+    const refresh = () => fetchUser();
     globalRefreshCallback = refresh;
     return () => {
-      if (globalRefreshCallback === refresh) {
-        globalRefreshCallback = null;
-      }
+      if (globalRefreshCallback === refresh) globalRefreshCallback = null;
     };
   }, [fetchUser]);
 
+  // Listen for Supabase auth state changes
   useEffect(() => {
-    console.log("[useAuth] useEffect triggered, autoFetch:", autoFetch, "platform:", Platform.OS);
-    if (autoFetch) {
-      if (Platform.OS === "web") {
-        // Web: fetch user from API directly (user will login manually if needed)
-        console.log("[useAuth] Web: fetching user from API...");
-        fetchUser();
-      } else {
-        // Native: check for cached user info first for faster initial load
-        Auth.getUserInfo().then((cachedUser) => {
-          console.log("[useAuth] Native cached user check:", cachedUser);
-          if (cachedUser) {
-            console.log("[useAuth] Native: setting cached user immediately");
-            setUser(cachedUser);
-            setLoading(false);
-            fetchUser({ suppressLoading: true });
-          } else {
-            // No cached user, check session token
-            fetchUser();
-          }
-        });
-      }
-    } else {
-      console.log("[useAuth] autoFetch disabled, setting loading to false");
+    if (!autoFetch) {
       setLoading(false);
+      return;
     }
+
+    // Initial fetch
+    fetchUser();
+
+    // Subscribe to auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log("[useAuth] Auth state changed:", event, session ? "session present" : "no session");
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          await fetchUser({ suppressLoading: true });
+        } else if (event === "SIGNED_OUT") {
+          setUser(null);
+          await Auth.clearUserInfo();
+        }
+      },
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [autoFetch, fetchUser]);
 
-  useEffect(() => {
-    console.log("[useAuth] State updated:", {
-      hasUser: !!user,
-      loading,
-      isAuthenticated,
-      error: error?.message,
-    });
-  }, [user, loading, isAuthenticated, error]);
-
+  // Log sign-in / sign-out transitions
   useEffect(() => {
     const prevUserId = prevUserIdRef.current;
     if (user && user.id !== prevUserId) {

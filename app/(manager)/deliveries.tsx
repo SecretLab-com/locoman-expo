@@ -33,7 +33,9 @@ const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
   { key: "disputed", label: "Disputed" },
 ];
 
-// Mock data
+// TODO: Replace with a real tRPC endpoint for admin/manager-level delivery listing.
+// Currently deliveries.list and deliveries.pending are trainerProcedure (scoped to trainer).
+// Need a new admin endpoint like trpc.admin.allDeliveries.useQuery() to list all deliveries.
 const MOCK_DELIVERIES: Delivery[] = [
   {
     id: 1,
@@ -96,6 +98,7 @@ export default function ManagerDeliveriesScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    // TODO: Invalidate admin deliveries query when endpoint exists
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
@@ -174,6 +177,8 @@ export default function ManagerDeliveriesScreen() {
           <TouchableOpacity
             onPress={() => router.back()}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
@@ -213,7 +218,11 @@ export default function ManagerDeliveriesScreen() {
             onChangeText={setSearchQuery}
           />
           {searchQuery !== "" && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
             </TouchableOpacity>
           )}
@@ -229,6 +238,8 @@ export default function ManagerDeliveriesScreen() {
               activeTab === tab.key ? "border-primary" : "border-transparent"
             }`}
             onPress={() => setActiveTab(tab.key)}
+            accessibilityRole="button"
+            accessibilityLabel={`Filter by ${tab.label}`}
           >
             <Text
               className={`text-sm font-medium ${

@@ -27,7 +27,10 @@ type JoinRequest = {
   createdAt: Date;
 };
 
-// Mock data for join requests
+// TODO: Replace with real API when trainer join requests endpoint is created
+// Needs: trpc.joinRequests.list.useQuery() or trpc.clients.joinRequests.useQuery()
+// The server currently has myTrainers.requestToJoin (client-side) but no trainer-side
+// endpoint to list incoming join requests.
 const MOCK_JOIN_REQUESTS: JoinRequest[] = [
   {
     id: 1,
@@ -165,7 +168,8 @@ export default function JoinRequestsScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    // TODO: Fetch from API
+    // TODO: Replace with real API refetch when endpoint is created
+    // e.g. await refetch();
     await new Promise((resolve) => setTimeout(resolve, 1000));
     setRefreshing(false);
   };
@@ -188,7 +192,7 @@ export default function JoinRequestsScreen() {
                 r.id === requestId ? { ...r, status: "approved" as const } : r
               )
             );
-            // TODO: Call API to approve
+            // TODO: Replace with trpc.clients.approveJoinRequest.useMutation() when endpoint is created
           },
         },
       ]
@@ -214,7 +218,7 @@ export default function JoinRequestsScreen() {
                 r.id === requestId ? { ...r, status: "rejected" as const } : r
               )
             );
-            // TODO: Call API to reject
+            // TODO: Replace with trpc.clients.rejectJoinRequest.useMutation() when endpoint is created
           },
         },
       ]

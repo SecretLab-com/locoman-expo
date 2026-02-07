@@ -3,11 +3,12 @@ import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,7 +20,7 @@ import {
 
 // Types for client data
 type Session = {
-  id: number;
+  id: string;
   date: string;
   type: "training" | "check_in" | "call" | "plan_review";
   status: "scheduled" | "completed" | "cancelled" | "no_show";
@@ -27,7 +28,7 @@ type Session = {
 };
 
 type Subscription = {
-  id: number;
+  id: string;
   bundleTitle: string;
   price: string;
   cadence: "weekly" | "monthly" | "yearly";
@@ -38,14 +39,14 @@ type Subscription = {
 };
 
 type Delivery = {
-  id: number;
+  id: string;
   productName: string;
   status: "pending" | "ready" | "delivered" | "confirmed";
   scheduledDate: string;
 };
 
 type ClientData = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   phone: string;
@@ -57,42 +58,6 @@ type ClientData = {
   upcomingSessions: Session[];
   pastSessions: Session[];
   pendingDeliveries: Delivery[];
-};
-
-// Mock data
-const MOCK_CLIENT: ClientData = {
-  id: 1,
-  name: "Sarah Johnson",
-  email: "sarah.johnson@email.com",
-  phone: "+1 (555) 123-4567",
-  photoUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200",
-  goals: ["Weight Loss", "Muscle Building"],
-  notes: "Prefers morning sessions. Has a knee injury - avoid high impact exercises.",
-  joinedDate: "2024-01-15",
-  subscription: {
-    id: 1,
-    bundleTitle: "Full Body Transformation",
-    price: "149.99",
-    cadence: "monthly",
-    sessionsIncluded: 8,
-    sessionsUsed: 3,
-    startDate: "2024-01-15",
-    status: "active",
-  },
-  upcomingSessions: [
-    { id: 1, date: "2024-03-20T10:00:00", type: "training", status: "scheduled" },
-    { id: 2, date: "2024-03-22T10:00:00", type: "training", status: "scheduled" },
-    { id: 3, date: "2024-03-25T14:00:00", type: "check_in", status: "scheduled" },
-  ],
-  pastSessions: [
-    { id: 4, date: "2024-03-15T10:00:00", type: "training", status: "completed" },
-    { id: 5, date: "2024-03-13T10:00:00", type: "training", status: "completed" },
-    { id: 6, date: "2024-03-11T10:00:00", type: "training", status: "completed" },
-  ],
-  pendingDeliveries: [
-    { id: 1, productName: "Protein Powder - Vanilla", status: "ready", scheduledDate: "2024-03-20" },
-    { id: 2, productName: "Resistance Bands Set", status: "pending", scheduledDate: "2024-03-22" },
-  ],
 };
 
 function SessionCard({ session, onMarkComplete, onCancel }: {
@@ -266,29 +231,92 @@ function DeliveryCard({ delivery, onMarkReady, onMarkDelivered }: {
 export default function ClientDetailScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [loading, setLoading] = useState(true);
-  const [client, setClient] = useState<ClientData | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "sessions" | "deliveries">("overview");
 
-  useEffect(() => {
-    loadClient();
-  }, [id]);
+  // Fetch client data from API
+  const { data: rawClient, isLoading: loading, refetch } = trpc.clients.get.useQuery(
+    { id: id || "" },
+    { enabled: !!id }
+  );
 
-  const loadClient = async () => {
-    try {
-      setLoading(true);
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      setClient(MOCK_CLIENT);
-    } catch (error) {
-      console.error("Failed to load client:", error);
-      Alert.alert("Error", "Failed to load client data");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Fetch sessions for this client's trainer
+  const { data: sessions } = trpc.sessions.list.useQuery(undefined, { enabled: !!rawClient });
 
-  const handleMarkSessionComplete = async (sessionId: number) => {
+  // Fetch deliveries for this client's trainer
+  const { data: deliveries } = trpc.deliveries.list.useQuery(undefined, { enabled: !!rawClient });
+
+  // Session mutations
+  const completeSessionMutation = trpc.sessions.complete.useMutation({
+    onSuccess: () => refetch(),
+  });
+  const cancelSessionMutation = trpc.sessions.cancel.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  // Delivery mutations
+  const markReadyMutation = trpc.deliveries.markReady.useMutation({
+    onSuccess: () => refetch(),
+  });
+  const markDeliveredMutation = trpc.deliveries.markDelivered.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  // Map API data to ClientData shape
+  const client = useMemo((): ClientData | null => {
+    if (!rawClient) return null;
+    const goals = typeof rawClient.goals === "string"
+      ? JSON.parse(rawClient.goals || "[]")
+      : Array.isArray(rawClient.goals) ? rawClient.goals : [];
+
+    // Filter sessions for this client
+    const clientSessions = (sessions || []).filter((s: any) => s.clientId === id);
+    const now = new Date();
+    const upcomingSessions: Session[] = clientSessions
+      .filter((s: any) => s.status === "scheduled" && new Date(s.sessionDate) >= now)
+      .map((s: any) => ({
+        id: s.id,
+        date: s.sessionDate,
+        type: s.sessionType || "training",
+        status: s.status,
+        notes: s.notes,
+      }));
+    const pastSessions: Session[] = clientSessions
+      .filter((s: any) => s.status !== "scheduled" || new Date(s.sessionDate) < now)
+      .map((s: any) => ({
+        id: s.id,
+        date: s.sessionDate,
+        type: s.sessionType || "training",
+        status: s.status === "scheduled" ? "completed" : s.status,
+        notes: s.notes,
+      }));
+
+    // Filter deliveries for this client
+    const clientDeliveries: Delivery[] = (deliveries || [])
+      .filter((d: any) => d.clientId === id)
+      .map((d: any) => ({
+        id: d.id,
+        productName: d.productName,
+        status: d.status,
+        scheduledDate: d.scheduledDate || d.createdAt,
+      }));
+
+    return {
+      id: rawClient.id,
+      name: rawClient.name || "Unknown",
+      email: rawClient.email || "",
+      phone: rawClient.phone || "",
+      photoUrl: (rawClient as any).photoUrl,
+      goals: goals.map((g: any) => typeof g === "string" ? g : g.name || ""),
+      notes: rawClient.notes || "",
+      joinedDate: rawClient.createdAt || "",
+      subscription: undefined, // TODO: Fetch subscription for this client via trpc.subscriptions.get
+      upcomingSessions,
+      pastSessions,
+      pendingDeliveries: clientDeliveries,
+    };
+  }, [rawClient, sessions, deliveries, id]);
+
+  const handleMarkSessionComplete = async (sessionId: string) => {
     Alert.alert(
       "Complete Session",
       "Mark this session as completed? This will use 1 session from the subscription.",
@@ -298,24 +326,8 @@ export default function ClientDetailScreen() {
           text: "Complete",
           onPress: async () => {
             try {
-              // TODO: API call to complete session
+              await completeSessionMutation.mutateAsync({ id: sessionId });
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-              // Update local state
-              if (client && client.subscription) {
-                setClient({
-                  ...client,
-                  subscription: {
-                    ...client.subscription,
-                    sessionsUsed: client.subscription.sessionsUsed + 1,
-                  },
-                  upcomingSessions: client.upcomingSessions.filter((s) => s.id !== sessionId),
-                  pastSessions: [
-                    { ...client.upcomingSessions.find((s) => s.id === sessionId)!, status: "completed" },
-                    ...client.pastSessions,
-                  ],
-                });
-              }
             } catch {
               Alert.alert("Error", "Failed to complete session");
             }
@@ -325,7 +337,7 @@ export default function ClientDetailScreen() {
     );
   };
 
-  const handleCancelSession = async (sessionId: number) => {
+  const handleCancelSession = async (sessionId: string) => {
     Alert.alert(
       "Cancel Session",
       "Are you sure you want to cancel this session?",
@@ -335,13 +347,11 @@ export default function ClientDetailScreen() {
           text: "Yes, Cancel",
           style: "destructive",
           onPress: async () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            // TODO: API call
-            if (client) {
-              setClient({
-                ...client,
-                upcomingSessions: client.upcomingSessions.filter((s) => s.id !== sessionId),
-              });
+            try {
+              await cancelSessionMutation.mutateAsync({ id: sessionId });
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            } catch {
+              Alert.alert("Error", "Failed to cancel session");
             }
           },
         },
@@ -349,29 +359,21 @@ export default function ClientDetailScreen() {
     );
   };
 
-  const handleMarkDeliveryReady = async (deliveryId: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // TODO: API call
-    if (client) {
-      setClient({
-        ...client,
-        pendingDeliveries: client.pendingDeliveries.map((d) =>
-          d.id === deliveryId ? { ...d, status: "ready" as const } : d
-        ),
-      });
+  const handleMarkDeliveryReady = async (deliveryId: string) => {
+    try {
+      await markReadyMutation.mutateAsync({ id: deliveryId });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {
+      Alert.alert("Error", "Failed to mark delivery as ready");
     }
   };
 
-  const handleMarkDeliveryDelivered = async (deliveryId: number) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // TODO: API call
-    if (client) {
-      setClient({
-        ...client,
-        pendingDeliveries: client.pendingDeliveries.map((d) =>
-          d.id === deliveryId ? { ...d, status: "delivered" as const } : d
-        ),
-      });
+  const handleMarkDeliveryDelivered = async (deliveryId: string) => {
+    try {
+      await markDeliveredMutation.mutateAsync({ id: deliveryId });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert("Error", "Failed to mark delivery as delivered");
     }
   };
 

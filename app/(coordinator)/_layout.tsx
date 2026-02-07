@@ -8,7 +8,7 @@ export default function CoordinatorTabLayout() {
     { label: "Home", icon: "house.fill", href: "/(coordinator)", testID: "tab-home" },
     { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
     { label: "Products", icon: "storefront.fill", href: "/(coordinator)/products", testID: "tab-products" },
-    { label: "Alerts", icon: "exclamationmark.triangle.fill", href: "/(coordinator)/alerts?section=alerts", testID: "tab-alerts" },
+    { label: "Analytics", icon: "chart.bar.fill", href: "/(coordinator)/analytics", testID: "tab-analytics" },
     { label: "Messaging", icon: "message.fill", href: "/(coordinator)/messages", testID: "tab-messaging" },
   ];
 

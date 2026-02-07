@@ -16,7 +16,7 @@ import {
 } from "react-native";
 
 type OrderCardData = {
-  id: number;
+  id: string;
   title: string;
   status: string;
   total: number;

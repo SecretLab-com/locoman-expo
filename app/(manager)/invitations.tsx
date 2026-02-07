@@ -5,69 +5,21 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 
-type InvitationStatus = "pending" | "accepted" | "expired" | "declined";
-
-type Invitation = {
-  id: number;
-  trainerName: string;
-  bundleTitle: string;
-  clientEmail: string;
-  status: InvitationStatus;
-  createdAt: Date;
-  expiresAt: Date;
-};
-
-// Mock data
-const MOCK_INVITATIONS: Invitation[] = [
-  {
-    id: 1,
-    trainerName: "Coach Mike",
-    bundleTitle: "Weight Loss Program",
-    clientEmail: "john@example.com",
-    status: "pending",
-    createdAt: new Date(Date.now() - 86400000 * 2),
-    expiresAt: new Date(Date.now() + 86400000 * 5),
-  },
-  {
-    id: 2,
-    trainerName: "Coach Sarah",
-    bundleTitle: "Nutrition Coaching",
-    clientEmail: "jane@example.com",
-    status: "accepted",
-    createdAt: new Date(Date.now() - 86400000 * 5),
-    expiresAt: new Date(Date.now() + 86400000 * 2),
-  },
-  {
-    id: 3,
-    trainerName: "Coach Mike",
-    bundleTitle: "HIIT Cardio Blast",
-    clientEmail: "mike@example.com",
-    status: "expired",
-    createdAt: new Date(Date.now() - 86400000 * 10),
-    expiresAt: new Date(Date.now() - 86400000 * 3),
-  },
-  {
-    id: 4,
-    trainerName: "Coach Alex",
-    bundleTitle: "Strength Training",
-    clientEmail: "sarah@example.com",
-    status: "declined",
-    createdAt: new Date(Date.now() - 86400000 * 7),
-    expiresAt: new Date(Date.now() - 86400000 * 1),
-  },
-];
+type InvitationStatus = "pending" | "accepted" | "expired" | "revoked";
 
 const STATUS_COLORS: Record<InvitationStatus, string> = {
   pending: "#F59E0B",
   accepted: "#22C55E",
   expired: "#6B7280",
-  declined: "#EF4444",
+  revoked: "#EF4444",
 };
 
 export default function InvitationsScreen() {
@@ -75,32 +27,56 @@ export default function InvitationsScreen() {
   const [selectedStatus, setSelectedStatus] = useState<InvitationStatus | "all">("all");
   const [refreshing, setRefreshing] = useState(false);
 
+  const utils = trpc.useUtils();
+  const invitationsQuery = trpc.admin.getUserInvitations.useQuery({
+    limit: 50,
+    offset: 0,
+  });
+
+  const invitations = invitationsQuery.data?.invitations ?? [];
+  const totalCount = invitationsQuery.data?.total ?? 0;
+
+  // Map API data to expected format
+  const mappedInvitations = useMemo(() => {
+    return invitations.map((inv) => ({
+      id: inv.id,
+      trainerName: inv.name ?? "—",
+      bundleTitle: inv.role ?? "—",
+      clientEmail: inv.email,
+      status: (inv.status ?? "pending") as InvitationStatus,
+      createdAt: new Date(inv.createdAt),
+      expiresAt: new Date(inv.expiresAt),
+    }));
+  }, [invitations]);
+
   // Filter invitations
   const filteredInvitations = useMemo(() => {
-    if (selectedStatus === "all") return MOCK_INVITATIONS;
-    return MOCK_INVITATIONS.filter((inv) => inv.status === selectedStatus);
-  }, [selectedStatus]);
+    if (selectedStatus === "all") return mappedInvitations;
+    return mappedInvitations.filter((inv) => inv.status === selectedStatus);
+  }, [mappedInvitations, selectedStatus]);
 
   // Calculate stats
   const stats = useMemo(() => {
     return {
-      total: MOCK_INVITATIONS.length,
-      pending: MOCK_INVITATIONS.filter((i) => i.status === "pending").length,
-      accepted: MOCK_INVITATIONS.filter((i) => i.status === "accepted").length,
-      expired: MOCK_INVITATIONS.filter((i) => i.status === "expired").length,
-      declined: MOCK_INVITATIONS.filter((i) => i.status === "declined").length,
-      conversionRate: Math.round(
-        (MOCK_INVITATIONS.filter((i) => i.status === "accepted").length /
-          MOCK_INVITATIONS.length) *
-          100
-      ),
+      total: totalCount,
+      pending: mappedInvitations.filter((i) => i.status === "pending").length,
+      accepted: mappedInvitations.filter((i) => i.status === "accepted").length,
+      expired: mappedInvitations.filter((i) => i.status === "expired").length,
+      revoked: mappedInvitations.filter((i) => i.status === "revoked").length,
+      conversionRate: mappedInvitations.length > 0
+        ? Math.round(
+            (mappedInvitations.filter((i) => i.status === "accepted").length /
+              mappedInvitations.length) *
+              100
+          )
+        : 0,
     };
-  }, []);
+  }, [mappedInvitations, totalCount]);
 
   // Pull to refresh
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await utils.admin.getUserInvitations.invalidate();
     setRefreshing(false);
   };
 
@@ -116,6 +92,63 @@ export default function InvitationsScreen() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
+  if (invitationsQuery.isLoading) {
+    return (
+      <ScreenContainer className="flex-1">
+        <View className="px-4 pt-2 pb-4">
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <Text className="text-2xl font-bold text-foreground">Invitations</Text>
+          </View>
+        </View>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading invitations...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (invitationsQuery.isError) {
+    return (
+      <ScreenContainer className="flex-1">
+        <View className="px-4 pt-2 pb-4">
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <Text className="text-2xl font-bold text-foreground">Invitations</Text>
+          </View>
+        </View>
+        <View className="flex-1 items-center justify-center px-8">
+          <IconSymbol name="exclamationmark.triangle.fill" size={48} color={colors.error} />
+          <Text className="text-foreground font-semibold mt-4 text-center">Failed to load invitations</Text>
+          <Text className="text-muted text-sm mt-2 text-center">{invitationsQuery.error.message}</Text>
+          <TouchableOpacity
+            onPress={() => invitationsQuery.refetch()}
+            className="mt-4 bg-primary px-6 py-3 rounded-xl"
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading invitations"
+          >
+            <Text className="text-white font-semibold">Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header */}
@@ -124,13 +157,15 @@ export default function InvitationsScreen() {
           <TouchableOpacity
             onPress={() => router.back()}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <View>
             <Text className="text-2xl font-bold text-foreground">Invitations</Text>
             <Text className="text-sm text-muted mt-1">
-              Track and manage client invitations
+              Track and manage user invitations
             </Text>
           </View>
         </View>
@@ -140,7 +175,7 @@ export default function InvitationsScreen() {
         className="flex-1 px-4"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
         {/* Stats Overview */}
@@ -170,8 +205,8 @@ export default function InvitationsScreen() {
               <Text className="text-xs text-muted">Expired</Text>
             </View>
             <View className="flex-1 bg-error/10 rounded-lg p-3 items-center">
-              <Text className="text-lg font-bold text-error">{stats.declined}</Text>
-              <Text className="text-xs text-muted">Declined</Text>
+              <Text className="text-lg font-bold text-error">{stats.revoked}</Text>
+              <Text className="text-xs text-muted">Revoked</Text>
             </View>
           </View>
         </View>
@@ -183,13 +218,15 @@ export default function InvitationsScreen() {
           className="mb-4"
           contentContainerStyle={{ gap: 8 }}
         >
-          {(["all", "pending", "accepted", "expired", "declined"] as const).map((status) => (
+          {(["all", "pending", "accepted", "expired", "revoked"] as const).map((status) => (
             <TouchableOpacity
               key={status}
               onPress={() => setSelectedStatus(status)}
               className={`px-4 py-2 rounded-full ${
                 selectedStatus === status ? "bg-primary" : "bg-surface border border-border"
               }`}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter by ${status === "all" ? "all statuses" : status}`}
             >
               <Text
                 className={`font-medium capitalize ${
@@ -218,9 +255,9 @@ export default function InvitationsScreen() {
               <View className="flex-row items-start justify-between mb-2">
                 <View className="flex-1">
                   <Text className="text-foreground font-semibold">
-                    {invitation.bundleTitle}
+                    {invitation.trainerName}
                   </Text>
-                  <Text className="text-sm text-muted">{invitation.trainerName}</Text>
+                  <Text className="text-sm text-muted capitalize">Role: {invitation.bundleTitle}</Text>
                 </View>
                 <View
                   className="px-3 py-1 rounded-full"

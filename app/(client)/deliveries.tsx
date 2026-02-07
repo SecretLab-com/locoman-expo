@@ -21,25 +21,25 @@ type DeliveryStatus = "pending" | "ready" | "scheduled" | "out_for_delivery" | "
 type DeliveryMethod = "in_person" | "locker" | "front_desk" | "shipped";
 
 type Delivery = {
-  id: number;
-  orderId: number | null;
-  orderItemId: number | null;
-  trainerId: number;
-  clientId: number;
-  productId: number | null;
+  id: string;
+  orderId: string | null;
+  orderItemId: string | null;
+  trainerId: string;
+  clientId: string;
+  productId: string | null;
   productName: string;
   quantity: number;
   status: DeliveryStatus | null;
-  scheduledDate: Date | null;
-  deliveredAt: Date | null;
-  confirmedAt: Date | null;
+  scheduledDate: string | null;
+  deliveredAt: string | null;
+  confirmedAt: string | null;
   deliveryMethod: DeliveryMethod | null;
   trackingNumber: string | null;
   notes: string | null;
   clientNotes: string | null;
   disputeReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
@@ -228,7 +228,7 @@ export default function ClientDeliveriesScreen() {
     }
   };
 
-  const formatDate = (date: Date | null) => {
+  const formatDate = (date: string | null) => {
     if (!date) return "Not scheduled";
     return new Date(date).toLocaleDateString();
   };
@@ -408,7 +408,7 @@ export default function ClientDeliveriesScreen() {
       {/* Deliveries List */}
       <FlatList
         data={filteredDeliveries}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={renderDelivery}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         refreshControl={

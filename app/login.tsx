@@ -1,13 +1,12 @@
 import { OAuthButtons } from "@/components/oauth-buttons";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { getApiBaseUrl, startOAuthLogin } from "@/constants/oauth";
 import { useAuthContext } from "@/contexts/auth-context";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
-import * as Auth from "@/lib/_core/auth";
 import { getHomeRoute } from "@/lib/navigation";
+import { supabase } from "@/lib/supabase-client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -83,7 +82,6 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
 
-    const apiBaseUrl = getApiBaseUrl();
     try {
       // Save or clear remember me preference
       if (rememberMe) {
@@ -94,102 +92,40 @@ export default function LoginScreen() {
         await AsyncStorage.removeItem(SAVED_EMAIL_KEY);
       }
 
-      // Call login API with correct base URL
-      console.log("[Login] API base URL:", apiBaseUrl);
-      console.log("[Login] Attempting login for:", finalEmail);
-      const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: finalEmail, password: finalPassword }),
-        credentials: "include",
+      console.log("[Login] Attempting Supabase sign-in for:", finalEmail);
+
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: finalEmail,
+        password: finalPassword,
       });
 
-      console.log("[Login] Response status:", response.status, response.ok);
+      if (signInError) {
+        await haptics.error();
+        setError(signInError.message || "Invalid email or password");
+        return;
+      }
 
-      if (response.ok) {
+      if (data.session) {
         await haptics.success();
-        const data = await response.json();
-        console.log("[Login] Response data:", JSON.stringify(data));
-        const userRole = data.user?.role || "shopper";
-        console.log("[Login] User role:", userRole);
-        if (data.user) {
-          const userInfo: Auth.User = {
-            id: data.user.id,
-            openId: data.user.openId,
-            name: data.user.name ?? null,
-            email: data.user.email ?? null,
-            phone: data.user.phone ?? null,
-            photoUrl: data.user.photoUrl ?? null,
-            loginMethod: data.user.loginMethod ?? null,
-            role: data.user.role ?? "shopper",
-            username: data.user.username ?? null,
-            bio: data.user.bio ?? null,
-            specialties: data.user.specialties ?? null,
-            socialLinks: data.user.socialLinks ?? null,
-            trainerId: data.user.trainerId ?? null,
-            active: data.user.active ?? true,
-            metadata: data.user.metadata ?? null,
-            createdAt: data.user.createdAt ? new Date(data.user.createdAt) : new Date(),
-            updatedAt: data.user.updatedAt ? new Date(data.user.updatedAt) : new Date(),
-            lastSignedIn: data.user.lastSignedIn ? new Date(data.user.lastSignedIn) : new Date(),
-          };
-          await Auth.setUserInfo(userInfo);
-        }
+        console.log("[Login] Supabase sign-in successful:", data.user?.email);
 
-        // Store session token and user info for native apps
-        if (Platform.OS !== "web" && data.sessionToken) {
-          console.log("[Login] Storing session token for native app...");
-          await Auth.setSessionToken(data.sessionToken);
-          console.log("[Login] User info stored for native app");
-        }
-
-        // Navigate to appropriate dashboard based on role
-        const targetRoute = getHomeRoute(userRole);
-
-        // Navigate to the appropriate dashboard
-        console.log("[Login] Navigating to:", targetRoute, "Platform:", Platform.OS);
-
-        // Trigger auth refresh to update the global auth state
-        console.log("[Login] Triggering auth refresh...");
+        // Trigger auth refresh — the useAuth hook will pick up the session
+        // and fetch the full user profile from the backend
         triggerAuthRefresh();
 
-        // Small delay to allow auth state to update before navigation
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Small delay to allow auth state to propagate
+        await new Promise(resolve => setTimeout(resolve, 300));
 
-        console.log("[Login] Calling router.replace...");
-        router.replace(targetRoute as any);
-        console.log("[Login] router.replace called");
+        router.replace("/(tabs)");
       } else {
         await haptics.error();
-        const data = await response.json();
-        setError(data.message || "Invalid email or password");
+        setError("Login failed — no session returned");
       }
     } catch (err) {
       await haptics.error();
       const message = err instanceof Error ? err.message : "Login failed";
-      if (/Failed to fetch|Network request failed/i.test(message)) {
-        setError(
-          `Cannot reach API server at ${apiBaseUrl || "configured base URL"}. ` +
-          "Start the API server (pnpm dev or pnpm dev:server) and try again.",
-        );
-      } else {
-        setError(message);
-      }
+      setError(message);
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOAuthLogin = async () => {
-    await haptics.light();
-    setLoading(true);
-    setError(null);
-
-    try {
-      await startOAuthLogin();
-    } catch (err) {
-      await haptics.error();
-      setError(err instanceof Error ? err.message : "Login failed");
       setLoading(false);
     }
   };

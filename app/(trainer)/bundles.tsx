@@ -6,54 +6,25 @@ import {
   FlatList,
   RefreshControl,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { trpc } from "@/lib/trpc";
 
-// Mock data for trainer's bundles
-const MOCK_BUNDLES = [
-  {
-    id: 1,
-    title: "Full Body Transformation",
-    price: 149.99,
-    status: "active",
-    sales: 45,
-    image: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400",
-    createdAt: "2024-01-15",
-  },
-  {
-    id: 2,
-    title: "HIIT Cardio Blast",
-    price: 79.99,
-    status: "active",
-    sales: 32,
-    image: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=400",
-    createdAt: "2024-02-20",
-  },
-  {
-    id: 3,
-    title: "Yoga for Beginners",
-    price: 59.99,
-    status: "draft",
-    sales: 0,
-    image: "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=400",
-    createdAt: "2024-03-10",
-  },
-  {
-    id: 4,
-    title: "Strength Training 101",
-    price: 99.99,
-    status: "pending",
-    sales: 0,
-    image: "https://images.unsplash.com/photo-1581009146145-b5ef050c149a?w=400",
-    createdAt: "2024-03-15",
-  },
-];
-
-type Bundle = (typeof MOCK_BUNDLES)[0];
+type Bundle = {
+  id: string;
+  title: string;
+  price?: string | number;
+  status: string;
+  sales?: number;
+  image?: string | null;
+  imageUrl?: string | null;
+  createdAt?: string;
+};
 
 function BundleCard({ bundle, onPress, onEdit, onDelete }: { 
   bundle: Bundle; 
@@ -86,7 +57,7 @@ function BundleCard({ bundle, onPress, onEdit, onDelete }: {
     >
       <View className="flex-row">
         <Image
-          source={{ uri: bundle.image }}
+          source={{ uri: bundle.image || bundle.imageUrl || undefined }}
           className="w-24 h-24"
           contentFit="cover"
         />
@@ -96,7 +67,7 @@ function BundleCard({ bundle, onPress, onEdit, onDelete }: {
               <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
                 {bundle.title}
               </Text>
-              <Text className="text-lg font-bold text-primary mt-1">${bundle.price}</Text>
+              <Text className="text-lg font-bold text-primary mt-1">${Number(bundle.price || 0).toFixed(2)}</Text>
             </View>
             <View className={`px-2 py-1 rounded-full ${statusStyle.bg}`}>
               <Text className={`text-xs font-medium capitalize ${statusStyle.text}`}>
@@ -106,7 +77,7 @@ function BundleCard({ bundle, onPress, onEdit, onDelete }: {
           </View>
           <View className="flex-row items-center mt-2">
             <IconSymbol name="chart.bar.fill" size={14} color={colors.muted} />
-            <Text className="text-sm text-muted ml-1">{bundle.sales} sales</Text>
+            <Text className="text-sm text-muted ml-1">{bundle.sales || 0} sales</Text>
           </View>
         </View>
       </View>
@@ -134,9 +105,21 @@ function BundleCard({ bundle, onPress, onEdit, onDelete }: {
 
 export default function TrainerBundlesScreen() {
   const colors = useColors();
-  const [bundles, setBundles] = useState(MOCK_BUNDLES);
-  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"all" | "active" | "draft" | "pending">("all");
+
+  // Fetch bundles from tRPC
+  const { data: bundlesData, isLoading, refetch, isRefetching } = trpc.bundles.list.useQuery();
+
+  const bundles: Bundle[] = (bundlesData || []).map((b: any) => ({
+    id: String(b.id),
+    title: b.title || "Untitled Bundle",
+    price: b.price,
+    status: b.status === "published" ? "active" : (b.status === "pending_review" ? "pending" : b.status || "draft"),
+    sales: b.sales || 0,
+    image: b.imageUrl || b.image,
+    imageUrl: b.imageUrl,
+    createdAt: b.createdAt,
+  }));
 
   const filteredBundles = bundles.filter((bundle) => {
     if (filter === "all") return true;
@@ -144,9 +127,7 @@ export default function TrainerBundlesScreen() {
   });
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
+    await refetch();
   };
 
   const handleBundlePress = (bundle: Bundle) => {
@@ -167,7 +148,8 @@ export default function TrainerBundlesScreen() {
           text: "Delete",
           style: "destructive",
           onPress: () => {
-            setBundles((prev) => prev.filter((b) => b.id !== bundle.id));
+            // TODO: Replace with trpc.bundles.delete.useMutation() when endpoint is created
+            refetch();
           },
         },
       ]
@@ -225,9 +207,14 @@ export default function TrainerBundlesScreen() {
       </View>
 
       {/* Bundle List */}
+      {isLoading ? (
+        <View className="flex-1 items-center justify-center py-20">
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : (
       <FlatList
         data={filteredBundles}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (
           <BundleCard
             bundle={item}
@@ -239,7 +226,7 @@ export default function TrainerBundlesScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
         ListEmptyComponent={
           <View className="items-center py-12">
@@ -254,6 +241,7 @@ export default function TrainerBundlesScreen() {
           </View>
         }
       />
+      )}
     </ScreenContainer>
   );
 }

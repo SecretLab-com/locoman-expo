@@ -25,6 +25,10 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "drizzle/**",
+    "drizzle.config.ts",
+    "scripts/run-supabase-migration.ts",
+    "scripts/sync-db.ts"
   ]
 }

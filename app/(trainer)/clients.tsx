@@ -46,61 +46,17 @@ const copyToClipboard = async (text: string) => {
   }
 };
 
-// Mock data for trainer's clients
-const MOCK_CLIENTS = [
-  {
-    id: 1,
-    name: "John Doe",
-    email: "john.doe@email.com",
-    avatar: "https://i.pravatar.cc/150?img=11",
-    activeBundles: 2,
-    totalSpent: 299.98,
-    lastActive: "2024-03-20",
-    status: "active",
-  },
-  {
-    id: 2,
-    name: "Jane Smith",
-    email: "jane.smith@email.com",
-    avatar: "https://i.pravatar.cc/150?img=12",
-    activeBundles: 1,
-    totalSpent: 149.99,
-    lastActive: "2024-03-19",
-    status: "active",
-  },
-  {
-    id: 3,
-    name: "Mike Johnson",
-    email: "mike.j@email.com",
-    avatar: "https://i.pravatar.cc/150?img=13",
-    activeBundles: 3,
-    totalSpent: 389.97,
-    lastActive: "2024-03-18",
-    status: "active",
-  },
-  {
-    id: 4,
-    name: "Sarah Williams",
-    email: "sarah.w@email.com",
-    avatar: "https://i.pravatar.cc/150?img=14",
-    activeBundles: 0,
-    totalSpent: 79.99,
-    lastActive: "2024-02-15",
-    status: "inactive",
-  },
-  {
-    id: 5,
-    name: "David Brown",
-    email: "david.b@email.com",
-    avatar: "https://i.pravatar.cc/150?img=15",
-    activeBundles: 1,
-    totalSpent: 129.99,
-    lastActive: "2024-03-17",
-    status: "active",
-  },
-];
-
-type Client = (typeof MOCK_CLIENTS)[0];
+type Client = {
+  id: string;
+  name: string;
+  email?: string | null;
+  avatar?: string | null;
+  photoUrl?: string | null;
+  activeBundles: number;
+  totalSpent: number;
+  lastActive?: string | null;
+  status: string;
+};
 
 function ClientAvatar({ uri }: { uri?: string | null }) {
   const colors = useColors();
@@ -137,7 +93,7 @@ function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onP
         testID={`trainer-client-${client.id}`}
       >
         <View className="flex-row items-center">
-          <ClientAvatar uri={client.avatar} />
+          <ClientAvatar uri={client.avatar || client.photoUrl} />
           <View className="flex-1 ml-4">
             <View className="flex-row items-center">
               <Text className="text-base font-semibold text-foreground">{client.name}</Text>
@@ -154,7 +110,7 @@ function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onP
               </View>
               <View className="flex-row items-center">
                 <IconSymbol name="dollarsign.circle.fill" size={14} color={colors.success} />
-                <Text className="text-sm text-muted ml-1">${client.totalSpent.toFixed(2)}</Text>
+                <Text className="text-sm text-muted ml-1">${Number(client.totalSpent || 0).toFixed(2)}</Text>
               </View>
             </View>
           </View>
@@ -183,13 +139,13 @@ export default function TrainerClientsScreen() {
   const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [payClientName, setPayClientName] = useState("");
-  const [payClientId, setPayClientId] = useState<number | null>(null);
+  const [payClientId, setPayClientId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payDescription, setPayDescription] = useState("");
   const [payLinkResult, setPayLinkResult] = useState<string | null>(null);
 
   // Fetch real clients from tRPC
-  const { data: clientsData, isLoading, refetch } = trpc.clients.list.useQuery();
+  const { data: clientsData, isLoading, refetch, isRefetching } = trpc.clients.list.useQuery();
   const bulkInviteMutation = trpc.clients.bulkInvite.useMutation();
 
   const createPayLink = trpc.payments.createLink.useMutation({
@@ -280,6 +236,11 @@ export default function TrainerClientsScreen() {
         </View>
       </View>
 
+      {isLoading ? (
+        <View className="flex-1 items-center justify-center py-20">
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : (
       <FlatList
         data={[
           { type: "header", title: `Active (${activeClients.length})` },
@@ -311,7 +272,7 @@ export default function TrainerClientsScreen() {
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
         ListEmptyComponent={
           <View className="items-center py-12">
@@ -321,6 +282,7 @@ export default function TrainerClientsScreen() {
         }
         contentContainerStyle={{ paddingBottom: 20 }}
       />
+      )}
 
       {/* Bulk Invite Modal */}
       <BulkInviteModal

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import {
   View,
   Text,
@@ -6,12 +6,15 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
+  ActivityIndicator,
 } from "react-native";
+import { useState } from "react";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { trpc } from "@/lib/trpc";
 
 // Status tiers
 const STATUS_TIERS = [
@@ -63,24 +66,21 @@ type PointHistory = {
   clientName?: string;
 };
 
-// Mock data
-const MOCK_HISTORY: PointHistory[] = [
-  { id: "1", activity: "Complete a session", points: 10, date: new Date(), clientName: "John Smith" },
-  { id: "2", activity: "Client completes order", points: 5, date: new Date(Date.now() - 86400000), clientName: "Sarah Johnson" },
-  { id: "3", activity: "New client joins", points: 50, date: new Date(Date.now() - 172800000), clientName: "Mike Davis" },
-  { id: "4", activity: "Complete a session", points: 10, date: new Date(Date.now() - 259200000), clientName: "John Smith" },
-  { id: "5", activity: "5-star review", points: 20, date: new Date(Date.now() - 345600000), clientName: "Sarah Johnson" },
-];
-
 export default function PointsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
     : "rgba(15, 23, 42, 0.18)";
-  const [totalPoints] = useState(2450);
-  const [history] = useState<PointHistory[]>(MOCK_HISTORY);
   const [showTiersModal, setShowTiersModal] = useState(false);
+
+  // Fetch points from API
+  const { data: pointsData, isLoading } = trpc.trainerDashboard.points.useQuery();
+  const totalPoints = pointsData?.totalPoints ?? 0;
+
+  // TODO: Add trpc.trainerDashboard.pointHistory.useQuery() when endpoint exists
+  // For now, history is empty until a points history endpoint is created
+  const history: PointHistory[] = [];
 
   // Get current tier
   const currentTier = useMemo(() => {
@@ -120,6 +120,15 @@ export default function PointsScreen() {
     if (days < 7) return `${days} days ago`;
     return date.toLocaleDateString();
   };
+
+  if (isLoading) {
+    return (
+      <ScreenContainer className="flex-1 items-center justify-center">
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-4">Loading points...</Text>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer className="flex-1">
@@ -243,25 +252,35 @@ export default function PointsScreen() {
           <Text className="text-lg font-semibold text-foreground mb-3">
             Recent Activity
           </Text>
-          <View className="bg-surface rounded-xl border border-border divide-y divide-border">
-            {history.map((item) => (
-              <View key={item.id} className="p-4">
-                <View className="flex-row items-center justify-between">
-                  <View className="flex-1">
-                    <Text className="text-foreground font-medium">{item.activity}</Text>
-                    {item.clientName && (
-                      <Text className="text-sm text-muted">{item.clientName}</Text>
-                    )}
-                    <Text className="text-xs text-muted mt-1">{formatDate(item.date)}</Text>
-                  </View>
-                  <View className="flex-row items-center">
-                    <Text className="text-success font-bold">+{item.points}</Text>
-                    <Text className="text-muted ml-1">pts</Text>
+          {history.length === 0 ? (
+            <View className="bg-surface rounded-xl border border-border p-6 items-center">
+              <IconSymbol name="clock.fill" size={32} color={colors.muted} />
+              <Text className="text-muted mt-2">No activity yet</Text>
+              <Text className="text-muted text-sm text-center mt-1">
+                Complete sessions and grow your client base to earn points
+              </Text>
+            </View>
+          ) : (
+            <View className="bg-surface rounded-xl border border-border divide-y divide-border">
+              {history.map((item) => (
+                <View key={item.id} className="p-4">
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-1">
+                      <Text className="text-foreground font-medium">{item.activity}</Text>
+                      {item.clientName && (
+                        <Text className="text-sm text-muted">{item.clientName}</Text>
+                      )}
+                      <Text className="text-xs text-muted mt-1">{formatDate(item.date)}</Text>
+                    </View>
+                    <View className="flex-row items-center">
+                      <Text className="text-success font-bold">+{item.points}</Text>
+                      <Text className="text-muted ml-1">pts</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Bottom padding */}

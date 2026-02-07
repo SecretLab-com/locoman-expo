@@ -1,3 +1,10 @@
+// TODO: Integrate real order creation via tRPC when orders.create endpoint is added
+// The checkout flow currently uses mock processing. To integrate:
+// 1. Add trpc.orders.create.useMutation() for placing orders
+// 2. Use trpc.payments.createSession for payment processing
+// 3. Replace the simulated delay with actual API calls
+// 4. Wire up trpc.deliveries.createForOrder after order is created
+
 import { useState } from "react";
 import {
   Text,

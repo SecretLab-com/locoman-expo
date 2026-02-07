@@ -1,9 +1,10 @@
-import { getApiBaseUrl, startOAuthLogin } from "@/constants/oauth";
-import { useAuthContext } from "@/contexts/auth-context";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
-import * as Auth from "@/lib/_core/auth";
+import { supabase } from "@/lib/supabase-client";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { router } from "expo-router";
+import { makeRedirectUri } from "expo-auth-session";
+import * as QueryParams from "expo-auth-session/build/QueryParams";
+import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -17,7 +18,6 @@ interface OAuthButtonsProps {
 
 export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
   const colors = useColors();
-  const { refresh } = useAuthContext();
 
   const handleAppleSignIn = async () => {
     try {
@@ -28,40 +28,17 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
         ],
       });
 
-      // Extract user info from credential
-      const { user, email, fullName, identityToken } = credential;
-
-      if (identityToken) {
-        // Send to backend for verification and session creation
-        const apiBaseUrl = getApiBaseUrl();
-        const response = await fetch(`${apiBaseUrl}/api/auth/apple`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            identityToken,
-            user,
-            email,
-            fullName: fullName ? `${fullName.givenName || ""} ${fullName.familyName || ""}`.trim() : undefined,
-          }),
-          credentials: "include",
+      if (credential.identityToken) {
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: "apple",
+          token: credential.identityToken,
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.user) {
-            await refresh();
-            onSuccess?.();
-            router.replace("/(tabs)");
-          }
-        } else {
-          throw new Error("Failed to authenticate with Apple");
-        }
+        if (error) throw error;
+        triggerAuthRefresh();
+        onSuccess?.();
       }
     } catch (error: any) {
-      if (error.code === "ERR_REQUEST_CANCELED") {
-        // User canceled, do nothing
-        return;
-      }
+      if (error.code === "ERR_REQUEST_CANCELED") return;
       console.error("Apple Sign In error:", error);
       onError?.(error);
     }
@@ -69,67 +46,98 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
 
   const handleGoogleSignIn = async () => {
     try {
-      const shouldUseDevLogin = process.env.EXPO_PUBLIC_DEV_LOGIN === "true";
-
-      if (shouldUseDevLogin) {
-        const apiBaseUrl = getApiBaseUrl();
-        const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "testuser@secretlab.com", password: "supertest" }),
-          credentials: "include",
+      if (Platform.OS === "web") {
+        // Web: use Supabase OAuth redirect (works natively in browser)
+        const redirectTo = `${window.location.origin}/oauth/callback`;
+        console.log("[OAuth] Web: starting Supabase OAuth, redirectTo:", redirectTo);
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo },
         });
-
-        if (!response.ok) {
-          throw new Error("Failed to authenticate using dev login.");
-        }
-
-        const data = await response.json();
-        if (data.user) {
-          const userInfo: Auth.User = {
-            id: data.user.id,
-            openId: data.user.openId,
-            name: data.user.name ?? null,
-            email: data.user.email ?? null,
-            phone: data.user.phone ?? null,
-            photoUrl: data.user.photoUrl ?? null,
-            loginMethod: data.user.loginMethod ?? null,
-            role: data.user.role ?? "shopper",
-            username: data.user.username ?? null,
-            bio: data.user.bio ?? null,
-            specialties: data.user.specialties ?? null,
-            socialLinks: data.user.socialLinks ?? null,
-            trainerId: data.user.trainerId ?? null,
-            active: data.user.active ?? true,
-            metadata: data.user.metadata ?? null,
-            createdAt: data.user.createdAt ? new Date(data.user.createdAt) : new Date(),
-            updatedAt: data.user.updatedAt ? new Date(data.user.updatedAt) : new Date(),
-            lastSignedIn: data.user.lastSignedIn ? new Date(data.user.lastSignedIn) : new Date(),
-          };
-          await Auth.setUserInfo(userInfo);
-        }
-
-        if (Platform.OS !== "web" && data.sessionToken) {
-          await Auth.setSessionToken(data.sessionToken);
-        }
-
-        await refresh();
+        if (error) throw error;
         onSuccess?.();
-        router.replace("/(tabs)");
         return;
       }
 
-      // Use the centralized OAuth login flow which handles web + native
-      await startOAuthLogin();
-      // The OAuth callback will handle the rest via deep link
-      onSuccess?.();
-    } catch (error: any) {
-      console.error("Google Sign In error detailed:", error);
-      const errorMessage = error?.message || String(error);
+      // Native: use Supabase signInWithOAuth + WebBrowser
+      // The redirect URL must be in Supabase's allowed redirect URLs
+      const redirectTo = makeRedirectUri();
+      console.log("[OAuth] Native: redirect URI:", redirectTo);
 
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) throw error;
+      if (!data.url) throw new Error("No OAuth URL returned");
+
+      console.log("[OAuth] Opening Supabase OAuth URL:", data.url);
+
+      // Open the auth URL in an in-app browser
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectTo,
+      );
+
+      console.log("[OAuth] WebBrowser result:", result.type);
+
+      if (result.type === "success" && result.url) {
+        // Extract the tokens from the redirect URL
+        // Supabase puts them in the hash fragment: #access_token=...&refresh_token=...
+        const url = result.url;
+        console.log("[OAuth] Redirect URL received:", url.substring(0, 100));
+
+        // Parse hash fragment parameters
+        const hashIndex = url.indexOf("#");
+        if (hashIndex !== -1) {
+          const fragment = url.substring(hashIndex + 1);
+          const params = new URLSearchParams(fragment);
+          const accessToken = params.get("access_token");
+          const refreshToken = params.get("refresh_token");
+
+          if (accessToken && refreshToken) {
+            console.log("[OAuth] Setting Supabase session from tokens...");
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionError) throw sessionError;
+
+            console.log("[OAuth] Session set successfully!");
+            triggerAuthRefresh();
+            onSuccess?.();
+            return;
+          }
+        }
+
+        // Fallback: try query params (for PKCE flow)
+        const queryIndex = url.indexOf("?");
+        if (queryIndex !== -1) {
+          const queryParams = new URLSearchParams(url.substring(queryIndex + 1));
+          const code = queryParams.get("code");
+          if (code) {
+            console.log("[OAuth] Exchanging code for session...");
+            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+            if (exchangeError) throw exchangeError;
+            triggerAuthRefresh();
+            onSuccess?.();
+            return;
+          }
+        }
+
+        console.warn("[OAuth] No tokens or code found in redirect URL");
+      } else if (result.type === "cancel" || result.type === "dismiss") {
+        console.log("[OAuth] User cancelled sign-in");
+      }
+    } catch (error: any) {
+      console.error("Google Sign In error:", error);
       Alert.alert(
         "Login Failed",
-        `Details: ${errorMessage}\n\nIf variables were recently added to .env, please restart your dev server with 'npx expo start --clear'.`,
+        error?.message || "An error occurred during Google sign in.",
       );
       onError?.(error);
     }
@@ -150,7 +158,7 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
         />
       )}
 
-      {/* Google/Portal OAuth Sign In */}
+      {/* Google OAuth Sign In */}
       <TouchableOpacity
         className="flex-row items-center justify-center border border-border rounded-xl py-4 px-6"
         onPress={handleGoogleSignIn}
@@ -178,11 +186,9 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
   );
 }
 
-// Google icon SVG component
 function GoogleIcon() {
   return (
     <View style={{ width: 20, height: 20 }}>
-      {/* Simplified Google "G" representation */}
       <View
         style={{
           width: 20,

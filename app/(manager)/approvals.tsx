@@ -24,8 +24,8 @@ import {
 type BundleStatus = "draft" | "pending_review" | "changes_requested" | "published" | "rejected";
 
 type Bundle = {
-  id: number;
-  trainerId: number;
+  id: string;
+  trainerId: string;
   title: string;
   description: string | null;
   imageUrl: string | null;
@@ -35,15 +35,15 @@ type Bundle = {
   productsJson: any;
   servicesJson: any;
   goalsJson: any;
-  submittedForReviewAt: Date | null;
-  reviewedAt: Date | null;
-  reviewedBy: number | null;
+  submittedForReviewAt: string | null;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
   reviewComments: string | null;
   rejectionReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
   trainer?: {
-    id: number;
+    id: string;
     name: string | null;
     photoUrl: string | null;
   };
@@ -221,7 +221,7 @@ export default function ManagerApprovalsScreen() {
     }
   };
 
-  const formatDate = (date: Date | null) => {
+  const formatDate = (date: string | null) => {
     if (!date) return "N/A";
     return new Date(date).toLocaleDateString();
   };
@@ -428,7 +428,7 @@ export default function ManagerApprovalsScreen() {
       {/* Bundles List */}
       <FlatList
         data={filteredBundles}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={renderBundle}
         contentContainerStyle={{ paddingBottom: 100 }}
         refreshControl={

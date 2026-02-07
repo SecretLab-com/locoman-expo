@@ -158,7 +158,7 @@ export default function CoordinatorHomeScreen() {
         value: "4",
         tone: colors.error,
         icon: "exclamationmark.triangle.fill",
-        route: "/(coordinator)/alerts?section=failed-payments",
+        route: "/(coordinator)/analytics",
         testID: "coord-alert-failed-payments",
       },
       {
@@ -343,10 +343,10 @@ export default function CoordinatorHomeScreen() {
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-lg font-semibold text-foreground">Alerts</Text>
             <TouchableOpacity
-              onPress={() => router.push("/(coordinator)/alerts?section=alerts" as any)}
+              onPress={() => router.push("/(coordinator)/analytics" as any)}
               accessibilityRole="button"
-              accessibilityLabel="Show all alerts"
-              testID="coord-alerts-show-all"
+              accessibilityLabel="View analytics"
+              testID="coord-analytics-show-all"
             >
               <Text className="text-sm text-primary">Show all</Text>
             </TouchableOpacity>

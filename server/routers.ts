@@ -53,7 +53,7 @@ export const appRouter = router({
     }),
 
     bundleDetail: publicProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .query(async ({ input }) => {
         return db.getBundleDraftById(input.id);
       }),
@@ -63,7 +63,7 @@ export const appRouter = router({
     }),
 
     trainerProfile: publicProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .query(async ({ input }) => {
         return db.getUserById(input.id);
       }),
@@ -89,7 +89,7 @@ export const appRouter = router({
     }),
 
     get: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .query(async ({ input }) => {
         return db.getBundleDraftById(input.id);
       }),
@@ -98,7 +98,7 @@ export const appRouter = router({
       .input(z.object({
         title: z.string().min(1).max(255),
         description: z.string().optional(),
-        templateId: z.number().optional(),
+        templateId: z.string().optional(),
         price: z.string().optional(),
         cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
         goalsJson: z.any().optional(),
@@ -125,7 +125,7 @@ export const appRouter = router({
 
     update: trainerProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         title: z.string().min(1).max(255).optional(),
         description: z.string().optional(),
         price: z.string().optional(),
@@ -142,11 +142,11 @@ export const appRouter = router({
       }),
 
     submitForReview: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.updateBundleDraft(input.id, {
           status: "pending_review",
-          submittedForReviewAt: new Date(),
+          submittedForReviewAt: new Date().toISOString(),
         });
         const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
         notifyBadgeCounts(managerIds);
@@ -156,6 +156,13 @@ export const appRouter = router({
     templates: trainerProcedure.query(async () => {
       return db.getBundleTemplates();
     }),
+
+    delete: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        await db.updateBundleDraft(input.id, { status: "draft" });
+        return { success: true };
+      }),
   }),
 
   // ============================================================================
@@ -178,7 +185,7 @@ export const appRouter = router({
     }),
 
     get: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .query(async ({ input }) => {
         return db.getClientById(input.id);
       }),
@@ -204,7 +211,7 @@ export const appRouter = router({
 
     update: trainerProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         name: z.string().min(1).max(255).optional(),
         email: z.string().email().optional(),
         phone: z.string().optional(),
@@ -222,11 +229,11 @@ export const appRouter = router({
       .input(z.object({
         email: z.string().email(),
         name: z.string().optional(),
-        bundleDraftId: z.number().optional(),
+        bundleDraftId: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const token = crypto.randomUUID();
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
         await db.createInvitation({
           trainerId: ctx.user.id,
           email: input.email,
@@ -248,14 +255,14 @@ export const appRouter = router({
           email: z.string().email(),
           name: z.string().optional(),
         })),
-        bundleDraftId: z.number().optional(),
+        bundleDraftId: z.string().optional(),
         message: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const results = [];
         for (const invite of input.invitations) {
           const token = crypto.randomUUID();
-          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
           await db.createInvitation({
             trainerId: ctx.user.id,
             email: invite.email,
@@ -274,12 +281,18 @@ export const appRouter = router({
   // SUBSCRIPTIONS (with session tracking)
   // ============================================================================
   subscriptions: router({
-    // Client gets their subscriptions
+    // Client gets their subscriptions (finds client records linked to this user)
     mySubscriptions: protectedProcedure.query(async ({ ctx }) => {
-      // Find client record for this user
-      const clients = await db.getClientsByTrainer(0); // This needs adjustment
-      // For now, return subscriptions where user is the client
-      return [];
+      const myTrainers = await db.getMyTrainers(ctx.user.id);
+      if (myTrainers.length === 0) return [];
+      const allSubs = [];
+      for (const trainer of myTrainers) {
+        if (trainer.relationshipId) {
+          const subs = await db.getSubscriptionsByClient(trainer.relationshipId);
+          allSubs.push(...subs);
+        }
+      }
+      return allSubs;
     }),
 
     // Trainer gets subscriptions for their clients
@@ -288,10 +301,8 @@ export const appRouter = router({
     }),
 
     get: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .query(async ({ input }) => {
-        const db2 = await db.getDb();
-        if (!db2) return undefined;
         // Get subscription with remaining sessions calculation
         const subs = await db.getSubscriptionsByClient(input.id);
         return subs[0];
@@ -299,8 +310,8 @@ export const appRouter = router({
 
     create: trainerProcedure
       .input(z.object({
-        clientId: z.number(),
-        bundleDraftId: z.number().optional(),
+        clientId: z.string(),
+        bundleDraftId: z.string().optional(),
         price: z.string(),
         subscriptionType: z.enum(["weekly", "monthly", "yearly"]).optional(),
         sessionsIncluded: z.number().default(0),
@@ -315,19 +326,43 @@ export const appRouter = router({
           subscriptionType: input.subscriptionType,
           sessionsIncluded: input.sessionsIncluded,
           sessionsUsed: 0,
-          startDate: input.startDate || new Date(),
+          startDate: input.startDate ? input.startDate.toISOString() : new Date().toISOString(),
         });
       }),
 
     // Get session usage stats for a subscription
     sessionStats: protectedProcedure
-      .input(z.object({ subscriptionId: z.number() }))
+      .input(z.object({ subscriptionId: z.string() }))
       .query(async ({ input }) => {
-        const db2 = await db.getDb();
-        if (!db2) return { included: 0, used: 0, remaining: 0 };
+        const sub = await db.getActiveSubscription(input.subscriptionId);
+        if (!sub) return { included: 0, used: 0, remaining: 0 };
+        const included = sub.sessionsIncluded || 0;
+        const used = sub.sessionsUsed || 0;
+        return { included, used, remaining: Math.max(0, included - used) };
+      }),
 
-        // This would need to query the subscription
-        return { included: 10, used: 3, remaining: 7 };
+    // Pause a subscription
+    pause: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        await db.updateSubscription(input.id, { status: "paused", pausedAt: new Date().toISOString() });
+        return { success: true };
+      }),
+
+    // Resume a paused subscription
+    resume: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        await db.updateSubscription(input.id, { status: "active", pausedAt: null });
+        return { success: true };
+      }),
+
+    // Cancel a subscription
+    cancel: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        await db.updateSubscription(input.id, { status: "cancelled", cancelledAt: new Date().toISOString() });
+        return { success: true };
       }),
   }),
 
@@ -352,8 +387,8 @@ export const appRouter = router({
 
     create: trainerProcedure
       .input(z.object({
-        clientId: z.number(),
-        subscriptionId: z.number().optional(),
+        clientId: z.string(),
+        subscriptionId: z.string().optional(),
         sessionDate: z.date(),
         durationMinutes: z.number().default(60),
         sessionType: z.enum(["training", "check_in", "call", "plan_review"]).optional(),
@@ -365,7 +400,7 @@ export const appRouter = router({
           clientId: input.clientId,
           trainerId: ctx.user.id,
           subscriptionId: input.subscriptionId,
-          sessionDate: input.sessionDate,
+          sessionDate: input.sessionDate.toISOString(),
           durationMinutes: input.durationMinutes,
           sessionType: input.sessionType,
           location: input.location,
@@ -375,21 +410,21 @@ export const appRouter = router({
 
     // Mark session as completed - this increments the usage count
     complete: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.completeSession(input.id);
         return { success: true };
       }),
 
     cancel: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.updateSession(input.id, { status: "cancelled" });
         return { success: true };
       }),
 
     markNoShow: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.updateSession(input.id, { status: "no_show" });
         return { success: true };
@@ -411,12 +446,34 @@ export const appRouter = router({
     }),
 
     get: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .query(async ({ input }) => {
         const order = await db.getOrderById(input.id);
         if (!order) return undefined;
         const items = await db.getOrderItems(input.id);
         return { ...order, items };
+      }),
+
+    // Update order status
+    updateStatus: trainerProcedure
+      .input(z.object({
+        id: z.string(),
+        status: z.enum(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateOrder(input.id, { status: input.status });
+        return { success: true };
+      }),
+
+    // Update fulfillment status
+    updateFulfillment: trainerProcedure
+      .input(z.object({
+        id: z.string(),
+        fulfillmentStatus: z.enum(["unfulfilled", "partial", "fulfilled", "restocked"]),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateOrder(input.id, { fulfillmentStatus: input.fulfillmentStatus });
+        return { success: true };
       }),
   }),
 
@@ -441,7 +498,7 @@ export const appRouter = router({
     }),
 
     markReady: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.markDeliveryReady(input.id);
         const delivery = await db.getDeliveryById(input.id);
@@ -452,7 +509,7 @@ export const appRouter = router({
       }),
 
     markDelivered: trainerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.markDeliveryDelivered(input.id);
         const delivery = await db.getDeliveryById(input.id);
@@ -464,7 +521,7 @@ export const appRouter = router({
 
     // Client confirms receipt
     confirmReceipt: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.confirmDeliveryReceipt(input.id);
         const delivery = await db.getDeliveryById(input.id);
@@ -477,7 +534,7 @@ export const appRouter = router({
     // Client reports issue
     reportIssue: protectedProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         reason: z.string(),
       }))
       .mutation(async ({ input }) => {
@@ -495,7 +552,7 @@ export const appRouter = router({
     // Client requests reschedule
     requestReschedule: protectedProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         requestedDate: z.string(),
         reason: z.string().optional(),
       }))
@@ -514,12 +571,12 @@ export const appRouter = router({
     // Trainer approves reschedule
     approveReschedule: trainerProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         newDate: z.string(),
       }))
       .mutation(async ({ input }) => {
         await db.updateDelivery(input.id, {
-          scheduledDate: new Date(input.newDate),
+          scheduledDate: new Date(input.newDate).toISOString(),
           clientNotes: null, // Clear the reschedule request
         });
         const delivery = await db.getDeliveryById(input.id);
@@ -532,7 +589,7 @@ export const appRouter = router({
     // Trainer rejects reschedule
     rejectReschedule: trainerProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         reason: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -550,10 +607,10 @@ export const appRouter = router({
     // Create delivery records for an order (called after order is placed)
     createForOrder: trainerProcedure
       .input(z.object({
-        orderId: z.number(),
-        clientId: z.number(),
+        orderId: z.string(),
+        clientId: z.string(),
         products: z.array(z.object({
-          productId: z.number().optional(),
+          productId: z.string().optional(),
           productName: z.string(),
           quantity: z.number(),
         })),
@@ -561,7 +618,7 @@ export const appRouter = router({
         deliveryMethod: z.enum(["in_person", "locker", "front_desk", "shipped"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const deliveryIds: number[] = [];
+        const deliveryIds: string[] = [];
         for (const product of input.products) {
           const id = await db.createDelivery({
             orderId: input.orderId,
@@ -571,7 +628,7 @@ export const appRouter = router({
             productName: product.productName,
             quantity: product.quantity,
             status: "pending",
-            scheduledDate: input.scheduledDate ? new Date(input.scheduledDate) : undefined,
+            scheduledDate: input.scheduledDate || undefined,
             deliveryMethod: input.deliveryMethod || "in_person",
           });
           deliveryIds.push(id);
@@ -613,7 +670,7 @@ export const appRouter = router({
 
     send: protectedProcedure
       .input(z.object({
-        receiverId: z.number(),
+        receiverId: z.string(),
         content: z.string().min(1),
         conversationId: z.string().optional(),
       }))
@@ -643,7 +700,7 @@ export const appRouter = router({
 
     sendGroup: protectedProcedure
       .input(z.object({
-        receiverIds: z.array(z.number()).min(1),
+        receiverIds: z.array(z.string()).min(1),
         content: z.string().min(1),
         conversationId: z.string().optional(),
       }))
@@ -662,7 +719,7 @@ export const appRouter = router({
       }),
 
     markRead: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.markMessageRead(input.id);
         return { success: true };
@@ -671,7 +728,7 @@ export const appRouter = router({
     // Send message with attachment
     sendWithAttachment: protectedProcedure
       .input(z.object({
-        receiverId: z.number(),
+        receiverId: z.string(),
         content: z.string(),
         conversationId: z.string().optional(),
         messageType: z.enum(["text", "image", "file"]).default("text"),
@@ -710,7 +767,7 @@ export const appRouter = router({
 
     sendGroupWithAttachment: protectedProcedure
       .input(z.object({
-        receiverIds: z.array(z.number()).min(1),
+        receiverIds: z.array(z.string()).min(1),
         content: z.string(),
         conversationId: z.string().optional(),
         messageType: z.enum(["text", "image", "file"]).default("text"),
@@ -740,7 +797,7 @@ export const appRouter = router({
 
     // Get reactions for a message
     getReactions: protectedProcedure
-      .input(z.object({ messageId: z.number() }))
+      .input(z.object({ messageId: z.string() }))
       .query(async ({ input }) => {
         return db.getMessageReactions(input.messageId);
       }),
@@ -748,7 +805,7 @@ export const appRouter = router({
     // Add reaction to a message
     addReaction: protectedProcedure
       .input(z.object({
-        messageId: z.number(),
+        messageId: z.string(),
         reaction: z.string().max(32),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -762,7 +819,7 @@ export const appRouter = router({
     // Remove reaction from a message
     removeReaction: protectedProcedure
       .input(z.object({
-        messageId: z.number(),
+        messageId: z.string(),
         reaction: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -804,7 +861,7 @@ export const appRouter = router({
         content: z.string().min(1),
       }))
       .mutation(async ({ ctx, input }) => {
-        const BOT_USER_ID = 0; // System bot
+        const BOT_USER_ID = "00000000-0000-0000-0000-000000000000"; // System bot
         const conversationId = `bot-${ctx.user.id}`;
 
         // Save user's message
@@ -881,18 +938,24 @@ export const appRouter = router({
         startTime: z.date(),
         endTime: z.date(),
         eventType: z.enum(["session", "delivery", "appointment", "other"]).optional(),
-        relatedClientId: z.number().optional(),
+        relatedClientId: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createCalendarEvent({
           userId: ctx.user.id,
-          ...input,
+          title: input.title,
+          description: input.description,
+          location: input.location,
+          startTime: input.startTime.toISOString(),
+          endTime: input.endTime.toISOString(),
+          eventType: input.eventType,
+          relatedClientId: input.relatedClientId,
         });
       }),
 
     update: protectedProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         title: z.string().min(1).max(255).optional(),
         description: z.string().optional(),
         location: z.string().optional(),
@@ -900,8 +963,12 @@ export const appRouter = router({
         endTime: z.date().optional(),
       }))
       .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        await db.updateCalendarEvent(id, data);
+        const { id, startTime, endTime, ...rest } = input;
+        await db.updateCalendarEvent(id, {
+          ...rest,
+          ...(startTime && { startTime: startTime.toISOString() }),
+          ...(endTime && { endTime: endTime.toISOString() }),
+        });
         return { success: true };
       }),
   }),
@@ -954,7 +1021,7 @@ export const appRouter = router({
 
     // Remove a trainer from the client's roster
     remove: protectedProcedure
-      .input(z.object({ trainerId: z.number() }))
+      .input(z.object({ trainerId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         await db.removeTrainerFromClient(input.trainerId, ctx.user.id);
         return { success: true };
@@ -1008,7 +1075,7 @@ export const appRouter = router({
     // Send a join request to a trainer
     requestToJoin: protectedProcedure
       .input(z.object({
-        trainerId: z.number(),
+        trainerId: z.string(),
         message: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1028,7 +1095,7 @@ export const appRouter = router({
 
     // Cancel a pending join request
     cancelRequest: protectedProcedure
-      .input(z.object({ requestId: z.number() }))
+      .input(z.object({ requestId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         await db.cancelJoinRequest(input.requestId, ctx.user.id);
         notifyBadgeCounts([ctx.user.id]);
@@ -1074,7 +1141,7 @@ export const appRouter = router({
 
     updateUserRole: managerProcedure
       .input(z.object({
-        userId: z.number(),
+        userId: z.string(),
         role: z.enum(["shopper", "client", "trainer", "manager", "coordinator"]),
       }))
       .mutation(async ({ input }) => {
@@ -1084,7 +1151,7 @@ export const appRouter = router({
 
     updateUserStatus: managerProcedure
       .input(z.object({
-        userId: z.number(),
+        userId: z.string(),
         active: z.boolean(),
       }))
       .mutation(async ({ input }) => {
@@ -1094,7 +1161,7 @@ export const appRouter = router({
 
     bulkUpdateRole: managerProcedure
       .input(z.object({
-        userIds: z.array(z.number()).min(1),
+        userIds: z.array(z.string()).min(1),
         role: z.enum(["shopper", "client", "trainer", "manager", "coordinator"]),
       }))
       .mutation(async ({ input }) => {
@@ -1104,7 +1171,7 @@ export const appRouter = router({
 
     bulkUpdateStatus: managerProcedure
       .input(z.object({
-        userIds: z.array(z.number()).min(1),
+        userIds: z.array(z.string()).min(1),
         active: z.boolean(),
       }))
       .mutation(async ({ input }) => {
@@ -1117,11 +1184,11 @@ export const appRouter = router({
     }),
 
     approveBundle: managerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
         await db.updateBundleDraft(input.id, {
           status: "published",
-          reviewedAt: new Date(),
+          reviewedAt: new Date().toISOString(),
           reviewedBy: ctx.user.id,
         });
         const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
@@ -1131,13 +1198,13 @@ export const appRouter = router({
 
     rejectBundle: managerProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         reason: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
         await db.updateBundleDraft(input.id, {
           status: "rejected",
-          reviewedAt: new Date(),
+          reviewedAt: new Date().toISOString(),
           reviewedBy: ctx.user.id,
           rejectionReason: input.reason,
         });
@@ -1148,13 +1215,13 @@ export const appRouter = router({
 
     requestChanges: managerProcedure
       .input(z.object({
-        id: z.number(),
+        id: z.string(),
         comments: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
         await db.updateBundleDraft(input.id, {
           status: "changes_requested",
-          reviewedAt: new Date(),
+          reviewedAt: new Date().toISOString(),
           reviewedBy: ctx.user.id,
           reviewComments: input.comments,
         });
@@ -1182,7 +1249,7 @@ export const appRouter = router({
 
     // User Activity Logs
     getUserActivityLogs: managerProcedure
-      .input(z.object({ userId: z.number(), limit: z.number().default(50) }))
+      .input(z.object({ userId: z.string(), limit: z.number().default(50) }))
       .query(async ({ input }) => {
         return db.getUserActivityLogs(input.userId, input.limit);
       }),
@@ -1193,9 +1260,146 @@ export const appRouter = router({
         return db.getRecentActivityLogs(input.limit);
       }),
 
+    /** Unified activity feed — combines user actions, system logs, and payment events */
+    activityFeed: managerProcedure
+      .input(z.object({
+        limit: z.number().default(50),
+        category: z.enum(["all", "auth", "admin", "payments", "shopify"]).default("all"),
+      }))
+      .query(async ({ input }) => {
+        const items: Array<{
+          id: string;
+          category: string;
+          action: string;
+          description: string;
+          userId: string | null;
+          userName: string | null;
+          metadata: any;
+          createdAt: string;
+        }> = [];
+
+        // 1. User activity logs (admin actions)
+        if (input.category === "all" || input.category === "admin" || input.category === "auth") {
+          const userLogs = await db.getRecentActivityLogs(input.limit);
+          // Resolve user names for the logs
+          const userIds = new Set<string>();
+          userLogs.forEach((log) => {
+            if (log.performedBy) userIds.add(log.performedBy);
+            if (log.targetUserId) userIds.add(log.targetUserId);
+          });
+          const userMap = new Map<string, string>();
+          for (const uid of userIds) {
+            const u = await db.getUserById(uid);
+            if (u?.name) userMap.set(uid, u.name);
+          }
+
+          for (const log of userLogs) {
+            const performer = userMap.get(log.performedBy) || "Unknown";
+            const target = userMap.get(log.targetUserId) || "Unknown user";
+            let description = "";
+            const cat = log.action.includes("impersonation") ? "auth" : "admin";
+
+            switch (log.action) {
+              case "role_changed":
+                description = `${performer} changed ${target}'s role: ${log.previousValue || "?"} → ${log.newValue || "?"}`;
+                break;
+              case "status_changed":
+                description = `${performer} ${log.newValue === "true" ? "activated" : "deactivated"} ${target}`;
+                break;
+              case "impersonation_started":
+                description = `${performer} started impersonating ${target}`;
+                break;
+              case "impersonation_ended":
+                description = `${performer} stopped impersonating ${target}`;
+                break;
+              case "profile_updated":
+                description = `${performer} updated ${target}'s profile`;
+                break;
+              case "invited":
+                description = `${performer} invited ${log.notes || target}`;
+                break;
+              case "deleted":
+                description = `${performer} deleted ${target}`;
+                break;
+              default:
+                description = `${performer}: ${log.action}${log.notes ? ` — ${log.notes}` : ""}`;
+            }
+
+            if (input.category === "all" || input.category === cat) {
+              items.push({
+                id: log.id,
+                category: cat,
+                action: log.action,
+                description,
+                userId: log.performedBy,
+                userName: performer,
+                metadata: { targetUserId: log.targetUserId, previousValue: log.previousValue, newValue: log.newValue },
+                createdAt: log.createdAt,
+              });
+            }
+          }
+        }
+
+        // 2. Payment events
+        if (input.category === "all" || input.category === "payments") {
+          const paymentLogs = await db.getPaymentLogsByReference("%"); // we need a new function
+          // Actually, let's query payment_sessions directly for a feed
+          const { getServerSupabase } = await import("../lib/supabase");
+          const sb = getServerSupabase();
+          const { data: recentPayments } = await sb
+            .from("payment_sessions")
+            .select("id, merchant_reference, requested_by, amount_minor, currency, status, description, method, created_at, updated_at")
+            .order("updated_at", { ascending: false })
+            .limit(input.limit);
+
+          for (const ps of recentPayments || []) {
+            const requester = await db.getUserById(ps.requested_by);
+            const amount = (ps.amount_minor / 100).toFixed(2);
+            items.push({
+              id: `pay-${ps.id}`,
+              category: "payments",
+              action: ps.status,
+              description: `${requester?.name || "Unknown"} — ${ps.currency} ${amount} ${ps.description || ""} (${ps.status})`,
+              userId: ps.requested_by,
+              userName: requester?.name || null,
+              metadata: { merchantReference: ps.merchant_reference, method: ps.method, amountMinor: ps.amount_minor },
+              createdAt: ps.updated_at || ps.created_at,
+            });
+          }
+        }
+
+        // 3. Shopify product sync — check activity_logs for shopify events
+        if (input.category === "all" || input.category === "shopify") {
+          const { getServerSupabase: getSb } = await import("../lib/supabase");
+          const sb2 = getSb();
+          const { data: actLogs } = await sb2
+            .from("activity_logs")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .limit(input.limit);
+
+          for (const al of actLogs || []) {
+            items.push({
+              id: `act-${al.id}`,
+              category: al.action?.includes("shopify") ? "shopify" : "admin",
+              action: al.action,
+              description: `${al.action}${al.entity_type ? ` (${al.entity_type})` : ""}`,
+              userId: al.user_id,
+              userName: null,
+              metadata: al.details,
+              createdAt: al.created_at,
+            });
+          }
+        }
+
+        // Sort by createdAt descending and limit
+        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return items.slice(0, input.limit);
+      }),
+
     logUserAction: managerProcedure
       .input(z.object({
-        targetUserId: z.number(),
+        targetUserId: z.string(),
         action: z.enum(["role_changed", "status_changed", "impersonation_started", "impersonation_ended", "profile_updated", "invited", "deleted"]),
         previousValue: z.string().optional(),
         newValue: z.string().optional(),
@@ -1215,7 +1419,7 @@ export const appRouter = router({
 
     // User Impersonation
     getUserForImpersonation: managerProcedure
-      .input(z.object({ userId: z.number() }))
+      .input(z.object({ userId: z.string() }))
       .query(async ({ input }) => {
         return db.getUserById(input.userId);
       }),
@@ -1229,8 +1433,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const token = crypto.randomUUID().replace(/-/g, "");
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7); // Expires in 7 days
+        const expiresAtDate = new Date();
+        expiresAtDate.setDate(expiresAtDate.getDate() + 7); // Expires in 7 days
 
         const id = await db.createUserInvitation({
           invitedBy: ctx.user.id,
@@ -1238,12 +1442,12 @@ export const appRouter = router({
           name: input.name,
           role: input.role,
           token,
-          expiresAt,
+          expiresAt: expiresAtDate.toISOString(),
         });
 
         // Log the invitation
         await db.logUserActivity({
-          targetUserId: 0, // No target user yet
+          targetUserId: ctx.user.id, // No target user yet — log under inviter
           performedBy: ctx.user.id,
           action: "invited",
           newValue: input.role,
@@ -1264,7 +1468,7 @@ export const appRouter = router({
       }),
 
     revokeUserInvitation: managerProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.string() }))
       .mutation(async ({ input }) => {
         await db.revokeUserInvitation(input.id);
         return { success: true };
@@ -1386,7 +1590,7 @@ export const appRouter = router({
     }),
 
     impersonate: coordinatorProcedure
-      .input(z.object({ userId: z.number() }))
+      .input(z.object({ userId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const targetUser = await db.getUserById(input.userId);
         if (!targetUser) {
@@ -1397,7 +1601,7 @@ export const appRouter = router({
           userId: ctx.user.id,
           action: "impersonate",
           entityType: "user",
-          entityId: input.userId,
+          entityId: input.userId as string,
           details: { targetUserName: targetUser.name },
         });
         // Return target user info for client to use
@@ -1424,7 +1628,7 @@ export const appRouter = router({
         amountMinor: z.number().min(1),
         currency: z.string().default("GBP"),
         description: z.string().optional(),
-        payerId: z.number().optional(),
+        payerId: z.string().optional(),
         method: z.enum(["card", "apple_pay", "tap"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1447,7 +1651,7 @@ export const appRouter = router({
           description: input.description,
           method: input.method || "card",
           status: "created",
-          expiresAt: session.expiresAt ? new Date(session.expiresAt) : undefined,
+          expiresAt: session.expiresAt ? new Date(session.expiresAt).toISOString() : undefined,
         });
 
         return {
@@ -1465,7 +1669,7 @@ export const appRouter = router({
         amountMinor: z.number().min(1),
         currency: z.string().default("GBP"),
         description: z.string().optional(),
-        payerId: z.number().optional(),
+        payerId: z.string().optional(),
         expiresInMinutes: z.number().default(60),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1489,7 +1693,7 @@ export const appRouter = router({
           method: "link",
           status: "created",
           paymentLink: link.url,
-          expiresAt: link.expiresAt ? new Date(link.expiresAt) : undefined,
+          expiresAt: link.expiresAt ? new Date(link.expiresAt).toISOString() : undefined,
         });
 
         return {
@@ -1565,7 +1769,7 @@ export const appRouter = router({
 
     publishBundle: trainerProcedure
       .input(z.object({
-        bundleId: z.number(),
+        bundleId: z.string(),
         title: z.string(),
         description: z.string(),
         price: z.string(),

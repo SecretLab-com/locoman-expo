@@ -16,12 +16,12 @@ import {
 type OrderStatus = "active" | "completed";
 
 type Order = {
-  id: number;
+  id: string;
   title: string;
   imageUrl?: string | null;
   price: number;
   status: OrderStatus;
-  purchaseDate: Date | string | null;
+  purchaseDate: string | null;
   progress: number;
 };
 
@@ -194,7 +194,7 @@ export default function ClientOrdersScreen() {
       {/* Orders List */}
       <FlatList
         data={filteredOrders}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <OrderCard order={item} onPress={() => handleOrderPress(item)} />
         )}

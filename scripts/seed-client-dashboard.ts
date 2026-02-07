@@ -90,7 +90,7 @@ async function seed() {
     productName: "Performance Bundle Kit",
     quantity: 1,
     status: "scheduled",
-    scheduledDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+    scheduledDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
     deliveryMethod: "in_person",
     notes: "Trainer scheduled delivery.",
   });
@@ -108,7 +108,7 @@ async function seed() {
     fulfillmentStatus: "fulfilled",
     paymentStatus: "paid",
     fulfillmentMethod: "trainer_delivery",
-    deliveredAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    deliveredAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     orderData: {
       imageUrl: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=400",
     },
@@ -131,7 +131,7 @@ async function seed() {
     productName: "Recovery Bundle Kit",
     quantity: 1,
     status: "delivered",
-    deliveredAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+    deliveredAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     deliveryMethod: "in_person",
     notes: "Delivered by trainer.",
   });

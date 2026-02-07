@@ -374,12 +374,24 @@ export async function syncProductsToDatabase(
 
 function isBundle(product: ShopifyProduct): boolean {
   const pt = (product.product_type || "").toLowerCase().trim();
-  if (pt === "bundle") return true;
-  // Products published by our app use the store name as vendor and "Bundle" product_type
-  // Some older bundles may not have product_type set, check vendor + tags
-  const vendor = (product.vendor || "").toLowerCase().trim();
   const tags = (product.tags || "").toLowerCase();
-  if (vendor === SHOPIFY_STORE_NAME.toLowerCase() && tags.includes("bundle")) return true;
+  const title = (product.title || "").toLowerCase();
+  const vendor = (product.vendor || "").toLowerCase().trim();
+  const storeName = (SHOPIFY_STORE_NAME || "").toLowerCase();
+
+  // Explicit product_type
+  if (pt === "bundle" || pt === "bundles") return true;
+
+  // Tags contain "bundle"
+  if (tags.includes("bundle")) return true;
+
+  // Title contains "bundle"
+  if (title.includes("bundle")) return true;
+
+  // Products published by our own store are bundles
+  // (trainers publish bundles through our app to Shopify)
+  if (storeName && vendor === storeName) return true;
+
   return false;
 }
 
@@ -401,6 +413,9 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
         videos: [],
       };
       const productIsBundle = isBundle(product);
+      if (productIsBundle) {
+        console.log(`[Shopify] Bundle detected: "${product.title}" (id=${product.id}, type=${product.product_type}, tags=${product.tags})`);
+      }
 
       await db.upsertProduct({
         shopifyProductId: product.id,
@@ -413,7 +428,7 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
         category: productIsBundle ? null : toCategory(product.product_type),
         inventoryQuantity: variant?.inventory_quantity || 0,
         availability: (variant?.inventory_quantity || 0) > 0 ? "available" : "out_of_stock",
-        syncedAt: new Date(),
+        syncedAt: new Date().toISOString(),
         media,
       });
 
@@ -450,7 +465,7 @@ interface PublishBundleOptions {
   price: string;
   imageUrl?: string;
   products: { name: string; quantity: number }[];
-  trainerId: number;
+  trainerId: string;
   trainerName: string;
 }
 

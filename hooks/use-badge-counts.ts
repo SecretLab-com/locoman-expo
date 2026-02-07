@@ -59,6 +59,17 @@ export function useBadgeCounts() {
     }
   );
 
+  // Fetch unread messages count
+  const conversationsQuery = trpc.messages.conversations.useQuery(
+    undefined,
+    {
+      enabled: isAuthenticated,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
+  );
+
   // Fetch pending join requests (for trainers) - uses myTrainers.pendingRequests
   // Note: This shows requests the user has sent, not received
   // For trainers to see incoming requests, we'd need a separate endpoint
@@ -80,10 +91,10 @@ export function useBadgeCounts() {
     setCounts({
       pendingDeliveries: isTrainer ? trainerDeliveries : clientDeliveries,
       pendingApprovals: approvalsQuery.data?.length ?? 0,
-      unreadMessages: 0, // TODO: Implement unread messages count
+      unreadMessages: (conversationsQuery.data || []).reduce((sum: number, c: any) => sum + (c.unreadCount || 0), 0),
       pendingJoinRequests: joinRequestsQuery.data?.length ?? 0,
     });
-  }, [trainerDeliveriesQuery.data, clientDeliveriesQuery.data, approvalsQuery.data, joinRequestsQuery.data, isTrainer]);
+  }, [trainerDeliveriesQuery.data, clientDeliveriesQuery.data, approvalsQuery.data, joinRequestsQuery.data, conversationsQuery.data, isTrainer]);
 
   const refetch = useCallback(async () => {
     setIsLoading(true);
@@ -92,6 +103,7 @@ export function useBadgeCounts() {
       clientDeliveriesQuery.refetch(),
       approvalsQuery.refetch(),
       joinRequestsQuery.refetch(),
+      conversationsQuery.refetch(),
     ]);
     setIsLoading(false);
   }, [trainerDeliveriesQuery, clientDeliveriesQuery, approvalsQuery, joinRequestsQuery]);

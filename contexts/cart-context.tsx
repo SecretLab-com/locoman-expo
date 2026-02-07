@@ -6,11 +6,11 @@ import * as Haptics from "expo-haptics";
 export interface CartItem {
   id: string; // unique cart item id
   type: "bundle" | "product";
-  bundleId?: number;
-  productId?: number;
+  bundleId?: string;
+  productId?: string;
   title: string;
   trainer?: string;
-  trainerId?: number;
+  trainerId?: string;
   price: number;
   cadence?: "one_time" | "weekly" | "monthly";
   fulfillment: "home_ship" | "trainer_delivery" | "vending" | "cafeteria";
@@ -29,7 +29,7 @@ interface CartContextType {
   updateQuantity: (id: string, quantity: number) => void;
   updateFulfillment: (id: string, fulfillment: CartItem["fulfillment"]) => void;
   clearCart: () => void;
-  isInCart: (bundleId: number) => boolean;
+  isInCart: (bundleId: string) => boolean;
   isLoading: boolean;
 }
 
@@ -141,7 +141,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const isInCart = useCallback(
-    (bundleId: number) => items.some((item) => item.bundleId === bundleId),
+    (bundleId: string) => items.some((item) => item.bundleId === bundleId),
     [items]
   );
 

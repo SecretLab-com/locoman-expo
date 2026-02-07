@@ -111,9 +111,9 @@ export default function BundleEditorScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const isNewBundle = id === "new";
   
-  // Parse id safely - return 0 if invalid
-  const bundleIdParam = (id && id !== "new") ? parseInt(id, 10) : 0;
-  const isValidBundleId = !isNaN(bundleIdParam) && bundleIdParam > 0;
+  // Parse id safely
+  const bundleIdParam = (id && id !== "new") ? id : "";
+  const isValidBundleId = bundleIdParam.length > 0;
 
   const [loading, setLoading] = useState(!isNewBundle);
   const [saving, setSaving] = useState(false);
@@ -624,7 +624,7 @@ export default function BundleEditorScreen() {
         if (isNewBundle) {
           const result = await createBundleMutation.mutateAsync(bundleData);
           if (result && typeof result === 'object' && 'id' in result) {
-            bundleId = (result as { id: number }).id;
+            bundleId = (result as { id: string }).id;
           }
         } else {
           await updateBundleMutation.mutateAsync({

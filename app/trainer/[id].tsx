@@ -45,9 +45,9 @@ export default function TrainerProfileScreen() {
             : "/(tabs)";
   const [requestSent, setRequestSent] = useState(false);
 
-  // Parse id safely - return 0 if invalid
-  const trainerId = id ? parseInt(id, 10) : 0;
-  const isValidId = !isNaN(trainerId) && trainerId > 0;
+  // Parse id safely
+  const trainerId = id || "";
+  const isValidId = trainerId.length > 0;
 
   // Fetch trainer profile
   const { data: trainer, isLoading } = trpc.catalog.trainerProfile.useQuery(

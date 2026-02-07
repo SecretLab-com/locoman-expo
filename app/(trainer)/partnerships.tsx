@@ -42,7 +42,9 @@ type Business = {
   isAvailable: boolean;
 };
 
-// Mock data
+// TODO: Replace with tRPC API calls when partnerships endpoints are created
+// e.g. trpc.partnerships.list.useQuery(), trpc.partnerships.create.useMutation()
+// Mock data (no partnerships API endpoint exists yet)
 const MOCK_PARTNERSHIPS: Partnership[] = [
   {
     id: 1,
@@ -71,6 +73,7 @@ const MOCK_PARTNERSHIPS: Partnership[] = [
   },
 ];
 
+// TODO: Replace with trpc.partnerships.availableBusinesses.useQuery() when endpoint exists
 const MOCK_AVAILABLE_BUSINESSES: Business[] = [
   {
     id: 1,

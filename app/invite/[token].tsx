@@ -45,12 +45,18 @@ type InvitationData = {
   status: "pending" | "accepted" | "expired" | "declined";
 };
 
-// Mock invitation data for testing
+// TODO: Replace with a public tRPC endpoint for invitation lookup by token
+// e.g. trpc.catalog.invitation.useQuery({ token }) — needs a new public endpoint:
+//   catalog.invitation: publicProcedure
+//     .input(z.object({ token: z.string() }))
+//     .query(async ({ input }) => db.getInvitationByToken(input.token))
+// The db.getInvitationByToken() function already exists but has no public route.
+// Mock data is used until this endpoint is created.
 const MOCK_INVITATION: InvitationData = {
   id: 1,
   token: "abc123",
   trainerName: "Coach Mike",
-  trainerId: 101, // Mock trainer ID
+  trainerId: 101,
   bundleTitle: "Weight Loss Program",
   bundleDescription:
     "A comprehensive 12-week program designed to help you lose weight and build healthy habits. Includes personalized nutrition guidance and workout plans.",
@@ -95,9 +101,14 @@ export default function InvitationScreen() {
   const [cardholderName, setCardholderName] = useState("");
 
   // Load invitation data
+  // TODO: Replace with real tRPC query when public invitation lookup endpoint exists
+  // const { data: invitation, isLoading: loading } = trpc.catalog.invitation.useQuery(
+  //   { token: token || "" },
+  //   { enabled: !!token }
+  // );
   useEffect(() => {
     const loadInvitation = async () => {
-      // TODO: Fetch from API using token
+      // TODO: Fetch from API using token (needs public endpoint)
       await new Promise((resolve) => setTimeout(resolve, 500));
       setInvitation({ ...MOCK_INVITATION, token: token || "abc123" });
       setLoading(false);

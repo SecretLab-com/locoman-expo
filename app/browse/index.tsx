@@ -25,7 +25,7 @@ import {
 } from "react-native";
 
 type Product = {
-  id: number;
+  id: string;
   name: string;
   price: number | string | null;
   imageUrl: string | null;
@@ -119,7 +119,7 @@ export default function BrowseScreen() {
       {/* Products Grid */}
       <FlatList
         data={filteredProducts}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         numColumns={2}
         contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 24 }}
         refreshControl={

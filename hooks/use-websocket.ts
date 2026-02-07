@@ -1,18 +1,16 @@
 import * as Auth from "@/lib/_core/auth";
 import { getApiBaseUrl } from "@/lib/api-config";
-import { COOKIE_NAME } from "@/shared/const";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useRef, useState } from "react";
-import { Platform } from "react-native";
 
 type WSMessage =
-  | { type: "connected"; userId: number }
+  | { type: "connected"; userId: string }
   | { type: "new_message"; conversationId: string; message: any }
-  | { type: "typing_start"; conversationId: string; userId: number; userName: string }
-  | { type: "typing_stop"; conversationId: string; userId: number }
-  | { type: "message_read"; messageId: number; conversationId: string }
-  | { type: "reaction_added"; messageId: number; reaction: string; userId: number }
-  | { type: "reaction_removed"; messageId: number; reaction: string; userId: number }
+  | { type: "typing_start"; conversationId: string; userId: string; userName: string }
+  | { type: "typing_stop"; conversationId: string; userId: string }
+  | { type: "message_read"; messageId: string; conversationId: string }
+  | { type: "reaction_added"; messageId: string; reaction: string; userId: string }
+  | { type: "reaction_removed"; messageId: string; reaction: string; userId: string }
   | { type: "badge_counts_updated" };
 
 type MessageHandler = (message: WSMessage) => void;
@@ -72,25 +70,12 @@ export function useWebSocket() {
       }
       sharedConnection.isConnecting = true;
 
-      // Skip when not authenticated
-      let token: string | null = null;
-      if (Platform.OS === "web") {
-        const hasCookie =
-          typeof document !== "undefined" &&
-          typeof document.cookie === "string" &&
-          document.cookie.includes(COOKIE_NAME);
-        if (!hasCookie) {
-          console.log("[WebSocket] No auth cookie, skipping connection");
-          sharedConnection.isConnecting = false;
-          return;
-        }
-      } else {
-        token = await Auth.getSessionToken();
-        if (!token) {
-          console.log("[WebSocket] No auth token, skipping connection");
-          sharedConnection.isConnecting = false;
-          return;
-        }
+      // Skip when not authenticated — always require a Supabase token
+      const token = await Auth.getSessionToken();
+      if (!token) {
+        console.log("[WebSocket] No Supabase session token, skipping connection");
+        sharedConnection.isConnecting = false;
+        return;
       }
 
       // Get API base URL

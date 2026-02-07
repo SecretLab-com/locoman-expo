@@ -38,8 +38,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const EMOJI_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🔥", "👏", "🎉"];
 
 type Message = {
-  id: number;
-  senderId: number;
+  id: string;
+  senderId: string;
   content: string;
   createdAt: string;
   isRead: boolean;
@@ -51,9 +51,9 @@ type Message = {
 };
 
 type Reaction = {
-  id: number;
-  messageId: number;
-  userId: number;
+  id: string;
+  messageId: string;
+  userId: string;
   reaction: string;
 };
 
@@ -256,9 +256,9 @@ function MessageReactions({
   colors,
 }: {
   reactions: Reaction[];
-  messageId: number;
-  userId: number;
-  onToggleReaction: (messageId: number, reaction: string) => void;
+  messageId: string;
+  userId: string;
+  onToggleReaction: (messageId: string, reaction: string) => void;
   colors: any;
 }) {
   // Group reactions by emoji
@@ -315,9 +315,9 @@ function MessageBubble({
   isOwn: boolean;
   colors: any;
   reactions: Reaction[];
-  userId: number;
-  onLongPress: (messageId: number) => void;
-  onToggleReaction: (messageId: number, reaction: string) => void;
+  userId: string;
+  onLongPress: (messageId: string) => void;
+  onToggleReaction: (messageId: string, reaction: string) => void;
 }) {
   const formatTime = (date: string) => {
     const d = new Date(date);
@@ -423,7 +423,7 @@ export default function ConversationScreen() {
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
-  const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -573,10 +573,10 @@ export default function ConversationScreen() {
     const ids = participantIds
       ? participantIds
         .split(",")
-        .map((value) => parseInt(value, 10))
-        .filter((value) => !Number.isNaN(value))
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
       : participantId
-        ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
+        ? [participantId]
         : [];
     if (!ids.length) return;
 
@@ -601,13 +601,13 @@ export default function ConversationScreen() {
     navigateToHome();
   };
 
-  const handleLongPress = async (messageId: number) => {
+  const handleLongPress = async (messageId: string) => {
     await haptics.medium();
     setSelectedMessageId(messageId);
     setShowEmojiPicker(true);
   };
 
-  const handleToggleReaction = async (messageId: number, reaction: string) => {
+  const handleToggleReaction = async (messageId: string, reaction: string) => {
     if (!user) return;
     await haptics.light();
 
@@ -656,10 +656,10 @@ export default function ConversationScreen() {
       const ids = participantIds
         ? participantIds
           .split(",")
-          .map((value) => parseInt(value, 10))
-          .filter((value) => !Number.isNaN(value))
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
         : participantId
-          ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
+          ? [participantId]
           : [];
       if (!ids.length) return;
       if (ids.length === 1) {
@@ -710,10 +710,10 @@ export default function ConversationScreen() {
       const ids = participantIds
         ? participantIds
           .split(",")
-          .map((value) => parseInt(value, 10))
-          .filter((value) => !Number.isNaN(value))
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
         : participantId
-          ? [parseInt(participantId, 10)].filter((value) => !Number.isNaN(value))
+          ? [participantId]
           : [];
       if (!ids.length) return;
       if (ids.length === 1) {
@@ -801,14 +801,14 @@ export default function ConversationScreen() {
           <FlatList
             ref={flatListRef}
             data={messageList}
-            keyExtractor={(item) => item.id.toString()}
+            keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <MessageBubble
                 message={item}
                 isOwn={item.senderId === user?.id}
                 colors={colors}
                 reactions={reactions as Reaction[]}
-                userId={user?.id || 0}
+                userId={user?.id || ""}
                 onLongPress={handleLongPress}
                 onToggleReaction={handleToggleReaction}
               />
@@ -882,8 +882,9 @@ export default function ConversationScreen() {
               multiline
               returnKeyType="default"
               blurOnSubmit={false}
-              onKeyPress={({ nativeEvent }) => {
-                if (nativeEvent.key === "Enter") {
+              onKeyPress={(e) => {
+                if (e.nativeEvent.key === "Enter" && !(e as any).shiftKey) {
+                  e.preventDefault?.();
                   handleSend();
                 }
               }}
@@ -899,6 +900,9 @@ export default function ConversationScreen() {
               }`}
             onPress={handleSend}
             disabled={!messageText.trim() || sendMessage.isPending}
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
+            testID="send-message-btn"
           >
             {sendMessage.isPending ? (
               <ActivityIndicator size="small" color={messageText.trim() ? "#fff" : colors.muted} />

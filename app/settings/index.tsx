@@ -51,10 +51,10 @@ export default function SettingsIndexScreen() {
         { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
         { label: "Products", icon: "storefront.fill", href: "/(coordinator)/products", testID: "tab-products" },
         {
-          label: "Alerts",
-          icon: "exclamationmark.triangle.fill",
-          href: "/(coordinator)/alerts?section=alerts",
-          testID: "tab-alerts",
+          label: "Analytics",
+          icon: "chart.bar.fill",
+          href: "/(coordinator)/analytics",
+          testID: "tab-analytics",
         },
         { label: "Messaging", icon: "message.fill", href: "/(coordinator)/messages", testID: "tab-messaging" },
       ];
@@ -66,10 +66,10 @@ export default function SettingsIndexScreen() {
         { label: "Pay", icon: "creditcard.fill", href: "/(trainer)/pay", testID: "tab-pay" },
         { label: "Analytics", icon: "chart.bar.fill", href: "/(trainer)/analytics", testID: "tab-analytics" },
         {
-          label: "Alerts",
-          icon: "exclamationmark.triangle.fill",
-          href: "/(trainer)/alerts",
-          testID: "tab-alerts",
+          label: "Deliveries",
+          icon: "shippingbox.fill",
+          href: "/(trainer)/deliveries",
+          testID: "tab-deliveries",
           badge: counts.pendingDeliveries,
         },
       ];

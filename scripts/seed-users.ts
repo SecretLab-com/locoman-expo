@@ -134,7 +134,7 @@ async function upsertSeedUser(role: SeedRole, index: number, name: string) {
       seed: true,
       role,
     },
-    lastSignedIn: new Date(),
+    lastSignedIn: new Date().toISOString(),
   });
 
   const user = await getUserByOpenId(openId);

@@ -12,7 +12,7 @@ import RenderHTML from "react-native-render-html";
 import { ActivityIndicator, Alert, FlatList, Platform, RefreshControl, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 type DiscoverableTrainer = {
-  id: number;
+  id: string;
   name: string | null;
   photoUrl: string | null;
   specialties: string[] | null;
@@ -20,7 +20,7 @@ type DiscoverableTrainer = {
   bundleCount: number;
   presentationHtml?: string | null;
   bundles?: Array<{
-    id: number;
+    id: string;
     title: string;
     imageUrl: string | null;
     price: string | null;
@@ -40,50 +40,7 @@ const SPECIALTIES = [
   "Flexibility",
 ];
 
-const ALLOWED_DESCRIPTION_TAGS = [
-  "p",
-  "strong",
-  "b",
-  "em",
-  "i",
-  "ul",
-  "ol",
-  "li",
-  "br",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-];
-
-const sanitizeDescriptionHtml = (html: string) => {
-  let sanitized = html;
-  sanitized = sanitized.replace(
-    /<\s*(script|style|iframe|object|embed|link|meta)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
-    "",
-  );
-  sanitized = sanitized.replace(
-    /<\s*(script|style|iframe|object|embed|link|meta)[^>]*\/\s*>/gi,
-    "",
-  );
-  sanitized = sanitized.replace(/\son\w+="[^"]*"/gi, "");
-  sanitized = sanitized.replace(/\son\w+='[^']*'/gi, "");
-  sanitized = sanitized.replace(/\sstyle="[^"]*"/gi, "");
-  sanitized = sanitized.replace(/\sstyle='[^']*'/gi, "");
-  sanitized = sanitized.replace(/<(\/?)(\w+)([^>]*)>/g, (match, slash, tag) => {
-    const lowerTag = String(tag).toLowerCase();
-    if (!ALLOWED_DESCRIPTION_TAGS.includes(lowerTag)) {
-      return "";
-    }
-    if (!slash && lowerTag === "br") {
-      return "<br/>";
-    }
-    return `<${slash}${lowerTag}>`;
-  });
-  return sanitized;
-};
+import { sanitizeHtml } from "@/lib/html-utils";
 
 function TrainerDiscoveryCard({ 
   trainer, 
@@ -130,7 +87,7 @@ function TrainerDiscoveryCard({
               <View style={{ maxHeight: 64, overflow: "hidden" }}>
                 <RenderHTML
                   contentWidth={Math.max(0, width - 64)}
-                  source={{ html: sanitizeDescriptionHtml(descriptionHtml) }}
+                  source={{ html: sanitizeHtml(descriptionHtml) }}
                   tagsStyles={{
                     p: { color: colors.muted, lineHeight: 18, marginTop: 0, marginBottom: 6 },
                     h1: { color: colors.foreground, fontSize: 16, fontWeight: "600", marginBottom: 6 },
@@ -210,7 +167,7 @@ export default function FindTrainerScreen() {
   const colors = useColors();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSpecialty, setSelectedSpecialty] = useState("All");
-  const [requestingTrainerId, setRequestingTrainerId] = useState<number | null>(null);
+  const [requestingTrainerId, setRequestingTrainerId] = useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   
   // Simple debounce using timeout
@@ -380,7 +337,7 @@ export default function FindTrainerScreen() {
       ) : (
         <FlatList
           data={trainers as DiscoverableTrainer[]}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <TrainerDiscoveryCard 
               trainer={item} 
