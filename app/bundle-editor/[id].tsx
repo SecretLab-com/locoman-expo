@@ -584,6 +584,9 @@ export default function BundleEditorScreen() {
           ...bundleData,
         });
       }
+    } catch (error) {
+      // Prevent unhandled promise rejections from mutateAsync.
+      console.error("[bundle-editor] handleSave failed:", error);
     } finally {
       setSaving(false);
     }
@@ -635,6 +638,9 @@ export default function BundleEditorScreen() {
 
         // Then submit for review
         await submitForReviewMutation.mutateAsync({ id: bundleId });
+      } catch (error) {
+        // onError handlers already surface a user alert; keep rejection handled.
+        console.error("[bundle-editor] submitForReview failed:", error);
       } finally {
         setSaving(false);
       }

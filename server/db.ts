@@ -959,6 +959,16 @@ export async function getSubscriptionsByTrainer(trainerId: string): Promise<Subs
   return mapRowsFromDb<Subscription>(data || []);
 }
 
+export async function getSubscriptionById(id: string): Promise<Subscription | undefined> {
+  const { data, error } = await sb()
+    .from("subscriptions")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { console.error("[Database] getSubscriptionById:", error.message); return undefined; }
+  return mapFromDb<Subscription>(data);
+}
+
 export async function getActiveSubscription(clientId: string): Promise<Subscription | undefined> {
   const { data, error } = await sb()
     .from("subscriptions")
@@ -1025,6 +1035,16 @@ export async function getUpcomingSessions(trainerId: string): Promise<Session[]>
     .limit(10);
   if (error) { console.error("[Database] getUpcomingSessions:", error.message); return []; }
   return mapRowsFromDb<Session>(data || []);
+}
+
+export async function getSessionById(id: string): Promise<Session | undefined> {
+  const { data, error } = await sb()
+    .from("training_sessions")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { console.error("[Database] getSessionById:", error.message); return undefined; }
+  return mapFromDb<Session>(data);
 }
 
 export async function createSession(data: InsertSession): Promise<string> {
@@ -1232,13 +1252,90 @@ export async function getConversations(userId: string): Promise<string[]> {
 }
 
 export async function getConversationSummaries(userId: string) {
-  const { data, error } = await sb().rpc("get_conversation_summaries", { p_user_id: userId });
+  const { data: rows, error } = await sb()
+    .from("messages")
+    .select("*")
+    .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+    .order("created_at", { ascending: false });
   if (error) {
     console.error("[Database] getConversationSummaries:", error.message);
     return [];
   }
-  // RPC returns jsonb — already camelCase keys from the SQL function
-  return (data as any[]) || [];
+  const messages = mapRowsFromDb<Message>((rows || []) as Record<string, any>[]);
+  if (!messages.length) return [];
+
+  const byConversation = new Map<string, Message[]>();
+  for (const message of messages) {
+    const list = byConversation.get(message.conversationId) || [];
+    list.push(message);
+    byConversation.set(message.conversationId, list);
+  }
+
+  const otherUserIds = new Set<string>();
+  byConversation.forEach((conversationMessages) => {
+    for (const message of conversationMessages) {
+      if (message.senderId !== userId) otherUserIds.add(message.senderId);
+      if (message.receiverId !== userId) otherUserIds.add(message.receiverId);
+    }
+  });
+
+  const otherUsersById = new Map<string, User>();
+  if (otherUserIds.size > 0) {
+    const { data: usersRows, error: usersError } = await sb()
+      .from("users")
+      .select("*")
+      .in("id", Array.from(otherUserIds));
+    if (usersError) {
+      console.error("[Database] getConversationSummaries users:", usersError.message);
+    } else {
+      const users = mapRowsFromDb<User>((usersRows || []) as Record<string, any>[]);
+      for (const user of users) {
+        otherUsersById.set(user.id, user);
+      }
+    }
+  }
+
+  const summaries = Array.from(byConversation.entries()).map(([conversationId, conversationMessages]) => {
+    const lastMessage = conversationMessages[0];
+    const unreadCount = conversationMessages.filter(
+      (message) => message.receiverId === userId && !message.readAt
+    ).length;
+
+    const participantIds = new Set<string>();
+    for (const message of conversationMessages) {
+      if (message.senderId !== userId) participantIds.add(message.senderId);
+      if (message.receiverId !== userId) participantIds.add(message.receiverId);
+    }
+    const participants = Array.from(participantIds)
+      .map((id) => otherUsersById.get(id))
+      .filter(Boolean)
+      .map((u) => ({
+        id: u!.id,
+        name: u!.name || u!.email || "Unknown",
+        photoUrl: u!.photoUrl,
+        role: u!.role,
+      }));
+
+    return {
+      conversationId,
+      participants,
+      unreadCount,
+      lastMessage: {
+        id: lastMessage.id,
+        content: lastMessage.content,
+        senderId: lastMessage.senderId,
+        createdAt: lastMessage.createdAt,
+      },
+    };
+  });
+
+  summaries.sort((a, b) => {
+    const aTs = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
+    const bTs = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+    return bTs - aTs;
+  });
+
+  return summaries;
 }
 
 export async function getMessagesByConversation(conversationId: string): Promise<Message[]> {
@@ -1249,6 +1346,48 @@ export async function getMessagesByConversation(conversationId: string): Promise
     .order("created_at", { ascending: true });
   if (error) { console.error("[Database] getMessagesByConversation:", error.message); return []; }
   return mapRowsFromDb<Message>(data || []);
+}
+
+export async function getMessageById(id: string): Promise<Message | undefined> {
+  const { data, error } = await sb()
+    .from("messages")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { console.error("[Database] getMessageById:", error.message); return undefined; }
+  return mapFromDb<Message>(data);
+}
+
+export async function isConversationParticipant(conversationId: string, userId: string): Promise<boolean> {
+  const { data, error } = await sb()
+    .from("messages")
+    .select("id")
+    .eq("conversation_id", conversationId)
+    .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+    .limit(1);
+  if (error) {
+    console.error("[Database] isConversationParticipant:", error.message);
+    return false;
+  }
+  return Boolean(data && data.length > 0);
+}
+
+export async function getConversationParticipantIds(conversationId: string): Promise<string[]> {
+  const { data, error } = await sb()
+    .from("messages")
+    .select("sender_id,receiver_id")
+    .eq("conversation_id", conversationId);
+  if (error) {
+    console.error("[Database] getConversationParticipantIds:", error.message);
+    return [];
+  }
+
+  const ids = new Set<string>();
+  for (const row of data || []) {
+    if (row.sender_id) ids.add(row.sender_id);
+    if (row.receiver_id) ids.add(row.receiver_id);
+  }
+  return Array.from(ids);
 }
 
 export async function createMessage(data: InsertMessage): Promise<string> {
