@@ -13,38 +13,35 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
-// TODO: Replace with a real tRPC endpoint when revenue tracking is implemented
-const MOCK_REVENUE = {
-  total: 145890,
-  thisMonth: 45890,
-  lastMonth: 38750,
-  growth: 18.4,
-};
-
-// TODO: Replace with a real tRPC endpoint for revenue trend data
-const MOCK_MONTHLY_DATA = [
-  { month: "Aug", revenue: 28500, orders: 245 },
-  { month: "Sep", revenue: 32100, orders: 278 },
-  { month: "Oct", revenue: 35400, orders: 312 },
-  { month: "Nov", revenue: 38750, orders: 345 },
-  { month: "Dec", revenue: 42300, orders: 389 },
-  { month: "Jan", revenue: 45890, orders: 421 },
-];
-
 export default function AnalyticsScreen() {
   const colors = useColors();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"week" | "month" | "year">("month");
+  const monthsByPeriod: Record<"week" | "month" | "year", number> = {
+    week: 1,
+    month: 6,
+    year: 12,
+  };
+  const trendMonths = monthsByPeriod[selectedPeriod];
 
   const utils = trpc.useUtils();
 
   const statsQuery = trpc.coordinator.stats.useQuery();
   const topTrainersQuery = trpc.coordinator.topTrainers.useQuery();
   const topBundlesQuery = trpc.coordinator.topBundles.useQuery();
+  const revenueSummaryQuery = trpc.admin.revenueSummary.useQuery();
+  const revenueTrendQuery = trpc.admin.revenueTrend.useQuery({ months: trendMonths });
 
   const stats = statsQuery.data;
   const topTrainers = topTrainersQuery.data ?? [];
   const topBundles = topBundlesQuery.data ?? [];
+  const revenueSummary = revenueSummaryQuery.data ?? {
+    total: 0,
+    thisMonth: 0,
+    lastMonth: 0,
+    growth: 0,
+  };
+  const revenueTrend = revenueTrendQuery.data ?? [];
 
   // Pull to refresh
   const onRefresh = async () => {
@@ -53,15 +50,27 @@ export default function AnalyticsScreen() {
       utils.coordinator.stats.invalidate(),
       utils.coordinator.topTrainers.invalidate(),
       utils.coordinator.topBundles.invalidate(),
+      utils.admin.revenueSummary.invalidate(),
+      utils.admin.revenueTrend.invalidate(),
     ]);
     setRefreshing(false);
   };
 
   // Get max revenue for chart
-  const maxRevenue = Math.max(...MOCK_MONTHLY_DATA.map((d) => d.revenue));
+  const maxRevenue = Math.max(1, ...revenueTrend.map((d: any) => Number(d.revenue || 0)));
 
-  const isLoading = statsQuery.isLoading || topTrainersQuery.isLoading || topBundlesQuery.isLoading;
-  const isError = statsQuery.isError && topTrainersQuery.isError && topBundlesQuery.isError;
+  const isLoading =
+    statsQuery.isLoading ||
+    topTrainersQuery.isLoading ||
+    topBundlesQuery.isLoading ||
+    revenueSummaryQuery.isLoading ||
+    revenueTrendQuery.isLoading;
+  const isError =
+    statsQuery.isError &&
+    topTrainersQuery.isError &&
+    topBundlesQuery.isError &&
+    revenueSummaryQuery.isError &&
+    revenueTrendQuery.isError;
 
   if (isLoading) {
     return (
@@ -111,6 +120,8 @@ export default function AnalyticsScreen() {
               statsQuery.refetch();
               topTrainersQuery.refetch();
               topBundlesQuery.refetch();
+              revenueSummaryQuery.refetch();
+              revenueTrendQuery.refetch();
             }}
             className="mt-4 bg-primary px-6 py-3 rounded-xl"
             accessibilityRole="button"
@@ -173,24 +184,24 @@ export default function AnalyticsScreen() {
           ))}
         </View>
 
-        {/* Revenue Overview — TODO: Replace with real revenue data */}
+        {/* Revenue Overview */}
         <View className="bg-surface rounded-xl p-6 mb-6">
           <Text className="text-sm text-muted">Total Revenue</Text>
           <Text className="text-4xl font-bold text-foreground mt-1">
-            ${MOCK_REVENUE.total.toLocaleString()}
+            ${Number(revenueSummary.total || 0).toLocaleString()}
           </Text>
 
           <View className="flex-row mt-4 gap-4">
             <View className="flex-1 bg-background rounded-lg p-3">
               <Text className="text-xs text-muted">This Month</Text>
               <Text className="text-lg font-bold text-foreground">
-                ${MOCK_REVENUE.thisMonth.toLocaleString()}
+                ${Number(revenueSummary.thisMonth || 0).toLocaleString()}
               </Text>
             </View>
             <View className="flex-1 bg-background rounded-lg p-3">
               <Text className="text-xs text-muted">Last Month</Text>
               <Text className="text-lg font-bold text-foreground">
-                ${MOCK_REVENUE.lastMonth.toLocaleString()}
+                ${Number(revenueSummary.lastMonth || 0).toLocaleString()}
               </Text>
             </View>
             <View className="flex-1 bg-success/10 rounded-lg p-3">
@@ -198,38 +209,47 @@ export default function AnalyticsScreen() {
               <View className="flex-row items-center">
                 <IconSymbol name="arrow.up" size={14} color={colors.success} />
                 <Text className="text-lg font-bold text-success ml-1">
-                  {MOCK_REVENUE.growth}%
+                  {Number(revenueSummary.growth || 0).toFixed(1)}%
                 </Text>
               </View>
             </View>
           </View>
         </View>
 
-        {/* Revenue Chart — TODO: Replace with real revenue trend data */}
+        {/* Revenue Chart */}
         <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Revenue Trend</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">
+            Revenue Trend ({trendMonths} month{trendMonths === 1 ? "" : "s"})
+          </Text>
           <View className="bg-surface rounded-xl p-4">
-            <View className="flex-row items-end justify-between h-40">
-              {MOCK_MONTHLY_DATA.map((data, index) => {
-                const height = (data.revenue / maxRevenue) * 100;
-                const isCurrentMonth = index === MOCK_MONTHLY_DATA.length - 1;
-                return (
-                  <View key={data.month} className="items-center flex-1">
-                    <Text className="text-xs text-muted mb-1">
-                      ${(data.revenue / 1000).toFixed(0)}k
-                    </Text>
-                    <View
-                      className="w-8 rounded-t-lg"
-                      style={{
-                        height: `${height}%`,
-                        backgroundColor: isCurrentMonth ? colors.primary : `${colors.primary}40`,
-                      }}
-                    />
-                    <Text className="text-xs text-muted mt-2">{data.month}</Text>
-                  </View>
-                );
-              })}
-            </View>
+            {revenueTrend.length === 0 ? (
+              <View className="h-40 items-center justify-center">
+                <Text className="text-muted">No revenue trend data available</Text>
+              </View>
+            ) : (
+              <View className="flex-row items-end justify-between h-40">
+                {revenueTrend.map((data: any, index: number) => {
+                  const revenue = Number(data.revenue || 0);
+                  const height = (revenue / maxRevenue) * 100;
+                  const isCurrentMonth = index === revenueTrend.length - 1;
+                  return (
+                    <View key={`${data.month}-${index}`} className="items-center flex-1">
+                      <Text className="text-xs text-muted mb-1">
+                        ${(revenue / 1000).toFixed(0)}k
+                      </Text>
+                      <View
+                        className="w-8 rounded-t-lg"
+                        style={{
+                          height: `${height}%`,
+                          backgroundColor: isCurrentMonth ? colors.primary : `${colors.primary}40`,
+                        }}
+                      />
+                      <Text className="text-xs text-muted mt-2">{data.month}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </View>
         </View>
 

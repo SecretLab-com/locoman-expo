@@ -15,11 +15,20 @@ import { setupWebSocket } from "./websocket";
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowAnyDevOrigin =
+    process.env.NODE_ENV !== "production" && allowedOrigins.length === 0;
 
-  // Enable CORS for all routes - reflect the request origin to support credentials
+  // CORS: allow configured origins; in development only, allow all when no allowlist is set.
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin) {
+    const isAllowedOrigin =
+      !origin || allowAnyDevOrigin || allowedOrigins.includes(origin);
+
+    if (origin && isAllowedOrigin) {
       res.header("Access-Control-Allow-Origin", origin);
     }
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -27,11 +36,18 @@ async function startServer() {
       "Access-Control-Allow-Headers",
       "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Impersonate-User-Id",
     );
-    res.header("Access-Control-Allow-Credentials", "true");
+    if (isAllowedOrigin) {
+      res.header("Access-Control-Allow-Credentials", "true");
+    }
 
     // Handle preflight requests
     if (req.method === "OPTIONS") {
-      res.sendStatus(200);
+      res.sendStatus(isAllowedOrigin ? 200 : 403);
+      return;
+    }
+
+    if (!isAllowedOrigin) {
+      res.status(403).json({ error: "Origin not allowed" });
       return;
     }
     next();
@@ -83,9 +99,14 @@ async function startServer() {
         const currency = notification.amount?.currency;
         const paymentMethod = notification.paymentMethod || "";
         const reason = notification.reason || "";
+        const paymentSession = merchantReference
+          ? await db.getPaymentSessionByReference(merchantReference)
+          : undefined;
+        const orderId = paymentSession?.orderId ?? null;
 
         // Log every webhook event
         await db.createPaymentLog({
+          paymentSessionId: paymentSession?.id,
           merchantReference,
           pspReference,
           eventCode,
@@ -104,6 +125,12 @@ async function startServer() {
             pspReference,
             completedAt: new Date().toISOString(),
           });
+          if (orderId) {
+            await db.updateOrder(orderId, {
+              paymentStatus: "paid",
+              status: "confirmed",
+            });
+          }
           logEvent("adyen.payment_authorised", { merchantReference, pspReference });
         } else if (eventCode === "AUTHORISATION" && !success) {
           await db.updatePaymentSessionByReference(merchantReference, {
@@ -116,18 +143,35 @@ async function startServer() {
             status: "captured",
             pspReference,
           });
+          if (orderId) {
+            await db.updateOrder(orderId, {
+              paymentStatus: "paid",
+              status: "processing",
+            });
+          }
           logEvent("adyen.payment_captured", { merchantReference });
         } else if (eventCode === "CANCELLATION" && success) {
           await db.updatePaymentSessionByReference(merchantReference, {
             status: "cancelled",
             pspReference,
           });
+          if (orderId) {
+            await db.updateOrder(orderId, {
+              status: "cancelled",
+            });
+          }
           logEvent("adyen.payment_cancelled", { merchantReference });
         } else if (eventCode === "REFUND" && success) {
           await db.updatePaymentSessionByReference(merchantReference, {
             status: "refunded",
             pspReference,
           });
+          if (orderId) {
+            await db.updateOrder(orderId, {
+              paymentStatus: "refunded",
+              status: "refunded",
+            });
+          }
           logEvent("adyen.payment_refunded", { merchantReference });
         }
       }
@@ -147,6 +191,39 @@ async function startServer() {
   app.use("/uploads", express.static(path.join(process.cwd(), "public/uploads")));
 
   registerOAuthRoutes(app);
+
+  // Adyen redirect return endpoint (session-based payments)
+  app.get("/api/payments/redirect", (req, res) => {
+    const redirectResult = typeof req.query.redirectResult === "string"
+      ? req.query.redirectResult
+      : undefined;
+    const payload = typeof req.query.payload === "string"
+      ? req.query.payload
+      : undefined;
+
+    const appUrl = new URL("locomotivate://checkout/confirmation");
+    if (redirectResult) appUrl.searchParams.set("redirectResult", redirectResult);
+    if (payload) appUrl.searchParams.set("payload", payload);
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Returning to LocoMotivate</title>
+  </head>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px;">
+    <h2>Returning to LocoMotivate…</h2>
+    <p>If the app does not open automatically, use the button below.</p>
+    <p><a href="${appUrl.toString()}">Open LocoMotivate</a></p>
+    <script>
+      window.location.replace(${JSON.stringify(appUrl.toString())});
+    </script>
+  </body>
+</html>`;
+
+    res.status(200).type("html").send(html);
+  });
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });

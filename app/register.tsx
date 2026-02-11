@@ -1,8 +1,9 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { startOAuthLogin } from "@/constants/oauth";
+import { signInWithGoogle } from "@/lib/google-oauth";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { clearPendingOnboardingContext, savePendingOnboardingContext } from "@/lib/onboarding-context";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -25,8 +26,6 @@ export default function RegisterScreen() {
   const [step, setStep] = useState(1); // 1: Account, 2: Trainer Selection
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(trainerId || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,14 +45,6 @@ export default function RegisterScreen() {
     }
     if (!email.includes("@")) {
       setError("Please enter a valid email");
-      return false;
-    }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return false;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
       return false;
     }
     return true;
@@ -77,9 +68,14 @@ export default function RegisterScreen() {
     setError(null);
 
     try {
-      // Use OAuth login flow for registration as well
-      await startOAuthLogin(selectedTrainerId || undefined);
+      await savePendingOnboardingContext({
+        trainerId: selectedTrainerId || trainerId || null,
+        inviteToken: inviteToken || null,
+      });
+      // Registration is Supabase OAuth-first. Profile details are completed post-auth.
+      await signInWithGoogle();
     } catch (err) {
+      await clearPendingOnboardingContext();
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
@@ -91,9 +87,15 @@ export default function RegisterScreen() {
     setError(null);
 
     try {
-      await startOAuthLogin(selectedTrainerId || undefined);
+      await savePendingOnboardingContext({
+        trainerId: selectedTrainerId || trainerId || null,
+        inviteToken: inviteToken || null,
+      });
+      await signInWithGoogle();
     } catch (err) {
+      await clearPendingOnboardingContext();
       setError(err instanceof Error ? err.message : "Registration failed");
+    } finally {
       setLoading(false);
     }
   };
@@ -115,6 +117,9 @@ export default function RegisterScreen() {
                 <Text className="text-3xl font-bold text-foreground">Create Account</Text>
                 <Text className="text-base text-muted mt-2">
                   {trainerId ? "Join your trainer on LocoMotivate" : "Join LocoMotivate today"}
+                </Text>
+                <Text className="text-xs text-muted mt-2 text-center px-4">
+                  Account creation is completed with Google sign-in.
                 </Text>
               </View>
 
@@ -155,35 +160,7 @@ export default function RegisterScreen() {
                 />
               </View>
 
-              {/* Password Input */}
-              <View className="mb-4">
-                <Text className="text-sm font-medium text-foreground mb-2">Password</Text>
-                <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="At least 8 characters"
-                  placeholderTextColor={colors.muted}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Confirm Password Input */}
-              <View className="mb-6">
-                <Text className="text-sm font-medium text-foreground mb-2">Confirm Password</Text>
-                <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Confirm your password"
-                  placeholderTextColor={colors.muted}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  editable={!loading}
-                  returnKeyType="done"
-                  onSubmitEditing={handleNextStep}
-                />
-              </View>
+              <View className="mb-6" />
 
               {/* Next/Register Button */}
               <TouchableOpacity
@@ -215,7 +192,7 @@ export default function RegisterScreen() {
                 disabled={loading}
                 activeOpacity={0.8}
               >
-                <Text className="text-foreground font-semibold">Continue with Google</Text>
+                <Text className="text-foreground font-semibold">Continue with Google (Required)</Text>
               </TouchableOpacity>
 
               {/* Login Link */}
@@ -232,7 +209,7 @@ export default function RegisterScreen() {
               <View className="mb-8 items-center">
                 <Text className="text-3xl font-bold text-foreground">Find a Trainer</Text>
                 <Text className="text-base text-muted mt-2 text-center">
-                  Choose the fitness professional you'd like to work with.
+                  Choose the fitness professional you would like to work with.
                 </Text>
               </View>
 

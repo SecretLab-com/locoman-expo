@@ -1,10 +1,11 @@
 import { useEffect } from "react";
-import { Text, View, TouchableOpacity, Platform } from "react-native";
-import { router } from "expo-router";
+import { Alert, Linking, Text, View, TouchableOpacity, Platform, ActivityIndicator } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import Animated, {
   useSharedValue,
@@ -17,6 +18,13 @@ import Animated, {
 export default function OrderConfirmationScreen() {
   const colors = useColors();
   const { isClient } = useAuthContext();
+  const { orderId } = useLocalSearchParams<{ orderId?: string }>();
+  const orderIdValue = typeof orderId === "string" ? orderId : undefined;
+  const orderQuery = trpc.orders.get.useQuery(
+    { id: orderIdValue || "" },
+    { enabled: Boolean(orderIdValue) },
+  );
+  const createPaymentLink = trpc.orders.createPaymentLink.useMutation();
   
   const checkScale = useSharedValue(0);
   const textOpacity = useSharedValue(0);
@@ -50,18 +58,48 @@ export default function OrderConfirmationScreen() {
   const handleViewProgram = () => {
     // Navigate to client's program if they're a client, otherwise to orders
     if (isClient) {
-      router.replace("/(client)" as any);
+      router.navigate("/(client)" as any);
     } else {
-      router.replace("/(client)/orders" as any);
+      router.navigate("/(client)/orders" as any);
     }
   };
 
   const handleContinueShopping = () => {
-    router.replace("/(tabs)" as any);
+    router.navigate("/(tabs)" as any);
   };
 
-  // Generate a random order number
-  const orderNumber = `LM-${Date.now().toString().slice(-8)}`;
+  const orderNumber = orderId || `LM-${Date.now().toString().slice(-8)}`;
+  const paymentStatusRaw = String(orderQuery.data?.paymentStatus || "pending").toLowerCase();
+  const paymentStatusLabel = paymentStatusRaw === "paid" ? "Paid" : "Pending";
+  const paymentStatusClassName = paymentStatusRaw === "paid" ? "text-success" : "text-warning";
+
+  const handleCompletePayment = async () => {
+    if (!orderIdValue) return;
+    try {
+      const result = await createPaymentLink.mutateAsync({ orderId: orderIdValue });
+      const paymentLink = result.payment?.paymentLink;
+      if (paymentLink) {
+        await Linking.openURL(paymentLink);
+        return;
+      }
+
+      if (!result.payment?.configured) {
+        Alert.alert("Payment Unavailable", "Payment provider is not configured yet. Please try again later.");
+        return;
+      }
+
+      if (!result.payment?.required) {
+        Alert.alert("Payment Complete", "This order is already marked as paid.");
+        orderQuery.refetch();
+        return;
+      }
+
+      Alert.alert("Payment Pending", "Could not create a payment link. Please try again.");
+    } catch (error) {
+      console.error("[Checkout] Failed to create payment link:", error);
+      Alert.alert("Error", "Unable to open payment link. Please try again.");
+    }
+  };
 
   if (!isClient) {
     return (
@@ -75,7 +113,7 @@ export default function OrderConfirmationScreen() {
         </Text>
         <TouchableOpacity
           className="bg-primary px-6 py-3 rounded-full mt-6"
-          onPress={() => router.replace("/(tabs)" as any)}
+          onPress={() => router.navigate("/(tabs)" as any)}
           accessibilityRole="button"
           accessibilityLabel="Back to home"
           testID="confirmation-back-home"
@@ -99,25 +137,49 @@ export default function OrderConfirmationScreen() {
       {/* Success Message */}
       <Animated.View style={textAnimatedStyle} className="items-center">
         <Text className="text-2xl font-bold text-foreground text-center">
-          Order Placed!
+          Order Submitted
         </Text>
         <Text className="text-muted text-center mt-2 mb-4">
-          Thank you for your purchase
+          Your order is awaiting payment confirmation
         </Text>
 
         {/* Order Number */}
         <View className="bg-surface border border-border rounded-xl px-6 py-4 items-center">
           <Text className="text-muted text-sm">Order Number</Text>
           <Text className="text-foreground font-bold text-lg mt-1">{orderNumber}</Text>
+          <Text className={`mt-2 text-sm font-semibold ${paymentStatusClassName}`}>
+            Payment: {paymentStatusLabel}
+          </Text>
         </View>
 
         <Text className="text-muted text-center mt-6 px-4">
-          {"You'll receive a confirmation email shortly with your order details and tracking information."}
+          {"You'll receive updates as payment and fulfillment progress."}
         </Text>
       </Animated.View>
 
       {/* Action Buttons - Clear escape paths */}
       <Animated.View style={buttonsAnimatedStyle} className="w-full mt-8 gap-3">
+        {/* Payment CTA */}
+        {orderIdValue && paymentStatusRaw !== "paid" && (
+          <TouchableOpacity
+            className="bg-warning py-4 rounded-xl flex-row items-center justify-center"
+            onPress={handleCompletePayment}
+            disabled={createPaymentLink.isPending}
+          >
+            {createPaymentLink.isPending ? (
+              <>
+                <ActivityIndicator size="small" color={colors.background} />
+                <Text className="text-background font-semibold ml-2">Preparing Payment...</Text>
+              </>
+            ) : (
+              <>
+                <IconSymbol name="creditcard.fill" size={20} color={colors.background} />
+                <Text className="text-background font-semibold ml-2">Complete Payment</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+
         {/* Primary CTA - Go to program/home */}
         <TouchableOpacity
           className="bg-primary py-4 rounded-xl flex-row items-center justify-center"

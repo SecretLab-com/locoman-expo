@@ -47,13 +47,20 @@ function mapToDb(data: Record<string, any>): Record<string, any> {
   return result;
 }
 
+function sanitizeSearchTerm(value: string): string {
+  return value
+    .replace(/[%,()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Shorthand for the server Supabase client */
 function sb() {
   return getServerSupabase();
 }
 
 // ============================================================================
-// TYPE DEFINITIONS (replaces Drizzle-generated types)
+// TYPE DEFINITIONS
 // ============================================================================
 
 export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
@@ -395,6 +402,56 @@ export type InsertTrainerEarning = Partial<Omit<TrainerEarning, "id" | "createdA
   amount: string;
 };
 
+export type PartnershipStatus = "pending" | "active" | "rejected" | "expired";
+
+export type PartnershipBusinessStatus = "available" | "submitted" | "inactive";
+
+export type PartnershipBusiness = {
+  id: string;
+  name: string;
+  type: string;
+  description: string | null;
+  commissionRate: number | null;
+  website: string | null;
+  contactEmail: string | null;
+  isAvailable: boolean | null;
+  status: PartnershipBusinessStatus | string | null;
+  submittedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertPartnershipBusiness = Partial<Omit<PartnershipBusiness, "id" | "createdAt" | "updatedAt">> & {
+  name: string;
+  type: string;
+};
+
+export type TrainerPartnership = {
+  id: string;
+  trainerId: string;
+  businessId: string;
+  status: PartnershipStatus | string | null;
+  commissionRate: number | null;
+  totalEarnings: string | null;
+  clickCount: number | null;
+  conversionCount: number | null;
+  expiresAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerPartnership = Partial<Omit<TrainerPartnership, "id" | "createdAt" | "updatedAt">> & {
+  trainerId: string;
+  businessId: string;
+};
+
+export type TrainerPartnershipWithBusiness = TrainerPartnership & {
+  businessName: string;
+  businessType: string;
+  description: string | null;
+};
+
 export type ActivityLog = {
   id: string;
   userId: string | null;
@@ -556,7 +613,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     // Set role
     if (user.role !== undefined) {
       dbData.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId || user.email === "jason@secretlab.com") {
+    } else if (user.openId === ENV.ownerOpenId) {
       dbData.role = "coordinator";
     }
 
@@ -616,12 +673,12 @@ export async function getUserById(id: string): Promise<User | undefined> {
 
 export async function updateUserRole(userId: string, role: UserRole) {
   const { error } = await sb().from("users").update({ role }).eq("id", userId);
-  if (error) { console.error("[Database] updateUserRole:", error.message); }
+  if (error) { console.error("[Database] updateUserRole:", error.message); throw error; }
 }
 
 export async function updateUser(userId: string, data: Partial<InsertUser>) {
   const { error } = await sb().from("users").update(mapToDb(data)).eq("id", userId);
-  if (error) { console.error("[Database] updateUser:", error.message); }
+  if (error) { console.error("[Database] updateUser:", error.message); throw error; }
 }
 
 export async function getTrainers(): Promise<User[]> {
@@ -666,7 +723,10 @@ export async function getUsersWithFilters(options: {
     query = query.eq("active", false);
   }
   if (search) {
-    query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
+    const term = sanitizeSearchTerm(search);
+    if (term) {
+      query = query.or(`name.ilike.%${term}%,email.ilike.%${term}%`);
+    }
   }
   if (joinedAfter) {
     query = query.gte("created_at", joinedAfter.toISOString());
@@ -685,24 +745,26 @@ export async function getUsersWithFilters(options: {
 
 export async function updateUserStatus(userId: string, active: boolean) {
   const { error } = await sb().from("users").update({ active }).eq("id", userId);
-  if (error) { console.error("[Database] updateUserStatus:", error.message); }
+  if (error) { console.error("[Database] updateUserStatus:", error.message); throw error; }
 }
 
 export async function bulkUpdateUserRole(userIds: string[], role: UserRole) {
   const { error } = await sb().from("users").update({ role }).in("id", userIds);
-  if (error) { console.error("[Database] bulkUpdateUserRole:", error.message); }
+  if (error) { console.error("[Database] bulkUpdateUserRole:", error.message); throw error; }
 }
 
 export async function bulkUpdateUserStatus(userIds: string[], active: boolean) {
   const { error } = await sb().from("users").update({ active }).in("id", userIds);
-  if (error) { console.error("[Database] bulkUpdateUserStatus:", error.message); }
+  if (error) { console.error("[Database] bulkUpdateUserStatus:", error.message); throw error; }
 }
 
 export async function searchUsers(query: string): Promise<User[]> {
+  const term = sanitizeSearchTerm(query);
+  if (!term) return [];
   const { data, error } = await sb()
     .from("users")
     .select("*")
-    .or(`name.ilike.%${query}%,email.ilike.%${query}%`)
+    .or(`name.ilike.%${term}%,email.ilike.%${term}%`)
     .limit(50);
   if (error) { console.error("[Database] searchUsers:", error.message); return []; }
   return mapRowsFromDb<User>(data || []);
@@ -719,6 +781,15 @@ export async function getBundleTemplates(): Promise<BundleTemplate[]> {
     .eq("active", true)
     .order("created_at", { ascending: false });
   if (error) { console.error("[Database] getBundleTemplates:", error.message); return []; }
+  return mapRowsFromDb<BundleTemplate>(data || []);
+}
+
+export async function getAllBundleTemplates(): Promise<BundleTemplate[]> {
+  const { data, error } = await sb()
+    .from("bundle_templates")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) { console.error("[Database] getAllBundleTemplates:", error.message); return []; }
   return mapRowsFromDb<BundleTemplate>(data || []);
 }
 
@@ -740,6 +811,22 @@ export async function createBundleTemplate(data: InsertBundleTemplate): Promise<
     .single();
   if (error) throw error;
   return row.id;
+}
+
+export async function updateBundleTemplate(id: string, data: Partial<InsertBundleTemplate>) {
+  const { error } = await sb()
+    .from("bundle_templates")
+    .update(mapToDb(data))
+    .eq("id", id);
+  if (error) { console.error("[Database] updateBundleTemplate:", error.message); throw error; }
+}
+
+export async function deleteBundleTemplate(id: string) {
+  const { error } = await sb()
+    .from("bundle_templates")
+    .delete()
+    .eq("id", id);
+  if (error) { console.error("[Database] deleteBundleTemplate:", error.message); throw error; }
 }
 
 export async function incrementTemplateUsage(templateId: string) {
@@ -783,7 +870,12 @@ export async function createBundleDraft(data: InsertBundleDraft): Promise<string
 
 export async function updateBundleDraft(id: string, data: Partial<InsertBundleDraft>) {
   const { error } = await sb().from("bundle_drafts").update(mapToDb(data)).eq("id", id);
-  if (error) { console.error("[Database] updateBundleDraft:", error.message); }
+  if (error) { console.error("[Database] updateBundleDraft:", error.message); throw error; }
+}
+
+export async function deleteBundleDraft(id: string) {
+  const { error } = await sb().from("bundle_drafts").delete().eq("id", id);
+  if (error) { console.error("[Database] deleteBundleDraft:", error.message); throw error; }
 }
 
 export async function upsertBundleFromShopify(data: {
@@ -807,7 +899,7 @@ export async function upsertBundleFromShopify(data: {
   const { error } = await sb()
     .from("bundle_drafts")
     .upsert(dbData, { onConflict: "shopify_product_id" });
-  if (error) { console.error("[Database] upsertBundleFromShopify:", error.message); }
+  if (error) { console.error("[Database] upsertBundleFromShopify:", error.message); throw error; }
 }
 
 export async function getPublishedBundles(): Promise<BundleDraft[]> {
@@ -856,11 +948,13 @@ export async function getProductById(id: string): Promise<Product | undefined> {
 }
 
 export async function searchProducts(query: string): Promise<Product[]> {
+  const term = sanitizeSearchTerm(query);
+  if (!term) return [];
   const { data, error } = await sb()
     .from("products")
     .select("*")
     .eq("availability", "available")
-    .or(`name.ilike.%${query}%,brand.ilike.%${query}%`)
+    .or(`name.ilike.%${term}%,brand.ilike.%${term}%`)
     .limit(50);
   if (error) { console.error("[Database] searchProducts:", error.message); return []; }
   return mapRowsFromDb<Product>(data || []);
@@ -873,10 +967,10 @@ export async function upsertProduct(data: InsertProduct) {
     const { error } = await sb()
       .from("products")
       .upsert(dbData, { onConflict: "shopify_product_id" });
-    if (error) { console.error("[Database] upsertProduct:", error.message); }
+    if (error) { console.error("[Database] upsertProduct:", error.message); throw error; }
   } else {
     const { error } = await sb().from("products").insert(dbData);
-    if (error) { console.error("[Database] upsertProduct:", error.message); }
+    if (error) { console.error("[Database] upsertProduct:", error.message); throw error; }
   }
 }
 
@@ -916,7 +1010,7 @@ export async function createClient(data: InsertClient): Promise<string> {
 
 export async function updateClient(id: string, data: Partial<InsertClient>) {
   const { error } = await sb().from("clients").update(mapToDb(data)).eq("id", id);
-  if (error) { console.error("[Database] updateClient:", error.message); }
+  if (error) { console.error("[Database] updateClient:", error.message); throw error; }
 }
 
 export async function getActiveBundlesCountForClient(clientId: string): Promise<number> {
@@ -993,12 +1087,12 @@ export async function createSubscription(data: InsertSubscription): Promise<stri
 
 export async function updateSubscription(id: string, data: Partial<InsertSubscription>) {
   const { error } = await sb().from("subscriptions").update(mapToDb(data)).eq("id", id);
-  if (error) { console.error("[Database] updateSubscription:", error.message); }
+  if (error) { console.error("[Database] updateSubscription:", error.message); throw error; }
 }
 
 export async function incrementSessionsUsed(subscriptionId: string) {
   const { error } = await sb().rpc("increment_sessions_used", { sub_id: subscriptionId });
-  if (error) { console.error("[Database] incrementSessionsUsed:", error.message); }
+  if (error) { console.error("[Database] incrementSessionsUsed:", error.message); throw error; }
 }
 
 // ============================================================================
@@ -1059,12 +1153,12 @@ export async function createSession(data: InsertSession): Promise<string> {
 
 export async function updateSession(id: string, data: Partial<InsertSession>) {
   const { error } = await sb().from("training_sessions").update(mapToDb(data)).eq("id", id);
-  if (error) { console.error("[Database] updateSession:", error.message); }
+  if (error) { console.error("[Database] updateSession:", error.message); throw error; }
 }
 
 export async function completeSession(sessionId: string) {
   const { error } = await sb().rpc("complete_session", { session_id: sessionId });
-  if (error) { console.error("[Database] completeSession:", error.message); }
+  if (error) { console.error("[Database] completeSession:", error.message); throw error; }
 }
 
 // ============================================================================
@@ -1113,7 +1207,7 @@ export async function createOrder(data: InsertOrder): Promise<string> {
 
 export async function updateOrder(id: string, data: Partial<InsertOrder>) {
   const { error } = await sb().from("orders").update(mapToDb(data)).eq("id", id);
-  if (error) { console.error("[Database] updateOrder:", error.message); }
+  if (error) { console.error("[Database] updateOrder:", error.message); throw error; }
 }
 
 // ============================================================================
@@ -1174,6 +1268,78 @@ export async function getPendingDeliveries(trainerId: string): Promise<ProductDe
   return mapRowsFromDb<ProductDelivery>(data || []);
 }
 
+export async function getAllDeliveries(options?: {
+  status?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ deliveries: Array<ProductDelivery & {
+  trainerName: string | null;
+  clientName: string | null;
+}>; total: number }> {
+  const { status, search, limit = 100, offset = 0 } = options || {};
+
+  let query = sb().from("product_deliveries").select("*", { count: "exact" });
+  if (status && status !== "all") {
+    query = query.eq("status", status);
+  }
+
+  const { data, count, error } = await query
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    console.error("[Database] getAllDeliveries:", error.message);
+    return { deliveries: [], total: 0 };
+  }
+
+  const deliveries = mapRowsFromDb<ProductDelivery>(data || []);
+  if (!deliveries.length) {
+    return { deliveries: [], total: 0 };
+  }
+
+  const userIds = Array.from(
+    new Set(
+      deliveries.flatMap((d) => [d.trainerId, d.clientId].filter((id): id is string => Boolean(id)))
+    )
+  );
+
+  const userNameById = new Map<string, string | null>();
+  if (userIds.length > 0) {
+    const { data: users, error: usersError } = await sb()
+      .from("users")
+      .select("id, name")
+      .in("id", userIds);
+    if (usersError) {
+      console.error("[Database] getAllDeliveries users:", usersError.message);
+    } else {
+      for (const user of users || []) {
+        userNameById.set(user.id, user.name ?? null);
+      }
+    }
+  }
+
+  const enriched = deliveries.map((delivery) => ({
+    ...delivery,
+    trainerName: userNameById.get(delivery.trainerId) ?? null,
+    clientName: userNameById.get(delivery.clientId) ?? null,
+  }));
+
+  if (!search?.trim()) {
+    return { deliveries: enriched, total: count ?? enriched.length };
+  }
+
+  const term = search.trim().toLowerCase();
+  const filtered = enriched.filter((delivery) =>
+    (delivery.productName || "").toLowerCase().includes(term) ||
+    (delivery.deliveryMethod || "").toLowerCase().includes(term) ||
+    (delivery.trainerName || "").toLowerCase().includes(term) ||
+    (delivery.clientName || "").toLowerCase().includes(term)
+  );
+
+  return { deliveries: filtered, total: filtered.length };
+}
+
 export async function getDeliveryById(id: string): Promise<ProductDelivery | null> {
   const { data, error } = await sb()
     .from("product_deliveries")
@@ -1196,12 +1362,12 @@ export async function createDelivery(data: InsertProductDelivery): Promise<strin
 
 export async function updateDelivery(id: string, data: Partial<InsertProductDelivery>) {
   const { error } = await sb().from("product_deliveries").update(mapToDb(data)).eq("id", id);
-  if (error) { console.error("[Database] updateDelivery:", error.message); }
+  if (error) { console.error("[Database] updateDelivery:", error.message); throw error; }
 }
 
 export async function markDeliveryReady(id: string) {
   const { error } = await sb().from("product_deliveries").update({ status: "ready" }).eq("id", id);
-  if (error) { console.error("[Database] markDeliveryReady:", error.message); }
+  if (error) { console.error("[Database] markDeliveryReady:", error.message); throw error; }
 }
 
 export async function markDeliveryDelivered(id: string) {
@@ -1209,7 +1375,7 @@ export async function markDeliveryDelivered(id: string) {
     .from("product_deliveries")
     .update({ status: "delivered", delivered_at: new Date().toISOString() })
     .eq("id", id);
-  if (error) { console.error("[Database] markDeliveryDelivered:", error.message); }
+  if (error) { console.error("[Database] markDeliveryDelivered:", error.message); throw error; }
 }
 
 export async function confirmDeliveryReceipt(id: string) {
@@ -1217,7 +1383,7 @@ export async function confirmDeliveryReceipt(id: string) {
     .from("product_deliveries")
     .update({ status: "confirmed", confirmed_at: new Date().toISOString() })
     .eq("id", id);
-  if (error) { console.error("[Database] confirmDeliveryReceipt:", error.message); }
+  if (error) { console.error("[Database] confirmDeliveryReceipt:", error.message); throw error; }
 }
 
 export async function getUserIdsByRoles(roles: UserRole[]): Promise<string[]> {
@@ -1540,6 +1706,103 @@ export async function getEarningsSummary(trainerId: string): Promise<{ total: nu
 }
 
 // ============================================================================
+// PARTNERSHIPS
+// ============================================================================
+
+export async function getPartnershipBusinessById(id: string): Promise<PartnershipBusiness | undefined> {
+  const { data, error } = await sb()
+    .from("partnership_businesses")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { console.error("[Database] getPartnershipBusinessById:", error.message); return undefined; }
+  return mapFromDb<PartnershipBusiness>(data);
+}
+
+export async function getAvailablePartnershipBusinesses(): Promise<PartnershipBusiness[]> {
+  const { data, error } = await sb()
+    .from("partnership_businesses")
+    .select("*")
+    .eq("is_available", true)
+    .eq("status", "available")
+    .order("name", { ascending: true });
+  if (error) { console.error("[Database] getAvailablePartnershipBusinesses:", error.message); return []; }
+  return mapRowsFromDb<PartnershipBusiness>(data || []);
+}
+
+export async function createPartnershipBusiness(data: InsertPartnershipBusiness): Promise<string> {
+  const { data: row, error } = await sb()
+    .from("partnership_businesses")
+    .insert(mapToDb(data))
+    .select("id")
+    .single();
+  if (error) { console.error("[Database] createPartnershipBusiness:", error.message); throw error; }
+  return row.id;
+}
+
+export async function getTrainerPartnerships(trainerId: string): Promise<TrainerPartnershipWithBusiness[]> {
+  const { data, error } = await sb()
+    .from("trainer_partnerships")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("[Database] getTrainerPartnerships:", error.message); return []; }
+  const partnerships = mapRowsFromDb<TrainerPartnership>(data || []);
+  if (partnerships.length === 0) return [];
+
+  const businessIds = Array.from(new Set(partnerships.map((p) => p.businessId).filter(Boolean)));
+  if (businessIds.length === 0) {
+    return partnerships.map((partnership) => ({
+      ...partnership,
+      businessName: "Business",
+      businessType: "General",
+      description: null,
+    }));
+  }
+  const { data: businessRows, error: businessError } = await sb()
+    .from("partnership_businesses")
+    .select("*")
+    .in("id", businessIds);
+  if (businessError) { console.error("[Database] getTrainerPartnerships businesses:", businessError.message); return []; }
+  const businesses = mapRowsFromDb<PartnershipBusiness>(businessRows || []);
+  const businessById = new Map<string, PartnershipBusiness>();
+  businesses.forEach((business) => {
+    businessById.set(business.id, business);
+  });
+
+  return partnerships.map((partnership) => {
+    const business = businessById.get(partnership.businessId);
+    return {
+      ...partnership,
+      businessName: business?.name || "Business",
+      businessType: business?.type || "General",
+      description: business?.description || null,
+    };
+  });
+}
+
+export async function createTrainerPartnership(data: InsertTrainerPartnership): Promise<string> {
+  const { data: existing, error: existingError } = await sb()
+    .from("trainer_partnerships")
+    .select("id")
+    .eq("trainer_id", data.trainerId)
+    .eq("business_id", data.businessId)
+    .in("status", ["pending", "active"])
+    .limit(1)
+    .maybeSingle();
+  if (existingError) { console.error("[Database] createTrainerPartnership existing:", existingError.message); }
+  if (existing?.id) return existing.id;
+
+  const { data: row, error } = await sb()
+    .from("trainer_partnerships")
+    .insert(mapToDb(data))
+    .select("id")
+    .single();
+  if (error) { console.error("[Database] createTrainerPartnership:", error.message); throw error; }
+  return row.id;
+}
+
+// ============================================================================
 // INVITATIONS
 // ============================================================================
 
@@ -1573,13 +1836,18 @@ export async function getInvitationsByTrainer(trainerId: string): Promise<Invita
   return mapRowsFromDb<Invitation>(data || []);
 }
 
+export async function updateInvitation(id: string, data: Partial<InsertInvitation>) {
+  const { error } = await sb().from("invitations").update(mapToDb(data)).eq("id", id);
+  if (error) { console.error("[Database] updateInvitation:", error.message); throw error; }
+}
+
 // ============================================================================
 // ACTIVITY LOGS
 // ============================================================================
 
 export async function logActivity(data: InsertActivityLog) {
   const { error } = await sb().from("activity_logs").insert(mapToDb(data));
-  if (error) { console.error("[Database] logActivity:", error.message); }
+  if (error) { console.error("[Database] logActivity:", error.message); throw error; }
 }
 
 // ============================================================================
@@ -1628,12 +1896,12 @@ export async function getUserInvitations(options: {
 
 export async function updateUserInvitation(id: string, data: Partial<InsertUserInvitation>) {
   const { error } = await sb().from("user_invitations").update(mapToDb(data)).eq("id", id);
-  if (error) { console.error("[Database] updateUserInvitation:", error.message); }
+  if (error) { console.error("[Database] updateUserInvitation:", error.message); throw error; }
 }
 
 export async function revokeUserInvitation(id: string) {
   const { error } = await sb().from("user_invitations").update({ status: "revoked" }).eq("id", id);
-  if (error) { console.error("[Database] revokeUserInvitation:", error.message); }
+  if (error) { console.error("[Database] revokeUserInvitation:", error.message); throw error; }
 }
 
 // ============================================================================
@@ -1684,6 +1952,123 @@ export async function getCoordinatorStats() {
     pendingApprovals: pendingApprovals ?? 0,
     newUsersThisMonth: newUsersThisMonth ?? 0,
   };
+}
+
+export async function getLowInventoryProducts(options?: { threshold?: number; limit?: number }) {
+  const { threshold = 5, limit = 20 } = options || {};
+
+  const { data, error } = await sb()
+    .from("products")
+    .select("id, name, inventory_quantity, updated_at")
+    .lte("inventory_quantity", threshold)
+    .eq("availability", "available")
+    .order("inventory_quantity", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error("[Database] getLowInventoryProducts:", error.message);
+    return [];
+  }
+
+  return (data || []).map((row) => ({
+    id: row.id as string,
+    productName: (row.name as string) || "Unknown product",
+    currentStock: Number(row.inventory_quantity ?? 0),
+    updatedAt: (row.updated_at as string) || null,
+  }));
+}
+
+export async function getRevenueSummary() {
+  const { data, error } = await sb()
+    .from("orders")
+    .select("total_amount, status, created_at")
+    .neq("status", "cancelled")
+    .neq("status", "refunded");
+
+  if (error) {
+    console.error("[Database] getRevenueSummary:", error.message);
+    return { total: 0, thisMonth: 0, lastMonth: 0, growth: 0 };
+  }
+
+  const parseAmount = (value: unknown) => {
+    const amount = typeof value === "number" ? value : parseFloat(String(value ?? "0"));
+    return Number.isFinite(amount) ? amount : 0;
+  };
+
+  const now = new Date();
+  const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  let total = 0;
+  let thisMonth = 0;
+  let lastMonth = 0;
+
+  for (const order of data || []) {
+    const amount = parseAmount(order.total_amount);
+    total += amount;
+
+    const createdAt = new Date(order.created_at as string);
+    if (createdAt >= startOfThisMonth) {
+      thisMonth += amount;
+      continue;
+    }
+    if (createdAt >= startOfLastMonth && createdAt < startOfThisMonth) {
+      lastMonth += amount;
+    }
+  }
+
+  const growth = lastMonth > 0
+    ? ((thisMonth - lastMonth) / lastMonth) * 100
+    : thisMonth > 0
+      ? 100
+      : 0;
+
+  return { total, thisMonth, lastMonth, growth };
+}
+
+export async function getRevenueTrend(options?: { months?: number }) {
+  const months = Math.max(1, Math.min(options?.months ?? 6, 24));
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+  const { data, error } = await sb()
+    .from("orders")
+    .select("total_amount, status, created_at")
+    .gte("created_at", start.toISOString())
+    .neq("status", "cancelled")
+    .neq("status", "refunded");
+
+  if (error) {
+    console.error("[Database] getRevenueTrend:", error.message);
+    return [];
+  }
+
+  const parseAmount = (value: unknown) => {
+    const amount = typeof value === "number" ? value : parseFloat(String(value ?? "0"));
+    return Number.isFinite(amount) ? amount : 0;
+  };
+
+  const monthMap = new Map<string, { month: string; revenue: number; orders: number }>();
+  for (let idx = months - 1; idx >= 0; idx -= 1) {
+    const monthDate = new Date(now.getFullYear(), now.getMonth() - idx, 1);
+    const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`;
+    monthMap.set(key, {
+      month: monthDate.toLocaleString("en-US", { month: "short" }),
+      revenue: 0,
+      orders: 0,
+    });
+  }
+
+  for (const order of data || []) {
+    const createdAt = new Date(order.created_at as string);
+    const key = `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, "0")}`;
+    const entry = monthMap.get(key);
+    if (!entry) continue;
+    entry.revenue += parseAmount(order.total_amount);
+    entry.orders += 1;
+  }
+
+  return Array.from(monthMap.values());
 }
 
 // ============================================================================
@@ -1779,7 +2164,7 @@ export async function removeTrainerFromClient(trainerId: string, clientUserId: s
     .update({ status: "removed" })
     .eq("trainer_id", trainerId)
     .eq("user_id", clientUserId);
-  if (error) { console.error("[Database] removeTrainerFromClient:", error.message); }
+  if (error) { console.error("[Database] removeTrainerFromClient:", error.message); throw error; }
 }
 
 export async function getAvailableTrainers(userId: string, search?: string, _specialty?: string): Promise<User[]> {
@@ -1805,7 +2190,10 @@ export async function getAvailableTrainers(userId: string, search?: string, _spe
   }
 
   if (search) {
-    query = query.or(`name.ilike.%${search}%,bio.ilike.%${search}%,username.ilike.%${search}%`);
+    const term = sanitizeSearchTerm(search);
+    if (term) {
+      query = query.or(`name.ilike.%${term}%,bio.ilike.%${term}%,username.ilike.%${term}%`);
+    }
   }
 
   const { data, error } = await query.order("created_at", { ascending: false }).limit(50);
@@ -1904,6 +2292,93 @@ export async function cancelJoinRequest(requestId: string, userId: string) {
   if (error) { console.error("[Database] cancelJoinRequest:", error.message); throw error; }
 }
 
+export async function getPendingJoinRequestsForTrainer(trainerId: string) {
+  const { data: pending, error: pendingError } = await sb()
+    .from("clients")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (pendingError) { console.error("[Database] getPendingJoinRequestsForTrainer:", pendingError.message); return []; }
+
+  if (!pending || pending.length === 0) return [];
+
+  const userIds = pending
+    .map((p) => p.user_id)
+    .filter((id): id is string => Boolean(id));
+  const userById = new Map<string, User>();
+
+  if (userIds.length > 0) {
+    const { data: users, error: usersError } = await sb()
+      .from("users")
+      .select("*")
+      .in("id", userIds);
+    if (usersError) {
+      console.error("[Database] getPendingJoinRequestsForTrainer users:", usersError.message);
+    } else {
+      mapRowsFromDb<User>(users || []).forEach((u) => userById.set(u.id, u));
+    }
+  }
+
+  return pending.map((request) => {
+    const mapped = mapFromDb<Client>(request)!;
+    const requestUser = mapped.userId ? userById.get(mapped.userId) : undefined;
+    return {
+      ...mapped,
+      requestUser: requestUser || null,
+    };
+  });
+}
+
+export async function getClientByTrainerAndUser(trainerId: string, userId: string): Promise<Client | undefined> {
+  const { data, error } = await sb()
+    .from("clients")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (error) { console.error("[Database] getClientByTrainerAndUser:", error.message); return undefined; }
+  return mapFromDb<Client>(data);
+}
+
+export async function approveJoinRequest(requestId: string, trainerId: string) {
+  const now = new Date().toISOString();
+  const { data, error } = await sb()
+    .from("clients")
+    .update({
+      status: "active",
+      accepted_at: now,
+      updated_at: now,
+    })
+    .eq("id", requestId)
+    .eq("trainer_id", trainerId)
+    .eq("status", "pending")
+    .select("*")
+    .maybeSingle();
+  if (error) { console.error("[Database] approveJoinRequest:", error.message); throw error; }
+  if (!data) throw new Error("Join request not found");
+  return mapFromDb<Client>(data)!;
+}
+
+export async function rejectJoinRequest(requestId: string, trainerId: string) {
+  const now = new Date().toISOString();
+  const { data, error } = await sb()
+    .from("clients")
+    .update({
+      status: "removed",
+      updated_at: now,
+    })
+    .eq("id", requestId)
+    .eq("trainer_id", trainerId)
+    .eq("status", "pending")
+    .select("*")
+    .maybeSingle();
+  if (error) { console.error("[Database] rejectJoinRequest:", error.message); throw error; }
+  if (!data) throw new Error("Join request not found");
+  return mapFromDb<Client>(data)!;
+}
+
 export async function getTrainerBundleCount(trainerId: string): Promise<number> {
   const { count, error } = await sb()
     .from("bundle_drafts")
@@ -1975,7 +2450,7 @@ export async function updatePaymentSessionByReference(
     .from("payment_sessions")
     .update(mapToDb(data))
     .eq("merchant_reference", merchantReference);
-  if (error) { console.error("[Database] updatePaymentSessionByReference:", error.message); }
+  if (error) { console.error("[Database] updatePaymentSessionByReference:", error.message); throw error; }
 }
 
 export async function getPaymentHistory(

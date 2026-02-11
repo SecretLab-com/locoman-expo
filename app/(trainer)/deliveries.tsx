@@ -56,6 +56,44 @@ const METHOD_LABELS: Record<DeliveryMethod, string> = {
   shipped: "Shipped",
 };
 
+const RESCHEDULE_REQUEST_PREFIX = "reschedule_request_v1:";
+
+type RescheduleRequest = {
+  requestedDate: string | null;
+  reason: string | null;
+  requestedAt: string | null;
+};
+
+function toIsoDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function parseRescheduleRequest(clientNotes: string | null): RescheduleRequest | null {
+  if (!clientNotes) return null;
+  if (clientNotes.startsWith(RESCHEDULE_REQUEST_PREFIX)) {
+    try {
+      const payload = JSON.parse(clientNotes.slice(RESCHEDULE_REQUEST_PREFIX.length)) as Partial<RescheduleRequest>;
+      return {
+        requestedDate: toIsoDate(payload.requestedDate ?? null),
+        reason: payload.reason?.trim() || null,
+        requestedAt: toIsoDate(payload.requestedAt ?? null),
+      };
+    } catch {
+      return null;
+    }
+  }
+  if (!clientNotes.toLowerCase().includes("reschedule requested")) return null;
+  const [, reason] = clientNotes.split(":");
+  return {
+    requestedDate: null,
+    reason: reason?.trim() || null,
+    requestedAt: null,
+  };
+}
+
 export default function TrainerDeliveriesScreen() {
   const colors = useColors();
   const [activeTab, setActiveTab] = useState<DeliveryStatus | "all">("all");
@@ -141,9 +179,11 @@ export default function TrainerDeliveriesScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
 
-    // For now, approve with current scheduled date + 7 days as new date
-    const newDate = new Date();
-    newDate.setDate(newDate.getDate() + 7);
+    const request = parseRescheduleRequest(delivery.clientNotes);
+    const newDate = request?.requestedDate ? new Date(request.requestedDate) : new Date();
+    if (!request?.requestedDate) {
+      newDate.setDate(newDate.getDate() + 7);
+    }
 
     if (Platform.OS === "web") {
       if (window.confirm(`Approve reschedule request?`)) {
@@ -227,11 +267,13 @@ export default function TrainerDeliveriesScreen() {
   };
 
   const hasRescheduleRequest = (delivery: Delivery) => {
-    return delivery.clientNotes?.includes("Reschedule requested");
+    return Boolean(parseRescheduleRequest(delivery.clientNotes));
   };
 
-  const renderDelivery = ({ item }: { item: Delivery }) => (
-    <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
+  const renderDelivery = ({ item }: { item: Delivery }) => {
+    const rescheduleRequest = parseRescheduleRequest(item.clientNotes);
+    return (
+      <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
       {/* Header */}
       <View className="flex-row justify-between items-start mb-3">
         <View className="flex-1">
@@ -274,10 +316,15 @@ export default function TrainerDeliveriesScreen() {
       </View>
 
       {/* Reschedule Request */}
-      {hasRescheduleRequest(item) && (
+      {rescheduleRequest && (
         <View className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3">
           <Text className="text-warning font-medium mb-1">Reschedule Requested</Text>
-          <Text className="text-muted text-sm">{item.clientNotes}</Text>
+          <Text className="text-muted text-sm">
+            Requested date: {formatDate(rescheduleRequest.requestedDate)}
+          </Text>
+          {rescheduleRequest.reason && (
+            <Text className="text-muted text-sm mt-1">Reason: {rescheduleRequest.reason}</Text>
+          )}
           <View className="flex-row gap-2 mt-2">
             <TouchableOpacity
               className="flex-1 bg-primary py-2 rounded-lg items-center"
@@ -349,7 +396,8 @@ export default function TrainerDeliveriesScreen() {
         )}
       </View>
     </View>
-  );
+    );
+  };
 
   if (isLoading) {
     return (

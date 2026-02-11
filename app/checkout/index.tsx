@@ -1,10 +1,3 @@
-// TODO: Integrate real order creation via tRPC when orders.create endpoint is added
-// The checkout flow currently uses mock processing. To integrate:
-// 1. Add trpc.orders.create.useMutation() for placing orders
-// 2. Use trpc.payments.createSession for payment processing
-// 3. Replace the simulated delay with actual API calls
-// 4. Wire up trpc.deliveries.createForOrder after order is created
-
 import { useState } from "react";
 import {
   Text,
@@ -13,6 +6,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Linking,
   Platform,
 } from "react-native";
 import { router } from "expo-router";
@@ -23,6 +17,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useCart, CartItem } from "@/contexts/cart-context";
 import { useAuthContext } from "@/contexts/auth-context";
 import { navigateToHome } from "@/lib/navigation";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 
 const FULFILLMENT_OPTIONS = [
@@ -161,6 +156,16 @@ export default function CheckoutScreen() {
   const { isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
   const { items, subtotal, updateQuantity, updateFulfillment, removeItem, clearCart } = useCart();
   const [processing, setProcessing] = useState(false);
+  const utils = trpc.useUtils();
+  const createOrder = trpc.orders.create.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.orders.myOrders.invalidate(),
+        utils.orders.list.invalidate(),
+        utils.deliveries.myDeliveries.invalidate(),
+      ]);
+    },
+  });
 
   const shippingFee = items.some((i) => i.fulfillment === "home_ship") ? 5.99 : 0;
   const tax = subtotal * 0.08; // 8% tax
@@ -174,7 +179,7 @@ export default function CheckoutScreen() {
 
     Alert.alert(
       "Confirm Order",
-      `Place order for $${total.toFixed(2)}?`,
+      `Submit order for $${total.toFixed(2)}? Payment status will be pending until confirmed.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -187,23 +192,66 @@ export default function CheckoutScreen() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               }
 
-              // TODO: Replace with actual API call
-              // await trpc.orders.create.mutate({
-              //   items: items.map(item => ({
-              //     bundleId: item.bundleId,
-              //     quantity: item.quantity,
-              //     fulfillment: item.fulfillment,
-              //   })),
-              // });
+              const result = await createOrder.mutateAsync({
+                items: items.map((item) => ({
+                  title: item.title,
+                  quantity: item.quantity,
+                  bundleId: item.bundleId,
+                  productId: item.productId,
+                  trainerId: item.trainerId,
+                  unitPrice: item.price,
+                  fulfillment: item.fulfillment,
+                })),
+                subtotalAmount: subtotal,
+                shippingAmount: shippingFee,
+                taxAmount: tax,
+                totalAmount: total,
+              });
 
-              await new Promise((resolve) => setTimeout(resolve, 2000));
+              if (result.payment?.required) {
+                const paymentLink = result.payment.paymentLink;
+                if (paymentLink) {
+                  if (Platform.OS === "web") {
+                    if (window.confirm("Order submitted. Open payment page now?")) {
+                      await Linking.openURL(paymentLink);
+                    }
+                  } else {
+                    Alert.alert(
+                      "Complete Payment",
+                      "Your order was submitted. Complete payment now to confirm it.",
+                      [
+                        { text: "Later", style: "cancel" },
+                        {
+                          text: "Pay Now",
+                          onPress: () => {
+                            void Linking.openURL(paymentLink);
+                          },
+                        },
+                      ]
+                    );
+                  }
+                } else if (!result.payment.configured) {
+                  Alert.alert(
+                    "Payment Pending",
+                    "Order submitted, but the payment provider is not configured. Payment remains pending.",
+                  );
+                } else {
+                  Alert.alert(
+                    "Payment Pending",
+                    "Order submitted. Payment link generation failed; you can retry from order confirmation.",
+                  );
+                }
+              }
 
               if (Platform.OS !== "web") {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               }
 
               clearCart();
-              router.replace("/checkout/confirmation" as any);
+              router.replace({
+                pathname: "/checkout/confirmation",
+                params: { orderId: result.orderId },
+              } as any);
             } catch (error) {
               console.error("Failed to place order:", error);
               if (Platform.OS !== "web") {

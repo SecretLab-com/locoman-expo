@@ -10,7 +10,7 @@ import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
 import { Image } from "expo-image";
 import { router, useSegments } from "expo-router";
-import { Alert, Platform, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 type MenuItemProps = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -98,7 +98,7 @@ export default function SharedProfileScreen() {
     ["(tabs)", "(trainer)", "(manager)", "(coordinator)", "(client)"].includes(segment),
   );
   const showBottomNav = !hasRoleLayout;
-  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, isCoordinator, effectiveRole } =
+  const { user, effectiveUser, isAuthenticated, logout, role, isTrainer, isClient, isManager, isCoordinator, effectiveRole } =
     useAuthContext();
   const { counts } = useBadgeContext();
   const roleBase =
@@ -113,6 +113,7 @@ export default function SharedProfileScreen() {
             : "/(tabs)";
   const managerBase = isCoordinator ? "/(coordinator)" : "/(manager)";
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
+  const profileUser = effectiveUser ?? user;
 
   // Navigate back to the user's role-specific home (initial landing page)
   const handleGoHome = async () => {
@@ -153,7 +154,6 @@ export default function SharedProfileScreen() {
     if (Platform.OS === "web") {
       if (window.confirm("Are you sure you want to logout?")) {
         await logout();
-        router.replace("/login");
       }
     } else {
       Alert.alert(
@@ -166,11 +166,21 @@ export default function SharedProfileScreen() {
             style: "destructive",
             onPress: async () => {
               await logout();
-              router.replace("/login");
             },
           },
         ]
       );
+    }
+  };
+
+  const handleSupport = async () => {
+    const mailtoUrl = "mailto:support@locomotivate.app?subject=LocoMotivate%20Support";
+    const fallbackUrl = "https://locomotivate.app/support";
+    try {
+      const canOpenMail = await Linking.canOpenURL(mailtoUrl);
+      await Linking.openURL(canOpenMail ? mailtoUrl : fallbackUrl);
+    } catch {
+      Alert.alert("Support", "Please contact support@locomotivate.app");
     }
   };
 
@@ -189,6 +199,7 @@ export default function SharedProfileScreen() {
   };
 
   const dashboardInfo = getDashboardLabel();
+  const displayedRole = effectiveRole ?? role;
 
   const navItems: RoleNavItem[] = (() => {
     if (effectiveRole === "manager") {
@@ -295,25 +306,29 @@ export default function SharedProfileScreen() {
         {/* Profile Header */}
         <View className="items-center py-6 px-4">
           <View className="w-24 h-24 rounded-full bg-primary items-center justify-center mb-4">
-            {user?.photoUrl ? (
+            {profileUser?.photoUrl ? (
               <Image
-                source={{ uri: user.photoUrl }}
+                source={{ uri: profileUser.photoUrl }}
                 className="w-24 h-24 rounded-full"
                 contentFit="cover"
               />
-            ) : user?.name ? (
+            ) : profileUser?.name ? (
               <Text className="text-4xl font-bold text-background">
-                {user.name.charAt(0).toUpperCase()}
+                {profileUser.name.charAt(0).toUpperCase()}
               </Text>
             ) : (
               <IconSymbol name="person.fill" size={48} color={colors.background} />
             )}
           </View>
           <Text className="text-xl font-bold text-foreground">
-            {user?.name || "User"}
+            {profileUser?.name || "User"}
           </Text>
-          <Text className="text-muted mt-1">{user?.email || ""}</Text>
-          <RoleBadge role={role || "shopper"} />
+          <Text className="text-muted mt-1">{profileUser?.email || ""}</Text>
+          {displayedRole ? (
+            <RoleBadge role={displayedRole} />
+          ) : (
+            <Text className="text-sm text-muted mt-2">Syncing role...</Text>
+          )}
         </View>
 
         {/* Menu Sections */}
@@ -460,13 +475,7 @@ export default function SharedProfileScreen() {
               icon="info.circle.fill"
               title="Help & Support"
               subtitle="Get help or contact us"
-              onPress={() => {
-                if (Platform.OS === "web") {
-                  alert("Help center coming soon!");
-                } else {
-                  Alert.alert("Coming Soon", "Help center coming soon!");
-                }
-              }}
+              onPress={handleSupport}
             />
           </View>
 

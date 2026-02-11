@@ -6,7 +6,11 @@ import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
+    ActivityIndicator,
+    Alert,
     FlatList,
+    Linking,
+    Platform,
     RefreshControl,
     Text,
     TouchableOpacity,
@@ -21,11 +25,22 @@ type Order = {
   imageUrl?: string | null;
   price: number;
   status: OrderStatus;
+  paymentStatus: string | null;
   purchaseDate: string | null;
   progress: number;
 };
 
-function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
+function OrderCard({
+  order,
+  onPress,
+  onPayNow,
+  isPaying,
+}: {
+  order: Order;
+  onPress: () => void;
+  onPayNow: () => void;
+  isPaying: boolean;
+}) {
   const colors = useColors();
 
   const getStatusStyle = (status: string) => {
@@ -42,6 +57,7 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
   };
 
   const statusStyle = getStatusStyle(order.status);
+  const paymentPending = (order.paymentStatus || "").toLowerCase() !== "paid";
 
   return (
     <TouchableOpacity
@@ -97,6 +113,24 @@ function OrderCard({ order, onPress }: { order: Order; onPress: () => void }) {
             </Text>
             <Text className="text-base font-bold text-primary">${order.price}</Text>
           </View>
+          <View className="flex-row items-center justify-between mt-2">
+            <Text className={`text-xs font-semibold ${paymentPending ? "text-warning" : "text-success"}`}>
+              Payment: {paymentPending ? "Pending" : "Paid"}
+            </Text>
+            {paymentPending && (
+              <TouchableOpacity
+                onPress={onPayNow}
+                disabled={isPaying}
+                className="bg-warning px-3 py-1 rounded-full"
+              >
+                {isPaying ? (
+                  <ActivityIndicator size="small" color={colors.background} />
+                ) : (
+                  <Text className="text-background text-xs font-semibold">Pay Now</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -115,6 +149,7 @@ export default function ClientOrdersScreen() {
   }, [filterParam]);
   const [filter, setFilter] = useState<"all" | "active" | "completed">(normalizedFilter);
   const { data: orders = [], refetch, isLoading } = trpc.orders.myOrders.useQuery();
+  const createPaymentLink = trpc.orders.createPaymentLink.useMutation();
 
   useEffect(() => {
     setFilter(normalizedFilter);
@@ -130,6 +165,7 @@ export default function ClientOrdersScreen() {
         imageUrl: (order.orderData as any)?.imageUrl ?? null,
         price: Number(order.totalAmount ?? 0),
         status,
+        paymentStatus: order.paymentStatus ?? "pending",
         purchaseDate: order.createdAt ?? null,
         progress,
       };
@@ -149,6 +185,37 @@ export default function ClientOrdersScreen() {
 
   const handleOrderPress = (_order: Order) => {
     router.push("/(client)/orders" as any);
+  };
+
+  const handlePayNow = async (order: Order) => {
+    try {
+      const result = await createPaymentLink.mutateAsync({ orderId: order.id });
+      const paymentLink = result.payment?.paymentLink;
+      if (paymentLink) {
+        await Linking.openURL(paymentLink);
+        return;
+      }
+
+      if (!result.payment?.configured) {
+        Alert.alert("Payment Unavailable", "Payment provider is not configured yet. Please try again later.");
+        return;
+      }
+
+      if (!result.payment?.required) {
+        Alert.alert("Payment Complete", "This order is already marked as paid.");
+        await refetch();
+        return;
+      }
+
+      Alert.alert("Payment Pending", "Unable to generate payment link. Please try again.");
+    } catch (error) {
+      console.error("[Orders] Failed to create payment link:", error);
+      if (Platform.OS === "web") {
+        window.alert("Unable to create payment link. Please try again.");
+      } else {
+        Alert.alert("Error", "Unable to create payment link. Please try again.");
+      }
+    }
   };
 
   return (
@@ -196,7 +263,12 @@ export default function ClientOrdersScreen() {
         data={filteredOrders}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <OrderCard order={item} onPress={() => handleOrderPress(item)} />
+          <OrderCard
+            order={item}
+            onPress={() => handleOrderPress(item)}
+            onPayNow={() => handlePayNow(item)}
+            isPaying={createPaymentLink.isPending}
+          />
         )}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
         showsVerticalScrollIndicator={false}

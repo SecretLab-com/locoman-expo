@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { generateImage } from "./_core/imageGeneration";
@@ -27,6 +28,316 @@ function getBotReply(userMessage: string): string {
   if (/help/i.test(userMessage)) return "I'm the test bot. Send me any message and I'll reply to help you test the messaging system!";
   if (/thanks|thank you/i.test(userMessage)) return "You're welcome! Let me know if you need anything else.";
   return BOT_REPLIES[Math.floor(Math.random() * BOT_REPLIES.length)];
+}
+
+function isManagerLikeRole(role: string): boolean {
+  return role === "manager" || role === "coordinator";
+}
+
+function notFound(resource: string): never {
+  throw new TRPCError({ code: "NOT_FOUND", message: `${resource} not found` });
+}
+
+function forbidden(message: string): never {
+  throw new TRPCError({ code: "FORBIDDEN", message });
+}
+
+function assertTrainerOwned(
+  user: { id: string; role: string },
+  trainerId: string | null | undefined,
+  resource: string,
+) {
+  if (!trainerId) notFound(resource);
+  if (trainerId !== user.id && !isManagerLikeRole(user.role)) {
+    forbidden(`You do not have access to this ${resource}`);
+  }
+}
+
+function assertSubscriptionAccess(
+  user: { id: string; role: string },
+  subscription: { trainerId: string; clientId: string },
+) {
+  if (isManagerLikeRole(user.role)) return;
+  if (subscription.trainerId === user.id || subscription.clientId === user.id) return;
+  forbidden("You do not have access to this subscription");
+}
+
+function assertOrderAccess(
+  user: { id: string; role: string },
+  order: { trainerId: string | null; clientId: string | null },
+) {
+  if (isManagerLikeRole(user.role)) return;
+  if (order.trainerId === user.id || order.clientId === user.id) return;
+  forbidden("You do not have access to this order");
+}
+
+function assertOrderManageAccess(
+  user: { id: string; role: string },
+  order: { trainerId: string | null },
+) {
+  if (isManagerLikeRole(user.role)) return;
+  if (order.trainerId === user.id) return;
+  forbidden("You do not have permission to modify this order");
+}
+
+function assertDeliveryAccess(
+  user: { id: string; role: string },
+  delivery: { trainerId: string; clientId: string },
+) {
+  if (isManagerLikeRole(user.role)) return;
+  if (delivery.trainerId === user.id || delivery.clientId === user.id) return;
+  forbidden("You do not have access to this delivery");
+}
+
+function assertDeliveryManageAccess(
+  user: { id: string; role: string },
+  delivery: { trainerId: string },
+) {
+  if (isManagerLikeRole(user.role)) return;
+  if (delivery.trainerId === user.id) return;
+  forbidden("You do not have permission to modify this delivery");
+}
+
+function assertDeliveryClientAccess(
+  user: { id: string; role: string },
+  delivery: { clientId: string },
+) {
+  if (isManagerLikeRole(user.role)) return;
+  if (delivery.clientId === user.id) return;
+  forbidden("You do not have permission to modify this delivery");
+}
+
+function assertMessageAccess(
+  user: { id: string; role: string },
+  message: { senderId: string; receiverId: string },
+) {
+  if (isManagerLikeRole(user.role)) return;
+  if (message.senderId === user.id || message.receiverId === user.id) return;
+  forbidden("You do not have access to this message");
+}
+
+function toArray<T = any>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  if (value && typeof value === "object") {
+    const maybeItems = (value as { items?: unknown }).items;
+    return Array.isArray(maybeItems) ? (maybeItems as T[]) : [];
+  }
+  return [];
+}
+
+function parseBundleProducts(productsJson: unknown) {
+  const parsed = toArray<Record<string, any>>(productsJson)
+    .map((product, index) => {
+      const name = String(
+        product.name ||
+        product.title ||
+        product.productName ||
+        product.label ||
+        ""
+      ).trim();
+      const quantityRaw = Number(product.quantity ?? product.qty ?? 1);
+      const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+      const productId = product.productId ? String(product.productId) : undefined;
+      if (!name) return null;
+      return {
+        id: String(product.id ?? productId ?? index),
+        productId,
+        name,
+        quantity,
+      };
+    })
+    .filter((item) => item !== null) as Array<{
+      id: string;
+      productId?: string;
+      name: string;
+      quantity: number;
+    }>;
+  return parsed;
+}
+
+function parseBundleServices(servicesJson: unknown) {
+  return toArray<Record<string, any>>(servicesJson)
+    .map((service, index) => {
+      const name = String(service.name || service.title || service.serviceName || "").trim();
+      const sessionsRaw = Number(service.sessions ?? service.quantity ?? service.count ?? 1);
+      const sessions = Number.isFinite(sessionsRaw) && sessionsRaw > 0 ? sessionsRaw : 1;
+      if (!name) return null;
+      return {
+        id: String(service.id ?? index),
+        name,
+        sessions,
+      };
+    })
+    .filter((item): item is { id: string; name: string; sessions: number } => Boolean(item));
+}
+
+type OrderPaymentProvision = {
+  required: boolean;
+  configured: boolean;
+  provisioned: boolean;
+  paymentLink: string | null;
+  merchantReference: string | null;
+  expiresAt: string | null;
+};
+
+async function provisionOrderPaymentLink(input: {
+  orderId: string;
+  requestedBy: string;
+  payerId: string | null;
+  amountMinor: number;
+  shopperEmail?: string | null;
+  description?: string | null;
+}): Promise<OrderPaymentProvision> {
+  if (input.amountMinor <= 0) {
+    return {
+      required: false,
+      configured: adyen.isAdyenConfigured(),
+      provisioned: false,
+      paymentLink: null,
+      merchantReference: null,
+      expiresAt: null,
+    };
+  }
+
+  if (!adyen.isAdyenConfigured()) {
+    return {
+      required: true,
+      configured: false,
+      provisioned: false,
+      paymentLink: null,
+      merchantReference: null,
+      expiresAt: null,
+    };
+  }
+
+  try {
+    const merchantReference = adyen.generateMerchantReference("ORD");
+    const link = await adyen.createPaymentLink({
+      amountMinor: input.amountMinor,
+      currency: "GBP",
+      merchantReference,
+      description: input.description || `Order ${input.orderId}`,
+      shopperEmail: input.shopperEmail || undefined,
+      expiresInMinutes: 60,
+    });
+
+    await db.createPaymentSession({
+      adyenSessionId: link.id,
+      merchantReference,
+      requestedBy: input.requestedBy,
+      payerId: input.payerId,
+      amountMinor: input.amountMinor,
+      currency: "GBP",
+      description: input.description || `Order ${input.orderId}`,
+      method: "link",
+      status: "created",
+      orderId: input.orderId,
+      paymentLink: link.url,
+      expiresAt: link.expiresAt ? new Date(link.expiresAt).toISOString() : undefined,
+      metadata: {
+        source: "order_checkout",
+      },
+    });
+
+    return {
+      required: true,
+      configured: true,
+      provisioned: true,
+      paymentLink: link.url || null,
+      merchantReference,
+      expiresAt: link.expiresAt ? String(link.expiresAt) : null,
+    };
+  } catch (error) {
+    console.error("[Payments] Failed to provision order payment link:", error);
+    return {
+      required: true,
+      configured: true,
+      provisioned: false,
+      paymentLink: null,
+      merchantReference: null,
+      expiresAt: null,
+    };
+  }
+}
+
+const RESCHEDULE_REQUEST_PREFIX = "reschedule_request_v1:";
+
+type RescheduleRequestPayload = {
+  requestedDate: string | null;
+  reason: string | null;
+  requestedAt: string;
+};
+
+function normalizeIsoDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function encodeRescheduleRequest(payload: RescheduleRequestPayload): string {
+  return `${RESCHEDULE_REQUEST_PREFIX}${JSON.stringify(payload)}`;
+}
+
+function decodeRescheduleRequest(notes: string | null | undefined): RescheduleRequestPayload | null {
+  if (!notes) return null;
+
+  if (notes.startsWith(RESCHEDULE_REQUEST_PREFIX)) {
+    try {
+      const raw = JSON.parse(notes.slice(RESCHEDULE_REQUEST_PREFIX.length)) as Partial<RescheduleRequestPayload>;
+      return {
+        requestedDate: normalizeIsoDate(raw.requestedDate ?? null),
+        reason: raw.reason ? String(raw.reason) : null,
+        requestedAt: normalizeIsoDate(raw.requestedAt ?? null) ?? new Date().toISOString(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  if (!notes.toLowerCase().includes("reschedule requested")) return null;
+
+  const [, maybeReason] = notes.split(":");
+  return {
+    requestedDate: null,
+    reason: maybeReason ? maybeReason.trim() : null,
+    requestedAt: new Date().toISOString(),
+  };
+}
+
+function parseBundleGoals(goalsJson: unknown): string[] {
+  return toArray<any>(goalsJson)
+    .map((goal) => {
+      if (typeof goal === "string") return goal.trim();
+      if (goal && typeof goal === "object") {
+        return String((goal as Record<string, any>).name || (goal as Record<string, any>).title || "").trim();
+      }
+      return "";
+    })
+    .filter((goal) => goal.length > 0);
+}
+
+function toDeliveryMethod(
+  fulfillment?: "home_ship" | "trainer_delivery" | "vending" | "cafeteria",
+): "in_person" | "locker" | "front_desk" | "shipped" {
+  switch (fulfillment) {
+    case "home_ship":
+      return "shipped";
+    case "vending":
+      return "locker";
+    case "cafeteria":
+      return "front_desk";
+    default:
+      return "in_person";
+  }
 }
 
 export const appRouter = router({
@@ -78,6 +389,224 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.searchProducts(input.query);
       }),
+
+    invitation: publicProcedure
+      .input(z.object({ token: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const invitation = await db.getInvitationByToken(input.token);
+        if (!invitation) return null;
+
+        const trainer = invitation.trainerId ? await db.getUserById(invitation.trainerId) : undefined;
+        const bundle = invitation.bundleDraftId
+          ? await db.getBundleDraftById(invitation.bundleDraftId)
+          : undefined;
+
+        const products = parseBundleProducts(bundle?.productsJson);
+        const services = parseBundleServices(bundle?.servicesJson);
+        const goals = parseBundleGoals(bundle?.goalsJson);
+        const bundlePrice = Number.parseFloat(String(bundle?.price ?? "0"));
+
+        const expiresAt = invitation.expiresAt ? new Date(invitation.expiresAt) : null;
+        const isExpired = Boolean(expiresAt && expiresAt.getTime() < Date.now());
+
+        return {
+          id: invitation.id,
+          token: invitation.token,
+          trainerId: invitation.trainerId,
+          trainerName: trainer?.name || "Trainer",
+          trainerAvatar: trainer?.photoUrl || null,
+          bundleId: bundle?.id || null,
+          bundleTitle: bundle?.title || "Bundle Invitation",
+          bundleDescription: bundle?.description || "",
+          bundlePrice: Number.isFinite(bundlePrice) ? bundlePrice : 0,
+          bundleDuration: bundle?.cadence || "program",
+          products,
+          services,
+          goals,
+          personalMessage: null,
+          status: isExpired && invitation.status === "pending" ? "expired" : (invitation.status || "pending"),
+          expiresAt: invitation.expiresAt,
+          email: invitation.email,
+        };
+      }),
+
+    acceptInvitation: protectedProcedure
+      .input(z.object({ token: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (isManagerLikeRole(ctx.user.role) || ctx.user.role === "trainer") {
+          forbidden("Only shoppers and clients can accept invitations");
+        }
+
+        const invitation = await db.getInvitationByToken(input.token);
+        if (!invitation) notFound("Invitation");
+        if (invitation.status && invitation.status !== "pending") {
+          forbidden(`Invitation has already been ${invitation.status}`);
+        }
+
+        const expiresAt = new Date(invitation.expiresAt);
+        if (expiresAt.getTime() < Date.now()) {
+          await db.updateInvitation(invitation.id, { status: "expired" });
+          forbidden("Invitation has expired");
+        }
+
+        if (ctx.user.email && invitation.email) {
+          const invitedEmail = invitation.email.trim().toLowerCase();
+          const signedInEmail = ctx.user.email.trim().toLowerCase();
+          if (invitedEmail !== signedInEmail) {
+            forbidden("Signed-in account does not match the invited email");
+          }
+        }
+
+        const bundle = invitation.bundleDraftId
+          ? await db.getBundleDraftById(invitation.bundleDraftId)
+          : undefined;
+        if (!bundle) notFound("Bundle");
+        const trainerId = invitation.trainerId || bundle.trainerId;
+        if (!trainerId) notFound("Trainer");
+
+        let clientRecord = await db.getClientByTrainerAndUser(trainerId, ctx.user.id);
+        if (!clientRecord) {
+          const clientId = await db.createClient({
+            trainerId,
+            userId: ctx.user.id,
+            name: ctx.user.name || invitation.name || "Client",
+            email: ctx.user.email || invitation.email,
+            phone: ctx.user.phone,
+            photoUrl: ctx.user.photoUrl,
+            status: "active",
+            invitedAt: invitation.createdAt,
+            acceptedAt: new Date().toISOString(),
+          });
+          clientRecord = await db.getClientById(clientId);
+        } else if (clientRecord.status !== "active") {
+          await db.updateClient(clientRecord.id, {
+            status: "active",
+            acceptedAt: new Date().toISOString(),
+          });
+          clientRecord = await db.getClientById(clientRecord.id);
+        }
+        if (!clientRecord) notFound("Client relationship");
+
+        const amount = Number.parseFloat(String(bundle.price || "0"));
+        const safeAmount = Number.isFinite(amount) ? amount : 0;
+        const subtotal = safeAmount;
+        const tax = 0;
+        const shipping = 0;
+        const total = subtotal + tax + shipping;
+        const paymentStatus = total > 0 ? "pending" : "paid";
+
+        const orderId = await db.createOrder({
+          clientId: ctx.user.id,
+          trainerId,
+          customerEmail: ctx.user.email || invitation.email,
+          customerName: ctx.user.name || invitation.name || "Client",
+          totalAmount: total.toFixed(2),
+          subtotalAmount: subtotal.toFixed(2),
+          taxAmount: tax.toFixed(2),
+          shippingAmount: shipping.toFixed(2),
+          status: "pending",
+          paymentStatus,
+          fulfillmentStatus: "unfulfilled",
+          fulfillmentMethod: "trainer_delivery",
+          orderData: {
+            source: "invitation_acceptance",
+            invitationId: invitation.id,
+            bundleDraftId: bundle.id,
+            paymentRequired: total > 0,
+          },
+        });
+
+        const bundleProducts = parseBundleProducts(bundle.productsJson);
+        const orderLineItems: Array<{
+          id: string;
+          name: string;
+          quantity: number;
+          productId?: string;
+        }> = bundleProducts.length > 0
+          ? bundleProducts
+          : [{ id: "bundle", name: bundle.title, quantity: 1, productId: undefined }];
+
+        const deliveryIds: string[] = [];
+        for (const lineItem of orderLineItems) {
+          const lineTotal = safeAmount * lineItem.quantity;
+          await db.createOrderItem({
+            orderId,
+            productId: lineItem.productId,
+            name: lineItem.name,
+            quantity: lineItem.quantity,
+            price: safeAmount.toFixed(2),
+            totalPrice: lineTotal.toFixed(2),
+            fulfillmentStatus: "unfulfilled",
+          });
+
+          if (lineItem.productId || bundleProducts.length > 0) {
+            const deliveryId = await db.createDelivery({
+              orderId,
+              trainerId,
+              clientId: ctx.user.id,
+              productId: lineItem.productId,
+              productName: lineItem.name,
+              quantity: lineItem.quantity,
+              status: "pending",
+              deliveryMethod: "in_person",
+            });
+            deliveryIds.push(deliveryId);
+          }
+        }
+
+        let subscriptionId: string | null = null;
+        if (bundle.cadence && bundle.cadence !== "one_time") {
+          const sessionsIncluded = parseBundleServices(bundle.servicesJson)
+            .reduce((sum, service) => sum + service.sessions, 0);
+          subscriptionId = await db.createSubscription({
+            clientId: clientRecord.id,
+            trainerId,
+            bundleDraftId: bundle.id,
+            price: safeAmount.toFixed(2),
+            subscriptionType: bundle.cadence,
+            sessionsIncluded,
+            sessionsUsed: 0,
+            startDate: new Date().toISOString(),
+          });
+        }
+
+        await db.updateInvitation(invitation.id, {
+          status: "accepted",
+          acceptedAt: new Date().toISOString(),
+          acceptedByUserId: ctx.user.id,
+        });
+
+        const payment = await provisionOrderPaymentLink({
+          orderId,
+          requestedBy: ctx.user.id,
+          payerId: ctx.user.id,
+          amountMinor: Math.round(total * 100),
+          shopperEmail: ctx.user.email,
+          description: `Invitation order ${orderId}`,
+        });
+
+        notifyBadgeCounts([ctx.user.id, trainerId]);
+        return { success: true, orderId, deliveryIds, subscriptionId, payment };
+      }),
+
+    declineInvitation: publicProcedure
+      .input(z.object({ token: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        const invitation = await db.getInvitationByToken(input.token);
+        if (!invitation) {
+          return { success: true };
+        }
+
+        if (invitation.status === "accepted") {
+          forbidden("Accepted invitations cannot be declined");
+        }
+
+        if (invitation.status === "pending") {
+          await db.updateInvitation(invitation.id, { status: "declined" });
+        }
+
+        return { success: true };
+      }),
   }),
 
   // ============================================================================
@@ -90,8 +619,11 @@ export const appRouter = router({
 
     get: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .query(async ({ input }) => {
-        return db.getBundleDraftById(input.id);
+      .query(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) return undefined;
+        assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+        return bundle;
       }),
 
     create: trainerProcedure
@@ -135,7 +667,10 @@ export const appRouter = router({
         servicesJson: z.any().optional(),
         productsJson: z.any().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Bundle");
+        assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
         const { id, ...data } = input;
         await db.updateBundleDraft(id, data);
         return { success: true };
@@ -143,7 +678,10 @@ export const appRouter = router({
 
     submitForReview: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Bundle");
+        assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
         await db.updateBundleDraft(input.id, {
           status: "pending_review",
           submittedForReviewAt: new Date().toISOString(),
@@ -159,8 +697,14 @@ export const appRouter = router({
 
     delete: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
-        await db.updateBundleDraft(input.id, { status: "draft" });
+      .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Bundle");
+        assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+        if (bundle.status === "pending_review" || bundle.status === "publishing") {
+          forbidden("Cannot delete a bundle while it is under review or publishing");
+        }
+        await db.deleteBundleDraft(input.id);
         return { success: true };
       }),
   }),
@@ -186,8 +730,11 @@ export const appRouter = router({
 
     get: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .query(async ({ input }) => {
-        return db.getClientById(input.id);
+      .query(async ({ ctx, input }) => {
+        const client = await db.getClientById(input.id);
+        if (!client) return undefined;
+        assertTrainerOwned(ctx.user, client.trainerId, "client");
+        return client;
       }),
 
     create: trainerProcedure
@@ -219,7 +766,10 @@ export const appRouter = router({
         notes: z.string().optional(),
         status: z.enum(["pending", "active", "inactive", "removed"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const client = await db.getClientById(input.id);
+        if (!client) notFound("Client");
+        assertTrainerOwned(ctx.user, client.trainerId, "client");
         const { id, ...data } = input;
         await db.updateClient(id, data);
         return { success: true };
@@ -232,6 +782,11 @@ export const appRouter = router({
         bundleDraftId: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.bundleDraftId) {
+          const bundle = await db.getBundleDraftById(input.bundleDraftId);
+          if (!bundle) notFound("Bundle");
+          assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+        }
         const token = crypto.randomUUID();
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
         await db.createInvitation({
@@ -259,6 +814,11 @@ export const appRouter = router({
         message: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.bundleDraftId) {
+          const bundle = await db.getBundleDraftById(input.bundleDraftId);
+          if (!bundle) notFound("Bundle");
+          assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+        }
         const results = [];
         for (const invite of input.invitations) {
           const token = crypto.randomUUID();
@@ -302,10 +862,15 @@ export const appRouter = router({
 
     get: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .query(async ({ input }) => {
-        // Get subscription with remaining sessions calculation
-        const subs = await db.getSubscriptionsByClient(input.id);
-        return subs[0];
+      .query(async ({ ctx, input }) => {
+        let subscription = await db.getSubscriptionById(input.id);
+        if (!subscription) {
+          const subs = await db.getSubscriptionsByClient(input.id);
+          subscription = subs[0];
+        }
+        if (!subscription) return undefined;
+        assertSubscriptionAccess(ctx.user, subscription);
+        return subscription;
       }),
 
     create: trainerProcedure
@@ -318,9 +883,12 @@ export const appRouter = router({
         startDate: z.date().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const client = await db.getClientById(input.clientId);
+        if (!client) notFound("Client");
+        assertTrainerOwned(ctx.user, client.trainerId, "client");
         return db.createSubscription({
           clientId: input.clientId,
-          trainerId: ctx.user.id,
+          trainerId: client.trainerId,
           bundleDraftId: input.bundleDraftId,
           price: input.price,
           subscriptionType: input.subscriptionType,
@@ -333,9 +901,13 @@ export const appRouter = router({
     // Get session usage stats for a subscription
     sessionStats: protectedProcedure
       .input(z.object({ subscriptionId: z.string() }))
-      .query(async ({ input }) => {
-        const sub = await db.getActiveSubscription(input.subscriptionId);
+      .query(async ({ ctx, input }) => {
+        let sub = await db.getSubscriptionById(input.subscriptionId);
+        if (!sub) {
+          sub = await db.getActiveSubscription(input.subscriptionId);
+        }
         if (!sub) return { included: 0, used: 0, remaining: 0 };
+        assertSubscriptionAccess(ctx.user, sub);
         const included = sub.sessionsIncluded || 0;
         const used = sub.sessionsUsed || 0;
         return { included, used, remaining: Math.max(0, included - used) };
@@ -344,7 +916,10 @@ export const appRouter = router({
     // Pause a subscription
     pause: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const sub = await db.getSubscriptionById(input.id);
+        if (!sub) notFound("Subscription");
+        assertSubscriptionAccess(ctx.user, sub);
         await db.updateSubscription(input.id, { status: "paused", pausedAt: new Date().toISOString() });
         return { success: true };
       }),
@@ -352,7 +927,10 @@ export const appRouter = router({
     // Resume a paused subscription
     resume: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const sub = await db.getSubscriptionById(input.id);
+        if (!sub) notFound("Subscription");
+        assertSubscriptionAccess(ctx.user, sub);
         await db.updateSubscription(input.id, { status: "active", pausedAt: null });
         return { success: true };
       }),
@@ -360,7 +938,10 @@ export const appRouter = router({
     // Cancel a subscription
     cancel: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const sub = await db.getSubscriptionById(input.id);
+        if (!sub) notFound("Subscription");
+        assertSubscriptionAccess(ctx.user, sub);
         await db.updateSubscription(input.id, { status: "cancelled", cancelledAt: new Date().toISOString() });
         return { success: true };
       }),
@@ -381,8 +962,20 @@ export const appRouter = router({
 
     // Client gets their sessions
     mySessions: protectedProcedure.query(async ({ ctx }) => {
-      // Would need to find client record first
-      return [];
+      const myTrainers = await db.getMyTrainers(ctx.user.id);
+      if (myTrainers.length === 0) return [];
+
+      const allSessions = [];
+      for (const trainer of myTrainers) {
+        if (trainer.relationshipId) {
+          const sessions = await db.getSessionsByClient(trainer.relationshipId);
+          allSessions.push(...sessions);
+        }
+      }
+
+      return allSessions.sort(
+        (a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime()
+      );
     }),
 
     create: trainerProcedure
@@ -396,9 +989,12 @@ export const appRouter = router({
         notes: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const client = await db.getClientById(input.clientId);
+        if (!client) notFound("Client");
+        assertTrainerOwned(ctx.user, client.trainerId, "client");
         return db.createSession({
           clientId: input.clientId,
-          trainerId: ctx.user.id,
+          trainerId: client.trainerId,
           subscriptionId: input.subscriptionId,
           sessionDate: input.sessionDate.toISOString(),
           durationMinutes: input.durationMinutes,
@@ -411,21 +1007,30 @@ export const appRouter = router({
     // Mark session as completed - this increments the usage count
     complete: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getSessionById(input.id);
+        if (!session) notFound("Session");
+        assertTrainerOwned(ctx.user, session.trainerId, "session");
         await db.completeSession(input.id);
         return { success: true };
       }),
 
     cancel: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getSessionById(input.id);
+        if (!session) notFound("Session");
+        assertTrainerOwned(ctx.user, session.trainerId, "session");
         await db.updateSession(input.id, { status: "cancelled" });
         return { success: true };
       }),
 
     markNoShow: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getSessionById(input.id);
+        if (!session) notFound("Session");
+        assertTrainerOwned(ctx.user, session.trainerId, "session");
         await db.updateSession(input.id, { status: "no_show" });
         return { success: true };
       }),
@@ -445,13 +1050,180 @@ export const appRouter = router({
       return db.getOrdersByTrainer(ctx.user.id);
     }),
 
+    create: protectedProcedure
+      .input(z.object({
+        items: z.array(z.object({
+          title: z.string().min(1),
+          quantity: z.number().int().min(1),
+          bundleId: z.string().optional(),
+          productId: z.string().optional(),
+          trainerId: z.string().optional(),
+          unitPrice: z.number().min(0),
+          fulfillment: z.enum(["home_ship", "trainer_delivery", "vending", "cafeteria"]).optional(),
+        })).min(1),
+        subtotalAmount: z.number().min(0).optional(),
+        taxAmount: z.number().min(0).optional(),
+        shippingAmount: z.number().min(0).optional(),
+        totalAmount: z.number().min(0).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role === "trainer" || isManagerLikeRole(ctx.user.role)) {
+          forbidden("Only shoppers and clients can place orders");
+        }
+
+        const resolvedItems = await Promise.all(input.items.map(async (item) => {
+          let name = item.title;
+          let unitPrice = item.unitPrice;
+          let trainerId = item.trainerId;
+          let productId = item.productId;
+
+          if (item.bundleId) {
+            const bundle = await db.getBundleDraftById(item.bundleId);
+            if (bundle) {
+              name = bundle.title || name;
+              const price = Number.parseFloat(String(bundle.price || unitPrice));
+              unitPrice = Number.isFinite(price) ? price : unitPrice;
+              trainerId = trainerId || bundle.trainerId || undefined;
+            }
+          } else if (item.productId) {
+            const product = await db.getProductById(item.productId);
+            if (product) {
+              name = product.name || name;
+              const price = Number.parseFloat(String(product.price || unitPrice));
+              unitPrice = Number.isFinite(price) ? price : unitPrice;
+              productId = product.id;
+            }
+          }
+
+          return {
+            ...item,
+            name,
+            unitPrice,
+            trainerId,
+            productId,
+          };
+        }));
+
+        const trainerIds = Array.from(
+          new Set(resolvedItems.map((item) => item.trainerId).filter((id): id is string => Boolean(id)))
+        );
+        if (trainerIds.length > 1) {
+          forbidden("Mixed-trainer carts are not supported yet");
+        }
+
+        const subtotalComputed = resolvedItems.reduce(
+          (sum, item) => sum + (item.unitPrice * item.quantity),
+          0,
+        );
+        const subtotalAmount = input.subtotalAmount ?? subtotalComputed;
+        const shippingAmount = input.shippingAmount ?? 0;
+        const taxAmount = input.taxAmount ?? 0;
+        const totalAmount = input.totalAmount ?? (subtotalAmount + shippingAmount + taxAmount);
+        const paymentStatus = totalAmount > 0 ? "pending" : "paid";
+
+        const orderId = await db.createOrder({
+          clientId: ctx.user.id,
+          trainerId: trainerIds[0] || null,
+          customerEmail: ctx.user.email,
+          customerName: ctx.user.name,
+          totalAmount: totalAmount.toFixed(2),
+          subtotalAmount: subtotalAmount.toFixed(2),
+          taxAmount: taxAmount.toFixed(2),
+          shippingAmount: shippingAmount.toFixed(2),
+          status: "pending",
+          paymentStatus,
+          fulfillmentStatus: "unfulfilled",
+          fulfillmentMethod: resolvedItems[0]?.fulfillment || "trainer_delivery",
+          orderData: {
+            source: "checkout",
+            itemCount: resolvedItems.length,
+            paymentRequired: totalAmount > 0,
+          },
+        });
+
+        const deliveryIds: string[] = [];
+        for (const item of resolvedItems) {
+          const lineTotal = item.unitPrice * item.quantity;
+          await db.createOrderItem({
+            orderId,
+            productId: item.productId,
+            name: item.name,
+            quantity: item.quantity,
+            price: item.unitPrice.toFixed(2),
+            totalPrice: lineTotal.toFixed(2),
+            fulfillmentStatus: "unfulfilled",
+          });
+
+          if (item.trainerId) {
+            const deliveryId = await db.createDelivery({
+              orderId,
+              trainerId: item.trainerId,
+              clientId: ctx.user.id,
+              productId: item.productId,
+              productName: item.name,
+              quantity: item.quantity,
+              status: "pending",
+              deliveryMethod: toDeliveryMethod(item.fulfillment),
+            });
+            deliveryIds.push(deliveryId);
+          }
+        }
+
+        notifyBadgeCounts([ctx.user.id, ...trainerIds]);
+        const payment = await provisionOrderPaymentLink({
+          orderId,
+          requestedBy: ctx.user.id,
+          payerId: ctx.user.id,
+          amountMinor: Math.round(totalAmount * 100),
+          shopperEmail: ctx.user.email,
+          description: `Checkout order ${orderId}`,
+        });
+
+        return { success: true, orderId, deliveryIds, payment };
+      }),
+
     get: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const order = await db.getOrderById(input.id);
         if (!order) return undefined;
+        assertOrderAccess(ctx.user, order);
         const items = await db.getOrderItems(input.id);
         return { ...order, items };
+      }),
+
+    createPaymentLink: protectedProcedure
+      .input(z.object({ orderId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const order = await db.getOrderById(input.orderId);
+        if (!order) notFound("Order");
+        assertOrderAccess(ctx.user, order);
+
+        if (order.paymentStatus === "paid") {
+          return {
+            success: true,
+            payment: {
+              required: false,
+              configured: adyen.isAdyenConfigured(),
+              provisioned: false,
+              paymentLink: null,
+              merchantReference: null,
+              expiresAt: null,
+            } as OrderPaymentProvision,
+          };
+        }
+
+        const amountMinor = Math.round(Number.parseFloat(String(order.totalAmount || "0")) * 100);
+        const payment = await provisionOrderPaymentLink({
+          orderId: order.id,
+          requestedBy: ctx.user.id,
+          payerId: order.clientId ?? ctx.user.id,
+          amountMinor: Number.isFinite(amountMinor) ? amountMinor : 0,
+          shopperEmail: order.customerEmail,
+          description: `Order ${order.id}`,
+        });
+
+        return { success: true, payment };
       }),
 
     // Update order status
@@ -460,7 +1232,10 @@ export const appRouter = router({
         id: z.string(),
         status: z.enum(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const order = await db.getOrderById(input.id);
+        if (!order) notFound("Order");
+        assertOrderManageAccess(ctx.user, order);
         await db.updateOrder(input.id, { status: input.status });
         return { success: true };
       }),
@@ -471,7 +1246,10 @@ export const appRouter = router({
         id: z.string(),
         fulfillmentStatus: z.enum(["unfulfilled", "partial", "fulfilled", "restocked"]),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const order = await db.getOrderById(input.id);
+        if (!order) notFound("Order");
+        assertOrderManageAccess(ctx.user, order);
         await db.updateOrder(input.id, { fulfillmentStatus: input.fulfillmentStatus });
         return { success: true };
       }),
@@ -499,35 +1277,35 @@ export const appRouter = router({
 
     markReady: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
-        await db.markDeliveryReady(input.id);
+      .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
-        if (delivery) {
-          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
-        }
+        if (!delivery) notFound("Delivery");
+        assertDeliveryManageAccess(ctx.user, delivery);
+        await db.markDeliveryReady(input.id);
+        notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
         return { success: true };
       }),
 
     markDelivered: trainerProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
-        await db.markDeliveryDelivered(input.id);
+      .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
-        if (delivery) {
-          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
-        }
+        if (!delivery) notFound("Delivery");
+        assertDeliveryManageAccess(ctx.user, delivery);
+        await db.markDeliveryDelivered(input.id);
+        notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
         return { success: true };
       }),
 
     // Client confirms receipt
     confirmReceipt: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
-        await db.confirmDeliveryReceipt(input.id);
+      .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
-        if (delivery) {
-          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
-        }
+        if (!delivery) notFound("Delivery");
+        assertDeliveryClientAccess(ctx.user, delivery);
+        await db.confirmDeliveryReceipt(input.id);
+        notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
         return { success: true };
       }),
 
@@ -537,15 +1315,15 @@ export const appRouter = router({
         id: z.string(),
         reason: z.string(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const delivery = await db.getDeliveryById(input.id);
+        if (!delivery) notFound("Delivery");
+        assertDeliveryClientAccess(ctx.user, delivery);
         await db.updateDelivery(input.id, {
           status: "disputed",
           disputeReason: input.reason,
         });
-        const delivery = await db.getDeliveryById(input.id);
-        if (delivery) {
-          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
-        }
+        notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
         return { success: true };
       }),
 
@@ -556,15 +1334,22 @@ export const appRouter = router({
         requestedDate: z.string(),
         reason: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        await db.updateDelivery(input.id, {
-          clientNotes: input.reason ? `Reschedule requested: ${input.reason}` : "Reschedule requested",
-        });
-        // Note: In a full implementation, we'd add rescheduleRequestedDate field
+      .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
-        if (delivery) {
-          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        if (!delivery) notFound("Delivery");
+        assertDeliveryClientAccess(ctx.user, delivery);
+        const requestedDate = normalizeIsoDate(input.requestedDate);
+        if (!requestedDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid requestedDate" });
         }
+        await db.updateDelivery(input.id, {
+          clientNotes: encodeRescheduleRequest({
+            requestedDate,
+            reason: input.reason?.trim() ? input.reason.trim() : null,
+            requestedAt: new Date().toISOString(),
+          }),
+        });
+        notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
         return { success: true };
       }),
 
@@ -574,15 +1359,31 @@ export const appRouter = router({
         id: z.string(),
         newDate: z.string(),
       }))
-      .mutation(async ({ input }) => {
-        await db.updateDelivery(input.id, {
-          scheduledDate: new Date(input.newDate).toISOString(),
-          clientNotes: null, // Clear the reschedule request
-        });
+      .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
-        if (delivery) {
-          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
+        if (!delivery) notFound("Delivery");
+        assertDeliveryManageAccess(ctx.user, delivery);
+        const normalizedNewDate = normalizeIsoDate(input.newDate);
+        if (!normalizedNewDate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid newDate" });
         }
+        const request = decodeRescheduleRequest(delivery.clientNotes);
+        const priorDate = normalizeIsoDate(delivery.scheduledDate);
+        const transition = [
+          "Reschedule approved",
+          priorDate ? `from ${priorDate}` : null,
+          `to ${normalizedNewDate}`,
+          request?.reason ? `(reason: ${request.reason})` : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const updatedNotes = [delivery.notes?.trim(), transition].filter(Boolean).join("\n");
+        await db.updateDelivery(input.id, {
+          scheduledDate: normalizedNewDate,
+          notes: updatedNotes,
+          clientNotes: null,
+        });
+        notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
         return { success: true };
       }),
 
@@ -592,15 +1393,23 @@ export const appRouter = router({
         id: z.string(),
         reason: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        await db.updateDelivery(input.id, {
-          notes: input.reason ? `Reschedule rejected: ${input.reason}` : "Reschedule rejected",
-          clientNotes: null, // Clear the reschedule request
-        });
+      .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
-        if (delivery) {
-          notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
-        }
+        if (!delivery) notFound("Delivery");
+        assertDeliveryManageAccess(ctx.user, delivery);
+        const request = decodeRescheduleRequest(delivery.clientNotes);
+        const rejectionReason = input.reason?.trim() || request?.reason || "No reason provided";
+        const updatedNotes = [
+          delivery.notes?.trim(),
+          `Reschedule rejected: ${rejectionReason}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        await db.updateDelivery(input.id, {
+          notes: updatedNotes,
+          clientNotes: null,
+        });
+        notifyBadgeCounts([delivery.trainerId, delivery.clientId]);
         return { success: true };
       }),
 
@@ -618,11 +1427,20 @@ export const appRouter = router({
         deliveryMethod: z.enum(["in_person", "locker", "front_desk", "shipped"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const order = await db.getOrderById(input.orderId);
+        if (!order) notFound("Order");
+        assertOrderManageAccess(ctx.user, order);
+        if (!order.trainerId) {
+          forbidden("Order is missing a trainer");
+        }
+        if (order.clientId && order.clientId !== input.clientId) {
+          forbidden("Order does not belong to the provided client");
+        }
         const deliveryIds: string[] = [];
         for (const product of input.products) {
           const id = await db.createDelivery({
             orderId: input.orderId,
-            trainerId: ctx.user.id,
+            trainerId: order.trainerId,
             clientId: input.clientId,
             productId: product.productId,
             productName: product.productName,
@@ -664,7 +1482,11 @@ export const appRouter = router({
 
     thread: protectedProcedure
       .input(z.object({ conversationId: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+        if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+          forbidden("You do not have access to this conversation");
+        }
         return db.getMessagesByConversation(input.conversationId);
       }),
 
@@ -675,6 +1497,12 @@ export const appRouter = router({
         conversationId: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.conversationId) {
+          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+            forbidden("You do not have access to this conversation");
+          }
+        }
         const conversationId = input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
 
@@ -705,6 +1533,12 @@ export const appRouter = router({
         conversationId: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.conversationId) {
+          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+            forbidden("You do not have access to this conversation");
+          }
+        }
         const conversationId =
           input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
         for (const receiverId of input.receiverIds) {
@@ -720,7 +1554,13 @@ export const appRouter = router({
 
     markRead: protectedProcedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.id);
+        if (!message) notFound("Message");
+        assertMessageAccess(ctx.user, message);
+        if (!isManagerLikeRole(ctx.user.role) && message.receiverId !== ctx.user.id) {
+          forbidden("Only the recipient can mark this message as read");
+        }
         await db.markMessageRead(input.id);
         return { success: true };
       }),
@@ -738,6 +1578,12 @@ export const appRouter = router({
         attachmentMimeType: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.conversationId) {
+          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+            forbidden("You do not have access to this conversation");
+          }
+        }
         const conversationId = input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
 
@@ -777,6 +1623,12 @@ export const appRouter = router({
         attachmentMimeType: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.conversationId) {
+          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+            forbidden("You do not have access to this conversation");
+          }
+        }
         const conversationId =
           input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
         for (const receiverId of input.receiverIds) {
@@ -798,7 +1650,10 @@ export const appRouter = router({
     // Get reactions for a message
     getReactions: protectedProcedure
       .input(z.object({ messageId: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) return [];
+        assertMessageAccess(ctx.user, message);
         return db.getMessageReactions(input.messageId);
       }),
 
@@ -809,6 +1664,9 @@ export const appRouter = router({
         reaction: z.string().max(32),
       }))
       .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) notFound("Message");
+        assertMessageAccess(ctx.user, message);
         return db.addMessageReaction({
           messageId: input.messageId,
           userId: ctx.user.id,
@@ -823,6 +1681,9 @@ export const appRouter = router({
         reaction: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) notFound("Message");
+        assertMessageAccess(ctx.user, message);
         await db.removeMessageReaction(input.messageId, ctx.user.id, input.reaction);
         return { success: true };
       }),
@@ -830,27 +1691,67 @@ export const appRouter = router({
     // Get all reactions for messages in a conversation
     getConversationReactions: protectedProcedure
       .input(z.object({ conversationId: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+        if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+          forbidden("You do not have access to this conversation");
+        }
         return db.getConversationReactions(input.conversationId);
       }),
 
     // Upload attachment for message
     uploadAttachment: protectedProcedure
       .input(z.object({
-        fileName: z.string(),
+        fileName: z.string().min(1).max(255),
         fileData: z.string(), // Base64 encoded
         mimeType: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // 8 MB decoded size
+        const allowedMimePrefixes = ["image/", "video/", "audio/", "text/"];
+        const allowedMimeExact = new Set([
+          "application/pdf",
+          "application/zip",
+          "application/json",
+          "application/octet-stream",
+        ]);
+
+        const mimeType = input.mimeType.trim().toLowerCase();
+        const mimeAllowed =
+          allowedMimeExact.has(mimeType) ||
+          allowedMimePrefixes.some((prefix) => mimeType.startsWith(prefix)) ||
+          mimeType.startsWith("application/vnd.");
+        if (!mimeAllowed) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Unsupported attachment type" });
+        }
+
+        // Quick guard against obviously oversized payloads before decoding.
+        const estimatedBytes = Math.ceil((input.fileData.length * 3) / 4);
+        if (estimatedBytes > MAX_ATTACHMENT_BYTES) {
+          throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Attachment exceeds 8 MB limit" });
+        }
+
+        let buffer: Buffer;
+        try {
+          buffer = Buffer.from(input.fileData, "base64");
+        } catch {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid attachment payload" });
+        }
+        if (buffer.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Attachment payload is empty" });
+        }
+        if (buffer.length > MAX_ATTACHMENT_BYTES) {
+          throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Attachment exceeds 8 MB limit" });
+        }
+
         // Generate unique key with user ID and timestamp
         const timestamp = Date.now();
         const randomSuffix = Math.random().toString(36).substring(2, 8);
-        const ext = input.fileName.split(".").pop() || "bin";
+        const extCandidate = input.fileName.split(".").pop() || "bin";
+        const ext = extCandidate.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "bin";
         const key = `messages/${ctx.user.id}/${timestamp}-${randomSuffix}.${ext}`;
 
-        // Decode base64 and upload
-        const buffer = Buffer.from(input.fileData, "base64");
-        const { url } = await storagePut(key, buffer, input.mimeType);
+        const { url } = await storagePut(key, buffer, mimeType);
 
         return { url, key };
       }),
@@ -1101,6 +2002,110 @@ export const appRouter = router({
         notifyBadgeCounts([ctx.user.id]);
         return { success: true };
       }),
+
+    // Trainer-side moderation
+    forTrainerPendingRequests: trainerProcedure.query(async ({ ctx }) => {
+      return db.getPendingJoinRequestsForTrainer(ctx.user.id);
+    }),
+
+    approveRequest: trainerProcedure
+      .input(z.object({ requestId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const approved = await db.approveJoinRequest(input.requestId, ctx.user.id);
+        notifyBadgeCounts([ctx.user.id, approved.userId || ctx.user.id]);
+        return { success: true };
+      }),
+
+    rejectRequest: trainerProcedure
+      .input(z.object({ requestId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const rejected = await db.rejectJoinRequest(input.requestId, ctx.user.id);
+        notifyBadgeCounts([ctx.user.id, rejected.userId || ctx.user.id]);
+        return { success: true };
+      }),
+  }),
+
+  // ============================================================================
+  // PARTNERSHIPS (Trainer ad/affiliate partnerships)
+  // ============================================================================
+  partnerships: router({
+    list: trainerProcedure.query(async ({ ctx }) => {
+      return db.getTrainerPartnerships(ctx.user.id);
+    }),
+
+    availableBusinesses: trainerProcedure.query(async () => {
+      return db.getAvailablePartnershipBusinesses();
+    }),
+
+    request: trainerProcedure
+      .input(z.object({ businessId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const business = await db.getPartnershipBusinessById(input.businessId);
+        if (!business) notFound("Business");
+
+        if (business.isAvailable === false || business.status === "inactive") {
+          forbidden("This business is not currently accepting partnership requests");
+        }
+
+        const commissionRate = Number.parseFloat(String(business.commissionRate ?? 0));
+        const partnershipId = await db.createTrainerPartnership({
+          trainerId: ctx.user.id,
+          businessId: input.businessId,
+          status: "pending",
+          commissionRate: Number.isFinite(commissionRate) ? commissionRate : 0,
+          totalEarnings: "0",
+          clickCount: 0,
+          conversionCount: 0,
+        });
+
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "partnership_requested",
+          entityType: "partnership_business",
+          entityId: input.businessId,
+          details: {
+            partnershipId,
+            businessName: business.name,
+          },
+        });
+
+        return { success: true, id: partnershipId };
+      }),
+
+    submitBusiness: trainerProcedure
+      .input(z.object({
+        name: z.string().trim().min(1).max(255),
+        type: z.string().trim().min(1).max(100),
+        description: z.string().trim().max(2000).optional(),
+        website: z.string().trim().max(512).optional(),
+        contactEmail: z.string().trim().email(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const businessId = await db.createPartnershipBusiness({
+          name: input.name,
+          type: input.type,
+          description: input.description || undefined,
+          website: input.website || undefined,
+          contactEmail: input.contactEmail,
+          commissionRate: 0,
+          isAvailable: false,
+          status: "submitted",
+          submittedBy: ctx.user.id,
+        });
+
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "partnership_business_submitted",
+          entityType: "partnership_business",
+          entityId: businessId,
+          details: {
+            businessName: input.name,
+            contactEmail: input.contactEmail,
+          },
+        });
+
+        return { success: true, id: businessId };
+      }),
   }),
 
   // ============================================================================
@@ -1137,6 +2142,44 @@ export const appRouter = router({
       .input(z.object({ query: z.string() }))
       .query(async ({ input }) => {
         return db.searchUsers(input.query);
+      }),
+
+    deliveries: managerProcedure
+      .input(z.object({
+        limit: z.number().min(1).max(200).default(100),
+        offset: z.number().min(0).default(0),
+        status: z.string().optional(),
+        search: z.string().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getAllDeliveries({
+          limit: input?.limit,
+          offset: input?.offset,
+          status: input?.status,
+          search: input?.search,
+        });
+      }),
+
+    lowInventory: managerProcedure
+      .input(z.object({
+        threshold: z.number().int().min(0).max(100).default(5),
+        limit: z.number().int().min(1).max(100).default(20),
+      }).optional())
+      .query(async ({ input }) => {
+        return db.getLowInventoryProducts({
+          threshold: input?.threshold,
+          limit: input?.limit,
+        });
+      }),
+
+    revenueSummary: managerProcedure.query(async () => {
+      return db.getRevenueSummary();
+    }),
+
+    revenueTrend: managerProcedure
+      .input(z.object({ months: z.number().int().min(1).max(24).default(6) }).optional())
+      .query(async ({ input }) => {
+        return db.getRevenueTrend({ months: input?.months });
       }),
 
     updateUserRole: managerProcedure
@@ -1186,10 +2229,18 @@ export const appRouter = router({
     approveBundle: managerProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
         await db.updateBundleDraft(input.id, {
           status: "published",
           reviewedAt: new Date().toISOString(),
           reviewedBy: ctx.user.id,
+        });
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "bundle_approved",
+          entityType: "bundle_draft",
+          entityId: input.id,
+          details: { bundleTitle: bundle?.title },
         });
         const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
         notifyBadgeCounts(managerIds);
@@ -1202,11 +2253,19 @@ export const appRouter = router({
         reason: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
         await db.updateBundleDraft(input.id, {
           status: "rejected",
           reviewedAt: new Date().toISOString(),
           reviewedBy: ctx.user.id,
           rejectionReason: input.reason,
+        });
+        await db.logActivity({
+          userId: ctx.user.id,
+          action: "bundle_rejected",
+          entityType: "bundle_draft",
+          entityId: input.id,
+          details: { bundleTitle: bundle?.title, reason: input.reason },
         });
         const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
         notifyBadgeCounts(managerIds);
@@ -1231,20 +2290,65 @@ export const appRouter = router({
       }),
 
     // Template management
+    templates: managerProcedure.query(async () => {
+      return db.getAllBundleTemplates();
+    }),
+
+    template: managerProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ input }) => {
+        const template = await db.getBundleTemplateById(input.id);
+        if (!template) notFound("Template");
+        return template;
+      }),
+
     createTemplate: managerProcedure
       .input(z.object({
         title: z.string().min(1).max(255),
         description: z.string().optional(),
         goalType: z.enum(["weight_loss", "strength", "longevity", "power"]).optional(),
+        goalsJson: z.any().optional(),
+        imageUrl: z.string().optional(),
         basePrice: z.string().optional(),
         defaultServices: z.any().optional(),
         defaultProducts: z.any().optional(),
+        active: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         return db.createBundleTemplate({
           ...input,
           createdBy: ctx.user.id,
         });
+      }),
+
+    updateTemplate: managerProcedure
+      .input(z.object({
+        id: z.string(),
+        title: z.string().min(1).max(255).optional(),
+        description: z.string().optional(),
+        goalType: z.enum(["weight_loss", "strength", "longevity", "power"]).optional(),
+        goalsJson: z.any().optional(),
+        imageUrl: z.string().optional(),
+        basePrice: z.string().optional(),
+        defaultServices: z.any().optional(),
+        defaultProducts: z.any().optional(),
+        active: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const template = await db.getBundleTemplateById(input.id);
+        if (!template) notFound("Template");
+        const { id, ...data } = input;
+        await db.updateBundleTemplate(id, data);
+        return { success: true };
+      }),
+
+    deleteTemplate: managerProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ input }) => {
+        const template = await db.getBundleTemplateById(input.id);
+        if (!template) notFound("Template");
+        await db.deleteBundleTemplate(input.id);
+        return { success: true };
       }),
 
     // User Activity Logs
@@ -1525,12 +2629,82 @@ export const appRouter = router({
       const totalPoints = (user as any)?.totalPoints || 0;
 
       let statusTier = "Bronze";
-      if (totalPoints >= 5000) statusTier = "Platinum";
-      else if (totalPoints >= 2000) statusTier = "Gold";
+      if (totalPoints >= 15000) statusTier = "Platinum";
+      else if (totalPoints >= 5000) statusTier = "Gold";
       else if (totalPoints >= 1000) statusTier = "Silver";
 
       return { totalPoints, statusTier };
     }),
+
+    pointHistory: trainerProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }).optional())
+      .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? 20;
+
+        const [clients, sessions, orders] = await Promise.all([
+          db.getClientsByTrainer(ctx.user.id),
+          db.getSessionsByTrainer(ctx.user.id),
+          db.getOrdersByTrainer(ctx.user.id),
+        ]);
+
+        const clientNameById = new Map<string, string>();
+        clients.forEach((client) => {
+          clientNameById.set(client.id, client.name || "Client");
+        });
+
+        const entries: Array<{
+          id: string;
+          activity: string;
+          points: number;
+          date: string;
+          clientName?: string;
+        }> = [];
+
+        sessions
+          .filter((session) => session.status === "completed")
+          .forEach((session) => {
+            const date = session.completedAt || session.sessionDate || session.createdAt;
+            if (!date) return;
+            entries.push({
+              id: `session-${session.id}`,
+              activity: "Completed a session",
+              points: 10,
+              date,
+              clientName: session.clientId ? clientNameById.get(session.clientId) : undefined,
+            });
+          });
+
+        orders
+          .filter((order) => ["paid", "completed", "delivered"].includes(String(order.paymentStatus || order.status || "")))
+          .forEach((order) => {
+            const date = order.deliveredAt || order.updatedAt || order.createdAt;
+            if (!date) return;
+            entries.push({
+              id: `order-${order.id}`,
+              activity: "Client completed an order",
+              points: 5,
+              date,
+              clientName: order.customerName || undefined,
+            });
+          });
+
+        clients.forEach((client) => {
+          const date = client.acceptedAt || client.createdAt;
+          if (!date) return;
+          entries.push({
+            id: `client-${client.id}`,
+            activity: "New client joined",
+            points: 50,
+            date,
+            clientName: client.name || undefined,
+          });
+        });
+
+        return entries
+          .filter((entry) => !Number.isNaN(new Date(entry.date).getTime()))
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .slice(0, limit);
+      }),
   }),
 
   // ============================================================================

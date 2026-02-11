@@ -3,185 +3,148 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { navigateToHome } from "@/lib/navigation";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
+  Linking,
   Platform,
   ScrollView,
   Share,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 
 type InvitationData = {
-  id: number;
+  id: string;
   token: string;
   trainerName: string;
-  trainerId: number;
-  trainerAvatar?: string;
+  trainerId: string;
+  trainerAvatar?: string | null;
+  bundleId?: string | null;
   bundleTitle: string;
   bundleDescription: string;
   bundlePrice: number;
   bundleDuration: string;
   products: {
-    id: number;
+    id: string;
     name: string;
     quantity: number;
+    productId?: string;
   }[];
   services: {
-    id: number;
+    id: string;
     name: string;
     sessions: number;
   }[];
   goals: string[];
-  personalMessage?: string;
-  expiresAt: Date;
+  personalMessage?: string | null;
+  expiresAt: string;
+  email?: string | null;
   status: "pending" | "accepted" | "expired" | "declined";
-};
-
-// TODO: Replace with a public tRPC endpoint for invitation lookup by token
-// e.g. trpc.catalog.invitation.useQuery({ token }) — needs a new public endpoint:
-//   catalog.invitation: publicProcedure
-//     .input(z.object({ token: z.string() }))
-//     .query(async ({ input }) => db.getInvitationByToken(input.token))
-// The db.getInvitationByToken() function already exists but has no public route.
-// Mock data is used until this endpoint is created.
-const MOCK_INVITATION: InvitationData = {
-  id: 1,
-  token: "abc123",
-  trainerName: "Coach Mike",
-  trainerId: 101,
-  bundleTitle: "Weight Loss Program",
-  bundleDescription:
-    "A comprehensive 12-week program designed to help you lose weight and build healthy habits. Includes personalized nutrition guidance and workout plans.",
-  bundlePrice: 149,
-  bundleDuration: "12 weeks",
-  products: [
-    { id: 1, name: "Protein Powder - Vanilla", quantity: 2 },
-    { id: 2, name: "Resistance Bands Set", quantity: 1 },
-    { id: 3, name: "Meal Prep Containers", quantity: 1 },
-  ],
-  services: [
-    { id: 1, name: "1-on-1 Training Sessions", sessions: 12 },
-    { id: 2, name: "Weekly Check-ins", sessions: 12 },
-    { id: 3, name: "Nutrition Consultations", sessions: 4 },
-  ],
-  goals: [
-    "Lose 15-20 lbs",
-    "Build sustainable eating habits",
-    "Increase energy levels",
-    "Improve overall fitness",
-  ],
-  personalMessage:
-    "Hey! I'm excited to work with you on your fitness journey. This program has helped many of my clients achieve amazing results. Let's do this together!",
-  expiresAt: new Date(Date.now() + 86400000 * 7),
-  status: "pending",
 };
 
 export default function InvitationScreen() {
   const colors = useColors();
-  const { isAuthenticated, isClient, loading: authLoading } = useAuthContext();
+  const { isAuthenticated, isClient } = useAuthContext();
   const { token } = useLocalSearchParams<{ token: string }>();
-  const [invitation, setInvitation] = useState<InvitationData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [processingPayment, setProcessingPayment] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
 
-  // Mock payment form state
-  const [cardNumber, setCardNumber] = useState("");
-  const [expiryDate, setExpiryDate] = useState("");
-  const [cvv, setCvv] = useState("");
-  const [cardholderName, setCardholderName] = useState("");
+  const invitationQuery = trpc.catalog.invitation.useQuery(
+    { token: token || "" },
+    { enabled: !!token }
+  );
+  const invitation = invitationQuery.data as InvitationData | null | undefined;
+  const loading = invitationQuery.isLoading;
 
-  // Load invitation data
-  // TODO: Replace with real tRPC query when public invitation lookup endpoint exists
-  // const { data: invitation, isLoading: loading } = trpc.catalog.invitation.useQuery(
-  //   { token: token || "" },
-  //   { enabled: !!token }
-  // );
-  useEffect(() => {
-    const loadInvitation = async () => {
-      // TODO: Fetch from API using token (needs public endpoint)
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      setInvitation({ ...MOCK_INVITATION, token: token || "abc123" });
-      setLoading(false);
-    };
-    loadInvitation();
-  }, [token]);
+  const acceptInvitation = trpc.catalog.acceptInvitation.useMutation({
+    onSuccess: () => {
+      invitationQuery.refetch();
+    },
+  });
+  const declineInvitation = trpc.catalog.declineInvitation.useMutation({
+    onSuccess: () => {
+      invitationQuery.refetch();
+    },
+  });
 
-  // Format card number with spaces
-  const formatCardNumber = (text: string) => {
-    const cleaned = text.replace(/\s/g, "").replace(/\D/g, "");
-    const groups = cleaned.match(/.{1,4}/g);
-    return groups ? groups.join(" ").slice(0, 19) : "";
-  };
-
-  // Format expiry date
-  const formatExpiryDate = (text: string) => {
-    const cleaned = text.replace(/\D/g, "");
-    if (cleaned.length >= 2) {
-      return cleaned.slice(0, 2) + "/" + cleaned.slice(2, 4);
-    }
-    return cleaned;
-  };
-
-  // Validate payment form
-  const isPaymentValid = () => {
-    return (
-      cardNumber.replace(/\s/g, "").length === 16 &&
-      expiryDate.length === 5 &&
-      cvv.length >= 3 &&
-      cardholderName.trim().length > 0
-    );
-  };
-
-  // Handle accept - show payment modal
-  const handleAccept = () => {
+  const handleAccept = async () => {
     if (!invitation) return;
     if (!isClient) {
       Alert.alert("Client Only", "This invitation can only be accepted by a client.");
       return;
     }
-    setShowPaymentModal(true);
-  };
+    const proceed = async () => {
+      try {
+        const result = await acceptInvitation.mutateAsync({ token: invitation.token });
 
-  // Process mock payment
-  const handleProcessPayment = async () => {
-    if (!invitation || !isPaymentValid()) return;
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
 
-    setProcessingPayment(true);
+        if (result.payment?.required && result.payment.paymentLink) {
+          if (Platform.OS === "web") {
+            if (window.confirm("Invitation accepted. Open payment page now?")) {
+              await Linking.openURL(result.payment.paymentLink);
+            }
+          } else {
+            Alert.alert(
+              "Complete Payment",
+              "Invitation accepted. Complete payment now to confirm this order.",
+              [
+                { text: "Later", style: "cancel" },
+                {
+                  text: "Pay Now",
+                  onPress: () => {
+                    void Linking.openURL(result.payment!.paymentLink!);
+                  },
+                },
+              ]
+            );
+          }
+        }
 
-    // Simulate payment processing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+        Alert.alert(
+          "Invitation Accepted",
+          `You've joined ${invitation.trainerName}'s ${invitation.bundleTitle}. Your order has been created and is awaiting payment confirmation.`,
+          [
+            {
+              text: "Home",
+              onPress: () => navigateToHome({ isClient: true }),
+            },
+          ]
+        );
+      } catch (error) {
+        console.error("Invitation accept failed:", error);
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
+        Alert.alert("Error", "Unable to accept this invitation. Please try again.");
+      }
+    };
 
-    if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-
-    setProcessingPayment(false);
-    setPaymentSuccess(true);
-
-    // Show success for a moment, then redirect
-    setTimeout(() => {
-      setShowPaymentModal(false);
+    if (Platform.OS === "web") {
+      if (window.confirm(`Accept ${invitation.bundleTitle} from ${invitation.trainerName}?`)) {
+        await proceed();
+      }
+    } else {
       Alert.alert(
-        "Payment Successful!",
-        `You've joined ${invitation.trainerName}'s ${invitation.bundleTitle}. Your trainer has been notified and will be in touch soon.`,
+        "Accept Invitation",
+        `Join ${invitation.trainerName}'s ${invitation.bundleTitle}?`,
         [
+          { text: "Cancel", style: "cancel" },
           {
-            text: "Home",
-            onPress: () => navigateToHome({ isClient: true }),
+            text: "Accept",
+            onPress: () => {
+              void proceed();
+            },
           },
         ]
       );
-    }, 1500);
+    }
   };
 
   // Decline invitation
@@ -195,8 +158,14 @@ export default function InvitationScreen() {
           text: "Decline",
           style: "destructive",
           onPress: async () => {
-            // TODO: Call API to decline
-            router.back();
+            if (!invitation) return;
+            try {
+              await declineInvitation.mutateAsync({ token: invitation.token });
+              router.back();
+            } catch (error) {
+              console.error("Invitation decline failed:", error);
+              Alert.alert("Error", "Failed to decline invitation. Please try again.");
+            }
           },
         },
       ]
@@ -227,8 +196,14 @@ export default function InvitationScreen() {
       .slice(0, 2);
   };
 
+  const expiresAtDate = useMemo(
+    () => (invitation?.expiresAt ? new Date(invitation.expiresAt) : null),
+    [invitation?.expiresAt]
+  );
+
   // Format expiry
-  const formatExpiry = (date: Date) => {
+  const formatExpiry = (date: Date | null) => {
+    if (!date) return "No expiry";
     const days = Math.ceil((date.getTime() - Date.now()) / 86400000);
     if (days <= 0) return "Expired";
     if (days === 1) return "Expires tomorrow";
@@ -269,6 +244,42 @@ export default function InvitationScreen() {
         <Text className="text-xl font-bold text-foreground mt-4">Invitation Expired</Text>
         <Text className="text-muted text-center mt-2">
           This invitation has expired. Please contact {invitation.trainerName} for a new one.
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className="bg-primary px-6 py-3 rounded-xl mt-6"
+        >
+          <Text className="text-white font-semibold">Go Back</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
+
+  if (invitation.status === "accepted") {
+    return (
+      <ScreenContainer className="flex-1 items-center justify-center p-4">
+        <IconSymbol name="checkmark.circle.fill" size={48} color={colors.success} />
+        <Text className="text-xl font-bold text-foreground mt-4">Invitation Accepted</Text>
+        <Text className="text-muted text-center mt-2">
+          This invitation has already been accepted.
+        </Text>
+        <TouchableOpacity
+          onPress={() => navigateToHome({ isClient: true })}
+          className="bg-primary px-6 py-3 rounded-xl mt-6"
+        >
+          <Text className="text-white font-semibold">Go Home</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
+
+  if (invitation.status === "declined") {
+    return (
+      <ScreenContainer className="flex-1 items-center justify-center p-4">
+        <IconSymbol name="xmark.circle.fill" size={48} color={colors.muted} />
+        <Text className="text-xl font-bold text-foreground mt-4">Invitation Declined</Text>
+        <Text className="text-muted text-center mt-2">
+          This invitation has already been declined.
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -322,7 +333,7 @@ export default function InvitationScreen() {
             </View>
             <View className="bg-warning/10 px-3 py-1 rounded-full">
               <Text className="text-warning text-sm font-medium">
-                {formatExpiry(invitation.expiresAt)}
+                {formatExpiry(expiresAtDate)}
               </Text>
             </View>
           </View>
@@ -406,11 +417,16 @@ export default function InvitationScreen() {
             isClient ? (
               <TouchableOpacity
                 onPress={handleAccept}
+                disabled={acceptInvitation.isPending}
                 className="bg-primary py-4 rounded-xl items-center mb-3 shadow-lg shadow-primary/20"
               >
-                <Text className="text-white font-bold text-lg">
-                  Accept & Pay ${invitation.bundlePrice}
-                </Text>
+                {acceptInvitation.isPending ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text className="text-white font-bold text-lg">
+                    Accept Invitation
+                  </Text>
+                )}
               </TouchableOpacity>
             ) : (
               <View className="bg-surface border border-border rounded-xl p-4 mb-3">
@@ -435,7 +451,7 @@ export default function InvitationScreen() {
               className="bg-primary py-4 rounded-xl items-center mb-3 shadow-lg shadow-primary/20"
             >
               <Text className="text-white font-bold text-lg">
-                Sign Up to Accept & Pay
+                Sign Up to Accept
               </Text>
             </TouchableOpacity>
           )}
@@ -447,160 +463,6 @@ export default function InvitationScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
-
-      {/* Mock Payment Modal */}
-      <Modal
-        visible={showPaymentModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => !processingPayment && setShowPaymentModal(false)}
-      >
-        <View className="flex-1 bg-background">
-          {/* Modal Header */}
-          <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-            <TouchableOpacity
-              onPress={() => !processingPayment && setShowPaymentModal(false)}
-              disabled={processingPayment}
-            >
-              <Text className={`text-primary font-medium ${processingPayment ? "opacity-50" : ""}`}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-            <Text className="text-lg font-semibold text-foreground">Payment</Text>
-            <View style={{ width: 50 }} />
-          </View>
-
-          {paymentSuccess ? (
-            // Success State
-            <View className="flex-1 items-center justify-center p-8">
-              <View className="w-24 h-24 rounded-full bg-success/20 items-center justify-center mb-6">
-                <IconSymbol name="checkmark.circle.fill" size={64} color={colors.success} />
-              </View>
-              <Text className="text-2xl font-bold text-foreground mb-2">Payment Successful!</Text>
-              <Text className="text-muted text-center">
-                Your trainer has been notified and will be in touch soon.
-              </Text>
-            </View>
-          ) : (
-            // Payment Form
-            <ScrollView className="flex-1 p-4">
-              {/* Order Summary */}
-              <View className="bg-surface rounded-xl p-4 mb-6 border border-border">
-                <Text className="text-sm font-semibold text-muted mb-2">ORDER SUMMARY</Text>
-                <View className="flex-row justify-between items-center">
-                  <Text className="text-foreground font-medium">{invitation?.bundleTitle}</Text>
-                  <Text className="text-foreground font-bold">${invitation?.bundlePrice}</Text>
-                </View>
-                <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-border">
-                  <Text className="text-foreground font-semibold">Total</Text>
-                  <Text className="text-primary text-xl font-bold">${invitation?.bundlePrice}</Text>
-                </View>
-              </View>
-
-              {/* Test Mode Banner */}
-              <View className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-6 flex-row items-center">
-                <IconSymbol name="exclamationmark.triangle.fill" size={20} color={colors.warning} />
-                <Text className="text-warning ml-2 flex-1 text-sm">
-                  Test Mode - No real payment will be processed. Use any card details.
-                </Text>
-              </View>
-
-              {/* Card Details */}
-              <Text className="text-lg font-semibold text-foreground mb-4">Card Details</Text>
-
-              {/* Cardholder Name */}
-              <View className="mb-4">
-                <Text className="text-sm font-medium text-foreground mb-2">Cardholder Name</Text>
-                <TextInput
-                  value={cardholderName}
-                  onChangeText={setCardholderName}
-                  placeholder="John Doe"
-                  placeholderTextColor={colors.muted}
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  autoCapitalize="words"
-                  editable={!processingPayment}
-                />
-              </View>
-
-              {/* Card Number */}
-              <View className="mb-4">
-                <Text className="text-sm font-medium text-foreground mb-2">Card Number</Text>
-                <TextInput
-                  value={cardNumber}
-                  onChangeText={(text) => setCardNumber(formatCardNumber(text))}
-                  placeholder="4242 4242 4242 4242"
-                  placeholderTextColor={colors.muted}
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  keyboardType="numeric"
-                  maxLength={19}
-                  editable={!processingPayment}
-                />
-              </View>
-
-              {/* Expiry and CVV */}
-              <View className="flex-row gap-4 mb-6">
-                <View className="flex-1">
-                  <Text className="text-sm font-medium text-foreground mb-2">Expiry Date</Text>
-                  <TextInput
-                    value={expiryDate}
-                    onChangeText={(text) => setExpiryDate(formatExpiryDate(text))}
-                    placeholder="MM/YY"
-                    placeholderTextColor={colors.muted}
-                    className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                    keyboardType="numeric"
-                    maxLength={5}
-                    editable={!processingPayment}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-sm font-medium text-foreground mb-2">CVV</Text>
-                  <TextInput
-                    value={cvv}
-                    onChangeText={(text) => setCvv(text.replace(/\D/g, "").slice(0, 4))}
-                    placeholder="123"
-                    placeholderTextColor={colors.muted}
-                    className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                    keyboardType="numeric"
-                    maxLength={4}
-                    secureTextEntry
-                    editable={!processingPayment}
-                  />
-                </View>
-              </View>
-
-              {/* Pay Button */}
-              <TouchableOpacity
-                onPress={handleProcessPayment}
-                disabled={!isPaymentValid() || processingPayment}
-                className={`py-4 rounded-xl items-center flex-row justify-center ${isPaymentValid() && !processingPayment ? "bg-primary" : "bg-muted/30"
-                  }`}
-              >
-                {processingPayment ? (
-                  <>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text className="text-white font-bold text-lg ml-2">Processing...</Text>
-                  </>
-                ) : (
-                  <>
-                    <IconSymbol name="lock.fill" size={18} color="#fff" />
-                    <Text className="text-white font-bold text-lg ml-2">
-                      Pay ${invitation?.bundlePrice}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              {/* Security Note */}
-              <View className="flex-row items-center justify-center mt-4">
-                <IconSymbol name="lock.fill" size={16} color={colors.muted} />
-                <Text className="text-muted text-sm ml-2">
-                  Your payment is secure and encrypted
-                </Text>
-              </View>
-            </ScrollView>
-          )}
-        </View>
-      </Modal>
     </ScreenContainer>
   );
 }

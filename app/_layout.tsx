@@ -1,11 +1,14 @@
 import "@/global.css";
 import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import Constants from "expo-constants";
+import { Stack, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import * as Updates from "expo-updates";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { LogBox, Platform, View } from "react-native";
+import { ActivityIndicator, Alert, LogBox, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
@@ -19,8 +22,9 @@ import {
 import { ImpersonationBanner } from "@/components/impersonation-banner";
 import { NavigationHeader } from "@/components/navigation-header";
 import { OfflineIndicator } from "@/components/offline-indicator";
+import { PostAuthOnboardingResolver } from "@/components/post-auth-onboarding-resolver";
 import { ProfileFAB } from "@/components/profile-fab";
-import { AuthProvider } from "@/contexts/auth-context";
+import { AuthProvider, useAuthContext } from "@/contexts/auth-context";
 import { BadgeProvider } from "@/contexts/badge-context";
 import { CartProvider } from "@/contexts/cart-context";
 import { NotificationProvider } from "@/contexts/notification-context";
@@ -62,6 +66,7 @@ const IGNORED_WARNINGS = [
   "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
   "[expo-notifications] Listening to push token changes is not yet fully supported on web.",
 ];
+const LAST_NOTIFIED_UPDATE_ID_KEY = "app:last_notified_update_id";
 
 function getHeaderTitle(routeName: string): string {
   if (HEADER_TITLES[routeName]) {
@@ -75,6 +80,48 @@ function getHeaderTitle(routeName: string): string {
     return "Back";
   }
   return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function RootAccessGate({ children }: { children: React.ReactNode }) {
+  const { loading, hasSession, profileHydrated, isAuthenticated } = useAuthContext();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [redirecting, setRedirecting] = useState(false);
+
+  const isAuthTransit = loading || (hasSession && !profileHydrated);
+  const isGuestSafeRoute = useMemo(() => {
+    const path = pathname || "";
+    if (path === "/welcome" || path === "/login" || path === "/register" || path.startsWith("/oauth/callback")) {
+      return true;
+    }
+    // Guests may browse bundles/trainers only.
+    if (path === "/(tabs)/products" || path === "/(tabs)/trainers") return true;
+    if (path.startsWith("/bundle/") || path.startsWith("/trainer/")) return true;
+    return false;
+  }, [pathname]);
+
+  useEffect(() => {
+    if (isAuthTransit) {
+      setRedirecting(false);
+      return;
+    }
+    if (!isAuthenticated && !isGuestSafeRoute) {
+      setRedirecting(true);
+      router.replace("/welcome");
+      return;
+    }
+    setRedirecting(false);
+  }, [isAuthTransit, isAuthenticated, isGuestSafeRoute, router]);
+
+  if (isAuthTransit || redirecting || (!isAuthenticated && !isGuestSafeRoute)) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 export const unstable_settings = {
@@ -116,6 +163,43 @@ export default function RootLayout() {
     return () => {
       console.warn = originalWarn;
     };
+  }, []);
+
+  useEffect(() => {
+    const maybeShowUpdateAlert = async () => {
+      if (__DEV__ || Platform.OS === "web" || !Updates.isEnabled) return;
+
+      const currentUpdateId = Updates.updateId;
+      if (!currentUpdateId) return;
+
+      // Only show for OTA launches, not the binary's embedded bundle.
+      if (Updates.isEmbeddedLaunch) return;
+
+      const lastNotifiedUpdateId = await AsyncStorage.getItem(LAST_NOTIFIED_UPDATE_ID_KEY);
+      if (lastNotifiedUpdateId === currentUpdateId) return;
+
+      await AsyncStorage.setItem(LAST_NOTIFIED_UPDATE_ID_KEY, currentUpdateId);
+
+      // Prefer installed native values so this always reflects the actual build on device.
+      const appVersion =
+        Constants.nativeAppVersion ??
+        Constants.expoConfig?.version ??
+        "1.0.0";
+      const buildNumber =
+        Constants.nativeBuildVersion ??
+        Constants.expoConfig?.ios?.buildNumber ??
+        Constants.expoConfig?.android?.versionCode?.toString() ??
+        "8";
+
+      const otaShortId = currentUpdateId.slice(0, 8);
+      const channel = Updates.channel ?? "production";
+      Alert.alert(
+        "Updated",
+        `App has been updated to ${appVersion} (${buildNumber})\nOTA: ${otaShortId}\nChannel: ${channel}`,
+      );
+    };
+
+    void maybeShowUpdateAlert();
   }, []);
 
   const handleSafeAreaUpdate = useCallback((metrics: Metrics) => {
@@ -173,6 +257,7 @@ export default function RootLayout() {
                       {...(Platform.OS === 'web' ? { suppressHydrationWarning: true } : {})}
                     >
                       <ImpersonationBanner />
+                      <PostAuthOnboardingResolver />
                       <View style={{ flex: 1 }}>
                         <ProfileFAB />
                         <OfflineIndicator />
@@ -180,53 +265,55 @@ export default function RootLayout() {
                         {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
                         {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
                         {/* Enable swipe-back gesture globally for native iOS/Android feel */}
-                        <Stack
-                          screenOptions={{
-                            headerShown: true,
-                            header: ({ route }) => (
-                              <NavigationHeader
-                                title={getHeaderTitle(route.name)}
-                                onBack={() => navigateToHome()}
-                              />
-                            ),
-                            // Enable swipe-back gesture on all screens by default
-                            gestureEnabled: true,
-                            // iOS: Full-width swipe from left edge
-                            fullScreenGestureEnabled: true,
-                            // Animation configuration for smooth transitions
-                            animation: "slide_from_right",
-                            // Gesture direction for swipe-back
-                            gestureDirection: "horizontal",
-                          }}
-                        >
-                          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                          <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
-                          <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
-                          <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
-                          <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
-                          <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
-                          <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false, animation: "fade" }} />
-                          <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
-                          <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
-                          <Stack.Screen name="activity/index" options={{ presentation: "card" }} />
-                          <Stack.Screen name="discover-bundles/index" options={{ presentation: "card" }} />
-                          <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
-                          <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="new-message" options={{ presentation: "card" }} />
-                          <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                          <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
-                          <Stack.Screen name="(client)" options={{ headerShown: false }} />
-                          <Stack.Screen name="(manager)" options={{ headerShown: false }} />
-                          <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
-                          <Stack.Screen name="welcome" options={{ headerShown: false }} />
-                          <Stack.Screen name="oauth/callback" />
-                        </Stack>
+                        <RootAccessGate>
+                          <Stack
+                            screenOptions={{
+                              headerShown: true,
+                              header: ({ route }) => (
+                                <NavigationHeader
+                                  title={getHeaderTitle(route.name)}
+                                  onBack={() => navigateToHome()}
+                                />
+                              ),
+                              // Enable swipe-back gesture on all screens by default
+                              gestureEnabled: true,
+                              // iOS: Full-width swipe from left edge
+                              fullScreenGestureEnabled: true,
+                              // Animation configuration for smooth transitions
+                              animation: "slide_from_right",
+                              // Gesture direction for swipe-back
+                              gestureDirection: "horizontal",
+                            }}
+                          >
+                            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                            <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
+                            <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
+                            <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
+                            <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
+                            <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
+                            <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false, animation: "fade" }} />
+                            <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
+                            <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
+                            <Stack.Screen name="activity/index" options={{ presentation: "card" }} />
+                            <Stack.Screen name="discover-bundles/index" options={{ presentation: "card" }} />
+                            <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
+                            <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="new-message" options={{ presentation: "card" }} />
+                            <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
+                            <Stack.Screen name="(client)" options={{ headerShown: false }} />
+                            <Stack.Screen name="(manager)" options={{ headerShown: false }} />
+                            <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
+                            <Stack.Screen name="welcome" options={{ headerShown: false }} />
+                            <Stack.Screen name="oauth/callback" />
+                          </Stack>
+                        </RootAccessGate>
                         <StatusBar style="auto" />
                       </View>
                     </View>
