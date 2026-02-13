@@ -36,7 +36,9 @@ export function IncomingMessageFAB() {
   const canListenForMessages = Boolean(user?.id);
   const { data: conversations = [] } = trpc.messages.conversations.useQuery(undefined, {
     enabled: canListenForMessages,
-    refetchInterval: 5000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 
   const openConversationId = useMemo(() => {

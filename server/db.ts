@@ -54,6 +54,43 @@ function sanitizeSearchTerm(value: string): string {
     .trim();
 }
 
+function normalizeMetadata(value: unknown): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === "object" ? { ...(value as Record<string, any>) } : {};
+}
+
+type PushTokenRecord = {
+  token: string;
+  platform: string;
+  updatedAt: string;
+};
+
+const MAX_PUSH_TOKENS_PER_USER = 8;
+
+function normalizePushTokenRecords(value: unknown): PushTokenRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    .map((entry) => ({
+      token: typeof entry.token === "string" ? entry.token : "",
+      platform: typeof entry.platform === "string" ? entry.platform : "unknown",
+      updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : new Date().toISOString(),
+    }))
+    .filter((entry) => Boolean(entry.token));
+}
+
+function isExpoPushToken(token: string): boolean {
+  return /^ExponentPushToken\[[^\]]+\]$/.test(token) || /^ExpoPushToken\[[^\]]+\]$/.test(token);
+}
+
 /** Shorthand for the server Supabase client */
 function sb() {
   return getServerSupabase();
@@ -681,6 +718,119 @@ export async function updateUser(userId: string, data: Partial<InsertUser>) {
   if (error) { console.error("[Database] updateUser:", error.message); throw error; }
 }
 
+export async function upsertUserPushToken(
+  userId: string,
+  token: string,
+  platform: "ios" | "android" | "unknown" = "unknown"
+) {
+  const normalizedToken = token.trim();
+  if (!normalizedToken || !isExpoPushToken(normalizedToken)) {
+    throw new Error("Invalid Expo push token");
+  }
+
+  const { data: row, error: fetchError } = await sb()
+    .from("users")
+    .select("metadata")
+    .eq("id", userId)
+    .maybeSingle();
+  if (fetchError) {
+    console.error("[Database] upsertUserPushToken fetch:", fetchError.message);
+    throw fetchError;
+  }
+
+  const metadata = normalizeMetadata(row?.metadata);
+  const pushMeta = normalizeMetadata(metadata.push);
+  const existingTokens = normalizePushTokenRecords(pushMeta.expoTokens);
+  const now = new Date().toISOString();
+
+  const nextTokens: PushTokenRecord[] = [
+    { token: normalizedToken, platform, updatedAt: now },
+    ...existingTokens.filter((entry) => entry.token !== normalizedToken),
+  ].slice(0, MAX_PUSH_TOKENS_PER_USER);
+
+  const nextMetadata = {
+    ...metadata,
+    push: {
+      ...pushMeta,
+      expoTokens: nextTokens,
+      updatedAt: now,
+    },
+  };
+
+  const { error: updateError } = await sb()
+    .from("users")
+    .update({ metadata: nextMetadata })
+    .eq("id", userId);
+  if (updateError) {
+    console.error("[Database] upsertUserPushToken update:", updateError.message);
+    throw updateError;
+  }
+}
+
+export async function removeUserPushToken(userId: string, token: string) {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) return;
+
+  const { data: row, error: fetchError } = await sb()
+    .from("users")
+    .select("metadata")
+    .eq("id", userId)
+    .maybeSingle();
+  if (fetchError) {
+    console.error("[Database] removeUserPushToken fetch:", fetchError.message);
+    return;
+  }
+
+  const metadata = normalizeMetadata(row?.metadata);
+  const pushMeta = normalizeMetadata(metadata.push);
+  const existingTokens = normalizePushTokenRecords(pushMeta.expoTokens);
+  const nextTokens = existingTokens.filter((entry) => entry.token !== normalizedToken);
+  if (nextTokens.length === existingTokens.length) return;
+
+  const nextMetadata = {
+    ...metadata,
+    push: {
+      ...pushMeta,
+      expoTokens: nextTokens,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  const { error: updateError } = await sb()
+    .from("users")
+    .update({ metadata: nextMetadata })
+    .eq("id", userId);
+  if (updateError) {
+    console.error("[Database] removeUserPushToken update:", updateError.message);
+  }
+}
+
+export async function getExpoPushTokensForUserIds(userIds: string[]): Promise<Map<string, string[]>> {
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await sb()
+    .from("users")
+    .select("id, metadata")
+    .in("id", ids);
+  if (error) {
+    console.error("[Database] getExpoPushTokensForUserIds:", error.message);
+    return new Map();
+  }
+
+  const tokenMap = new Map<string, string[]>();
+  for (const user of data || []) {
+    const metadata = normalizeMetadata(user.metadata);
+    const pushMeta = normalizeMetadata(metadata.push);
+    const tokenRecords = normalizePushTokenRecords(pushMeta.expoTokens);
+    const validTokens = Array.from(
+      new Set(tokenRecords.map((entry) => entry.token).filter((entry) => isExpoPushToken(entry)))
+    );
+    tokenMap.set(user.id, validTokens);
+  }
+  return tokenMap;
+}
+
 export async function getTrainers(): Promise<User[]> {
   const { data, error } = await sb()
     .from("users")
@@ -1273,10 +1423,10 @@ export async function getAllDeliveries(options?: {
   search?: string;
   limit?: number;
   offset?: number;
-}): Promise<{ deliveries: Array<ProductDelivery & {
+}): Promise<{ deliveries: (ProductDelivery & {
   trainerName: string | null;
   clientName: string | null;
-}>; total: number }> {
+})[]; total: number }> {
   const { status, search, limit = 100, offset = 0 } = options || {};
 
   let query = sb().from("product_deliveries").select("*", { count: "exact" });
@@ -2474,6 +2624,36 @@ export async function getPaymentHistory(
     .range(offset, offset + limit - 1);
 
   if (error) { console.error("[Database] getPaymentHistory:", error.message); return []; }
+  return mapRowsFromDb<PaymentSession>(data || []);
+}
+
+export async function getPaymentSessionsByTrainer(userId: string): Promise<PaymentSession[]> {
+  const { data, error } = await sb()
+    .from("payment_sessions")
+    .select("*")
+    .eq("requested_by", userId)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("[Database] getPaymentSessionsByTrainer:", error.message); return []; }
+  return mapRowsFromDb<PaymentSession>(data || []);
+}
+
+export async function getPaymentHistoryForClient(
+  trainerId: string,
+  clientEmail?: string | null,
+): Promise<PaymentSession[]> {
+  if (!clientEmail) return [];
+  const safeEmail = clientEmail.trim().toLowerCase();
+  if (!safeEmail) return [];
+
+  const { data, error } = await sb()
+    .from("payment_sessions")
+    .select("*")
+    .eq("requested_by", trainerId)
+    .ilike("description", `%${safeEmail}%`)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) { console.error("[Database] getPaymentHistoryForClient:", error.message); return []; }
   return mapRowsFromDb<PaymentSession>(data || []);
 }
 

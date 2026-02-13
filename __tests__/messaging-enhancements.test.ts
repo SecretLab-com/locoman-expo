@@ -99,6 +99,28 @@ describe("Messaging Enhancements", () => {
     });
   });
 
+  describe("Server push wiring", () => {
+    it("should register Expo push tokens with the backend", () => {
+      const content = fs.readFileSync(
+        path.join(APP_DIR, "contexts/notification-context.tsx"),
+        "utf-8"
+      );
+      expect(content).toContain("trpc.notifications.registerPushToken.useMutation");
+      expect(content).toContain("registerPushTokenMutation");
+      expect(content).toContain("mutateAsync");
+    });
+
+    it("should send server push notifications when messages are sent", () => {
+      const content = fs.readFileSync(
+        path.join(APP_DIR, "server/routers.ts"),
+        "utf-8"
+      );
+      expect(content).toContain("sendPushToUsers");
+      expect(content).toContain("type: \"message\"");
+      expect(content).toContain("toMessagePushBody");
+    });
+  });
+
   describe("Push Notifications", () => {
     it("should have message notification function in notifications lib", () => {
       const content = fs.readFileSync(

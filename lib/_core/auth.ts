@@ -9,6 +9,12 @@ import { supabase } from "@/lib/supabase-client";
 import { Platform } from "react-native";
 
 const USER_INFO_KEY = "loco-runtime-user-info";
+const TOKEN_FALLBACK_TTL_MS = 30_000;
+const TOKEN_REFRESH_DEBOUNCE_MS = 15_000;
+let lastKnownSessionToken: string | null = null;
+let lastKnownSessionTokenExpiresAt = 0;
+let lastKnownSessionTokenSeenAt = 0;
+let sessionTokenInFlight: Promise<string | null> | null = null;
 
 export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 
@@ -39,18 +45,70 @@ export type User = {
 
 /** Get the current Supabase access token (JWT). Null if not signed in. */
 export async function getSessionToken(): Promise<string | null> {
+  const now = Date.now();
+  const tokenStillValid = lastKnownSessionTokenExpiresAt === 0 || now < lastKnownSessionTokenExpiresAt;
+  const recentlySeen = now - lastKnownSessionTokenSeenAt < TOKEN_FALLBACK_TTL_MS;
+  const canReuseWithoutRefresh = now - lastKnownSessionTokenSeenAt < TOKEN_REFRESH_DEBOUNCE_MS;
+
+  // Debounce hot-path token reads (e.g. many tRPC headers in parallel on web startup)
+  // to avoid auth lock contention inside supabase.auth.getSession().
+  if (lastKnownSessionToken && tokenStillValid && recentlySeen && canReuseWithoutRefresh) {
+    return lastKnownSessionToken;
+  }
+
+  if (sessionTokenInFlight) {
+    return sessionTokenInFlight;
+  }
+
+  const tokenRequest = (async () => {
   try {
     const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? null;
+    const token = data.session?.access_token ?? null;
+    if (token) {
+      const expiresAtSec = data.session?.expires_at ?? 0;
+      lastKnownSessionToken = token;
+      lastKnownSessionTokenSeenAt = Date.now();
+      lastKnownSessionTokenExpiresAt = expiresAtSec > 0 ? expiresAtSec * 1000 : 0;
+      return token;
+    }
+    // Avoid transient unauth races during token refresh/hydration.
+    const fallbackNow = Date.now();
+    const fallbackTokenStillValid =
+      lastKnownSessionTokenExpiresAt === 0 || fallbackNow < lastKnownSessionTokenExpiresAt;
+    const fallbackRecentlySeen = fallbackNow - lastKnownSessionTokenSeenAt < TOKEN_FALLBACK_TTL_MS;
+    if (lastKnownSessionToken && fallbackTokenStillValid && fallbackRecentlySeen) {
+      return lastKnownSessionToken;
+    }
+    return null;
   } catch (error) {
     console.error("[Auth] Failed to get session token:", error);
+    const fallbackNow = Date.now();
+    const fallbackTokenStillValid =
+      lastKnownSessionTokenExpiresAt === 0 || fallbackNow < lastKnownSessionTokenExpiresAt;
+    const fallbackRecentlySeen = fallbackNow - lastKnownSessionTokenSeenAt < TOKEN_FALLBACK_TTL_MS;
+    if (lastKnownSessionToken && fallbackTokenStillValid && fallbackRecentlySeen) {
+      return lastKnownSessionToken;
+    }
     return null;
+  }
+  })();
+
+  sessionTokenInFlight = tokenRequest;
+  try {
+    return await tokenRequest;
+  } finally {
+    if (sessionTokenInFlight === tokenRequest) {
+      sessionTokenInFlight = null;
+    }
   }
 }
 
 /** Sign out from Supabase. */
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
+  lastKnownSessionToken = null;
+  lastKnownSessionTokenExpiresAt = 0;
+  lastKnownSessionTokenSeenAt = 0;
   await clearUserInfo();
 }
 

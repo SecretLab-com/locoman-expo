@@ -5,9 +5,17 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { generateImage } from "./_core/imageGeneration";
 import { systemRouter } from "./_core/systemRouter";
 import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
+import { sendPushToUsers } from "./_core/push";
 import { notifyBadgeCounts, notifyNewMessage } from "./_core/websocket";
 import * as adyen from "./adyen";
 import * as db from "./db";
+import {
+  mapBundleToOffer,
+  mapOfferInputToBundleDraft,
+  type OfferPaymentType,
+  type OfferType,
+} from "./domains/offers";
+import { mapPaymentSessionForView, mapPaymentState, summarizePaymentSessions } from "./domains/payments";
 import * as shopify from "./shopify";
 import { storagePut } from "./storage";
 
@@ -28,6 +36,16 @@ function getBotReply(userMessage: string): string {
   if (/help/i.test(userMessage)) return "I'm the test bot. Send me any message and I'll reply to help you test the messaging system!";
   if (/thanks|thank you/i.test(userMessage)) return "You're welcome! Let me know if you need anything else.";
   return BOT_REPLIES[Math.floor(Math.random() * BOT_REPLIES.length)];
+}
+
+function toMessagePushBody(content: string, messageType: "text" | "image" | "file" = "text"): string {
+  const trimmed = content.trim();
+  if (trimmed.length > 0) {
+    return trimmed.length > 120 ? `${trimmed.slice(0, 117)}...` : trimmed;
+  }
+  if (messageType === "image") return "Sent you an image";
+  if (messageType === "file") return "Sent you a file";
+  return "Sent you a message";
 }
 
 function isManagerLikeRole(role: string): boolean {
@@ -556,8 +574,18 @@ export const appRouter = router({
 
         let subscriptionId: string | null = null;
         if (bundle.cadence && bundle.cadence !== "one_time") {
-          const sessionsIncluded = parseBundleServices(bundle.servicesJson)
+          const sessionsFromServices = parseBundleServices(bundle.servicesJson)
             .reduce((sum, service) => sum + service.sessions, 0);
+          const goals =
+            bundle.goalsJson && typeof bundle.goalsJson === "object"
+              ? (bundle.goalsJson as Record<string, unknown>)
+              : {};
+          const sessionsFromGoalRaw = Number(goals.sessionCount ?? 0);
+          const sessionsFromGoal =
+            Number.isFinite(sessionsFromGoalRaw) && sessionsFromGoalRaw > 0
+              ? Math.floor(sessionsFromGoalRaw)
+              : 0;
+          const sessionsIncluded = sessionsFromGoal || sessionsFromServices || 0;
           subscriptionId = await db.createSubscription({
             clientId: clientRecord.id,
             trainerId,
@@ -710,6 +738,143 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // OFFERS (Trainer monetization model for MVP)
+  // ============================================================================
+  offers: router({
+    list: trainerProcedure.query(async ({ ctx }) => {
+      const bundles = await db.getBundleDraftsByTrainer(ctx.user.id);
+      return bundles.map(mapBundleToOffer);
+    }),
+
+    get: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) return undefined;
+        assertTrainerOwned(ctx.user, bundle.trainerId, "offer");
+        return mapBundleToOffer(bundle);
+      }),
+
+    create: trainerProcedure
+      .input(
+        z.object({
+          title: z.string().min(1).max(255),
+          description: z.string().optional(),
+          type: z.enum(["one_off_session", "multi_session_package", "product_bundle"]),
+          priceMinor: z.number().int().min(1),
+          included: z.array(z.string()).default([]),
+          sessionCount: z.number().int().min(1).optional(),
+          paymentType: z.enum(["one_off", "recurring"]),
+          publish: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const draft = mapOfferInputToBundleDraft(input as {
+          title: string;
+          description?: string;
+          type: OfferType;
+          priceMinor: number;
+          included?: string[];
+          sessionCount?: number;
+          paymentType: OfferPaymentType;
+          publish?: boolean;
+        });
+
+        const id = await db.createBundleDraft({
+          trainerId: ctx.user.id,
+          title: draft.title,
+          description: draft.description,
+          price: draft.price,
+          cadence: draft.cadence as "one_time" | "weekly" | "monthly",
+          servicesJson: draft.servicesJson,
+          productsJson: draft.productsJson,
+          goalsJson: draft.goalsJson,
+          status: draft.status as any,
+        });
+
+        const created = await db.getBundleDraftById(id);
+        if (!created) notFound("Offer");
+        return mapBundleToOffer(created);
+      }),
+
+    update: trainerProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          title: z.string().min(1).max(255).optional(),
+          description: z.string().optional(),
+          type: z.enum(["one_off_session", "multi_session_package", "product_bundle"]).optional(),
+          priceMinor: z.number().int().min(1).optional(),
+          included: z.array(z.string()).optional(),
+          sessionCount: z.number().int().min(1).optional(),
+          paymentType: z.enum(["one_off", "recurring"]).optional(),
+          publish: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Offer");
+        assertTrainerOwned(ctx.user, bundle.trainerId, "offer");
+
+        const mapped = mapOfferInputToBundleDraft({
+          title: input.title || bundle.title,
+          description: input.description ?? bundle.description ?? undefined,
+          type: (input.type ||
+            mapBundleToOffer(bundle).type) as OfferType,
+          priceMinor: input.priceMinor ?? Math.round((parseFloat(bundle.price || "0") || 0) * 100),
+          included: input.included || mapBundleToOffer(bundle).included,
+          sessionCount: input.sessionCount ?? mapBundleToOffer(bundle).sessionCount ?? undefined,
+          paymentType: (input.paymentType || mapBundleToOffer(bundle).paymentType) as OfferPaymentType,
+          publish: input.publish ?? (bundle.status === "published"),
+        });
+
+        await db.updateBundleDraft(input.id, {
+          title: mapped.title,
+          description: mapped.description,
+          price: mapped.price,
+          cadence: mapped.cadence as "one_time" | "weekly" | "monthly",
+          servicesJson: mapped.servicesJson,
+          productsJson: mapped.productsJson,
+          goalsJson: mapped.goalsJson,
+          status: mapped.status as any,
+        });
+
+        const updated = await db.getBundleDraftById(input.id);
+        if (!updated) notFound("Offer");
+        return mapBundleToOffer(updated);
+      }),
+
+    publish: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Offer");
+        assertTrainerOwned(ctx.user, bundle.trainerId, "offer");
+        await db.updateBundleDraft(input.id, { status: "published" });
+        const updated = await db.getBundleDraftById(input.id);
+        if (!updated) notFound("Offer");
+        return mapBundleToOffer(updated);
+      }),
+
+    submitForReview: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Offer");
+        assertTrainerOwned(ctx.user, bundle.trainerId, "offer");
+        await db.updateBundleDraft(input.id, {
+          status: "pending_review",
+          submittedForReviewAt: new Date().toISOString(),
+        });
+        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        notifyBadgeCounts(managerIds);
+        const updated = await db.getBundleDraftById(input.id);
+        if (!updated) notFound("Offer");
+        return mapBundleToOffer(updated);
+      }),
+  }),
+
+  // ============================================================================
   // CLIENTS (Trainer's client management)
   // ============================================================================
   clients: router({
@@ -735,6 +900,55 @@ export const appRouter = router({
         if (!client) return undefined;
         assertTrainerOwned(ctx.user, client.trainerId, "client");
         return client;
+      }),
+
+    detail: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const client = await db.getClientById(input.id);
+        if (!client) return undefined;
+        assertTrainerOwned(ctx.user, client.trainerId, "client");
+
+        const [subscriptions, trainerOrders] = await Promise.all([
+          db.getSubscriptionsByClient(client.id),
+          db.getOrdersByTrainer(ctx.user.id),
+        ]);
+
+        const activeOffers = await Promise.all(
+          subscriptions
+            .filter((sub) => sub.status === "active")
+            .map(async (sub) => {
+              const bundle = sub.bundleDraftId ? await db.getBundleDraftById(sub.bundleDraftId) : undefined;
+              return {
+                id: sub.id,
+                title: bundle?.title || "Offer",
+                price: sub.price,
+                cadence: sub.subscriptionType || "monthly",
+                status: sub.status || "active",
+              };
+            }),
+        );
+
+        const paymentHistory = trainerOrders
+          .filter((order) => {
+            if (client.email && order.customerEmail) {
+              return order.customerEmail.trim().toLowerCase() === client.email.trim().toLowerCase();
+            }
+            return Boolean(order.customerName && client.name && order.customerName === client.name);
+          })
+          .map((order) => ({
+            id: order.id,
+            amount: parseFloat(order.totalAmount || "0"),
+            status: order.paymentStatus || "pending",
+            createdAt: order.createdAt,
+          }))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        return {
+          ...client,
+          activeOffers,
+          paymentHistory,
+        };
       }),
 
     create: trainerProcedure
@@ -1517,11 +1731,22 @@ export const appRouter = router({
         notifyNewMessage(conversationId, {
           id: messageId,
           senderId: ctx.user.id,
+          senderName: ctx.user.name ?? "Someone",
           receiverId: input.receiverId,
           content: input.content,
           conversationId,
         }, [input.receiverId, ctx.user.id]);
         notifyBadgeCounts([input.receiverId]);
+        await sendPushToUsers([input.receiverId], {
+          title: ctx.user.name ?? "New message",
+          body: toMessagePushBody(input.content, "text"),
+          data: {
+            type: "message",
+            conversationId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "Someone",
+          },
+        });
 
         return messageId;
       }),
@@ -1542,13 +1767,36 @@ export const appRouter = router({
         const conversationId =
           input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
         for (const receiverId of input.receiverIds) {
-          await db.createMessage({
+          const messageId = await db.createMessage({
             senderId: ctx.user.id,
             receiverId,
             conversationId,
             content: input.content,
           });
+          notifyNewMessage(
+            conversationId,
+            {
+              id: messageId,
+              senderId: ctx.user.id,
+              senderName: ctx.user.name ?? "Someone",
+              receiverId,
+              content: input.content,
+              conversationId,
+            },
+            [receiverId, ctx.user.id]
+          );
+          notifyBadgeCounts([receiverId]);
         }
+        await sendPushToUsers(input.receiverIds, {
+          title: ctx.user.name ?? "New message",
+          body: toMessagePushBody(input.content, "text"),
+          data: {
+            type: "message",
+            conversationId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "Someone",
+          },
+        });
         return { conversationId };
       }),
 
@@ -1602,11 +1850,22 @@ export const appRouter = router({
         notifyNewMessage(conversationId, {
           id: messageId,
           senderId: ctx.user.id,
+          senderName: ctx.user.name ?? "Someone",
           receiverId: input.receiverId,
           content: input.content,
           conversationId,
         }, [input.receiverId, ctx.user.id]);
         notifyBadgeCounts([input.receiverId]);
+        await sendPushToUsers([input.receiverId], {
+          title: ctx.user.name ?? "New message",
+          body: toMessagePushBody(input.content, input.messageType),
+          data: {
+            type: "message",
+            conversationId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "Someone",
+          },
+        });
 
         return messageId;
       }),
@@ -1632,7 +1891,7 @@ export const appRouter = router({
         const conversationId =
           input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
         for (const receiverId of input.receiverIds) {
-          await db.createMessage({
+          const messageId = await db.createMessage({
             senderId: ctx.user.id,
             receiverId,
             conversationId,
@@ -1643,7 +1902,30 @@ export const appRouter = router({
             attachmentSize: input.attachmentSize,
             attachmentMimeType: input.attachmentMimeType,
           });
+          notifyNewMessage(
+            conversationId,
+            {
+              id: messageId,
+              senderId: ctx.user.id,
+              senderName: ctx.user.name ?? "Someone",
+              receiverId,
+              content: input.content,
+              conversationId,
+            },
+            [receiverId, ctx.user.id]
+          );
+          notifyBadgeCounts([receiverId]);
         }
+        await sendPushToUsers(input.receiverIds, {
+          title: ctx.user.name ?? "New message",
+          body: toMessagePushBody(input.content, input.messageType),
+          data: {
+            type: "message",
+            conversationId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "Someone",
+          },
+        });
         return { conversationId };
       }),
 
@@ -1776,6 +2058,7 @@ export const appRouter = router({
         notifyNewMessage(conversationId, {
           id: userMsgId,
           senderId: ctx.user.id,
+          senderName: ctx.user.name ?? "You",
           receiverId: BOT_USER_ID,
           content: input.content,
           conversationId,
@@ -1796,11 +2079,22 @@ export const appRouter = router({
             notifyNewMessage(conversationId, {
               id: botMsgId,
               senderId: BOT_USER_ID,
+              senderName: "Loco Assistant",
               receiverId: userId,
               content: botReply,
               conversationId,
             }, [userId]);
             notifyBadgeCounts([userId]);
+            await sendPushToUsers([userId], {
+              title: "Loco Assistant",
+              body: toMessagePushBody(botReply, "text"),
+              data: {
+                type: "message",
+                conversationId,
+                senderId: BOT_USER_ID,
+                senderName: "Loco Assistant",
+              },
+            });
           } catch (err) {
             console.error("[Bot] Failed to reply:", err);
           }
@@ -1894,6 +2188,20 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await db.updateUser(ctx.user.id, input);
+        return { success: true };
+      }),
+  }),
+
+  notifications: router({
+    registerPushToken: protectedProcedure
+      .input(
+        z.object({
+          token: z.string().min(10),
+          platform: z.enum(["ios", "android", "unknown"]).default("unknown"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await db.upsertUserPushToken(ctx.user.id, input.token, input.platform);
         return { success: true };
       }),
   }),
@@ -2242,6 +2550,17 @@ export const appRouter = router({
           entityId: input.id,
           details: { bundleTitle: bundle?.title },
         });
+        if (bundle?.trainerId) {
+          await sendPushToUsers([bundle.trainerId], {
+            title: "Bundle approved",
+            body: `Your bundle "${bundle.title}" is now live.`,
+            data: {
+              type: "bundle_approval",
+              bundleId: input.id,
+              status: "approved",
+            },
+          });
+        }
         const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
         notifyBadgeCounts(managerIds);
         return { success: true };
@@ -2267,6 +2586,17 @@ export const appRouter = router({
           entityId: input.id,
           details: { bundleTitle: bundle?.title, reason: input.reason },
         });
+        if (bundle?.trainerId) {
+          await sendPushToUsers([bundle.trainerId], {
+            title: "Bundle needs revision",
+            body: `Your bundle "${bundle.title}" was rejected: ${input.reason}`,
+            data: {
+              type: "bundle_approval",
+              bundleId: input.id,
+              status: "rejected",
+            },
+          });
+        }
         const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
         notifyBadgeCounts(managerIds);
         return { success: true };
@@ -2278,12 +2608,24 @@ export const appRouter = router({
         comments: z.string(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
         await db.updateBundleDraft(input.id, {
           status: "changes_requested",
           reviewedAt: new Date().toISOString(),
           reviewedBy: ctx.user.id,
           reviewComments: input.comments,
         });
+        if (bundle?.trainerId) {
+          await sendPushToUsers([bundle.trainerId], {
+            title: "Changes requested",
+            body: `Review feedback for "${bundle.title}": ${input.comments}`,
+            data: {
+              type: "bundle_approval",
+              bundleId: input.id,
+              status: "changes_requested",
+            },
+          });
+        }
         const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
         notifyBadgeCounts(managerIds);
         return { success: true };
@@ -2628,10 +2970,10 @@ export const appRouter = router({
       const user = await db.getUserById(ctx.user.id);
       const totalPoints = (user as any)?.totalPoints || 0;
 
-      let statusTier = "Bronze";
-      if (totalPoints >= 15000) statusTier = "Platinum";
-      else if (totalPoints >= 5000) statusTier = "Gold";
-      else if (totalPoints >= 1000) statusTier = "Silver";
+      let statusTier = "Getting Started";
+      if (totalPoints >= 5000) statusTier = "Elite";
+      else if (totalPoints >= 2000) statusTier = "Pro";
+      else if (totalPoints >= 1000) statusTier = "Growing";
 
       return { totalPoints, statusTier };
     }),
@@ -2879,22 +3221,45 @@ export const appRouter = router({
 
     /** Get payment history for the current trainer */
     history: trainerProcedure
-      .input(z.object({
-        limit: z.number().default(50),
-        offset: z.number().default(0),
-        status: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          limit: z.number().default(50),
+          offset: z.number().default(0),
+          status: z.enum(["awaiting_payment", "paid", "paid_out"]).optional(),
+        }),
+      )
       .query(async ({ ctx, input }) => {
-        return db.getPaymentHistory(ctx.user.id, {
-          limit: input.limit,
-          offset: input.offset,
-          status: input.status,
-        });
+        const allSessions = await db.getPaymentSessionsByTrainer(ctx.user.id);
+        const filtered = input.status
+          ? allSessions.filter((session) => mapPaymentState(session.status) === input.status)
+          : allSessions;
+        const page = filtered.slice(input.offset, input.offset + input.limit);
+        return page.map(mapPaymentSessionForView);
       }),
 
     /** Get payment stats for the current trainer */
     stats: trainerProcedure.query(async ({ ctx }) => {
-      return db.getPaymentStats(ctx.user.id);
+      const allSessions = await db.getPaymentSessionsByTrainer(ctx.user.id);
+      const summary = summarizePaymentSessions(allSessions);
+      return {
+        ...summary,
+        // Compatibility fields for existing clients during migration.
+        pending: summary.awaitingPayment,
+        captured: summary.paid,
+        totalAmount: summary.totalPaidMinor,
+      };
+    }),
+
+    payoutSummary: trainerProcedure.query(async ({ ctx }) => {
+      const earnings = await db.getEarningsSummary(ctx.user.id);
+      const available = Math.max((earnings.total || 0) - (earnings.pending || 0), 0);
+      return {
+        available,
+        pending: earnings.pending || 0,
+        nextPayoutDate: null as string | null,
+        automatic: true,
+        message: "Payouts happen automatically — no action needed.",
+      };
     }),
   }),
 

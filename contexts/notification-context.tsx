@@ -1,10 +1,12 @@
 import {
-    addNotificationReceivedListener,
-    addNotificationResponseListener,
-    getLastNotificationResponse,
-    registerForPushNotificationsAsync,
+  addNotificationReceivedListener,
+  addNotificationResponseListener,
+  getLastNotificationResponse,
+  registerForPushNotificationsAsync,
 } from "@/lib/notifications";
+import { useAuthContext } from "@/contexts/auth-context";
 import { handleNotificationDeepLink } from "@/hooks/use-deep-link";
+import { trpc } from "@/lib/trpc";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
@@ -20,9 +22,13 @@ type NotificationContextType = {
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
+  const { user, isAuthenticated } = useAuthContext();
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
+  const registerPushTokenMutation = trpc.notifications.registerPushToken.useMutation();
+  const lastRegisteredTokenRef = useRef<string | null>(null);
+  const lastRegisteredUserIdRef = useRef<string | null>(null);
 
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
@@ -65,6 +71,31 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    if (!isAuthenticated || !user?.id || !expoPushToken) return;
+
+    if (
+      lastRegisteredTokenRef.current === expoPushToken &&
+      lastRegisteredUserIdRef.current === user.id
+    ) {
+      return;
+    }
+
+    registerPushTokenMutation
+      .mutateAsync({
+        token: expoPushToken,
+        platform: Platform.OS === "ios" ? "ios" : "android",
+      })
+      .then(() => {
+        lastRegisteredTokenRef.current = expoPushToken;
+        lastRegisteredUserIdRef.current = user.id;
+      })
+      .catch((error) => {
+        console.log("[Push Notifications] Failed to register token on server", error);
+      });
+  }, [expoPushToken, isAuthenticated, registerPushTokenMutation, user?.id]);
 
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data;
