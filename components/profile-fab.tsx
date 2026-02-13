@@ -1,11 +1,13 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useBadgeContext } from "@/contexts/badge-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
+import { getApiBaseUrl } from "@/lib/api-config";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { router, usePathname } from "expo-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Platform,
@@ -22,6 +24,7 @@ type MenuItem = {
   label: string;
   onPress: () => void;
   destructive?: boolean;
+  showDot?: boolean;
 };
 
 export function ProfileFAB() {
@@ -29,6 +32,7 @@ export function ProfileFAB() {
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const { user, effectiveUser, isAuthenticated, logout, isTrainer, effectiveRole } = useAuthContext();
+  const { counts } = useBadgeContext();
   const [menuVisible, setMenuVisible] = useState(false);
   const pathname = usePathname();
 
@@ -49,10 +53,17 @@ export function ProfileFAB() {
     pathname.startsWith("/profile/") ||
     pathname === `${roleBase}/profile` ||
     pathname.startsWith(`${roleBase}/profile/`);
+  const isOnDashboardScreen =
+    pathname === "/dashboard" ||
+    pathname.endsWith("/dashboard") ||
+    (pathname === "/" && Boolean(effectiveRole) && effectiveRole !== "shopper");
+  const showFloatingAlerts = isOnDashboardScreen && effectiveRole === "trainer";
+  const alertBadgeCount = counts.pendingDeliveries + counts.pendingJoinRequests;
+  const profileFabRightOffset = 16;
+  const alertFabRightOffset = 68;
   const isOnMessageThread = pathname.includes("/messages/") || pathname.includes("/conversation/");
-  if (isOnProfileScreen || isOnMessageThread || pathname === "/welcome") {
-    return null;
-  }
+  const isOnBundleDetail = pathname.includes("/bundle/");
+  const hasUnreadMessages = counts.unreadMessages > 0;
 
   const handlePress = () => {
     if (Platform.OS !== "web") {
@@ -90,10 +101,35 @@ export function ProfileFAB() {
   };
 
   const isUserAuthenticated = isAuthenticated || Boolean(effectiveUser);
-  const avatarUrl = effectiveUser?.photoUrl || user?.photoUrl || undefined;
+  const rawAvatarUrl = effectiveUser?.photoUrl || user?.photoUrl || undefined;
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const isDark = colorScheme === "dark";
   const overlayColor = isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(15, 23, 42, 0.12)";
   const shadowColor = isDark ? "#000" : colors.border;
+  const fabBackgroundColor = isDark ? "rgba(21, 21, 32, 0.96)" : colors.surface;
+  const fabBorderColor = isDark ? "rgba(96, 165, 250, 0.55)" : colors.border;
+  const fabShadowOpacity = isDark ? 0.4 : 0.12;
+
+  const avatarUrl = useMemo(() => {
+    if (!rawAvatarUrl) return undefined;
+    if (/^https?:\/\//i.test(rawAvatarUrl)) return rawAvatarUrl;
+    const baseUrl = getApiBaseUrl();
+    if (!baseUrl) return undefined;
+    return `${baseUrl}${rawAvatarUrl.startsWith("/") ? "" : "/"}${rawAvatarUrl}`;
+  }, [rawAvatarUrl]);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUrl]);
+
+  if (
+    isOnProfileScreen ||
+    isOnMessageThread ||
+    isOnBundleDetail ||
+    pathname === "/welcome"
+  ) {
+    return null;
+  }
 
   const menuItems: MenuItem[] = isUserAuthenticated
     ? [
@@ -111,13 +147,13 @@ export function ProfileFAB() {
         icon: "message.fill",
         label: "Messages",
         onPress: () => router.push(`${roleBase}/messages` as any),
+        showDot: hasUnreadMessages,
       },
       {
         icon: "rectangle.portrait.and.arrow.right",
         label: "Logout",
         onPress: async () => {
           await logout();
-          router.replace("/(tabs)");
         },
         destructive: true,
       },
@@ -148,36 +184,93 @@ export function ProfileFAB() {
 
   return (
     <>
+      {showFloatingAlerts ? (
+        <TouchableOpacity
+          onPress={() => router.push("/(trainer)/alerts" as any)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Open alerts"
+          testID="alerts-fab"
+          style={[
+            styles.alertFab,
+            {
+              top: insets.top + 10,
+              right: alertFabRightOffset,
+              backgroundColor: fabBackgroundColor,
+              borderColor: fabBorderColor,
+              shadowColor,
+              shadowOpacity: fabShadowOpacity,
+            },
+          ]}
+        >
+          <View className="relative w-5 h-5 items-center justify-center">
+            <IconSymbol name="bell.fill" size={16} color={colors.primary} />
+            {alertBadgeCount > 0 ? (
+              <View
+                className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] rounded-full px-1 items-center justify-center"
+                style={{ backgroundColor: "#EF4444" }}
+              >
+                <Text className="text-[10px] font-bold text-white">
+                  {alertBadgeCount > 99 ? "99+" : alertBadgeCount}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
       {/* FAB Button */}
       <TouchableOpacity
         onPress={handlePress}
         activeOpacity={0.8}
         accessibilityRole="button"
-        accessibilityLabel="Profile menu"
+        accessibilityLabel="Open profile menu"
         testID="profile-fab"
         style={[
           styles.fab,
           {
             top: insets.top + 8,
-            right: 16,
-            backgroundColor: colors.surface,
-            borderColor: colors.border,
+            right: profileFabRightOffset,
+            backgroundColor: fabBackgroundColor,
+            borderColor: fabBorderColor,
             shadowColor,
+            shadowOpacity: fabShadowOpacity,
           },
         ]}
       >
-        {isUserAuthenticated && avatarUrl ? (
+        {/* Keep a visible ring in dark mode so this doesn't disappear against dark backgrounds. */}
+        <View pointerEvents="none" style={[styles.fabRing, { borderColor: fabBorderColor }]} />
+        {isUserAuthenticated && avatarUrl && !avatarLoadFailed ? (
           <Image
             source={{ uri: avatarUrl }}
             style={styles.avatar}
+            contentFit="cover"
+            transition={100}
+            onError={() => setAvatarLoadFailed(true)}
           />
         ) : isUserAuthenticated ? (
           <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
             <Text style={[styles.avatarInitials, { color: colors.background }]}>{getInitials()}</Text>
           </View>
         ) : (
-          <IconSymbol name="person.circle.fill" size={32} color={colors.muted} />
+          <IconSymbol name="person.circle.fill" size={30} color={colors.foreground} />
         )}
+        {hasUnreadMessages ? (
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 2,
+              right: 2,
+              width: 10,
+              height: 10,
+              borderRadius: 5,
+              backgroundColor: "#EF4444",
+              borderWidth: 1,
+              borderColor: fabBackgroundColor,
+            }}
+          />
+        ) : null}
       </TouchableOpacity>
 
       {/* Menu Modal */}
@@ -193,7 +286,7 @@ export function ProfileFAB() {
               styles.menu,
               {
                 top: insets.top + 56,
-                right: 16,
+                right: profileFabRightOffset,
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
                 shadowColor,
@@ -240,6 +333,18 @@ export function ProfileFAB() {
                 >
                   {item.label}
                 </Text>
+                {item.showDot ? (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      marginLeft: "auto",
+                      width: 10,
+                      height: 10,
+                      borderRadius: 5,
+                      backgroundColor: "#EF4444",
+                    }}
+                  />
+                ) : null}
               </TouchableOpacity>
             ))}
           </View>
@@ -253,17 +358,38 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     zIndex: 1000,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  alertFab: {
+    position: "absolute",
+    zIndex: 999,
     width: 40,
     height: 40,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
+    borderWidth: 1.5,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  fabRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 1,
+    borderRadius: 22,
+    opacity: 0.9,
   },
   avatar: {
     width: 36,
