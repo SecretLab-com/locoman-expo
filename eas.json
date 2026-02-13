@@ -8,6 +8,13 @@
       "developmentClient": true,
       "distribution": "internal"
     },
+    "development-simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
     "preview": {
       "distribution": "internal",
       "channel": "preview"
@@ -16,10 +23,7 @@
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://locoman-backend-870100645593.us-central1.run.app",
-        "EXPO_PUBLIC_APP_ID": "locoman",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "870100645593-fbrh3313a5srvmnmvel0pg1f72cm2n80.apps.googleusercontent.com",
-        "VITE_APP_ID": "locoman"
+        "EXPO_PUBLIC_API_BASE_URL": "https://locoman-backend-870100645593.us-central1.run.app"
       }
     }
   },
