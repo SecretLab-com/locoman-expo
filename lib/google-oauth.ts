@@ -1,0 +1,155 @@
+import { triggerAuthRefresh } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase-client";
+import { makeRedirectUri } from "expo-auth-session";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+
+WebBrowser.maybeCompleteAuthSession();
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getNativeRedirectUri(): string {
+  // Hard-force iOS auth callbacks to app scheme so OAuth never
+  // falls back into localhost/web view.
+  if (Platform.OS === "ios") {
+    return "locomotivate://oauth/callback";
+  }
+
+  return makeRedirectUri({
+    scheme: Constants.appOwnership === "expo" ? undefined : "locomotivate",
+    path: "oauth/callback",
+  });
+}
+
+export async function signInWithGoogle(): Promise<void> {
+  if (Platform.OS === "web") {
+    const redirectTo = `${window.location.origin}/oauth/callback`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+    if (error) throw error;
+    return;
+  }
+
+  if (Platform.OS === "ios" && Constants.appOwnership === "expo") {
+    throw new Error(
+      "Google OAuth on iOS requires a development build with the locomotivate:// scheme. Expo Go is not supported for this flow.",
+    );
+  }
+
+  const redirectTo = getNativeRedirectUri();
+  console.log("[OAuth] redirectTo:", redirectTo, "appOwnership:", Constants.appOwnership);
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+    },
+  });
+
+  if (error) throw error;
+  if (!data?.url) throw new Error("No OAuth URL returned.");
+
+  let authCompleted = false;
+
+  const linkSubscription = Linking.addEventListener("url", async ({ url }) => {
+    if (authCompleted || !url.includes("/oauth/callback")) return;
+    authCompleted = true;
+    console.log("[OAuth] Deep link callback received");
+    await processCallbackUrl(url);
+    triggerAuthRefresh();
+  });
+
+  const {
+    data: { subscription: authSubscription },
+  } = supabase.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_IN") {
+      authCompleted = true;
+      triggerAuthRefresh();
+    }
+  });
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  if (result.type === "success" && result.url) {
+    await processCallbackUrl(result.url);
+    authCompleted = true;
+  }
+
+  // Session propagation can be slightly delayed after browser dismissal.
+  for (let i = 0; i < 10 && !authCompleted; i++) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session) {
+      authCompleted = true;
+      triggerAuthRefresh();
+      break;
+    }
+    await wait(200);
+  }
+
+  if (!authCompleted) {
+    linkSubscription.remove();
+    authSubscription.unsubscribe();
+    throw new Error(
+      "Google OAuth did not complete. Check Supabase redirect URLs and try again.",
+    );
+  }
+
+  linkSubscription.remove();
+  authSubscription.unsubscribe();
+}
+
+async function processCallbackUrl(url: string): Promise<void> {
+  // Hash fragment tokens (implicit flow)
+  const hash = url.indexOf("#");
+  if (hash !== -1) {
+    const params = new URLSearchParams(url.slice(hash + 1));
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    if (accessToken && refreshToken) {
+      console.log("[OAuth] Setting session from tokens...");
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (error) throw error;
+      triggerAuthRefresh();
+      return;
+    }
+  }
+
+  // Query param tokens (native callback bridges may move hash -> query)
+  const qIndex = url.indexOf("?");
+  if (qIndex !== -1) {
+    const params = new URLSearchParams(url.slice(qIndex + 1).split("#")[0]);
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    if (accessToken && refreshToken) {
+      console.log("[OAuth] Setting session from query tokens...");
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (error) throw error;
+      triggerAuthRefresh();
+      return;
+    }
+  }
+
+  // Query param code (PKCE flow)
+  if (qIndex !== -1) {
+    const code = new URLSearchParams(url.slice(qIndex + 1).split("#")[0]).get("code");
+    if (code) {
+      console.log("[OAuth] Exchanging code...");
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      triggerAuthRefresh();
+      return;
+    }
+  }
+}
