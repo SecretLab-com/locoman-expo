@@ -1,1 +1,0 @@
-ALTER TABLE `bundle_templates` ADD `usageCount` int DEFAULT 0 NOT NULL;

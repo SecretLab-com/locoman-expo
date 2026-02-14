@@ -1063,6 +1063,19 @@ export async function getPublishedBundles(): Promise<BundleDraft[]> {
   return mapRowsFromDb<BundleDraft>(data || []);
 }
 
+export async function getPublishedBundlesByTrainerIds(trainerIds: string[]): Promise<BundleDraft[]> {
+  if (!Array.isArray(trainerIds) || trainerIds.length === 0) return [];
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .eq("status", "published")
+    .not("shopify_product_id", "is", null)
+    .in("trainer_id", trainerIds)
+    .order("updated_at", { ascending: false });
+  if (error) { console.error("[Database] getPublishedBundlesByTrainerIds:", error.message); return []; }
+  return mapRowsFromDb<BundleDraft>(data || []);
+}
+
 export async function getPendingReviewBundles(): Promise<BundleDraft[]> {
   const { data, error } = await sb()
     .from("bundle_drafts")
@@ -1094,6 +1107,16 @@ export async function getProductById(id: string): Promise<Product | undefined> {
     .eq("id", id)
     .maybeSingle();
   if (error) { console.error("[Database] getProductById:", error.message); return undefined; }
+  return mapFromDb<Product>(data);
+}
+
+export async function getProductByShopifyProductId(shopifyProductId: number): Promise<Product | undefined> {
+  const { data, error } = await sb()
+    .from("products")
+    .select("*")
+    .eq("shopify_product_id", shopifyProductId)
+    .maybeSingle();
+  if (error) { console.error("[Database] getProductByShopifyProductId:", error.message); return undefined; }
   return mapFromDb<Product>(data);
 }
 
@@ -1726,6 +1749,68 @@ export async function markMessageRead(id: string) {
     .update({ read_at: new Date().toISOString() })
     .eq("id", id);
   if (error) { console.error("[Database] markMessageRead:", error.message); }
+}
+
+export async function updateMessageContent(id: string, content: string) {
+  const { error } = await sb()
+    .from("messages")
+    .update({ content })
+    .eq("id", id);
+  if (error) {
+    console.error("[Database] updateMessageContent:", error.message);
+    throw error;
+  }
+}
+
+export async function deleteMessage(id: string) {
+  // Reactions reference message_id, so clear them first.
+  const { error: reactionError } = await sb()
+    .from("message_reactions")
+    .delete()
+    .eq("message_id", id);
+  if (reactionError) {
+    console.error("[Database] deleteMessage reactions:", reactionError.message);
+  }
+
+  const { error } = await sb()
+    .from("messages")
+    .delete()
+    .eq("id", id);
+  if (error) {
+    console.error("[Database] deleteMessage:", error.message);
+    throw error;
+  }
+}
+
+export async function deleteConversation(conversationId: string) {
+  const { data: msgRows, error: msgError } = await sb()
+    .from("messages")
+    .select("id")
+    .eq("conversation_id", conversationId);
+  if (msgError) {
+    console.error("[Database] deleteConversation messages:", msgError.message);
+    throw msgError;
+  }
+
+  const messageIds = (msgRows || []).map((row) => row.id).filter(Boolean);
+  if (messageIds.length > 0) {
+    const { error: reactionError } = await sb()
+      .from("message_reactions")
+      .delete()
+      .in("message_id", messageIds);
+    if (reactionError) {
+      console.error("[Database] deleteConversation reactions:", reactionError.message);
+    }
+  }
+
+  const { error } = await sb()
+    .from("messages")
+    .delete()
+    .eq("conversation_id", conversationId);
+  if (error) {
+    console.error("[Database] deleteConversation:", error.message);
+    throw error;
+  }
 }
 
 // ============================================================================

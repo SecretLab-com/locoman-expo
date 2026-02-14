@@ -7,7 +7,7 @@
 - **WebSocket authentication**: Fixed to use Supabase JWT tokens
 - **Performance optimization**: N+1 queries eliminated via RPC functions
 - **Error handling**: Added comprehensive error handling to all DB queries
-- **Legacy cleanup**: Old SDK and Drizzle ORM code removed
+- **Legacy cleanup**: Old SDK and ORM code removed
 
 ## Recent Changes
 - **Database**: Complete migration to Supabase PostgreSQL
@@ -34,7 +34,7 @@
   - `lib/supabase-client.ts` for frontend auth operations
   - `lib/supabase.ts` for server-side operations
 - **Auth Utilities**: `server/_core/auth-utils.ts` for shared auth helpers
-- **Removed**: Legacy SDK (`server/_core/sdk.ts`), Drizzle ORM, MySQL dependencies
+- **Removed**: Legacy SDK (`server/_core/sdk.ts`) and legacy SQL dependencies
 
 ## Next Steps / Remaining TODOs
 - **Join requests endpoint**: Needs implementation

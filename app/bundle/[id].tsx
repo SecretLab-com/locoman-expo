@@ -3,11 +3,12 @@ import { ShareButton } from "@/components/share-button";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
-import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
+import { router, useLocalSearchParams, useSegments } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,14 +19,21 @@ import {
   View,
 } from "react-native";
 import RenderHTML from "react-native-render-html";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function BundleDetailScreen() {
   const colors = useColors();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const segments = useSegments();
+  const segmentList = segments as string[];
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [isFavorite, setIsFavorite] = useState(false);
-  const { effectiveRole, isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
-  const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
+  const [bundleImageLoadFailed, setBundleImageLoadFailed] = useState(false);
+  const { effectiveRole, isTrainer, isManager, isCoordinator, isClient, isAuthenticated } = useAuthContext();
+  const isTrainerRoleRoute =
+    segmentList.includes("(trainer)") || segmentList.includes("(manager)") || segmentList.includes("(coordinator)");
+  const showInviteCta = isTrainerRoleRoute || (isAuthenticated && (isTrainer || isManager || isCoordinator));
+  const canPurchase = !showInviteCta && (!isAuthenticated || isClient || effectiveRole === "shopper");
 
   // Fetch bundle detail from API
   const { data: rawBundle, isLoading, error } = trpc.catalog.bundleDetail.useQuery(
@@ -48,9 +56,6 @@ export default function BundleDetailScreen() {
       title: rawBundle.title,
       description: rawBundle.description || "",
       price: parseFloat(rawBundle.price || "0"),
-      trainerName: (rawBundle as any).trainerName || "Trainer",
-      trainerAvatar: (rawBundle as any).trainerAvatar || null,
-      trainerBio: (rawBundle as any).trainerBio || "",
       image: rawBundle.imageUrl || null,
       rating: (rawBundle as any).rating || 0,
       reviews: (rawBundle as any).reviewCount || 0,
@@ -62,6 +67,14 @@ export default function BundleDetailScreen() {
       ].filter(Boolean),
     };
   }, [rawBundle]);
+
+  const bundleImageUrl = useMemo(() => {
+    return normalizeAssetUrl(bundle?.image);
+  }, [bundle?.image]);
+
+  useEffect(() => {
+    setBundleImageLoadFailed(false);
+  }, [bundleImageUrl]);
 
   if (isLoading) {
     return (
@@ -101,7 +114,6 @@ export default function BundleDetailScreen() {
       bundleId: id,
       bundleTitle: bundle.title,
       bundlePrice: String(bundle.price),
-      trainerName: bundle.trainerName,
     };
 
     if (isCoordinator) {
@@ -115,20 +127,18 @@ export default function BundleDetailScreen() {
     router.push({ pathname: "/(trainer)/invite", params } as any);
   };
 
-  const handleToggleFavorite = () => {
-    setIsFavorite(!isFavorite);
-  };
-
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header Image */}
         <View className="relative">
-          {bundle.image ? (
+          {bundleImageUrl && !bundleImageLoadFailed ? (
             <Image
-              source={{ uri: bundle.image }}
+              source={{ uri: bundleImageUrl }}
               className="w-full h-72"
               contentFit="cover"
+              transition={120}
+              onError={() => setBundleImageLoadFailed(true)}
             />
           ) : (
             <View className="w-full h-72 bg-primary/10 items-center justify-center">
@@ -137,13 +147,19 @@ export default function BundleDetailScreen() {
           )}
           {/* Back Button */}
           <TouchableOpacity
-            className="absolute top-4 left-4 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm"
+            className="absolute left-4 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm"
+            style={{ top: insets.top + 8 }}
             onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <IconSymbol name="arrow.left" size={20} color="#fff" />
           </TouchableOpacity>
           {/* Share Button */}
-          <View className="absolute top-4 right-16 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm">
+          <View
+            className="absolute right-4 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm"
+            style={{ top: insets.top + 8 }}
+          >
             <ShareButton
               content={{
                 type: "bundle",
@@ -156,94 +172,61 @@ export default function BundleDetailScreen() {
               className="p-0"
             />
           </View>
-          {/* Favorite Button — offset below ProfileFAB */}
-          <TouchableOpacity
-            className="absolute top-14 right-4 w-10 h-10 rounded-full bg-primary items-center justify-center shadow-sm"
-            onPress={handleToggleFavorite}
-            accessibilityRole="button"
-            accessibilityLabel={isFavorite ? "Remove from favorites" : "Add to favorites"}
-            testID="bundle-favorite"
-          >
-            <IconSymbol
-              name={isFavorite ? "heart.fill" : "heart"}
-              size={20}
-              color={isFavorite ? "#FF6B6B" : "#fff"}
-            />
-          </TouchableOpacity>
         </View>
 
         {/* Content */}
         <View className="px-4 py-6">
-          {/* Title and Price */}
-          <View className="flex-row justify-between items-start mb-4">
-            <View className="flex-1 mr-4">
-              <Text className="text-2xl font-bold text-foreground">{bundle.title}</Text>
-              {bundle.rating > 0 && (
-                <View className="flex-row items-center mt-2">
-                  <IconSymbol name="star.fill" size={16} color={colors.warning} />
-                  <Text className="text-foreground ml-1 font-medium">{bundle.rating}</Text>
-                  <Text className="text-muted ml-1">({bundle.reviews} reviews)</Text>
-                </View>
-              )}
-            </View>
-            <Text className="text-2xl font-bold text-primary">${bundle.price}</Text>
-          </View>
-
-          {/* Trainer Info */}
-          <TouchableOpacity className="flex-row items-center bg-surface rounded-xl p-4 mb-6">
-            {bundle.trainerAvatar ? (
-              <Image
-                source={{ uri: bundle.trainerAvatar }}
-                className="w-12 h-12 rounded-full"
-              />
-            ) : (
-              <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center">
-                <Text className="text-primary font-bold text-lg">
-                  {bundle.trainerName.charAt(0)}
-                </Text>
-              </View>
-            )}
-            <View className="ml-4 flex-1">
-              <Text className="text-base font-semibold text-foreground">
-                {bundle.trainerName}
+          <View className="flex-row items-center justify-between mb-1">
+            <View className="flex-1 mr-3">
+              <Text className="text-2xl font-bold text-foreground">
+                {bundle.title}
               </Text>
-              <Text className="text-sm text-muted">{bundle.trainerBio}</Text>
             </View>
-            <IconSymbol name="chevron.right" size={20} color={colors.muted} />
-          </TouchableOpacity>
-
-          {/* Quick Info */}
-          <View className="flex-row mb-6">
-            <View className="flex-1 bg-surface rounded-xl p-4 mr-2 items-center">
-              <IconSymbol name="clock.fill" size={24} color={colors.primary} />
-              <Text className="text-sm text-muted mt-2">Duration</Text>
-              <Text className="text-base font-semibold text-foreground">{bundle.duration}</Text>
-            </View>
-            <View className="flex-1 bg-surface rounded-xl p-4 ml-2 items-center">
-              <IconSymbol name="chart.bar.fill" size={24} color={colors.primary} />
-              <Text className="text-sm text-muted mt-2">Level</Text>
-              <Text className="text-base font-semibold text-foreground">{bundle.level}</Text>
+            <View className="items-end">
+              <Text className="text-2xl font-bold text-foreground">
+                ${bundle.price.toFixed(2)}
+              </Text>
             </View>
           </View>
 
-          {/* Description */}
+          <View className="flex-row items-center justify-between mb-5">
+            <View className="bg-primary/10 px-2 py-0.5 rounded-full">
+              <Text className="text-xs text-primary">Bundle</Text>
+            </View>
+            <Text className="text-xs text-muted capitalize">{bundle.duration || "one_time"}</Text>
+          </View>
+
+          {bundle.rating > 0 && (
+            <View className="flex-row items-center mb-4">
+              <IconSymbol name="star.fill" size={14} color={colors.warning} />
+              <Text className="text-foreground ml-1 font-medium">{bundle.rating}</Text>
+              <Text className="text-muted ml-1">({bundle.reviews} reviews)</Text>
+            </View>
+          )}
+
           <View className="mb-6">
-            <Text className="text-lg font-semibold text-foreground mb-2">About</Text>
+            <Text className="text-sm font-semibold text-foreground mb-2">Description</Text>
             {bundle.description && /<[a-z][\s\S]*>/i.test(bundle.description) ? (
               <RenderHTML
-                contentWidth={width - 48}
+                contentWidth={Math.max(0, width - 32)}
                 source={{ html: sanitizeHtml(bundle.description) }}
                 tagsStyles={{
-                  p: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 0, marginBottom: 8 },
+                  p: {
+                    color: colors.muted,
+                    lineHeight: 20,
+                    marginTop: 0,
+                    marginBottom: 8,
+                  },
                   strong: { color: colors.foreground, fontWeight: "600" },
                   b: { color: colors.foreground, fontWeight: "600" },
                   em: { fontStyle: "italic" },
-                  ul: { color: colors.muted, paddingLeft: 16 },
-                  ol: { color: colors.muted, paddingLeft: 16 },
-                  li: { color: colors.muted, fontSize: 15, lineHeight: 22, marginBottom: 4 },
-                  h1: { color: colors.foreground, fontSize: 20, fontWeight: "700", marginBottom: 8 },
-                  h2: { color: colors.foreground, fontSize: 18, fontWeight: "700", marginBottom: 6 },
-                  h3: { color: colors.foreground, fontSize: 16, fontWeight: "600", marginBottom: 4 },
+                  i: { fontStyle: "italic" },
+                  ul: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
+                  ol: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
+                  li: { color: colors.muted, marginBottom: 4 },
+                  h1: { color: colors.foreground, fontSize: 18, fontWeight: "600", marginBottom: 8 },
+                  h2: { color: colors.foreground, fontSize: 16, fontWeight: "600", marginBottom: 8 },
+                  h3: { color: colors.foreground, fontSize: 15, fontWeight: "600", marginBottom: 8 },
                 }}
               />
             ) : (
@@ -251,10 +234,9 @@ export default function BundleDetailScreen() {
             )}
           </View>
 
-          {/* What's Included */}
           {bundle.includes.length > 0 && (
             <View className="mb-6">
-              <Text className="text-lg font-semibold text-foreground mb-3">{"What's Included"}</Text>
+              <Text className="text-sm font-semibold text-foreground mb-3">{"What's Included"}</Text>
               {bundle.includes.map((item: string, index: number) => (
                 <View key={index} className="flex-row items-center mb-2">
                   <IconSymbol name="checkmark.circle.fill" size={20} color={colors.success} />
@@ -268,11 +250,27 @@ export default function BundleDetailScreen() {
 
       {/* Bottom Action Bar */}
       <View className="absolute bottom-0 left-0 right-0 bg-background border-t border-border px-4 pt-4 pb-8">
-        {canPurchase ? (
+        {showInviteCta ? (
+          <TouchableOpacity
+            className="bg-primary rounded-xl py-4 items-center"
+            onPress={handleInviteClient}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={isTrainer ? "Invite client to this bundle" : "Assign this bundle to a client"}
+            testID="bundle-invite-cta"
+          >
+            <Text className="text-background font-semibold text-lg">
+              {isTrainer ? "Invite Client" : "Assign to Client"}
+            </Text>
+          </TouchableOpacity>
+        ) : canPurchase ? (
           <TouchableOpacity
             className="bg-primary rounded-xl py-4 items-center"
             onPress={handleAddToCart}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Add bundle to cart"
+            testID="bundle-add-to-cart-cta"
           >
             <Text className="text-background font-semibold text-lg">
               Add to Cart - ${bundle.price}
@@ -283,6 +281,9 @@ export default function BundleDetailScreen() {
             className="bg-primary rounded-xl py-4 items-center"
             onPress={handleInviteClient}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={isTrainer ? "Invite client to this bundle" : "Assign this bundle to a client"}
+            testID="bundle-invite-fallback-cta"
           >
             <Text className="text-background font-semibold text-lg">
               {isTrainer ? "Invite Client" : "Assign to Client"}

@@ -7,8 +7,11 @@ import { getApiBaseUrl } from "@/lib/api-config";
 import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
 import { trpc } from "@/lib/trpc";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
+import Constants from "expo-constants";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import * as Updates from "expo-updates";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
@@ -21,6 +24,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const SPECIALTIES = [
   { value: "weight_loss", label: "Weight Loss" },
@@ -33,9 +37,21 @@ const SPECIALTIES = [
   { value: "sports", label: "Sports Performance" },
 ];
 
+function splitNameParts(fullName?: string | null): { firstName: string; lastName: string } {
+  if (!fullName) return { firstName: "", lastName: "" };
+  const trimmed = fullName.trim();
+  if (!trimmed) return { firstName: "", lastName: "" };
+  const parts = trimmed.split(/\s+/);
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
 export default function SettingsScreen() {
   const colors = useColors();
   const bottomNavHeight = useBottomNavHeight();
+  const insets = useSafeAreaInsets();
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
   const { isTrainer, isClient, isManager, isCoordinator } = useAuthContext();
   const utils = trpc.useUtils();
@@ -44,11 +60,14 @@ export default function SettingsScreen() {
   const updateProfile = trpc.profile.update.useMutation({
     onSuccess: () => {
       utils.profile.get.invalidate();
+      triggerAuthRefresh();
     },
   });
   const uploadAttachment = trpc.messages.uploadAttachment.useMutation();
 
   // Profile settings state
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -63,6 +82,9 @@ export default function SettingsScreen() {
   // Sync state with user data
   useEffect(() => {
     if (user) {
+      const { firstName: parsedFirstName, lastName: parsedLastName } = splitNameParts(user.name);
+      setFirstName(parsedFirstName);
+      setLastName(parsedLastName);
       setUsername(user.username || "");
       setBio(user.bio || "");
       setPhotoUrl(user.photoUrl || null);
@@ -97,6 +119,17 @@ export default function SettingsScreen() {
 
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const appVersion =
+    Constants.nativeAppVersion ??
+    Constants.expoConfig?.version ??
+    "1.0.0";
+  const buildNumber =
+    Constants.nativeBuildVersion ??
+    Constants.expoConfig?.ios?.buildNumber ??
+    Constants.expoConfig?.android?.versionCode?.toString() ??
+    "8";
+  const otaShortId = Updates.updateId ? Updates.updateId.slice(0, 8) : "embedded";
+  const otaChannel = Updates.channel ?? "production";
 
   const resolveImageUrl = (url: string | null) => {
     if (!url) return null;
@@ -143,6 +176,8 @@ export default function SettingsScreen() {
         });
 
         await updateProfile.mutateAsync({ photoUrl: res.url });
+        await utils.profile.get.invalidate();
+        triggerAuthRefresh();
         setPhotoUrl(res.url);
         Alert.alert("Success", "Profile photo updated!");
       } catch (error) {
@@ -157,7 +192,9 @@ export default function SettingsScreen() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const combinedName = `${firstName.trim()} ${lastName.trim()}`.trim();
       await updateProfile.mutateAsync({
+        name: combinedName || undefined,
         username,
         bio,
         specialties: selectedSpecialties,
@@ -168,6 +205,8 @@ export default function SettingsScreen() {
           website,
         },
       });
+      await utils.profile.get.invalidate();
+      triggerAuthRefresh();
       Alert.alert("Success", "Profile saved successfully!");
     } catch (error) {
       console.error("[Settings] Save failed:", error);
@@ -240,6 +279,30 @@ export default function SettingsScreen() {
                 {isUploading ? "Uploading..." : "Change Photo"}
               </Text>
             </TouchableOpacity>
+          </View>
+
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">First Name</Text>
+            <TextInput
+              value={firstName}
+              onChangeText={setFirstName}
+              placeholder="First name"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+              className="bg-surface border border-border rounded-xl px-4 py-3.5 text-foreground dark:text-white text-base"
+            />
+          </View>
+
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Last Name</Text>
+            <TextInput
+              value={lastName}
+              onChangeText={setLastName}
+              placeholder="Last name"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+              className="bg-surface border border-border rounded-xl px-4 py-3.5 text-foreground dark:text-white text-base"
+            />
           </View>
 
           <View className="mb-4">
@@ -422,14 +485,29 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        <View className="mb-6">
+          <Text className="text-center text-xs text-foreground/60">
+            App version: {appVersion} ({buildNumber})
+          </Text>
+          <Text className="mt-1 text-center text-xs text-foreground/60">
+            OTA: {otaShortId} · Channel: {otaChannel}
+          </Text>
+        </View>
+
         <View className="h-24" />
       </ScrollView>
 
-      <View className="absolute left-0 right-0 px-4 py-6 bg-background/95 border-t border-border" style={{ bottom: -(bottomNavHeight - 12) }}>
+      <View
+        className="absolute left-0 right-0 px-4 pt-4 bg-background/95 border-t border-border"
+        style={{ bottom: 0, paddingBottom: Math.max(insets.bottom, 12) }}
+      >
         <TouchableOpacity
           onPress={handleSave}
           disabled={isSaving || isUploading}
           className={`w-full py-4 rounded-2xl items-center shadow-lg ${isSaving || isUploading ? "bg-muted shadow-none" : "bg-primary"}`}
+          accessibilityRole="button"
+          accessibilityLabel="Save profile changes"
+          testID="settings-save-profile"
         >
           {isSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text className="text-white font-bold text-lg">Save Profile Changes</Text>}
         </TouchableOpacity>

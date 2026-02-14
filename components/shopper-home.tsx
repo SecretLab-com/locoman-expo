@@ -1,10 +1,12 @@
 import { OfflineBadge } from "@/components/offline-indicator";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useOffline } from "@/contexts/offline-context";
-import { useAuth } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { normalizeAssetUrl } from "@/lib/asset-url";
+import { stripHtml } from "@/lib/html-utils";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -22,14 +24,19 @@ import {
 type Bundle = {
   id: number;
   title: string;
-  description: string | null;
+  description: string;
   price: string | number | null;
   imageUrl: string | null;
   trainerName?: string;
-  trainerAvatar?: string;
+  trainerAvatar: string | null;
   rating?: number;
   reviews?: number;
 };
+
+function toDescriptionPreview(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "No description available";
+  return stripHtml(value).trim() || "No description available";
+}
 
 function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }) {
   const colors = useColors();
@@ -57,7 +64,7 @@ function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }
           {bundle.title}
         </Text>
         <Text className="text-sm text-muted mb-3" numberOfLines={2}>
-          {bundle.description || "No description available"}
+          {bundle.description}
         </Text>
 
         <View className="flex-row items-center justify-between">
@@ -87,7 +94,7 @@ function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }
 
 export default function ShopperHome() {
   const colors = useColors();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuthContext();
   const [searchQuery, setSearchQuery] = useState("");
   const { isOnline, getCachedBundles, cacheBundles } = useOffline();
   const [cachedBundles, setCachedBundles] = useState<Bundle[]>([]);
@@ -114,11 +121,11 @@ export default function ShopperHome() {
           cached.map((b: any) => ({
             id: b.id,
             title: b.title,
-            description: b.description,
+            description: toDescriptionPreview(b.description),
             price: b.price,
-            imageUrl: b.imageUrl,
+            imageUrl: normalizeAssetUrl(b.imageUrl),
             trainerName: b.trainerName || "Trainer",
-            trainerAvatar: b.trainerAvatar,
+            trainerAvatar: normalizeAssetUrl(b.trainerAvatar),
             rating: b.rating,
             reviews: b.reviewCount,
           }))
@@ -141,11 +148,11 @@ export default function ShopperHome() {
     ? bundlesData.map((b: any) => ({
         id: b.id,
         title: b.title,
-        description: b.description,
+        description: toDescriptionPreview(b.description),
         price: b.price,
-        imageUrl: b.imageUrl,
+        imageUrl: normalizeAssetUrl(b.imageUrl),
         trainerName: b.trainerName || "Trainer",
-        trainerAvatar: b.trainerAvatar,
+        trainerAvatar: normalizeAssetUrl(b.trainerAvatar),
         rating: b.rating,
         reviews: b.reviewCount,
       }))
@@ -201,8 +208,11 @@ export default function ShopperHome() {
           </View>
           {!isAuthenticated && (
             <TouchableOpacity
-              className="bg-primary px-4 py-2 rounded-full"
+              className="bg-primary px-4 py-2 rounded-full mr-16"
               onPress={handleLoginPress}
+              accessibilityRole="button"
+              accessibilityLabel="Log in"
+              testID="shopper-home-login"
             >
               <Text className="text-background font-semibold">Login</Text>
             </TouchableOpacity>
@@ -235,35 +245,39 @@ export default function ShopperHome() {
           <Text className="text-muted mt-4">Loading bundles...</Text>
         </View>
       ) : (
-        <FlatList
-          data={bundles}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <BundleCard bundle={item} onPress={() => handleBundlePress(item)} />
-          )}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={handleRefresh}
-              tintColor={colors.primary}
-            />
-          }
-          ListEmptyComponent={
-            <View className="items-center py-12">
-              <IconSymbol name="magnifyingglass" size={48} color={colors.muted} />
-              <Text className="text-muted text-center mt-4">
-                {!isOnline ? "You're offline" : "No bundles found"}
-              </Text>
-              <Text className="text-muted text-center text-sm mt-1">
-                {!isOnline
-                  ? "Connect to the internet to browse bundles"
-                  : "Try adjusting your search"}
-              </Text>
-            </View>
-          }
-        />
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <FlatList
+            data={bundles}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => (
+              <BundleCard bundle={item} onPress={() => handleBundlePress(item)} />
+            )}
+            style={{ flex: 1, minHeight: 0 }}
+            scrollEnabled
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching}
+                onRefresh={handleRefresh}
+                tintColor={colors.primary}
+              />
+            }
+            ListEmptyComponent={
+              <View className="items-center py-12">
+                <IconSymbol name="magnifyingglass" size={48} color={colors.muted} />
+                <Text className="text-muted text-center mt-4">
+                  {!isOnline ? "You're offline" : "No bundles found"}
+                </Text>
+                <Text className="text-muted text-center text-sm mt-1">
+                  {!isOnline
+                    ? "Connect to the internet to browse bundles"
+                    : "Try adjusting your search"}
+                </Text>
+              </View>
+            }
+          />
+        </View>
       )}
     </ScreenContainer>
   );

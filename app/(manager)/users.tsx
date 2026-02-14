@@ -74,8 +74,28 @@ const ACTION_LABELS: Record<string, string> = {
   impersonation_started: "Impersonation Started",
   impersonation_ended: "Impersonation Ended",
   profile_updated: "Profile Updated",
-  invited: "Invited",
-  deleted: "Deleted",
+  invited: "User Invited",
+  deleted: "Account Deleted",
+};
+
+const ACTION_ICONS: Record<string, string> = {
+  role_changed: "person.2.fill",
+  status_changed: "power",
+  impersonation_started: "theatermasks.fill",
+  impersonation_ended: "theatermasks",
+  profile_updated: "pencil",
+  invited: "envelope.fill",
+  deleted: "trash.fill",
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  role_changed: "#3B82F6",
+  status_changed: "#F59E0B",
+  impersonation_started: "#8B5CF6",
+  impersonation_ended: "#8B5CF6",
+  profile_updated: "#10B981",
+  invited: "#06B6D4",
+  deleted: "#EF4444",
 };
 
 export default function UsersScreen() {
@@ -338,12 +358,29 @@ export default function UsersScreen() {
     setActivityLogs([]);
   };
 
+  const openDirectMessage = (user: User, closeDetailModal = false) => {
+    if (!currentUser?.id || currentUser.id === user.id) return;
+    if (closeDetailModal) {
+      closeModal();
+    }
+    const conversationId = [currentUser.id, user.id].sort().join("-");
+    const name = user.name || "User";
+    router.push({
+      pathname: `${roleBase}/conversation/[id]` as any,
+      params: {
+        id: conversationId,
+        participantId: user.id,
+        name,
+      },
+    });
+  };
+
   // Load activity logs for user
+  const trpcUtils = trpc.useUtils();
   const loadActivityLogs = async (userId: string) => {
     setLoadingLogs(true);
     try {
-      const utils = trpc.useUtils();
-      const logs = await utils.admin.getUserActivityLogs.fetch({ userId, limit: 50 });
+      const logs = await trpcUtils.admin.getUserActivityLogs.fetch({ userId, limit: 50 });
       setActivityLogs(logs as ActivityLogEntry[]);
       setActivityLogVisible(true);
     } catch (error) {
@@ -673,7 +710,7 @@ export default function UsersScreen() {
       router.back();
       return;
     }
-    router.replace("/(manager)" as any);
+    router.replace("/(manager)/dashboard" as any);
   };
 
   if (authLoading) {
@@ -716,7 +753,7 @@ export default function UsersScreen() {
         </View>
         <Text className="text-xl font-semibold text-foreground">Manager access required</Text>
         <Text className="text-muted text-center mt-2">
-          You don't have permission to view this page.
+          You do not have permission to view this page.
         </Text>
       </ScreenContainer>
     );
@@ -785,6 +822,16 @@ export default function UsersScreen() {
               >
                 <IconSymbol name="plus" size={16} color="#fff" />
                 <Text style={{ color: "#fff", marginLeft: 4 }}>Invite</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setSelectedRole("client")}
+                style={[styles.headerButton, { backgroundColor: colors.surface }]}
+                accessibilityRole="button"
+                accessibilityLabel="Show clients"
+                testID="users-clients-filter"
+              >
+                <IconSymbol name="person.2.fill" size={16} color={colors.foreground} />
+                <Text style={{ color: colors.foreground, marginLeft: 4 }}>Clients</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setSelectionMode(true)}
@@ -1156,21 +1203,9 @@ export default function UsersScreen() {
 
                 {/* Role Badge */}
                 <View className="flex-row items-center gap-2">
-                  {!selectionMode && (
+                  {!selectionMode && currentUser?.id && currentUser.id !== user.id && (
                     <TouchableOpacity
-                      onPress={() => {
-                        if (!currentUser?.id) return;
-                        const conversationId = [currentUser.id, user.id].sort().join("-");
-                        const name = user.name || "User";
-                        router.push({
-                          pathname: "/conversation/[id]" as any,
-                          params: {
-                            id: conversationId,
-                            participantId: user.id,
-                            name,
-                          },
-                        });
-                      }}
+                      onPress={() => openDirectMessage(user)}
                       className="w-8 h-8 rounded-full items-center justify-center bg-surface border border-border"
                       accessibilityRole="button"
                       accessibilityLabel={`Message ${user.name || "user"}`}
@@ -1374,6 +1409,24 @@ export default function UsersScreen() {
 
                   {/* Action Buttons */}
                   <View style={styles.buttonSection}>
+                    {currentUser?.id && currentUser.id !== selectedUser.id && (
+                      <TouchableOpacity
+                        onPress={() => openDirectMessage(selectedUser, true)}
+                        style={[
+                          styles.actionButton,
+                          { backgroundColor: `${colors.primary}15`, marginBottom: 12 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Message ${selectedUser.name || "user"}`}
+                        testID="user-detail-message-btn"
+                      >
+                        <IconSymbol name="message.fill" size={20} color={colors.primary} />
+                        <Text style={{ color: colors.primary, fontWeight: "600", marginLeft: 8 }}>
+                          Message User
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
                     {/* Impersonate Button (Coordinator only) */}
                     {isCoordinator && (
                       <TouchableOpacity
@@ -1463,35 +1516,56 @@ export default function UsersScreen() {
                   {activityLogs.length === 0 ? (
                     <View style={styles.emptyLogs}>
                       <IconSymbol name="clock" size={48} color={colors.muted} />
-                      <Text style={{ color: colors.muted, marginTop: 12 }}>No activity recorded</Text>
+                      <Text style={{ color: colors.muted, marginTop: 12, fontSize: 16 }}>No activity recorded</Text>
+                      <Text style={{ color: colors.muted, marginTop: 4, fontSize: 13, textAlign: "center" }}>
+                        Actions like role changes, status updates, and impersonations will appear here.
+                      </Text>
                     </View>
                   ) : (
-                    activityLogs.map((log) => (
-                      <View
-                        key={log.id}
-                        style={[styles.logItem, { borderBottomColor: colors.border }]}
-                      >
-                        <View style={[styles.logIcon, { backgroundColor: colors.primary + "20" }]}>
-                          <IconSymbol name="clock.fill" size={16} color={colors.primary} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.foreground, fontWeight: "500" }}>
-                            {ACTION_LABELS[log.action] || log.action}
-                          </Text>
-                          {log.previousValue && log.newValue && (
-                            <Text style={{ color: colors.muted, fontSize: 13 }}>
-                              {log.previousValue} → {log.newValue}
+                    activityLogs.map((log) => {
+                      const actionColor = ACTION_COLORS[log.action] || colors.primary;
+                      const actionIcon = ACTION_ICONS[log.action] || "clock.fill";
+                      const performer = (usersQuery.data?.users || []).find((u: User) => u.id === log.performedBy);
+                      const performerName = performer?.name || "System";
+
+                      return (
+                        <View
+                          key={log.id}
+                          style={[styles.logItem, { borderBottomColor: colors.border }]}
+                        >
+                          <View style={[styles.logIcon, { backgroundColor: actionColor + "15" }]}>
+                            <IconSymbol name={actionIcon as any} size={16} color={actionColor} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 14 }}>
+                              {ACTION_LABELS[log.action] || log.action}
                             </Text>
-                          )}
-                          {log.notes && (
-                            <Text style={{ color: colors.muted, fontSize: 13 }}>{log.notes}</Text>
-                          )}
-                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-                            {formatRelativeTime(log.createdAt)}
-                          </Text>
+                            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
+                              by {performerName}
+                            </Text>
+                            {log.previousValue && log.newValue && (
+                              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                                <View style={{ backgroundColor: colors.error + "15", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                  <Text style={{ color: colors.error, fontSize: 12 }}>{log.previousValue}</Text>
+                                </View>
+                                <Text style={{ color: colors.muted, marginHorizontal: 6, fontSize: 12 }}>→</Text>
+                                <View style={{ backgroundColor: colors.success + "15", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                  <Text style={{ color: colors.success, fontSize: 12 }}>{log.newValue}</Text>
+                                </View>
+                              </View>
+                            )}
+                            {log.notes && (
+                              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4, fontStyle: "italic" }}>
+                                {log.notes}
+                              </Text>
+                            )}
+                            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                              {formatRelativeTime(log.createdAt)}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
-                    ))
+                      );
+                    })
                   )}
                 </>
               )}

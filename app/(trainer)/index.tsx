@@ -1,744 +1,1394 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { SurfaceCard } from "@/components/ui/surface-card";
 import { useAuthContext } from "@/contexts/auth-context";
-import { useColors } from "@/hooks/use-colors";
-import { haptics } from "@/hooks/use-haptics";
+import { trackLaunchEvent } from "@/lib/analytics";
+import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { formatGBPFromMinor } from "@/lib/currency";
 import { trpc } from "@/lib/trpc";
-// expo-clipboard requires Metro restart after install; use fallback for web
-const copyToClipboard = async (text: string) => {
-  try {
-    if (Platform.OS === "web" && navigator?.clipboard) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-    const Clipboard = require("expo-clipboard");
-    await Clipboard.setStringAsync(text);
-  } catch {
-    // Fallback: prompt user to copy
-    if (Platform.OS === "web") {
-      window.prompt("Copy this link:", text);
-    }
-  }
-};
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Modal,
-  Platform,
-  Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-type StatCardProps = {
-  title: string;
-  value: string | number;
-  icon: Parameters<typeof IconSymbol>[0]["name"];
-  color?: string;
-  onPress?: () => void;
+
+type NextAction = "invite" | "offer" | "pay" | "done";
+type PaymentStatus = "awaiting_payment" | "paid" | "paid_out";
+type OfferStatus = "draft" | "in_review" | "published" | "archived";
+type PendingPaymentRow = {
+  id: string;
+  merchantReference: string;
+  amountMinor: number;
+  description: string | null;
+  createdAt: string;
+  paymentLink: string | null;
+  method: string | null;
+  rawStatus?: string | null;
 };
 
-function StatCard({ title, value, icon, color, onPress }: StatCardProps) {
-  const colors = useColors();
-  const iconColor = color || colors.primary;
-
-  const content = (
-    <View className="rounded-xl overflow-hidden flex-1 min-w-[140px] bg-surface border border-border p-4">
-      <View className="flex-row items-center justify-between mb-2">
-        <IconSymbol name={icon} size={24} color={iconColor} />
-        {onPress && <IconSymbol name="chevron.right" size={16} color={colors.muted} />}
-      </View>
-      <Text className="text-2xl font-bold text-foreground">{value}</Text>
-      <Text className="text-sm text-muted mt-1">{title}</Text>
-    </View>
-  );
-
-  if (onPress) {
-    return (
-      <TouchableOpacity onPress={onPress} activeOpacity={0.8} className="flex-1">
-        {content}
-      </TouchableOpacity>
-    );
-  }
-
-  return content;
-}
-
-type QuickActionProps = {
+type HeroConfig = {
   title: string;
-  icon: Parameters<typeof IconSymbol>[0]["name"];
+  subtitle: string;
+  cta: string;
+  ctaIcon: React.ComponentProps<typeof IconSymbol>["name"];
   onPress: () => void;
 };
 
-function QuickAction({ title, icon, onPress }: QuickActionProps) {
-  const colors = useColors();
+type TierName = "Getting Started" | "Growing" | "Pro" | "Elite";
 
+const TIER_ORDER: TierName[] = ["Getting Started", "Growing", "Pro", "Elite"];
+const TIER_MIN_POINTS: Record<TierName, number> = {
+  "Getting Started": 0,
+  Growing: 1000,
+  Pro: 2000,
+  Elite: 5000,
+};
+
+const TEST_STATE_SEQUENCE: NextAction[] = ["invite", "offer", "pay", "done"];
+
+const DASH = {
+  page: "#0A0A14",
+  surface: "#151520",
+  card: "#171C2B",
+  cardSoft: "#141A28",
+  primary: "#60A5FA",
+  text: "#F8FAFC",
+  muted: "#94A3B8",
+  border: "rgba(148,163,184,0.22)",
+  borderStrong: "rgba(96,165,250,0.5)",
+  chipBg: "rgba(96,165,250,0.16)",
+  chipText: "#BFDBFE",
+};
+
+const CARD_STYLE = { backgroundColor: DASH.card, borderColor: DASH.border };
+const CARD_SOFT_STYLE = { backgroundColor: DASH.cardSoft, borderColor: DASH.border };
+const HERO_STYLE = { backgroundColor: "#312E81", borderColor: "rgba(167,139,250,0.65)" };
+const SECTION_SPACING_CLASS = "px-6 mb-7";
+const ACTION_ICON_WRAP_STYLE = { backgroundColor: "rgba(96,165,250,0.2)" };
+const ACTION_TILE_STYLE = { backgroundColor: "rgba(21,21,32,0.94)", borderColor: "rgba(148,163,184,0.22)" };
+const ACTION_TILE_FIXED_HEIGHT = 126;
+const HERO_GLOW_MAIN_STYLE = { backgroundColor: "rgba(168,85,247,0.5)" };
+const HERO_GLOW_SECOND_STYLE = { backgroundColor: "rgba(59,130,246,0.38)" };
+const CHIP_STYLE = { backgroundColor: "rgba(167,139,250,0.22)", borderColor: "rgba(196,181,253,0.44)" };
+const MUTED_BADGE_STYLE = { backgroundColor: "rgba(255,255,255,0.05)", borderColor: "rgba(255,255,255,0.12)" };
+
+const ACTIVITY_STATUS_STYLE: Record<PaymentStatus, { bg: string; text: string; label: string }> = {
+  awaiting_payment: { bg: "rgba(250,204,21,0.15)", text: "#FACC15", label: "Awaiting payment" },
+  paid: { bg: "rgba(52,211,153,0.18)", text: "#34D399", label: "Paid" },
+  paid_out: { bg: "rgba(96,165,250,0.18)", text: DASH.primary, label: "Paid out" },
+};
+
+const OFFER_STATUS_STYLE: Record<OfferStatus, { bg: string; border: string; text: string; label: string }> = {
+  draft: { bg: "rgba(250,204,21,0.15)", border: "rgba(250,204,21,0.3)", text: "#FACC15", label: "Draft" },
+  in_review: { bg: "rgba(96,165,250,0.2)", border: "rgba(96,165,250,0.34)", text: DASH.primary, label: "In review" },
+  published: { bg: "rgba(52,211,153,0.18)", border: "rgba(52,211,153,0.35)", text: "#34D399", label: "Published" },
+  archived: { bg: "rgba(248,113,113,0.16)", border: "rgba(248,113,113,0.32)", text: "#F87171", label: "Archived" },
+};
+
+function formatDateShort(value: string | Date) {
+  return new Date(value).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function formatOfferType(value: string | undefined) {
+  if (!value) return "Offer";
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function extractListItemsFromHtml(description: string): string[] {
+  const names: string[] = [];
+  const liMatches = description.matchAll(/<li>(.*?)<\/li>/gi);
+  for (const match of liMatches) {
+    const raw = String(match[1] || "");
+    const withoutTags = raw.replace(/<[^>]+>/g, "");
+    const withoutQty = withoutTags.replace(/\(x\d+\)/gi, "");
+    const cleaned = withoutQty.trim();
+    if (cleaned) names.push(cleaned);
+  }
+  return names;
+}
+
+function toFirstName(value: string | null | undefined) {
+  if (!value) return "there";
+  const first = value.trim().split(/\s+/)[0];
+  return first || "there";
+}
+
+function SectionHeader({
+  title,
+  actionLabel,
+  onActionPress,
+}: {
+  title: string;
+  actionLabel?: string;
+  onActionPress?: () => void;
+}) {
   return (
-    <TouchableOpacity
-      className="rounded-xl overflow-hidden flex-1 mx-1 bg-surface border border-border p-4 items-center"
-      onPress={onPress}
-      activeOpacity={0.8}
-    >
-      <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
-        <IconSymbol name={icon} size={24} color={colors.primary} />
+    <View className="px-6 mb-4 flex-row items-center justify-between">
+      <Text className="text-lg font-bold" style={{ color: DASH.text }}>
+        {title}
+      </Text>
+      {actionLabel && onActionPress ? (
+        <TouchableOpacity
+          className="px-1 py-1"
+          onPress={onActionPress}
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+        >
+          <Text className="text-sm font-bold" style={{ color: DASH.primary }}>
+            {actionLabel}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
+function QuickActionButton({
+  icon,
+  label,
+  subtitle,
+  value,
+  onPress,
+  testID,
+}: {
+  icon: React.ComponentProps<typeof IconSymbol>["name"];
+  label: string;
+  subtitle?: string;
+  value?: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  return (
+    <View className="w-1/2 p-1.5">
+      <TouchableOpacity
+        className="rounded-xl border p-4 items-center justify-center"
+        style={{ ...ACTION_TILE_STYLE, height: ACTION_TILE_FIXED_HEIGHT }}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        testID={testID}
+      >
+        <View className={`w-12 h-12 rounded-full items-center justify-center ${subtitle || value ? "mb-1.5" : "mb-2"}`} style={ACTION_ICON_WRAP_STYLE}>
+          <IconSymbol name={icon} size={20} color={DASH.primary} />
+        </View>
+        <Text className="text-sm font-semibold text-center" style={{ color: DASH.text }} numberOfLines={1}>
+          {label}
+        </Text>
+        {subtitle ? (
+          <Text className="text-[11px] mt-1 text-center" style={{ color: DASH.muted }} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+        {value ? (
+          <Text className="text-[11px] mt-0.5 text-center font-semibold" style={{ color: DASH.primary }} numberOfLines={1}>
+            {value}
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function EmptyModuleCard({
+  icon,
+  description,
+  cta,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof IconSymbol>["name"];
+  description: string;
+  cta: string;
+  onPress: () => void;
+}) {
+  return (
+    <SurfaceCard style={CARD_STYLE}>
+      <View className="items-center py-4">
+        <View className="w-16 h-16 rounded-full items-center justify-center mb-3" style={{ backgroundColor: "rgba(255,255,255,0.06)" }}>
+          <IconSymbol name={icon} size={28} color="#64748B" />
+        </View>
+        <Text className="text-sm text-center leading-5 px-2" style={{ color: "#A7B5CC" }}>
+          {description}
+        </Text>
+        <TouchableOpacity
+          className="mt-3 px-5 py-2 rounded-full border"
+          style={MUTED_BADGE_STYLE}
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={cta}
+        >
+          <Text className="text-sm font-bold" style={{ color: DASH.text }}>
+            {cta}
+          </Text>
+        </TouchableOpacity>
       </View>
-      <Text className="text-sm font-medium text-foreground text-center">{title}</Text>
-    </TouchableOpacity>
+    </SurfaceCard>
   );
 }
 
-function ClientAvatar({ uri }: { uri?: string | null }) {
-  const colors = useColors();
-  const [hasError, setHasError] = useState(false);
-  const isValidUri = typeof uri === "string" && uri.trim().length > 0;
-
+function StepPill({
+  label,
+  isDone,
+  isCurrent,
+}: {
+  label: string;
+  isDone: boolean;
+  isCurrent: boolean;
+}) {
   return (
-    <View className="w-8 h-8 rounded-full bg-muted/30 overflow-hidden items-center justify-center">
-      {isValidUri && !hasError ? (
-        <Image
-          source={{ uri }}
-          className="w-8 h-8 rounded-full"
-          contentFit="cover"
-          onError={() => setHasError(true)}
-        />
-      ) : (
-        <IconSymbol name="person.fill" size={14} color={colors.muted} />
-      )}
+    <View
+      className="flex-row items-center rounded-full px-2.5 py-1 border"
+      style={{
+        backgroundColor: isDone || isCurrent ? "rgba(96,165,250,0.16)" : "rgba(255,255,255,0.05)",
+        borderColor: isDone || isCurrent ? "rgba(96,165,250,0.36)" : "rgba(255,255,255,0.12)",
+      }}
+    >
+      <View
+        className="w-4 h-4 rounded-full items-center justify-center mr-1.5"
+        style={{ backgroundColor: isDone || isCurrent ? "rgba(96,165,250,0.24)" : "rgba(148,163,184,0.25)" }}
+      >
+        {isDone ? (
+          <IconSymbol name="checkmark" size={10} color={DASH.primary} />
+        ) : (
+          <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isCurrent ? DASH.primary : "#94A3A0" }} />
+        )}
+      </View>
+      <Text className="text-[11px] font-medium" style={{ color: isDone || isCurrent ? DASH.text : DASH.muted }}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-function TrendingItemImage({ uri }: { uri?: string | null }) {
-  const colors = useColors();
-  const [hasError, setHasError] = useState(false);
-  const isValidUri = typeof uri === "string" && uri.trim().length > 0;
+export default function TrainerHomeScreen() {
+  const { effectiveUser } = useAuthContext();
+  const utils = trpc.useUtils();
+  const [testStateOverride, setTestStateOverride] = useState<NextAction | null>(null);
+  const [earningsExpanded, setEarningsExpanded] = useState(false);
+  const [pendingPaymentsVisible, setPendingPaymentsVisible] = useState(false);
+  const heroScaleAnim = useRef(new Animated.Value(1)).current;
+  const ctaScaleAnim = useRef(new Animated.Value(1)).current;
+  const sparkleAnim = useRef(new Animated.Value(0)).current;
+  const stepProgressAnim = useRef(new Animated.Value(1)).current;
+  const glowFloatAnim = useRef(new Animated.Value(0)).current;
+  const glowPulseAnim = useRef(new Animated.Value(0)).current;
 
-  return (
-    <View className="w-12 h-12 rounded-xl bg-muted/30 overflow-hidden items-center justify-center mr-3">
-      {isValidUri && !hasError ? (
-        <Image
-          source={{ uri }}
-          className="w-12 h-12"
-          contentFit="cover"
-          onError={() => setHasError(true)}
-        />
-      ) : (
-        <IconSymbol name="shippingbox.fill" size={18} color={colors.muted} />
-      )}
-    </View>
+  const {
+    data: clients = [],
+    isLoading: clientsLoading,
+    isRefetching: clientsRefetching,
+    refetch: refetchClients,
+  } = trpc.clients.list.useQuery();
+  const {
+    data: offers = [],
+    isLoading: offersLoading,
+    isRefetching: offersRefetching,
+    refetch: refetchOffers,
+  } = trpc.offers.list.useQuery();
+  const { data: products = [] } = trpc.catalog.products.useQuery();
+  const {
+    data: paymentStats,
+    isLoading: statsLoading,
+    isRefetching: statsRefetching,
+    refetch: refetchStats,
+  } = trpc.payments.stats.useQuery();
+  const {
+    data: invitations = [],
+    isLoading: invitationsLoading,
+    isRefetching: invitationsRefetching,
+    refetch: refetchInvitations,
+  } = trpc.clients.invitations.useQuery();
+  const {
+    data: payoutSummary,
+    isLoading: payoutLoading,
+    isRefetching: payoutRefetching,
+    refetch: refetchPayouts,
+  } = trpc.payments.payoutSummary.useQuery();
+  const {
+    data: recentActivity = [],
+    isLoading: activityLoading,
+    isRefetching: activityRefetching,
+    refetch: refetchActivity,
+  } = trpc.payments.history.useQuery({ limit: 6 });
+  const {
+    data: pendingPaymentHistory = [],
+    isLoading: pendingPaymentsLoading,
+    isRefetching: pendingPaymentsRefetching,
+    refetch: refetchPendingPayments,
+  } = trpc.payments.history.useQuery({ limit: 100, status: "awaiting_payment" });
+  const {
+    data: pointsData,
+    isLoading: pointsLoading,
+    isRefetching: pointsRefetching,
+    refetch: refetchPoints,
+  } = trpc.trainerDashboard.points.useQuery();
+
+  const isRefetching =
+    clientsRefetching ||
+    offersRefetching ||
+    statsRefetching ||
+    invitationsRefetching ||
+    payoutRefetching ||
+    activityRefetching ||
+    pendingPaymentsRefetching ||
+    pointsRefetching;
+
+  const hasClient = clients.length > 0;
+  const hasPendingInvite = invitations.some((invite) => {
+    const status = (invite.status || "pending").toLowerCase();
+    return status === "pending";
+  });
+  const hasClientOrInvite = hasClient || hasPendingInvite;
+  const hasOffer = offers.length > 0;
+  const hasPayment = (paymentStats?.paid || 0) > 0 || (paymentStats?.paidOut || 0) > 0;
+  const liveNextAction: NextAction = !hasClientOrInvite ? "invite" : !hasOffer ? "offer" : !hasPayment ? "pay" : "done";
+  const nextAction: NextAction = testStateOverride ?? liveNextAction;
+  const displayHasPayment = nextAction === "done";
+  const totalPoints = pointsData?.totalPoints || 0;
+  const statusTier = (pointsData?.statusTier as TierName | undefined) || "Getting Started";
+  const currentTierIndex = Math.max(0, TIER_ORDER.indexOf(statusTier));
+  const nextTier = currentTierIndex < TIER_ORDER.length - 1 ? TIER_ORDER[currentTierIndex + 1] : null;
+  const currentTierMin = TIER_MIN_POINTS[statusTier];
+  const nextTierMin = nextTier ? TIER_MIN_POINTS[nextTier] : currentTierMin;
+  const tierRange = Math.max(1, nextTierMin - currentTierMin);
+  const rawTierProgress = nextTier ? (totalPoints - currentTierMin) / tierRange : 1;
+  const tierProgress = Math.max(0, Math.min(1, rawTierProgress));
+  const pointsToNextTier = nextTier ? Math.max(0, nextTierMin - totalPoints) : 0;
+  const pendingPaymentRows = useMemo(() => {
+    return (pendingPaymentHistory as PendingPaymentRow[]).filter((payment) => {
+      const method = (payment.method || "").toLowerCase();
+      const rawStatus = (payment.rawStatus || "").toLowerCase();
+      if (method !== "link") return false;
+      return rawStatus === "created" || rawStatus === "pending";
+    });
+  }, [pendingPaymentHistory]);
+  const pendingPaymentsCount = pendingPaymentRows.length;
+  const pendingPaymentsTotalMinor = useMemo(
+    () => pendingPaymentRows.reduce((sum, payment) => sum + (payment.amountMinor || 0), 0),
+    [pendingPaymentRows],
   );
-}
 
-export default function TrainerDashboardScreen() {
-  const colors = useColors();
-  const { user, effectiveUser, effectiveRole } = useAuthContext();
-  const roleBase =
-    effectiveRole === "client"
-      ? "/(client)"
-      : effectiveRole === "trainer"
-        ? "/(trainer)"
-        : effectiveRole === "manager"
-          ? "/(manager)"
-          : effectiveRole === "coordinator"
-            ? "/(coordinator)"
-            : "/(tabs)";
-
-  // Fetch trainer stats from API
-  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = trpc.trainerDashboard.stats.useQuery();
-  const { data: points, refetch: refetchPoints } = trpc.trainerDashboard.points.useQuery();
-  const { data: clientsData, refetch: refetchClients } = trpc.clients.list.useQuery();
-
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentDescription, setPaymentDescription] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"link" | "card">("link");
-
-  const showAlert = (title: string, message: string) => {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-    } else {
-      Alert.alert(title, message);
-    }
-  };
-
-  const [paymentLinkResult, setPaymentLinkResult] = useState<string | null>(null);
-
-  const createLink = trpc.payments.createLink.useMutation({
-    onSuccess: (data) => {
-      setPaymentAmount("");
-      setPaymentDescription("");
-      setPaymentLinkResult(data.linkUrl);
-    },
-    onError: (err) => {
-      console.error("[Payments] createLink error:", err);
-      showAlert("Payment Error", err.message);
+  const cancelPendingPayment = trpc.payments.cancelLink.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.payments.history.invalidate(),
+        utils.payments.stats.invalidate(),
+      ]);
     },
   });
 
-  const handleCopyLink = async () => {
-    if (!paymentLinkResult) return;
-    await copyToClipboard(paymentLinkResult);
-    await haptics.light();
-    showAlert("Copied", "Payment link copied to clipboard");
+  const previewClients = (clients.filter((client) => client.status === "active").length > 0
+    ? clients.filter((client) => client.status === "active")
+    : clients
+  ).slice(0, 3);
+
+  const previewOffers = (offers.filter((offer) => offer.status === "published").length > 0
+    ? offers.filter((offer) => offer.status === "published")
+    : offers
+  ).slice(0, 2);
+
+  const productImageByName = useMemo(() => {
+    const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+    const imageMap = new Map<string, string>();
+    for (const product of products as any[]) {
+      if (!product?.name || !product?.imageUrl) continue;
+      const normalizedName = normalizeName(String(product.name));
+      const normalizedImage = normalizeAssetUrl(String(product.imageUrl));
+      if (!normalizedImage) continue;
+      if (!imageMap.has(normalizedName)) imageMap.set(normalizedName, normalizedImage);
+    }
+    return imageMap;
+  }, [products]);
+
+  const productImageEntries = useMemo(() => Array.from(productImageByName.entries()), [productImageByName]);
+
+  const getOfferImageUrl = (offer: any): string => {
+    const directImage = normalizeAssetUrl(offer?.imageUrl);
+    if (directImage) return directImage;
+
+    const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+    const candidates = new Set<string>();
+
+    if (offer?.title) candidates.add(normalizeName(String(offer.title)));
+    if (Array.isArray(offer?.included)) {
+      for (const included of offer.included) {
+        if (typeof included === "string" && included.trim()) {
+          candidates.add(normalizeName(included));
+        }
+      }
+    }
+    if (typeof offer?.description === "string" && offer.description.trim()) {
+      for (const item of extractListItemsFromHtml(offer.description)) {
+        candidates.add(normalizeName(item));
+      }
+    }
+
+    for (const name of candidates) {
+      const exactMatch = productImageByName.get(name);
+      if (exactMatch) return exactMatch;
+    }
+
+    for (const name of candidates) {
+      for (const [productName, imageUrl] of productImageEntries) {
+        if (name.includes(productName) || productName.includes(name)) {
+          return imageUrl;
+        }
+      }
+    }
+
+    return getOfferFallbackImageUrl(offer?.title);
   };
 
-  const handleShareLink = async () => {
-    if (!paymentLinkResult) return;
-    try {
-      const { Share } = require("react-native");
-      await Share.share({
-        message: `Please complete your payment: ${paymentLinkResult}`,
-        url: paymentLinkResult,
-      });
-    } catch {
-      handleCopyLink();
+  const heroStep = nextAction === "invite" ? 1 : nextAction === "offer" ? 2 : 3;
+
+  const heroConfig: HeroConfig = (() => {
+    if (nextAction === "invite") {
+      return {
+        title: "You’re 2 steps away from your first payout",
+        subtitle: "Invite your first client and set up an offer to start earning.",
+        cta: "Invite client",
+        ctaIcon: "person.badge.plus",
+        onPress: () => {
+          trackLaunchEvent("trainer_home_next_action_tapped", { step: "invite" });
+          router.push("/(trainer)/invite" as any);
+        },
+      };
     }
-  };
-
-  const createSession = trpc.payments.createSession.useMutation({
-    onSuccess: (_data) => {
-      // Card session created — in a full dev build, this would open the Adyen Drop-in
-      // For now, fall back to creating a payment link instead
-      console.log("[Payments] Session created, falling back to link for Expo Go");
-      const amountMinor = Math.round(parseFloat(paymentAmount) * 100);
-      createLink.mutate({
-        amountMinor,
-        description: paymentDescription || undefined,
-      });
-    },
-    onError: (err) => {
-      console.error("[Payments] createSession error:", err);
-      showAlert("Payment Error", err.message);
-    },
-  });
-
-  const handleRequestPayment = async () => {
-    await haptics.light();
-    console.log("[Payments] handleRequestPayment called", { paymentAmount, paymentMethod, paymentDescription });
-    const amountFloat = parseFloat(paymentAmount);
-    if (!amountFloat || amountFloat <= 0) {
-      showAlert("Invalid Amount", "Please enter a valid amount.");
-      return;
+    if (nextAction === "offer") {
+      return {
+        title: "Create your first offer",
+        subtitle: "Package your expertise into a clear, client-ready plan.",
+        cta: "Create offer",
+        ctaIcon: "sparkles",
+        onPress: () => {
+          trackLaunchEvent("trainer_home_next_action_tapped", { step: "offer" });
+          router.push("/(trainer)/offers/new" as any);
+        },
+      };
     }
-    const amountMinor = Math.round(amountFloat * 100);
-
-    console.log("[Payments] Calling mutation", { paymentMethod, amountMinor });
-    if (paymentMethod === "link") {
-      createLink.mutate({
-        amountMinor,
-        description: paymentDescription || undefined,
-      });
-    } else {
-      createSession.mutate({
-        amountMinor,
-        description: paymentDescription || undefined,
-        method: "card",
-      });
+    if (nextAction === "pay") {
+      return {
+        title: "Share your payment link",
+        subtitle: "Get paid online or in person in under a minute.",
+        cta: "Get paid",
+        ctaIcon: "square.and.arrow.up",
+        onPress: () => {
+          trackLaunchEvent("trainer_home_next_action_tapped", { step: "pay" });
+          router.push("/(trainer)/get-paid" as any);
+        },
+      };
     }
-  };
-
-  const isLoading = statsLoading;
-  const isRefetching = false;
+    return {
+      title: `You’ve earned ${formatGBPFromMinor(paymentStats?.totalPaidMinor || 0)}`,
+      subtitle: "Bonus status unlocked. Track your tier progress and climb to the next level.",
+      cta: "Open rewards",
+      ctaIcon: "star.fill",
+      onPress: () => {
+        trackLaunchEvent("trainer_home_next_action_tapped", { step: "bonus" });
+        router.push("/(trainer)/rewards" as any);
+      },
+    };
+  })();
 
   const onRefresh = async () => {
     await Promise.all([
-      refetchStats(),
-      refetchPoints(),
       refetchClients(),
+      refetchOffers(),
+      refetchStats(),
+      refetchInvitations(),
+      refetchPayouts(),
+      refetchActivity(),
+      refetchPendingPayments(),
+      refetchPoints(),
     ]);
   };
 
-  // Default stats if not loaded
-  const displayStats = stats || {
-    totalEarnings: 0,
-    monthlyEarnings: 0,
-    activeClients: 0,
-    activeBundles: 0,
-    pendingOrders: 0,
-    completedDeliveries: 0,
+  const handleAdvanceTestState = () => {
+    setTestStateOverride((prev) => {
+      const current = prev ?? liveNextAction;
+      const index = TEST_STATE_SEQUENCE.indexOf(current);
+      const nextIndex =
+        index >= 0 && index < TEST_STATE_SEQUENCE.length - 1 ? index + 1 : TEST_STATE_SEQUENCE.length - 1;
+      return TEST_STATE_SEQUENCE[nextIndex];
+    });
   };
 
-  const displayPoints = points || { totalPoints: 0, statusTier: "Bronze" };
-  const statusLabel = displayPoints.statusTier || "Delta";
-
-  const salesByCategory = [
-    { label: "Sessions", value: 62 },
-    { label: "Products", value: 24 },
-    { label: "Bundles", value: 14 },
-  ];
-
-  const balanceSnapshot = {
-    available: 1925,
-    pending: 320,
-    lastPayout: "Jan 31",
-    nextPayout: "Feb 28",
+  const handleResetTestState = () => {
+    setTestStateOverride("invite");
   };
 
-  const clientPreview = (clientsData || []).slice(0, 5).map(c => ({
-    id: c.id.toString(),
-    name: c.name.split(' ')[0],
-    tag: c.status === 'active' ? 'Active' : 'Pending',
-    photoUrl: c.photoUrl
-  }));
+  useEffect(() => {
+    stepProgressAnim.setValue(heroStep - 0.4);
+    sparkleAnim.setValue(0);
+    Animated.parallel([
+      Animated.timing(stepProgressAnim, {
+        toValue: heroStep,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.sequence([
+        Animated.timing(heroScaleAnim, {
+          toValue: 1.03,
+          duration: 170,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.spring(heroScaleAnim, {
+          toValue: 1,
+          friction: 7,
+          tension: 90,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.sequence([
+        Animated.timing(ctaScaleAnim, {
+          toValue: 1.08,
+          duration: 180,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ctaScaleAnim, {
+          toValue: 1,
+          duration: 190,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(sparkleAnim, {
+        toValue: 1,
+        duration: 650,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [ctaScaleAnim, heroScaleAnim, heroStep, sparkleAnim, stepProgressAnim]);
 
-  const servicesPreview = ["1:1 PT Sessions", "Group Training", "Online Coaching", "Assessments"];
-
-  const trendingItems = [
-    {
-      id: "t1",
-      title: "Hyrox Recovery Bundle",
-      subtitle: "Top seller this week",
-      imageUrl: "https://images.unsplash.com/photo-1549576490-b0b4831ef60a?w=400",
-    },
-    {
-      id: "t2",
-      title: "Performance Protein Stack",
-      subtitle: "+300 pts per sale",
-      imageUrl: "https://images.unsplash.com/photo-1514996937319-344454492b37?w=400",
-    },
-  ];
-
-  if (isLoading) {
-    return (
-      <ScreenContainer>
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text className="text-muted mt-4">Loading dashboard...</Text>
-        </View>
-      </ScreenContainer>
+  useEffect(() => {
+    const floatLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowFloatAnim, {
+          toValue: 1,
+          duration: 4400,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowFloatAnim, {
+          toValue: 0,
+          duration: 4400,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
     );
-  }
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowPulseAnim, {
+          toValue: 1,
+          duration: 3200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowPulseAnim, {
+          toValue: 0,
+          duration: 3200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    floatLoop.start();
+    pulseLoop.start();
+    return () => {
+      floatLoop.stop();
+      pulseLoop.stop();
+    };
+  }, [glowFloatAnim, glowPulseAnim]);
+
+  const sparkleRotate = sparkleAnim.interpolate({
+    inputRange: [0, 0.35, 0.7, 1],
+    outputRange: ["0deg", "22deg", "-16deg", "0deg"],
+  });
+  const sparkleY = sparkleAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, -7, 0],
+  });
+  const topGlowTranslateX = glowFloatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 20],
+  });
+  const topGlowTranslateY = glowFloatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -14],
+  });
+  const topGlowScale = glowPulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.16],
+  });
+  const bottomGlowTranslateX = glowFloatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -16],
+  });
+  const bottomGlowTranslateY = glowFloatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 14],
+  });
+  const bottomGlowScale = glowPulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.14],
+  });
+
+  const openGetPaid = (source: string, mode?: "tap" | "link") => {
+    trackLaunchEvent("trainer_home_next_action_tapped", { step: source, mode: mode || "default" });
+    router.push({
+      pathname: "/(trainer)/get-paid",
+      ...(mode ? { params: { mode } } : {}),
+    } as any);
+  };
+
+  const handleSendReminder = async (payment: PendingPaymentRow) => {
+    if (!payment.paymentLink) {
+      Alert.alert("No payment link", "This payment does not have a shareable link.");
+      return;
+    }
+    const amount = formatGBPFromMinor(payment.amountMinor || 0);
+    const message = `Friendly reminder: ${payment.description || "Training payment"} (${amount}) is still pending.\n\n${payment.paymentLink}`;
+    await Share.share({ message, url: payment.paymentLink });
+  };
+
+  const handleCancelPendingPayment = (payment: PendingPaymentRow) => {
+    Alert.alert(
+      "Cancel payment link?",
+      "The client will no longer be able to pay using this link.",
+      [
+        { text: "Keep link", style: "cancel" },
+        {
+          text: "Cancel link",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await cancelPendingPayment.mutateAsync({ merchantReference: payment.merchantReference });
+            } catch (error: any) {
+              Alert.alert("Unable to cancel", error?.message || "Please try again.");
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const totalEarned = formatGBPFromMinor(paymentStats?.totalPaidMinor || 0);
+  const availableEarnings = formatGBPFromMinor(Math.round((payoutSummary?.available || 0) * 100));
+  const pendingEarnings = formatGBPFromMinor(Math.round((payoutSummary?.pending || 0) * 100));
+  const firstName = useMemo(() => toFirstName(effectiveUser?.name), [effectiveUser?.name]);
+
+  const quickActions = [
+    {
+      icon: "person.badge.plus" as const,
+      label: "Invite",
+      onPress: () => router.push("/(trainer)/invite" as any),
+      testID: "trainer-quick-invite",
+    },
+    {
+      icon: "sparkles" as const,
+      label: "Create offer",
+      onPress: () => {
+        trackLaunchEvent("trainer_home_next_action_tapped", { step: "offer" });
+        router.push("/(trainer)/offers/new" as any);
+      },
+      testID: "trainer-quick-offer",
+    },
+    {
+      icon: "creditcard.fill" as const,
+      label: "Get paid",
+      onPress: () => openGetPaid("get_paid"),
+      testID: "trainer-quick-get-paid",
+    },
+    {
+      icon: "clock" as const,
+      label: "Pending payments",
+      subtitle: pendingPaymentsLoading ? "Loading..." : `${pendingPaymentsCount} outstanding`,
+      value: formatGBPFromMinor(pendingPaymentsTotalMinor),
+      onPress: () => setPendingPaymentsVisible(true),
+      testID: "trainer-quick-pending-payments",
+    },
+  ];
+
+  const activityRows = recentActivity.slice(0, 5);
+  const hasAnyLoading =
+    clientsLoading ||
+    offersLoading ||
+    statsLoading ||
+    invitationsLoading ||
+    payoutLoading ||
+    activityLoading ||
+    pendingPaymentsLoading ||
+    pointsLoading;
 
   return (
-    <ScreenContainer>
+    <ScreenContainer
+      containerClassName="bg-[#0A0A14]"
+      safeAreaClassName="bg-[#0A0A14]"
+      className="bg-[#0A0A14]"
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
-        }
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={DASH.primary} />}
       >
-        {/* Header */}
-        <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
-          <View>
-            <Text className="text-2xl font-bold text-foreground">Dashboard</Text>
-            <Text className="text-sm text-muted">
-              Welcome back, {effectiveUser?.name || user?.name || "Trainer"}!
+        <View className="px-6 pt-3 pb-4">
+          <View className="pr-24">
+            <Text className="text-3xl font-bold tracking-tight" style={{ color: DASH.text }}>
+              Hi, {firstName} 👋
+            </Text>
+            <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
+              Let’s get you paid.
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={() => router.push("/(trainer)/settings" as any)}
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center"
-          >
-            <IconSymbol name="gearshape.fill" size={22} color={colors.foreground} />
-          </TouchableOpacity>
         </View>
 
-        {/* Status & Rewards */}
-        <View className="px-4 mb-6">
-          <TouchableOpacity
-            onPress={() => router.push("/(trainer)/points" as any)}
-            className="bg-surface border border-border rounded-xl p-4"
-            activeOpacity={0.8}
-          >
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center">
-                <View className="w-10 h-10 rounded-full bg-primary items-center justify-center">
-                  <IconSymbol name="star.fill" size={20} color="#fff" />
-                </View>
-                <View className="ml-3">
-                  <Text className="text-xs text-muted">Status</Text>
-                  <Text className="text-lg font-bold text-foreground">{statusLabel}</Text>
-                </View>
-              </View>
-              <View className="items-end">
-                <Text className="text-xs text-muted">Points this month</Text>
-                <Text className="text-lg font-bold text-foreground">
-                  {displayPoints.totalPoints.toLocaleString()}
-                </Text>
-              </View>
-            </View>
+        <View className={SECTION_SPACING_CLASS}>
+          <Animated.View style={{ transform: [{ scale: heroScaleAnim }] }}>
+            <SurfaceCard className="relative overflow-hidden" style={HERO_STYLE}>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                HERO_GLOW_MAIN_STYLE,
+                {
+                  position: "absolute",
+                  top: -70,
+                  right: -62,
+                  width: 190,
+                  height: 190,
+                  borderRadius: 999,
+                  transform: [
+                    { translateX: topGlowTranslateX },
+                    { translateY: topGlowTranslateY },
+                    { scale: topGlowScale },
+                  ],
+                },
+              ]}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                HERO_GLOW_SECOND_STYLE,
+                {
+                  position: "absolute",
+                  bottom: -72,
+                  left: -52,
+                  width: 172,
+                  height: 172,
+                  borderRadius: 999,
+                  transform: [
+                    { translateX: bottomGlowTranslateX },
+                    { translateY: bottomGlowTranslateY },
+                    { scale: bottomGlowScale },
+                  ],
+                },
+              ]}
+            />
 
-            <View className="mt-4">
-              <Text className="text-xs text-muted mb-2">Progress to next tier</Text>
-              <View className="h-2 rounded-full bg-muted/30 overflow-hidden">
-                <View className="h-2 rounded-full bg-primary" style={{ width: "80%" }} />
-              </View>
-              <View className="flex-row items-center justify-between mt-3">
-                <Text className="text-xs text-muted">Revenue share</Text>
-                <Text className="text-xs font-semibold text-foreground">35%</Text>
-              </View>
-              <View className="flex-row items-center justify-between mt-2">
-                <Text className="text-xs text-muted">Resets in</Text>
-                <Text className="text-xs font-semibold text-foreground">12 days</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* Revenue Performance Snapshot */}
-        <View className="px-4 mb-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Performance</Text>
-            <TouchableOpacity onPress={() => router.push("/(trainer)/earnings" as any)}>
-              <Text className="text-primary font-medium">View analytics</Text>
-            </TouchableOpacity>
-          </View>
-          <View className="bg-surface rounded-xl p-4 border border-border">
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-muted">Total sold</Text>
-              <Text className="text-foreground font-semibold">
-                ${displayStats.monthlyEarnings.toLocaleString()}
+            <View className="self-start flex-row items-center px-3 py-1 rounded-full border mb-3" style={CHIP_STYLE}>
+              <Text className="text-[11px] font-bold tracking-[1px]" style={{ color: DASH.chipText }}>
+                WHAT IS NEXT
               </Text>
+              <Animated.Text
+                style={{
+                  marginLeft: 6,
+                  transform: [{ rotate: sparkleRotate }, { translateY: sparkleY }],
+                }}
+              >
+                ✨
+              </Animated.Text>
             </View>
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-muted">Your earnings</Text>
-              <Text className="text-foreground font-semibold">
-                ${displayStats.totalEarnings.toLocaleString()}
-              </Text>
-            </View>
-            {salesByCategory.map((item) => (
-              <View key={item.label} className="mb-3">
-                <View className="flex-row items-center justify-between mb-1">
-                  <Text className="text-sm text-muted">{item.label}</Text>
-                  <Text className="text-sm font-semibold text-foreground">{item.value}%</Text>
-                </View>
-                <View className="h-2 rounded-full bg-muted/30 overflow-hidden">
-                  <View style={{ width: `${item.value}%` }} className="h-2 rounded-full bg-primary" />
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
 
-        {/* Sales Performance by Category */}
-        <View className="px-4 mb-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Sales by category</Text>
-            <TouchableOpacity onPress={() => router.push("/(trainer)/earnings" as any)}>
-              <Text className="text-primary font-medium">View analytics</Text>
-            </TouchableOpacity>
-          </View>
-          <View className="bg-surface rounded-xl p-4 border border-border">
-            {salesByCategory.map((item) => (
-              <View key={item.label} className="mb-3">
-                <View className="flex-row items-center justify-between mb-1">
-                  <Text className="text-sm text-muted">{item.label}</Text>
-                  <Text className="text-sm font-semibold text-foreground">{item.value}%</Text>
-                </View>
-                <View className="h-2 rounded-full bg-muted/30 overflow-hidden">
-                  <View style={{ width: `${item.value}%` }} className="h-2 rounded-full bg-primary" />
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
+            <Text className="text-[12px] uppercase tracking-[1px] mb-1" style={{ color: "#A7B4CA" }}>
+              Progress
+            </Text>
+            <Text className="text-xl font-bold mb-2" style={{ color: DASH.text }}>
+              {heroConfig.title}
+            </Text>
+            <Text className="text-sm mb-5" style={{ color: "#B6C2D6" }}>
+              {heroConfig.subtitle}
+            </Text>
 
-        {/* Balance & Payouts */}
-        <View className="px-4 mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Balance & payouts</Text>
-          <View className="bg-surface rounded-xl p-4 border border-border">
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-muted">Available</Text>
-              <Text className="text-foreground font-semibold">${balanceSnapshot.available}</Text>
-            </View>
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-muted">Pending</Text>
-              <Text className="text-foreground font-semibold">${balanceSnapshot.pending}</Text>
-            </View>
-            <View className="flex-row items-center justify-between pt-2 border-t border-border">
-              <Text className="text-muted">Last payout</Text>
-              <Text className="text-foreground font-semibold">{balanceSnapshot.lastPayout}</Text>
-            </View>
-            <View className="flex-row items-center justify-between mt-2">
-              <Text className="text-muted">Next payout</Text>
-              <Text className="text-foreground font-semibold">{balanceSnapshot.nextPayout}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Clients */}
-        <View className="px-4 mb-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Clients</Text>
-            <TouchableOpacity onPress={() => router.push("/(trainer)/clients" as any)}>
-              <Text className="text-primary font-medium">View all</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mx-4 px-4">
-            <View className="flex-row gap-3">
-              {clientPreview.map((client) => (
-                <View
-                  key={client.id}
-                  className="bg-surface border border-border rounded-xl px-4 py-3 min-w-[120px]"
-                >
-                  <View className="flex-row items-center gap-2">
-                    <ClientAvatar uri={client.photoUrl} />
-                    <Text className="text-base font-semibold text-foreground">{client.name}</Text>
-                  </View>
-                  <Text className="text-xs text-muted mt-2">{client.tag}</Text>
-                </View>
+            <View className="flex-row items-center gap-2 mb-6">
+              {[1, 2, 3].map((step) => (
+                <Animated.View
+                  key={step}
+                  className="flex-1 h-2 rounded-full"
+                  style={{
+                    backgroundColor: step <= heroStep ? DASH.primary : "rgba(255,255,255,0.10)",
+                    opacity: stepProgressAnim.interpolate({
+                      inputRange: [step - 0.5, step],
+                      outputRange: [0.5, 1],
+                      extrapolate: "clamp",
+                    }),
+                    transform: [
+                      {
+                        scaleY: stepProgressAnim.interpolate({
+                          inputRange: [step - 0.5, step],
+                          outputRange: [0.86, 1.18],
+                          extrapolate: "clamp",
+                        }),
+                      },
+                    ],
+                  }}
+                />
               ))}
-            </View>
-          </ScrollView>
-        </View>
-
-        {/* QuickPay */}
-        <View className="px-4 mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">QuickPay</Text>
-          <View className="bg-surface border border-border rounded-xl p-4">
-            <View className="flex-row gap-3">
-              <TouchableOpacity
-                className="flex-1 bg-primary rounded-xl py-4 items-center"
-                onPress={() => setPaymentModalOpen(true)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Request payment"
-                testID="quickpay-request"
-              >
-                <IconSymbol name="dollarsign.circle.fill" size={28} color="#fff" />
-                <Text className="text-white font-semibold mt-2">Request Payment</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="flex-1 bg-surface border border-border rounded-xl py-4 items-center"
-                onPress={() => router.push("/(trainer)/payment-history" as any)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Payment history"
-                testID="quickpay-history"
-              >
-                <IconSymbol name="clock.fill" size={28} color={colors.primary} />
-                <Text className="text-foreground font-semibold mt-2">Payment History</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* Quick Actions */}
-        <View className="px-4 mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Quick Actions</Text>
-          <View className="flex-row mb-2">
-            <QuickAction
-              title="Charge Session"
-              icon="creditcard.fill"
-              onPress={() => router.push("/(trainer)/earnings" as any)}
-            />
-            <QuickAction
-              title="Create Bundle"
-              icon="cube.box.fill"
-              onPress={() => router.push("/bundle-editor/new" as any)}
-            />
-            <QuickAction
-              title="Create Subscription"
-              icon="arrow.triangle.2.circlepath"
-              onPress={() => router.push("/(trainer)/subscriptions" as any)}
-            />
-          </View>
-          <View className="flex-row">
-            <QuickAction
-              title="Manage Sessions"
-              icon="calendar"
-              onPress={() => router.push("/(trainer)/calendar" as any)}
-            />
-            <QuickAction
-              title="Invite Client"
-              icon="person.badge.plus"
-              onPress={() => router.push("/(trainer)/invite" as any)}
-            />
-            <QuickAction
-              title="Messages"
-              icon="message.fill"
-              onPress={() => router.push(`${roleBase}/messages` as any)}
-            />
-          </View>
-        </View>
-
-        {/* Manage My Services */}
-        <View className="px-4 mb-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Manage my services</Text>
-            <TouchableOpacity onPress={() => router.push("/(trainer)/settings" as any)}>
-              <Text className="text-primary font-medium">Edit</Text>
-            </TouchableOpacity>
-          </View>
-          <View className="bg-surface rounded-xl p-4 border border-border">
-            {servicesPreview.map((service, index) => (
-              <View key={service} className={index === servicesPreview.length - 1 ? "" : "mb-2"}>
-                <Text className="text-foreground">{service}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Trending Products, Bundles, Promotions */}
-        <View className="px-4 mb-6">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Trending</Text>
-            <TouchableOpacity onPress={() => router.push("/(trainer)/products" as any)}>
-              <Text className="text-primary font-medium">View catalog</Text>
-            </TouchableOpacity>
-          </View>
-          <View className="gap-3">
-            {trendingItems.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                className="bg-surface rounded-xl p-4 border border-border flex-row items-center"
-                onPress={() => router.push("/(trainer)/products" as any)}
-                activeOpacity={0.8}
-              >
-                <TrendingItemImage uri={item.imageUrl} />
-                <View className="flex-1">
-                  <Text className="text-base font-semibold text-foreground">{item.title}</Text>
-                  <Text className="text-sm text-muted mt-1">{item.subtitle}</Text>
-                </View>
-                <IconSymbol name="chevron.right" size={18} color={colors.muted} />
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        <View className="h-6" />
-      </ScrollView>
-
-      {/* Request Payment Modal */}
-      <Modal
-        visible={paymentModalOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => { setPaymentModalOpen(false); setPaymentLinkResult(null); }}
-      >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
-          <Pressable style={{ flex: 1 }} onPress={() => setPaymentModalOpen(false)} />
-          <View
-            className="bg-background rounded-t-3xl p-6"
-            onStartShouldSetResponder={() => true}
-          >
-            <View className="flex-row items-center justify-between mb-6">
-              <Text className="text-xl font-bold text-foreground">
-                {paymentLinkResult ? "Payment Link Ready" : "Request Payment"}
+              <Text className="text-xs font-bold ml-2" style={{ color: DASH.primary }}>
+                {heroStep}/3
               </Text>
-              <TouchableOpacity onPress={() => { setPaymentModalOpen(false); setPaymentLinkResult(null); }}>
-                <IconSymbol name="xmark" size={20} color={colors.muted} />
-              </TouchableOpacity>
             </View>
 
-            {paymentLinkResult ? (
-              <View>
-                <View className="bg-success/10 border border-success/30 rounded-xl p-4 mb-4">
-                  <View className="flex-row items-center mb-2">
-                    <IconSymbol name="checkmark.circle.fill" size={20} color={colors.success} />
-                    <Text className="text-success font-semibold ml-2">Payment link created</Text>
+            <View className="flex-row flex-wrap gap-2 mb-5">
+              <StepPill label="Invite client" isDone={heroStep > 1} isCurrent={heroStep === 1} />
+              <StepPill label="Create offer" isDone={heroStep > 2} isCurrent={heroStep === 2} />
+              <StepPill label={nextAction === "done" ? "Bonus status" : "Get paid"} isDone={nextAction === "done"} isCurrent={heroStep === 3} />
+            </View>
+
+            {nextAction === "done" ? (
+              <View
+                className="rounded-xl border px-3 py-3 mb-5"
+                style={{ backgroundColor: "rgba(15,23,42,0.28)", borderColor: "rgba(167,139,250,0.35)" }}
+              >
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
+                    Rating
+                  </Text>
+                  <View className="flex-row items-center">
+                    <IconSymbol name="star.fill" size={14} color="#FBBF24" />
+                    <Text className="text-sm font-semibold ml-1" style={{ color: "#FDE68A" }}>
+                      {statusTier}
+                    </Text>
                   </View>
-                  <Text className="text-foreground text-sm" selectable>{paymentLinkResult}</Text>
                 </View>
+                <View className="mt-2 h-2 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.12)" }}>
+                  <View
+                    className="h-2 rounded-full"
+                    style={{ width: `${Math.round(tierProgress * 100)}%`, backgroundColor: "#A78BFA" }}
+                  />
+                </View>
+                <View className="mt-2 flex-row items-center justify-between">
+                  <Text className="text-xs" style={{ color: "#C4B5FD" }}>
+                    {totalPoints.toLocaleString()} pts
+                  </Text>
+                  <Text className="text-xs" style={{ color: "#C4B5FD" }}>
+                    {nextTier ? `${pointsToNextTier.toLocaleString()} pts to ${nextTier}` : "Top tier reached"}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
 
-                <View className="flex-row gap-3 mb-4">
+            <Animated.View style={{ transform: [{ scale: ctaScaleAnim }] }}>
+              <TouchableOpacity
+                className="w-full rounded-lg py-4 flex-row items-center justify-center"
+                style={{ backgroundColor: DASH.primary }}
+                onPress={heroConfig.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={heroConfig.cta}
+                testID="trainer-state-machine-primary"
+              >
+                <IconSymbol name={heroConfig.ctaIcon} size={18} color="#0B1020" />
+                <Text className="font-bold ml-2" style={{ color: "#0B1020" }}>
+                  {heroConfig.cta}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+
+            <TouchableOpacity
+              className="w-full rounded-lg py-4 mt-3 border items-center"
+              style={{ borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)" }}
+              onPress={() => openGetPaid("hero_secondary")}
+              accessibilityRole="button"
+              accessibilityLabel="Take payment now"
+              testID="trainer-state-machine-secondary"
+            >
+              <Text className="font-semibold" style={{ color: DASH.text }}>
+                💰Skip to Take Payment NOW
+              </Text>
+            </TouchableOpacity>
+
+            {__DEV__ ? (
+              <View className="mt-4 pt-3 border-t" style={{ borderColor: "rgba(255,255,255,0.10)" }}>
+                <Text className="text-xs mb-2" style={{ color: DASH.muted }}>
+                  Testing controls
+                  {testStateOverride ? ` (${testStateOverride})` : " (live)"}
+                </Text>
+                <View className="flex-row gap-2">
                   <TouchableOpacity
-                    className="flex-1 bg-primary py-4 rounded-xl items-center"
-                    onPress={handleCopyLink}
-                    activeOpacity={0.8}
+                    className="flex-1 rounded-xl py-2.5 items-center border"
+                    style={MUTED_BADGE_STYLE}
+                    onPress={handleAdvanceTestState}
+                    accessibilityRole="button"
+                    accessibilityLabel="Advance trainer state for testing"
+                    testID="trainer-state-advance"
                   >
-                    <Text className="text-white font-bold">Copy Link</Text>
+                    <Text className="text-xs font-semibold" style={{ color: DASH.text }}>
+                      Next state
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    className="flex-1 bg-surface border border-border py-4 rounded-xl items-center"
-                    onPress={handleShareLink}
-                    activeOpacity={0.8}
+                    className="flex-1 rounded-xl py-2.5 items-center border"
+                    style={MUTED_BADGE_STYLE}
+                    onPress={handleResetTestState}
+                    accessibilityRole="button"
+                    accessibilityLabel="Reset trainer state walkthrough"
+                    testID="trainer-state-reset"
                   >
-                    <Text className="text-foreground font-bold">Share</Text>
+                    <Text className="text-xs font-semibold" style={{ color: DASH.text }}>
+                      Reset walkthrough
+                    </Text>
                   </TouchableOpacity>
                 </View>
+                {testStateOverride ? (
+                  <TouchableOpacity
+                    className="mt-2 rounded-xl py-2.5 items-center border"
+                    style={MUTED_BADGE_STYLE}
+                    onPress={() => setTestStateOverride(null)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Use live trainer state"
+                    testID="trainer-state-live"
+                  >
+                    <Text className="text-xs font-semibold" style={{ color: DASH.text }}>
+                      Use live state
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+            </SurfaceCard>
+          </Animated.View>
+        </View>
 
-                <TouchableOpacity
-                  className="py-3 items-center"
-                  onPress={() => { setPaymentLinkResult(null); }}
-                  activeOpacity={0.8}
-                >
-                  <Text className="text-primary font-medium">Create Another</Text>
+        <SectionHeader title="Quick actions" />
+        <View className={SECTION_SPACING_CLASS}>
+          <View className="flex-row flex-wrap -m-1.5">
+            {quickActions.map((action) => (
+              <QuickActionButton
+                key={action.testID}
+                icon={action.icon}
+                label={action.label}
+                subtitle={action.subtitle}
+                value={action.value}
+                onPress={action.onPress}
+                testID={action.testID}
+              />
+            ))}
+          </View>
+        </View>
+
+        <SectionHeader title="Earnings" />
+        <View className={SECTION_SPACING_CLASS}>
+          {!displayHasPayment ? (
+            <SurfaceCard
+              style={{
+                backgroundColor: "rgba(23,28,43,0.75)",
+                borderColor: "rgba(96,165,250,0.22)",
+                borderStyle: "dashed",
+              }}
+            >
+              <View className="items-center py-2">
+                <View className="w-14 h-14 rounded-full items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.05)" }}>
+                  <IconSymbol name="lock.fill" size={24} color="#64748B" />
+                </View>
+                <Text className="text-3xl font-bold mt-3" style={{ color: "#64748B" }}>
+                  £0.00
+                </Text>
+                <Text className="text-[10px] uppercase tracking-[2px] mt-1" style={{ color: "#64748B" }}>
+                  Pending setup
+                </Text>
+                <TouchableOpacity className="mt-3 flex-row items-center" onPress={() => router.push("/(trainer)/get-paid" as any)}>
+                  <Text className="text-sm font-bold" style={{ color: DASH.primary }}>
+                    Connect payouts
+                  </Text>
+                  <IconSymbol name="chevron.right" size={14} color={DASH.primary} />
                 </TouchableOpacity>
               </View>
-            ) : (
-              <View>
-
-            {/* Amount */}
-            <Text className="text-sm font-medium text-muted mb-2">Amount (£)</Text>
-            <TextInput
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground text-lg font-bold mb-4"
-              placeholder="0.00"
-              placeholderTextColor={colors.muted}
-              value={paymentAmount}
-              onChangeText={setPaymentAmount}
-              keyboardType="decimal-pad"
-              testID="payment-amount"
-            />
-
-            {/* Description */}
-            <Text className="text-sm font-medium text-muted mb-2">Description (optional)</Text>
-            <TextInput
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-4"
-              placeholder="e.g. Personal training session"
-              placeholderTextColor={colors.muted}
-              value={paymentDescription}
-              onChangeText={setPaymentDescription}
-              testID="payment-description"
-            />
-
-            {/* Payment Method */}
-            <Text className="text-sm font-medium text-muted mb-2">Payment Method</Text>
-            <View className="flex-row gap-3 mb-6">
-              <TouchableOpacity
-                className={`flex-1 py-3 rounded-xl items-center border ${
-                  paymentMethod === "link" ? "border-primary bg-primary/10" : "border-border bg-surface"
-                }`}
-                onPress={() => setPaymentMethod("link")}
-                accessibilityRole="button"
-                accessibilityLabel="QR Code / Link"
-                testID="payment-method-link"
-              >
-                <IconSymbol name="link" size={24} color={paymentMethod === "link" ? colors.primary : colors.muted} />
-                <Text className={`text-sm font-medium mt-1 ${paymentMethod === "link" ? "text-primary" : "text-muted"}`}>
-                  QR / Link
+            </SurfaceCard>
+          ) : (
+            <SurfaceCard style={CARD_SOFT_STYLE}>
+              <View className="flex-row items-center justify-between">
+                <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
+                  Payout overview
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className={`flex-1 py-3 rounded-xl items-center border ${
-                  paymentMethod === "card" ? "border-primary bg-primary/10" : "border-border bg-surface"
-                }`}
-                onPress={() => setPaymentMethod("card")}
-                accessibilityRole="button"
-                accessibilityLabel="Card payment"
-                testID="payment-method-card"
-              >
-                <IconSymbol name="creditcard.fill" size={24} color={paymentMethod === "card" ? colors.primary : colors.muted} />
-                <Text className={`text-sm font-medium mt-1 ${paymentMethod === "card" ? "text-primary" : "text-muted"}`}>
-                  Card
+                <TouchableOpacity
+                  className="rounded-full px-3 py-1.5 border"
+                  style={MUTED_BADGE_STYLE}
+                  onPress={() => setEarningsExpanded((prev) => !prev)}
+                  accessibilityRole="button"
+                  accessibilityLabel={earningsExpanded ? "Hide earnings details" : "Show earnings details"}
+                >
+                  <Text className="text-xs font-semibold" style={{ color: DASH.text }}>
+                    {earningsExpanded ? "Hide" : "Show"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View className="flex-row items-center justify-between mt-3">
+                <Text style={{ color: DASH.muted }}>Total earned</Text>
+                <Text className="font-semibold" style={{ color: DASH.text }}>
+                  {totalEarned}
                 </Text>
+              </View>
+              <View className="flex-row items-center justify-between mt-2">
+                <Text style={{ color: DASH.muted }}>Next payout</Text>
+                <Text className="font-semibold" style={{ color: DASH.text }}>
+                  {payoutSummary?.nextPayoutDate || "—"}
+                </Text>
+              </View>
+              {earningsExpanded ? (
+                <>
+                  <View className="h-px my-3" style={{ backgroundColor: "rgba(255,255,255,0.10)" }} />
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-sm" style={{ color: DASH.muted }}>
+                      Available
+                    </Text>
+                    <Text className="font-semibold" style={{ color: DASH.text }}>
+                      {availableEarnings}
+                    </Text>
+                  </View>
+                  <View className="flex-row items-center justify-between mt-2">
+                    <Text className="text-sm" style={{ color: DASH.muted }}>
+                      Pending
+                    </Text>
+                    <Text className="font-semibold" style={{ color: DASH.text }}>
+                      {pendingEarnings}
+                    </Text>
+                  </View>
+                </>
+              ) : null}
+            </SurfaceCard>
+          )}
+        </View>
+
+        <SectionHeader
+          title="Clients"
+          actionLabel={clients.length > 0 ? "See all" : "Add"}
+          onActionPress={() => router.push((clients.length > 0 ? "/(trainer)/clients" : "/(trainer)/invite") as any)}
+        />
+        <View className={SECTION_SPACING_CLASS}>
+          {clientsLoading ? (
+            <View className="py-6 items-center">
+              <ActivityIndicator size="small" color={DASH.primary} />
+            </View>
+          ) : previewClients.length === 0 ? (
+            <EmptyModuleCard
+              icon="person.2.fill"
+              description="Build your roster and track progress in one place."
+              cta="Add client"
+              onPress={() => router.push("/(trainer)/invite" as any)}
+            />
+          ) : (
+            <SurfaceCard style={CARD_STYLE}>
+              {previewClients.map((client, index) => (
+                <View
+                  key={client.id}
+                  className={index < previewClients.length - 1 ? "pb-3 mb-3 border-b" : ""}
+                  style={index < previewClients.length - 1 ? { borderColor: "rgba(255,255,255,0.10)" } : undefined}
+                >
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1 pr-2">
+                      <View
+                        className="w-2 h-2 rounded-full mr-2"
+                        style={{ backgroundColor: client.status === "active" ? DASH.primary : "#64748B" }}
+                      />
+                      <Text className="font-medium" style={{ color: DASH.text }} numberOfLines={1}>
+                        {client.name}
+                      </Text>
+                    </View>
+                    <Text className="text-xs" style={{ color: DASH.muted }}>
+                      {client.activeBundles || 0} active
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </SurfaceCard>
+          )}
+        </View>
+
+        <SectionHeader
+          title="Offers"
+          actionLabel={offers.length > 0 ? "Manage" : "New"}
+          onActionPress={() => router.push((offers.length > 0 ? "/(trainer)/offers" : "/(trainer)/offers/new") as any)}
+        />
+        <View className={SECTION_SPACING_CLASS}>
+          {offersLoading ? (
+            <View className="py-6 items-center">
+              <ActivityIndicator size="small" color={DASH.primary} />
+            </View>
+          ) : previewOffers.length === 0 ? (
+            <EmptyModuleCard
+              icon="cube.box.fill"
+              description="Package your expertise into professional training plans."
+              cta="New offer"
+              onPress={() => router.push("/(trainer)/offers/new" as any)}
+            />
+          ) : (
+            <SurfaceCard style={CARD_STYLE}>
+              {previewOffers.map((offer, index) => (
+                <View
+                  key={offer.id}
+                  className={index < previewOffers.length - 1 ? "pb-3 mb-3 border-b" : ""}
+                  style={index < previewOffers.length - 1 ? { borderColor: "rgba(255,255,255,0.10)" } : undefined}
+                >
+                  {(() => {
+                    const offerImageUrl = getOfferImageUrl(offer);
+                    return (
+                  <View className="flex-row items-start">
+                    <View className="w-12 h-12 rounded-lg bg-surface border border-border overflow-hidden items-center justify-center mr-3">
+                      {offerImageUrl ? (
+                        <Image
+                          source={{ uri: offerImageUrl }}
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <IconSymbol name="photo" size={16} color={DASH.muted} />
+                      )}
+                    </View>
+                    <View className="flex-1">
+                      <View className="flex-row items-center justify-between">
+                        <Text className="font-medium flex-1 pr-2" style={{ color: DASH.text }} numberOfLines={1}>
+                          {offer.title}
+                        </Text>
+                        <Text className="font-semibold" style={{ color: DASH.text }}>
+                          {formatGBPFromMinor(offer.priceMinor || 0)}
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center mt-2">
+                        <View className="px-2 py-1 rounded-full border mr-2" style={MUTED_BADGE_STYLE}>
+                          <Text className="text-[11px]" style={{ color: DASH.muted }}>
+                            {formatOfferType(offer.type)}
+                          </Text>
+                        </View>
+                        <View
+                          className="px-2 py-1 rounded-full border"
+                          style={{
+                            backgroundColor: (OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).bg,
+                            borderColor: (OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).border,
+                          }}
+                        >
+                          <Text
+                            className="text-[11px] font-medium"
+                            style={{ color: (OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).text }}
+                          >
+                            {(OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).label}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                    );
+                  })()}
+                </View>
+              ))}
+            </SurfaceCard>
+          )}
+        </View>
+
+        <SectionHeader title="Recent activity" />
+        <View className={SECTION_SPACING_CLASS}>
+          {activityLoading ? (
+            <View className="py-6 items-center">
+              <ActivityIndicator size="small" color={DASH.primary} />
+            </View>
+          ) : activityRows.length === 0 ? (
+            <SurfaceCard style={{ ...CARD_STYLE, paddingVertical: 28 }}>
+              <View className="items-center">
+                <IconSymbol name="clock.arrow.circlepath" size={34} color="#475569" />
+                <Text className="text-sm text-center mt-3 px-3" style={{ color: "#B6C2D6" }}>
+                  Your activity will appear here once you start growing your business.
+                </Text>
+              </View>
+            </SurfaceCard>
+          ) : (
+            <SurfaceCard style={CARD_STYLE}>
+              {activityRows.map((item, index) => {
+                const status = (item.status as PaymentStatus) || "awaiting_payment";
+                const statusStyle = ACTIVITY_STATUS_STYLE[status] || ACTIVITY_STATUS_STYLE.awaiting_payment;
+                const methodLabel = item.method === "link" ? "Payment Link" : "Tap to Pay";
+                return (
+                  <View
+                    key={item.id}
+                    className={index < activityRows.length - 1 ? "pb-3 mb-3 border-b" : ""}
+                    style={index < activityRows.length - 1 ? { borderColor: "rgba(255,255,255,0.10)" } : undefined}
+                  >
+                    <View className="flex-row items-start justify-between">
+                      <View className="flex-1 pr-2">
+                        <Text className="font-medium" style={{ color: DASH.text }} numberOfLines={1}>
+                          {item.description || "Training session"}
+                        </Text>
+                        <View className="flex-row items-center mt-1">
+                          <View className="px-2 py-1 rounded-full mr-2 border" style={MUTED_BADGE_STYLE}>
+                            <Text className="text-[11px]" style={{ color: DASH.muted }}>
+                              {methodLabel}
+                            </Text>
+                          </View>
+                          <Text className="text-xs" style={{ color: DASH.muted }}>
+                            {formatDateShort(item.createdAt)}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text className="font-semibold" style={{ color: DASH.text }}>
+                        {formatGBPFromMinor(item.amountMinor || 0)}
+                      </Text>
+                    </View>
+                    <View className="self-start mt-2 px-2 py-1 rounded-full" style={{ backgroundColor: statusStyle.bg }}>
+                      <Text className="text-[11px] font-medium" style={{ color: statusStyle.text }}>
+                        {statusStyle.label}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </SurfaceCard>
+          )}
+        </View>
+
+        {!displayHasPayment ? (
+          <View className="px-6 pb-8">
+            <SurfaceCard style={CARD_STYLE}>
+              <View className="flex-row items-start">
+                <View className="w-8 h-8 rounded-full items-center justify-center mr-3" style={{ backgroundColor: "rgba(96,165,250,0.16)" }}>
+                  <IconSymbol name="sparkles" size={14} color={DASH.primary} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
+                    Rewards unlock after first payment
+                  </Text>
+                  <Text className="text-xs mt-1" style={{ color: DASH.muted }}>
+                    Keep focus on Invite, Offer, and Get Paid. Rewards appear automatically after your first successful payment.
+                  </Text>
+                </View>
+              </View>
+            </SurfaceCard>
+          </View>
+        ) : (
+          <View className="pb-8" />
+        )}
+
+        {hasAnyLoading ? (
+          <View className="items-center pb-8">
+            <ActivityIndicator size="small" color={DASH.primary} />
+          </View>
+        ) : null}
+      </ScrollView>
+      <Modal
+        visible={pendingPaymentsVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPendingPaymentsVisible(false)}
+      >
+        <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(2,6,23,0.66)" }}>
+          <View
+            className="rounded-t-3xl px-6 pt-5 pb-8"
+            style={{ backgroundColor: "#0F172A", borderTopColor: DASH.border, borderTopWidth: 1 }}
+          >
+            <View className="flex-row items-start justify-between">
+              <View className="flex-1 pr-3">
+                <Text className="text-xl font-bold" style={{ color: DASH.text }}>
+                  Pending Payments
+                </Text>
+                <Text className="text-xs mt-1" style={{ color: DASH.muted }}>
+                  {pendingPaymentsCount} outstanding · {formatGBPFromMinor(pendingPaymentsTotalMinor)} total
+                </Text>
+              </View>
+              <TouchableOpacity
+                className="px-2 py-1"
+                onPress={() => setPendingPaymentsVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close pending payments"
+                testID="pending-payments-close"
+              >
+                <IconSymbol name="xmark" size={18} color={DASH.muted} />
               </TouchableOpacity>
             </View>
 
-            {/* Submit */}
-            <TouchableOpacity
-              className="bg-primary py-4 rounded-xl items-center"
-              onPress={handleRequestPayment}
-              disabled={createLink.isPending || createSession.isPending}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Send payment request"
-              testID="payment-submit"
-            >
-              {createLink.isPending || createSession.isPending ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-white font-bold text-lg">
-                  {paymentMethod === "link" ? "Generate Payment Link" : "Create Payment Session"}
-                </Text>
-              )}
-            </TouchableOpacity>
+            {pendingPaymentsLoading ? (
+              <View className="py-8 items-center">
+                <ActivityIndicator size="small" color={DASH.primary} />
               </View>
+            ) : pendingPaymentRows.length === 0 ? (
+              <View
+                className="mt-4 rounded-2xl border p-4"
+                style={{ borderColor: "rgba(148,163,184,0.2)", backgroundColor: "rgba(15,23,42,0.6)" }}
+              >
+                <Text className="text-sm" style={{ color: DASH.muted }}>
+                  No pending payment links right now.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView className="mt-4" showsVerticalScrollIndicator={false} style={{ maxHeight: 380 }}>
+                {pendingPaymentRows.map((payment, index) => (
+                  <View
+                    key={payment.id}
+                    className="rounded-2xl border p-4 mb-3"
+                    style={{
+                      borderColor: "rgba(148,163,184,0.22)",
+                      backgroundColor: "rgba(15,23,42,0.78)",
+                      marginBottom: index === pendingPaymentRows.length - 1 ? 0 : 12,
+                    }}
+                  >
+                    <View className="flex-row items-start justify-between">
+                      <View className="flex-1 pr-3">
+                        <Text className="text-sm font-semibold" style={{ color: DASH.text }} numberOfLines={1}>
+                          {payment.description || "Training payment"}
+                        </Text>
+                        <Text className="text-xs mt-1" style={{ color: DASH.muted }}>
+                          Sent {formatDateShort(payment.createdAt)}
+                        </Text>
+                      </View>
+                      <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
+                        {formatGBPFromMinor(payment.amountMinor || 0)}
+                      </Text>
+                    </View>
+                    <View className="flex-row items-center mt-3">
+                      <TouchableOpacity
+                        className="flex-1 rounded-xl border px-3 py-2 mr-2"
+                        style={MUTED_BADGE_STYLE}
+                        onPress={() => handleCancelPendingPayment(payment)}
+                        disabled={cancelPendingPayment.isPending}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Cancel ${payment.description || "payment link"}`}
+                        testID={`pending-payment-cancel-${payment.id}`}
+                      >
+                        <Text className="text-center text-xs font-semibold" style={{ color: "#FCA5A5" }}>
+                          Cancel
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        className="flex-1 rounded-xl border px-3 py-2"
+                        style={{ borderColor: "rgba(96,165,250,0.5)", backgroundColor: "rgba(96,165,250,0.14)" }}
+                        onPress={() => handleSendReminder(payment)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Send reminder for ${payment.description || "payment link"}`}
+                        testID={`pending-payment-reminder-${payment.id}`}
+                      >
+                        <Text className="text-center text-xs font-semibold" style={{ color: DASH.primary }}>
+                          Send Reminder
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
             )}
           </View>
         </View>

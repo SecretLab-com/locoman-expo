@@ -7,8 +7,8 @@ import Constants from "expo-constants";
 import { Stack, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, LogBox, Platform, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Alert, AppState, AppStateStatus, LogBox, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
@@ -20,6 +20,8 @@ import {
 } from "react-native-safe-area-context";
 
 import { ImpersonationBanner } from "@/components/impersonation-banner";
+import { MobileAppBanner } from "@/components/mobile-app-banner";
+import { IncomingMessageFAB } from "@/components/incoming-message-fab";
 import { NavigationHeader } from "@/components/navigation-header";
 import { OfflineIndicator } from "@/components/offline-indicator";
 import { PostAuthOnboardingResolver } from "@/components/post-auth-onboarding-resolver";
@@ -31,7 +33,6 @@ import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
 import { useDeepLink } from "@/hooks/use-deep-link";
 import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
-import { navigateToHome } from "@/lib/navigation";
 import { createTRPCClient, trpc } from "@/lib/trpc";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -67,6 +68,8 @@ const IGNORED_WARNINGS = [
   "[expo-notifications] Listening to push token changes is not yet fully supported on web.",
 ];
 const LAST_NOTIFIED_UPDATE_ID_KEY = "app:last_notified_update_id";
+const AUTH_REDIRECT_GRACE_MS = 5000;
+const OTA_CHECK_COOLDOWN_MS = 60_000;
 
 function getHeaderTitle(routeName: string): string {
   if (HEADER_TITLES[routeName]) {
@@ -87,8 +90,22 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [redirecting, setRedirecting] = useState(false);
+  const [authGraceActive, setAuthGraceActive] = useState(false);
+  const [authGateReady, setAuthGateReady] = useState(false);
 
   const isAuthTransit = loading || (hasSession && !profileHydrated);
+  useEffect(() => {
+    const timer = setTimeout(() => setAuthGateReady(true), 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!authGateReady) return;
+    if (!isAuthenticated) return;
+    setAuthGraceActive(true);
+    const timer = setTimeout(() => setAuthGraceActive(false), AUTH_REDIRECT_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [authGateReady, isAuthenticated]);
   const isGuestSafeRoute = useMemo(() => {
     const path = pathname || "";
     if (path === "/welcome" || path === "/login" || path === "/register" || path.startsWith("/oauth/callback")) {
@@ -101,7 +118,11 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    if (isAuthTransit) {
+    if (!authGateReady || isAuthTransit) {
+      setRedirecting(false);
+      return;
+    }
+    if (authGraceActive) {
       setRedirecting(false);
       return;
     }
@@ -111,9 +132,14 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
       return;
     }
     setRedirecting(false);
-  }, [isAuthTransit, isAuthenticated, isGuestSafeRoute, router]);
+  }, [authGateReady, isAuthTransit, authGraceActive, isAuthenticated, isGuestSafeRoute, router]);
 
-  if (isAuthTransit || redirecting || (!isAuthenticated && !isGuestSafeRoute)) {
+  if (
+    !authGateReady ||
+    isAuthTransit ||
+    redirecting ||
+    (!isAuthenticated && !isGuestSafeRoute)
+  ) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="large" />
@@ -135,6 +161,9 @@ export default function RootLayout() {
   const [insets, setInsets] = useState<EdgeInsets>(initialInsets);
   const [frame, setFrame] = useState<Rect>(initialFrame);
   const [isHydrated, setIsHydrated] = useState(false);
+  const isCheckingUpdateRef = useRef(false);
+  const lastUpdateCheckAtRef = useRef(0);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     setIsHydrated(true);
@@ -202,6 +231,58 @@ export default function RootLayout() {
     void maybeShowUpdateAlert();
   }, []);
 
+  useEffect(() => {
+    const checkAndApplyUpdate = async (reason: "initial" | "foreground") => {
+      if (__DEV__ || Platform.OS === "web" || !Updates.isEnabled) return;
+      if (isCheckingUpdateRef.current) return;
+
+      const now = Date.now();
+      if (reason === "foreground" && now - lastUpdateCheckAtRef.current < OTA_CHECK_COOLDOWN_MS) {
+        return;
+      }
+
+      isCheckingUpdateRef.current = true;
+      lastUpdateCheckAtRef.current = now;
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (!update.isAvailable) return;
+
+        await Updates.fetchUpdateAsync();
+        Alert.alert(
+          "Update ready",
+          "A new version has been downloaded. Reload now?",
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Reload",
+              onPress: () => {
+                void Updates.reloadAsync();
+              },
+            },
+          ]
+        );
+      } catch (error) {
+        console.log("[OTA] update check failed:", error);
+      } finally {
+        isCheckingUpdateRef.current = false;
+      }
+    };
+
+    void checkAndApplyUpdate("initial");
+
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const wasBackground = appStateRef.current.match(/inactive|background/);
+      appStateRef.current = nextState;
+      if (wasBackground && nextState === "active") {
+        void checkAndApplyUpdate("foreground");
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   const handleSafeAreaUpdate = useCallback((metrics: Metrics) => {
     setInsets(metrics.insets);
     setFrame(metrics.frame);
@@ -257,9 +338,11 @@ export default function RootLayout() {
                       {...(Platform.OS === 'web' ? { suppressHydrationWarning: true } : {})}
                     >
                       <ImpersonationBanner />
+                      <MobileAppBanner />
                       <PostAuthOnboardingResolver />
                       <View style={{ flex: 1 }}>
                         <ProfileFAB />
+                        <IncomingMessageFAB />
                         <OfflineIndicator />
                         {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
                         {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
@@ -272,7 +355,6 @@ export default function RootLayout() {
                               header: ({ route }) => (
                                 <NavigationHeader
                                   title={getHeaderTitle(route.name)}
-                                  onBack={() => navigateToHome()}
                                 />
                               ),
                               // Enable swipe-back gesture on all screens by default
@@ -286,13 +368,22 @@ export default function RootLayout() {
                             }}
                           >
                             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                            <Stack.Screen name="login" options={{ presentation: "fullScreenModal" }} />
-                            <Stack.Screen name="register" options={{ presentation: "fullScreenModal" }} />
+                            <Stack.Screen
+                              name="login"
+                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                            />
+                            <Stack.Screen
+                              name="register"
+                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                            />
                             <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
                             <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
                             <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
-                            <Stack.Screen name="checkout/confirmation" options={{ presentation: "fullScreenModal", gestureEnabled: false, animation: "fade" }} />
+                            <Stack.Screen
+                              name="checkout/confirmation"
+                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                            />
                             <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
@@ -302,11 +393,17 @@ export default function RootLayout() {
                             <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="invite/[token]" options={{ presentation: "fullScreenModal" }} />
+                            <Stack.Screen
+                              name="invite/[token]"
+                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                            />
                             <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="new-message" options={{ presentation: "card" }} />
                             <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="(trainer)" options={{ headerShown: false }} />
+                            <Stack.Screen
+                              name="(trainer)"
+                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                            />
                             <Stack.Screen name="(client)" options={{ headerShown: false }} />
                             <Stack.Screen name="(manager)" options={{ headerShown: false }} />
                             <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />

@@ -61,9 +61,15 @@ export default function OrdersScreen() {
 
   // Fetch orders from tRPC
   const { data: ordersData, isLoading, refetch, isRefetching } = trpc.orders.list.useQuery();
+  const updateStatus = trpc.orders.updateStatus.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+  });
   const orders: Order[] = (ordersData || []).map((o: any) => ({
     ...o,
     id: String(o.id),
+    status: o.status === "shipped" ? "ready" : o.status,
     total: o.total || o.totalAmount || "0.00",
     fulfillment: o.fulfillment || o.fulfillmentMethod || "trainer_delivery",
     items: o.items || [],
@@ -130,7 +136,6 @@ export default function OrdersScreen() {
   };
 
   // Handle order actions
-  // TODO: Replace with trpc.orders.updateStatus.useMutation() when endpoint is created
   const handleProcessOrder = (order: Order) => {
     Alert.alert(
       "Process Order",
@@ -139,17 +144,20 @@ export default function OrdersScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Process",
-          onPress: () => {
-            // TODO: Replace with real API when orders.updateStatus endpoint is created
-            setShowDetailModal(false);
-            refetch();
+          onPress: async () => {
+            try {
+              await updateStatus.mutateAsync({ id: order.id, status: "processing" });
+              setShowDetailModal(false);
+            } catch (error) {
+              console.error("Failed to update order status:", error);
+              Alert.alert("Error", "Could not process order. Please try again.");
+            }
           },
         },
       ]
     );
   };
 
-  // TODO: Replace with trpc.orders.updateStatus.useMutation() when endpoint is created
   const handleMarkReady = (order: Order) => {
     Alert.alert(
       "Mark Ready",
@@ -158,17 +166,20 @@ export default function OrdersScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Mark Ready",
-          onPress: () => {
-            // TODO: Replace with real API when orders.updateStatus endpoint is created
-            setShowDetailModal(false);
-            refetch();
+          onPress: async () => {
+            try {
+              await updateStatus.mutateAsync({ id: order.id, status: "shipped" });
+              setShowDetailModal(false);
+            } catch (error) {
+              console.error("Failed to update order status:", error);
+              Alert.alert("Error", "Could not mark order ready. Please try again.");
+            }
           },
         },
       ]
     );
   };
 
-  // TODO: Replace with trpc.orders.updateStatus.useMutation() when endpoint is created
   const handleMarkDelivered = (order: Order) => {
     Alert.alert(
       "Mark Delivered",
@@ -177,10 +188,14 @@ export default function OrdersScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Delivered",
-          onPress: () => {
-            // TODO: Replace with real API when orders.updateStatus endpoint is created
-            setShowDetailModal(false);
-            refetch();
+          onPress: async () => {
+            try {
+              await updateStatus.mutateAsync({ id: order.id, status: "delivered" });
+              setShowDetailModal(false);
+            } catch (error) {
+              console.error("Failed to update order status:", error);
+              Alert.alert("Error", "Could not mark order delivered. Please try again.");
+            }
           },
         },
       ]
@@ -442,6 +457,7 @@ export default function OrdersScreen() {
                   {selectedOrder.status === "pending" && (
                     <TouchableOpacity
                       onPress={() => handleProcessOrder(selectedOrder)}
+                      disabled={updateStatus.isPending}
                       className="bg-primary py-4 rounded-xl items-center mb-3"
                     >
                       <Text className="text-white font-semibold">Start Processing</Text>
@@ -451,6 +467,7 @@ export default function OrdersScreen() {
                   {selectedOrder.status === "processing" && (
                     <TouchableOpacity
                       onPress={() => handleMarkReady(selectedOrder)}
+                      disabled={updateStatus.isPending}
                       className="bg-success py-4 rounded-xl items-center mb-3"
                     >
                       <Text className="text-white font-semibold">Mark as Ready</Text>
@@ -460,6 +477,7 @@ export default function OrdersScreen() {
                   {selectedOrder.status === "ready" && (
                     <TouchableOpacity
                       onPress={() => handleMarkDelivered(selectedOrder)}
+                      disabled={updateStatus.isPending}
                       className="bg-success py-4 rounded-xl items-center mb-3"
                     >
                       <Text className="text-white font-semibold">Mark as Delivered</Text>

@@ -23,6 +23,7 @@ interface CacheEntry<T> {
 
 const CACHE_VERSION = 1;
 const WEB_HEALTH_TTL_MS = 5000;
+const WEB_HEALTH_TIMEOUT_MS = 5000;
 let lastWebHealthCheckAt = 0;
 let lastWebHealthResult: boolean | null = null;
 
@@ -37,21 +38,46 @@ const checkWebReachability = async (force = false): Promise<boolean> => {
   if (!force && lastWebHealthResult !== null && now - lastWebHealthCheckAt < WEB_HEALTH_TTL_MS) {
     return lastWebHealthResult;
   }
+  const healthUrl = getHealthUrl();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);
+  const timeoutId = setTimeout(() => controller.abort(), WEB_HEALTH_TIMEOUT_MS);
   try {
-    const response = await fetch(getHealthUrl(), { method: "GET", signal: controller.signal });
-    lastWebHealthResult = response.ok;
+    // A resolved response means the network path is reachable.
+    // Do not require 2xx: 401/403/404 still indicate we're online.
+    const response = await fetch(healthUrl, {
+      method: "GET",
+      signal: controller.signal,
+      credentials: "include",
+      cache: "no-store",
+    });
+    const reachable = response.status > 0 && response.status < 500;
+    lastWebHealthResult = reachable;
     lastWebHealthCheckAt = now;
-    return response.ok;
+    return reachable;
   } catch {
-    lastWebHealthResult = false;
+    // Fallback probe for environments where /api/health can fail due CORS/path config.
+    // no-cors opaque responses still prove basic reachability.
+    try {
+      const origin = new URL(healthUrl).origin;
+      await fetch(origin, {
+        method: "HEAD",
+        mode: "no-cors",
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      lastWebHealthResult = true;
+    } catch {
+      lastWebHealthResult = false;
+    }
     lastWebHealthCheckAt = now;
-    return false;
+    return lastWebHealthResult;
   } finally {
     clearTimeout(timeoutId);
   }
 };
+
+const getBrowserOnline = () =>
+  typeof navigator !== "undefined" ? navigator.onLine : true;
 
 /**
  * Offline caching service for the app
@@ -64,11 +90,9 @@ export const offlineCache = {
   async isOnline(): Promise<boolean> {
     try {
       if (Platform.OS === "web") {
-        const browserOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
-        if (!browserOnline) {
-          return await checkWebReachability(true);
-        }
-        return await checkWebReachability();
+        // For web UX, offline banner should reflect actual device/browser connectivity,
+        // not backend/CORS reachability (which can fail independently).
+        return getBrowserOnline();
       }
       const state = await NetInfo.fetch();
       const isConnected = state.isConnected;
@@ -88,19 +112,18 @@ export const offlineCache = {
   subscribeToNetworkChanges(callback: (isConnected: boolean) => void): () => void {
     if (Platform.OS === "web") {
       let isActive = true;
-      const emit = async (force = false) => {
+      const emit = () => {
         if (!isActive) return;
-        const online = await checkWebReachability(force);
-        callback(online);
+        callback(getBrowserOnline());
       };
-      const handleOnline = () => void emit(true);
-      const handleOffline = () => void emit(true);
+      const handleOnline = () => emit();
+      const handleOffline = () => emit();
       if (typeof window !== "undefined") {
         window.addEventListener("online", handleOnline);
         window.addEventListener("offline", handleOffline);
       }
-      const intervalId = setInterval(() => void emit(false), 15000);
-      void emit(true);
+      const intervalId = setInterval(() => emit(), 15000);
+      emit();
       return () => {
         isActive = false;
         clearInterval(intervalId);

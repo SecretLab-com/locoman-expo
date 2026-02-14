@@ -14,9 +14,9 @@ import {
 async function seed() {
   console.log("[Seed] Starting comprehensive default seeding...");
 
-  // 1. Seed Core Superusers
-  console.log("[Seed] Seeding core superusers...");
-  const superusers = [
+  // 1. Seed Core Admin/Test Accounts
+  console.log("[Seed] Seeding core admin/test accounts...");
+  const adminAndTestAccounts = [
     {
       openId: "jason_secretlab_coordinator",
       name: "Jason",
@@ -28,16 +28,34 @@ async function seed() {
       name: "Test User",
       email: "testuser@secretlab.com",
       role: "coordinator" as const,
-    }
+    },
+    {
+      openId: "seed_trainer_test_account",
+      name: "Trainer Test",
+      email: "trainer@secretlab.com",
+      role: "trainer" as const,
+    },
+    {
+      openId: "seed_manager_test_account",
+      name: "Manager Test",
+      email: "manager@secretlab.com",
+      role: "manager" as const,
+    },
+    {
+      openId: "seed_coordinator_test_account",
+      name: "Coordinator Test",
+      email: "coordinator@secretlab.com",
+      role: "coordinator" as const,
+    },
   ];
 
-  for (const user of superusers) {
+  for (const user of adminAndTestAccounts) {
     await upsertUser({
       ...user,
       loginMethod: "email",
       lastSignedIn: new Date().toISOString(),
     });
-    console.log(`[Seed] Upserted superuser: ${user.email}`);
+    console.log(`[Seed] Upserted admin/test account: ${user.email}`);
   }
 
   // 2. Seed Trainers

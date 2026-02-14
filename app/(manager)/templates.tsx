@@ -30,7 +30,17 @@ export default function TemplatesScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const utils = trpc.useUtils();
-  const templatesQuery = trpc.bundles.templates.useQuery();
+  const templatesQuery = trpc.admin.templates.useQuery();
+  const deleteTemplateMutation = trpc.admin.deleteTemplate.useMutation({
+    onSuccess: async () => {
+      await utils.admin.templates.invalidate();
+    },
+  });
+  const updateTemplateMutation = trpc.admin.updateTemplate.useMutation({
+    onSuccess: async () => {
+      await utils.admin.templates.invalidate();
+    },
+  });
   const templates = templatesQuery.data ?? [];
 
   // Map API data to expected format
@@ -49,7 +59,7 @@ export default function TemplatesScreen() {
   // Pull to refresh
   const onRefresh = async () => {
     setRefreshing(true);
-    await utils.bundles.templates.invalidate();
+    await utils.admin.templates.invalidate();
     setRefreshing(false);
   };
 
@@ -63,9 +73,13 @@ export default function TemplatesScreen() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            // TODO: Call tRPC mutation to delete template when endpoint exists
-            Alert.alert("Not implemented", "Template deletion is not yet connected to the API.");
+          onPress: async () => {
+            try {
+              await deleteTemplateMutation.mutateAsync({ id: template.id });
+            } catch (error) {
+              console.error("Failed to delete template:", error);
+              Alert.alert("Error", "Failed to delete template. Please try again.");
+            }
           },
         },
       ]
@@ -73,9 +87,16 @@ export default function TemplatesScreen() {
   };
 
   // Toggle template active status
-  const handleToggleActive = (templateId: string) => {
-    // TODO: Call tRPC mutation to toggle template active status when endpoint exists
-    Alert.alert("Not implemented", "Template status toggle is not yet connected to the API.");
+  const handleToggleActive = async (template: typeof mappedTemplates[0]) => {
+    try {
+      await updateTemplateMutation.mutateAsync({
+        id: template.id,
+        active: !template.isActive,
+      });
+    } catch (error) {
+      console.error("Failed to update template:", error);
+      Alert.alert("Error", "Failed to update template status. Please try again.");
+    }
   };
 
   // Format date
@@ -247,7 +268,7 @@ export default function TemplatesScreen() {
               {/* Actions */}
               <View className="flex-row gap-2 pt-3 border-t border-border">
                 <TouchableOpacity
-                  onPress={() => handleToggleActive(template.id)}
+                  onPress={() => handleToggleActive(template)}
                   className={`flex-1 py-2 rounded-lg items-center ${
                     template.isActive ? "bg-warning/10" : "bg-success/10"
                   }`}
@@ -263,7 +284,7 @@ export default function TemplatesScreen() {
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => Alert.alert("Edit Template", "Template editing coming soon")}
+                  onPress={() => router.push(`/template-editor/${template.id}`)}
                   className="flex-1 py-2 rounded-lg items-center bg-primary/10"
                   accessibilityRole="button"
                   accessibilityLabel="Edit template"

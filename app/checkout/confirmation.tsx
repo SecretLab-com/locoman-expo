@@ -58,7 +58,7 @@ export default function OrderConfirmationScreen() {
   const handleViewProgram = () => {
     // Navigate to client's program if they're a client, otherwise to orders
     if (isClient) {
-      router.navigate("/(client)" as any);
+      router.navigate("/(client)/dashboard" as any);
     } else {
       router.navigate("/(client)/orders" as any);
     }

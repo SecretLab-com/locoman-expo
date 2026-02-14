@@ -47,7 +47,7 @@ export function RoleBottomNav({ items }: { items: RoleNavItem[] }) {
             onPress={async () => {
               if (active) return;
               await haptics.light();
-              router.push(item.href as any);
+              router.replace(item.href as any);
             }}
             className="flex-1 items-center justify-center py-2"
             accessibilityRole="button"

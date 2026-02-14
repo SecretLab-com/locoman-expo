@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,9 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  TextInput,
 } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -22,6 +24,13 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
+];
+
+const SESSION_TYPE_OPTIONS = [
+  { value: "training" as const, label: "Training" },
+  { value: "check_in" as const, label: "Check-In" },
+  { value: "call" as const, label: "Call" },
+  { value: "plan_review" as const, label: "Plan Review" },
 ];
 
 type Session = {
@@ -40,6 +49,10 @@ type Session = {
 
 export default function CalendarScreen() {
   const colors = useColors();
+  const params = useLocalSearchParams<{ scheduleClientId?: string | string[] }>();
+  const scheduleClientId = Array.isArray(params.scheduleClientId)
+    ? params.scheduleClientId[0]
+    : params.scheduleClientId;
   const colorScheme = useColorScheme();
   const overlayColor = colorScheme === "dark"
     ? "rgba(0, 0, 0, 0.5)"
@@ -49,20 +62,59 @@ export default function CalendarScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [newSessionClientId, setNewSessionClientId] = useState<string | null>(scheduleClientId || null);
+  const [newSessionTime, setNewSessionTime] = useState("09:00");
+  const [newSessionDuration, setNewSessionDuration] = useState("60");
+  const [newSessionType, setNewSessionType] = useState<"training" | "check_in" | "call" | "plan_review">("training");
+  const [newSessionLocation, setNewSessionLocation] = useState("");
+  const [newSessionNotes, setNewSessionNotes] = useState("");
+  const [searchClient, setSearchClient] = useState("");
 
   // Fetch sessions from tRPC
+  const { data: clientsData = [], isLoading: clientsLoading } = trpc.clients.list.useQuery();
   const { data: sessionsData, isLoading, refetch, isRefetching } = trpc.sessions.list.useQuery();
+  const createSessionMutation = trpc.sessions.create.useMutation({
+    onSuccess: async () => {
+      await refetch();
+      setShowAddModal(false);
+      setNewSessionTime("09:00");
+      setNewSessionDuration("60");
+      setNewSessionType("training");
+      setNewSessionLocation("");
+      setNewSessionNotes("");
+      setSearchClient("");
+      Alert.alert("Success", "Session scheduled.");
+    },
+    onError: (error) => {
+      Alert.alert("Error", error.message || "Failed to schedule session.");
+    },
+  });
+
+  useEffect(() => {
+    if (scheduleClientId) {
+      setNewSessionClientId(scheduleClientId);
+      setShowAddModal(true);
+    }
+  }, [scheduleClientId]);
 
   // Map API data to Session type
   const sessions: Session[] = useMemo(() => {
+    const clientNameById = new Map<string, string>();
+    (clientsData || []).forEach((client: any) => {
+      if (client?.id) {
+        clientNameById.set(String(client.id), String(client.name || client.email || "Client"));
+      }
+    });
+
     return (sessionsData || []).map((s: any) => {
       const sessionDate = new Date(s.sessionDate || s.date || s.createdAt);
       const hours = sessionDate.getHours().toString().padStart(2, "0");
       const minutes = sessionDate.getMinutes().toString().padStart(2, "0");
+      const clientId = s.clientId ? String(s.clientId) : undefined;
       return {
         id: String(s.id),
-        clientId: s.clientId,
-        clientName: s.clientName || "Unknown Client",
+        clientId,
+        clientName: s.clientName || (clientId ? clientNameById.get(clientId) : undefined) || "Unknown Client",
         bundleId: s.bundleId,
         bundleTitle: s.bundleTitle || "",
         date: sessionDate,
@@ -73,7 +125,7 @@ export default function CalendarScreen() {
         notes: s.notes,
       };
     });
-  }, [sessionsData]);
+  }, [sessionsData, clientsData]);
 
   // Session mutations
   const completeMutation = trpc.sessions.complete.useMutation({
@@ -228,6 +280,60 @@ export default function CalendarScreen() {
     }
   };
 
+  const clientOptions = useMemo(() => {
+    const term = searchClient.trim().toLowerCase();
+    return (clientsData || [])
+      .map((client: any) => ({
+        id: String(client.id),
+        name: String(client.name || client.email || "Client"),
+      }))
+      .filter((client) => !term || client.name.toLowerCase().includes(term))
+      .slice(0, 20);
+  }, [clientsData, searchClient]);
+
+  const selectedClientName = useMemo(() => {
+    const found = (clientsData || []).find((client: any) => String(client.id) === newSessionClientId);
+    return found?.name || found?.email || null;
+  }, [clientsData, newSessionClientId]);
+
+  const openAddSessionModal = () => {
+    if (scheduleClientId) {
+      setNewSessionClientId(scheduleClientId);
+    }
+    setShowAddModal(true);
+  };
+
+  const handleScheduleSession = async () => {
+    if (!newSessionClientId) {
+      Alert.alert("Client Required", "Please select a client.");
+      return;
+    }
+
+    const timeMatch = /^([01]\\d|2[0-3]):([0-5]\\d)$/.exec(newSessionTime.trim());
+    if (!timeMatch) {
+      Alert.alert("Invalid Time", "Use 24-hour format HH:MM (e.g. 09:00).");
+      return;
+    }
+
+    const durationMinutes = Math.max(15, Math.min(480, Number.parseInt(newSessionDuration, 10) || 60));
+    const [hours, minutes] = [Number.parseInt(timeMatch[1], 10), Number.parseInt(timeMatch[2], 10)];
+    const sessionDate = new Date(selectedDate);
+    sessionDate.setHours(hours, minutes, 0, 0);
+
+    try {
+      await createSessionMutation.mutateAsync({
+        clientId: newSessionClientId,
+        sessionDate,
+        durationMinutes,
+        sessionType: newSessionType,
+        location: newSessionLocation.trim() || undefined,
+        notes: newSessionNotes.trim() || undefined,
+      });
+    } catch {
+      // Error alert handled in mutation onError callback.
+    }
+  };
+
   return (
     <ScreenContainer className="flex-1" edges={["left", "right"]}>
       {/* Navigation Header */}
@@ -235,7 +341,7 @@ export default function CalendarScreen() {
         title="Calendar"
         rightAction={{
           icon: "plus",
-          onPress: () => setShowAddModal(true),
+          onPress: openAddSessionModal,
           label: "Add session",
           testID: "add-session",
         }}
@@ -337,7 +443,7 @@ export default function CalendarScreen() {
               <IconSymbol name="calendar" size={32} color={colors.muted} />
               <Text className="text-muted mt-2">No sessions scheduled</Text>
               <TouchableOpacity
-                onPress={() => setShowAddModal(true)}
+                onPress={openAddSessionModal}
                 className="mt-3 px-4 py-2 border border-border rounded-lg"
               >
                 <Text className="text-foreground">Schedule Session</Text>
@@ -490,17 +596,154 @@ export default function CalendarScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text className="text-muted text-center py-8">
-              Session scheduling will be available soon.{"\n"}
-              Contact your clients directly to schedule sessions.
-            </Text>
+            <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator={false}>
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Date</Text>
+                <View className="bg-surface border border-border rounded-xl px-4 py-3">
+                  <Text className="text-foreground">
+                    {selectedDate.toLocaleDateString("en-US", {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </Text>
+                </View>
+              </View>
 
-            <TouchableOpacity
-              onPress={() => setShowAddModal(false)}
-              className="bg-primary py-4 rounded-xl items-center"
-            >
-              <Text className="text-white font-semibold">Got it</Text>
-            </TouchableOpacity>
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Client *</Text>
+                {selectedClientName && (
+                  <View className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 mb-2">
+                    <Text className="text-primary font-medium">Selected: {selectedClientName}</Text>
+                  </View>
+                )}
+                <TextInput
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-2"
+                  placeholder="Search clients..."
+                  placeholderTextColor={colors.muted}
+                  value={searchClient}
+                  onChangeText={setSearchClient}
+                />
+
+                {clientsLoading ? (
+                  <View className="py-4 items-center">
+                    <ActivityIndicator color={colors.primary} />
+                  </View>
+                ) : (
+                  <View className="gap-2">
+                    {clientOptions.length === 0 ? (
+                      <View className="bg-surface border border-border rounded-xl px-4 py-3">
+                        <Text className="text-muted text-sm">No matching clients</Text>
+                      </View>
+                    ) : (
+                      clientOptions.map((client) => (
+                        <TouchableOpacity
+                          key={client.id}
+                          onPress={() => setNewSessionClientId(client.id)}
+                          className={`rounded-xl px-4 py-3 border ${
+                            newSessionClientId === client.id
+                              ? "border-primary bg-primary/10"
+                              : "border-border bg-surface"
+                          }`}
+                        >
+                          <Text className={newSessionClientId === client.id ? "text-primary font-medium" : "text-foreground"}>
+                            {client.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </View>
+                )}
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Time (HH:MM)</Text>
+                <TextInput
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="09:00"
+                  placeholderTextColor={colors.muted}
+                  value={newSessionTime}
+                  onChangeText={setNewSessionTime}
+                  keyboardType="numbers-and-punctuation"
+                />
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Duration (minutes)</Text>
+                <TextInput
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="60"
+                  placeholderTextColor={colors.muted}
+                  value={newSessionDuration}
+                  onChangeText={setNewSessionDuration}
+                  keyboardType="number-pad"
+                />
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Session Type</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {SESSION_TYPE_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      onPress={() => setNewSessionType(option.value)}
+                      className={`px-3 py-2 rounded-full border ${
+                        newSessionType === option.value
+                          ? "bg-primary border-primary"
+                          : "bg-surface border-border"
+                      }`}
+                    >
+                      <Text className={newSessionType === option.value ? "text-white font-medium" : "text-foreground"}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Location (optional)</Text>
+                <TextInput
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="Gym floor, Zoom, etc."
+                  placeholderTextColor={colors.muted}
+                  value={newSessionLocation}
+                  onChangeText={setNewSessionLocation}
+                />
+              </View>
+
+              <View className="mb-5">
+                <Text className="text-sm font-medium text-foreground mb-2">Notes (optional)</Text>
+                <TextInput
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="Any notes for this session..."
+                  placeholderTextColor={colors.muted}
+                  value={newSessionNotes}
+                  onChangeText={setNewSessionNotes}
+                  multiline
+                  numberOfLines={3}
+                  style={{ minHeight: 90, textAlignVertical: "top" }}
+                />
+              </View>
+
+              <View className="flex-row gap-3 mb-2">
+                <TouchableOpacity
+                  onPress={() => setShowAddModal(false)}
+                  className="flex-1 bg-surface border border-border py-4 rounded-xl items-center"
+                >
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleScheduleSession}
+                  className="flex-1 bg-primary py-4 rounded-xl items-center"
+                  disabled={createSessionMutation.isPending}
+                >
+                  <Text className="text-white font-semibold">
+                    {createSessionMutation.isPending ? "Scheduling..." : "Schedule"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </Pressable>
       </Modal>

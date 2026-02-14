@@ -1,483 +1,647 @@
+import { EmptyStateCard } from "@/components/empty-state-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useAuthContext } from "@/contexts/auth-context";
+import { ScreenHeader } from "@/components/ui/screen-header";
+import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
+import { haptics } from "@/hooks/use-haptics";
+import { trackLaunchEvent } from "@/lib/analytics";
+import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { formatGBPFromMinor } from "@/lib/currency";
+import { getInviteLink } from "@/lib/invite-links";
+import { sanitizeHtml } from "@/lib/html-utils";
 import { trpc } from "@/lib/trpc";
-import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Clipboard,
-  Platform,
-  ScrollView,
-  Share,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import RenderHTML from "react-native-render-html";
+import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
-type Bundle = {
+type OfferType = "one_off_session" | "multi_session_package" | "product_bundle";
+type OfferPaymentType = "one_off" | "recurring";
+type OfferStatus = "draft" | "in_review" | "published" | "archived";
+
+type OfferOption = {
   id: string;
   title: string;
-  price: string;
-  cadence: string;
+  description: string | null;
+  imageUrl: string | null;
+  priceMinor: number;
+  paymentType: OfferPaymentType;
+  type: OfferType;
+  status: OfferStatus;
+  sessionCount: number | null;
+  included: string[];
 };
+
+type CatalogProduct = {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+};
+
+const OFFER_STATUS_META: Record<OfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
+  draft: { label: "Draft", colorKey: "warning" },
+  in_review: { label: "In review", colorKey: "primary" },
+  published: { label: "Published", colorKey: "success" },
+  archived: { label: "Archived", colorKey: "error" },
+};
+
+function formatOfferTypeLabel(type: OfferType): string {
+  if (type === "one_off_session") return "One-off session";
+  if (type === "multi_session_package") return "Multi-session package";
+  return "Product bundle";
+}
+
+function showAlert(title: string, message: string) {
+  if (Platform.OS === "web") {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
+function extractListItemsFromHtml(description: string): string[] {
+  const names: string[] = [];
+  const liMatches = description.matchAll(/<li>(.*?)<\/li>/gi);
+  for (const match of liMatches) {
+    const raw = String(match[1] || "");
+    const withoutTags = raw.replace(/<[^>]+>/g, "");
+    const withoutQty = withoutTags.replace(/\(x\d+\)/gi, "");
+    const cleaned = withoutQty.trim();
+    if (cleaned) names.push(cleaned);
+  }
+  return names;
+}
 
 export default function InviteScreen() {
   const colors = useColors();
-  const { isTrainer, isManager, isCoordinator, user } = useAuthContext();
-  const { bundleId, bundleTitle, bundlePrice, trainerName } = useLocalSearchParams<{
-    bundleId?: string;
-    bundleTitle?: string;
-    bundlePrice?: string;
-    trainerName?: string;
+  const { width } = useWindowDimensions();
+  const params = useLocalSearchParams<{
+    clientId?: string | string[];
+    clientName?: string | string[];
+    clientEmail?: string | string[];
+    clientPhone?: string | string[];
+    bundleId?: string | string[];
+    bundleTitle?: string | string[];
   }>();
-
-  // Fetch bundles from API for selection
-  const { data: rawBundles, isLoading: bundlesLoading } = trpc.bundles.list.useQuery(undefined, {
-    enabled: !bundleId, // Only fetch if no bundle pre-selected
-  });
-
-  // Map API bundles to local type
-  const bundles: Bundle[] = (rawBundles || []).map((b: any) => ({
-    id: b.id,
-    title: b.title,
-    price: b.price || "0.00",
-    cadence: b.cadence || "monthly",
-  }));
-
-  // Invite mutation
-  const inviteMutation = trpc.clients.invite.useMutation();
-
-  const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(
-    bundleId
-      ? {
-        id: bundleId,
-        title: bundleTitle || "Selected Bundle",
-        price: bundlePrice || "0.00",
-        cadence: "monthly",
-      }
-      : null
-  );
+  const utils = trpc.useUtils();
   const [clientEmail, setClientEmail] = useState("");
   const [clientName, setClientName] = useState("");
-  const [personalMessage, setPersonalMessage] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+  const [message, setMessage] = useState("");
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [detailsOffer, setDetailsOffer] = useState<OfferOption | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
-  const [assignedTrainer, setAssignedTrainer] = useState(trainerName || user?.name || "");
+  const scrollRef = useRef<ScrollView | null>(null);
+  const inviteResultTopRef = useRef<number>(0);
+  const hasPrefilledFromParamsRef = useRef(false);
+  const pendingBundleIdRef = useRef<string | null>(null);
 
-  // Generate invite link via API
-  const generateInviteLink = async () => {
-    if (!selectedBundle) {
-      Alert.alert("Select Bundle", "Please select a bundle to invite the client to.");
-      return;
+  const { data: offers = [] } = trpc.offers.list.useQuery();
+  const { data: products = [] } = trpc.catalog.products.useQuery();
+  const inviteMutation = trpc.clients.invite.useMutation({
+    onError: (err) => showAlert("Invite failed", err.message),
+  });
+
+  const options: OfferOption[] = offers
+    .map((offer: any) => ({
+    id: offer.id,
+    title: String(offer.title || "Offer"),
+    description: typeof offer.description === "string" ? offer.description : null,
+    imageUrl: typeof offer.imageUrl === "string" ? offer.imageUrl : null,
+    priceMinor: Number(offer.priceMinor || 0),
+    paymentType: (offer.paymentType === "recurring" ? "recurring" : "one_off") as OfferPaymentType,
+    type: (offer.type as OfferType) || "one_off_session",
+    status: (offer.status as OfferStatus) || "draft",
+    sessionCount: Number.isFinite(Number(offer.sessionCount)) ? Number(offer.sessionCount) : null,
+    included: Array.isArray(offer.included)
+      ? offer.included.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+      : [],
+    }))
+    .sort((a, b) => {
+      const rank = (status: OfferStatus) =>
+        status === "published" ? 0 : status === "in_review" ? 1 : status === "draft" ? 2 : 3;
+      return rank(a.status) - rank(b.status);
+    });
+
+  const getParamValue = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value) || "";
+
+  useEffect(() => {
+    if (hasPrefilledFromParamsRef.current) return;
+    hasPrefilledFromParamsRef.current = true;
+
+    const incomingClientName = getParamValue(params.clientName);
+    const incomingClientEmail = getParamValue(params.clientEmail);
+    const incomingClientPhone = getParamValue(params.clientPhone);
+    const incomingBundleId = getParamValue(params.bundleId);
+
+    if (incomingClientName) setClientName(incomingClientName);
+    if (incomingClientEmail) setClientEmail(incomingClientEmail);
+    if (incomingClientPhone) setClientPhone(incomingClientPhone);
+    if (incomingBundleId) {
+      setSelectedOfferId(incomingBundleId);
+      pendingBundleIdRef.current = incomingBundleId;
     }
-    if (!isTrainer && !assignedTrainer.trim()) {
-      Alert.alert("Assign Trainer", "Please assign a trainer to this bundle invite.");
-      return;
+  }, [params.bundleId, params.clientEmail, params.clientName, params.clientPhone]);
+
+  useEffect(() => {
+    if (!pendingBundleIdRef.current) return;
+    const exists = options.some((offer) => offer.id === pendingBundleIdRef.current);
+    if (exists) {
+      setSelectedOfferId(pendingBundleIdRef.current);
+      pendingBundleIdRef.current = null;
     }
+  }, [options]);
 
-    try {
-      const result = await inviteMutation.mutateAsync({
-        email: clientEmail.trim() || `invite-${Date.now()}@placeholder.com`,
-        name: clientName.trim() || undefined,
-        bundleDraftId: String(selectedBundle.id),
-      });
-
-      const link = `https://locomotivate.com/invite/${result.token}`;
-      setInviteLink(link);
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const productImageByName = useMemo(() => {
+    const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+    const imageMap = new Map<string, string>();
+    for (const product of products as CatalogProduct[]) {
+      if (!product?.name || !product.imageUrl) continue;
+      const normalized = normalizeName(product.name);
+      const normalizedImageUrl = normalizeAssetUrl(product.imageUrl);
+      if (!normalizedImageUrl) continue;
+      if (!imageMap.has(normalized)) {
+        imageMap.set(normalized, normalizedImageUrl);
       }
-    } catch (error) {
-      Alert.alert("Error", "Failed to generate invite link. Please try again.");
     }
+    return imageMap;
+  }, [products]);
+  const productImageEntries = useMemo(
+    () => Array.from(productImageByName.entries()),
+    [productImageByName],
+  );
+
+  const getOfferImageUrl = (offer: OfferOption): string => {
+    const directImage = normalizeAssetUrl(offer.imageUrl);
+    if (directImage) return directImage;
+
+    const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+    const candidates = new Set<string>();
+    if (offer.title) candidates.add(normalizeName(offer.title));
+    for (const included of offer.included) {
+      if (included) candidates.add(normalizeName(included));
+    }
+    if (offer.description) {
+      for (const extracted of extractListItemsFromHtml(offer.description)) {
+        candidates.add(normalizeName(extracted));
+      }
+    }
+
+    for (const name of candidates) {
+      const match = productImageByName.get(name);
+      if (match) return match;
+    }
+
+    for (const name of candidates) {
+      for (const [productName, imageUrl] of productImageEntries) {
+        if (name.includes(productName) || productName.includes(name)) {
+          return imageUrl;
+        }
+      }
+    }
+
+    return getOfferFallbackImageUrl(offer?.title);
   };
 
-  // Copy link to clipboard
+  const validateEmail = () => {
+    const value = clientEmail.trim();
+    if (!value) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  };
+
+  const createInvite = async () => {
+    await haptics.light();
+    if (!validateEmail()) {
+      showAlert("Valid email required", "Enter a valid client email to send an invite.");
+      return;
+    }
+
+    const result = await inviteMutation.mutateAsync({
+      email: clientEmail.trim(),
+      name: clientName.trim() || undefined,
+      bundleDraftId: selectedOfferId || undefined,
+    });
+
+    await Promise.all([
+      utils.clients.invitations.invalidate(),
+      utils.clients.list.invalidate(),
+    ]);
+
+    const link = getInviteLink(result.token);
+    setInviteLink(link);
+    // Ensure action buttons are visible immediately after link creation.
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, inviteResultTopRef.current - 20),
+        animated: true,
+      });
+    }, 80);
+    trackLaunchEvent("trainer_invite_sent", {
+      hasOffer: Boolean(selectedOfferId),
+      hasMessage: Boolean(message.trim()),
+    });
+  };
+
   const copyLink = async () => {
     if (!inviteLink) return;
-
     try {
-      await Clipboard.setString(inviteLink);
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (Platform.OS === "web" && navigator?.clipboard) {
+        await navigator.clipboard.writeText(inviteLink);
+      } else {
+        const Clipboard = require("expo-clipboard");
+        await Clipboard.setStringAsync(inviteLink);
       }
-      Alert.alert("Copied!", "Invite link copied to clipboard.");
+      showAlert("Copied", "Invite link copied.");
     } catch {
-      Alert.alert("Error", "Failed to copy link.");
+      showAlert("Copy failed", "Unable to copy invite link.");
     }
   };
 
-  // Share link
   const shareLink = async () => {
-    if (!inviteLink || !selectedBundle) return;
-
+    if (!inviteLink) return;
+    const text = message.trim()
+      ? `${message.trim()}\n\nJoin me on LocoMotive: ${inviteLink}`
+      : `Join me on LocoMotive: ${inviteLink}`;
     try {
-      const message = personalMessage
-        ? `${personalMessage}\n\nJoin my ${selectedBundle.title} program: ${inviteLink}`
-        : `I'd like to invite you to join my ${selectedBundle.title} program on LocoMotivate!\n\n${inviteLink}`;
-
-      await Share.share({
-        message,
-        title: `Join ${selectedBundle.title}`,
-      });
-    } catch (error) {
-      console.error("Share error:", error);
-    }
-  };
-
-  // Send email invite via tRPC
-  const sendEmailInvite = async () => {
-    if (!selectedBundle) {
-      Alert.alert("Select Bundle", "Please select a bundle first.");
-      return;
-    }
-
-    if (!clientEmail.trim()) {
-      Alert.alert("Email Required", "Please enter the client's email address.");
-      return;
-    }
-
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(clientEmail)) {
-      Alert.alert("Invalid Email", "Please enter a valid email address.");
-      return;
-    }
-
-    setIsSending(true);
-
-    try {
-      await inviteMutation.mutateAsync({
-        email: clientEmail.trim(),
-        name: clientName.trim() || undefined,
-        bundleDraftId: String(selectedBundle.id),
-      });
-
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-
-      Alert.alert(
-        "Invite Sent!",
-        `An invitation has been sent to ${clientEmail} for the ${selectedBundle.title} program.`,
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              setClientEmail("");
-              setClientName("");
-              setPersonalMessage("");
-              setInviteLink(null);
-            },
-          },
-        ]
-      );
+      await Share.share({ message: text, url: inviteLink });
     } catch {
-      Alert.alert("Error", "Failed to send invitation. Please try again.");
-    } finally {
-      setIsSending(false);
+      await copyLink();
     }
   };
+
+  const emailLink = async () => {
+    if (!inviteLink) return;
+    const subject = encodeURIComponent("Your LocoMotive invite");
+    const bodyText = message.trim()
+      ? `${message.trim()}\n\nJoin me on LocoMotive: ${inviteLink}`
+      : `Join me on LocoMotive: ${inviteLink}`;
+    const body = encodeURIComponent(bodyText);
+    const recipient = encodeURIComponent(clientEmail.trim());
+    const mailto = `mailto:${recipient}?subject=${subject}&body=${body}`;
+    try {
+      const canOpen = await Linking.canOpenURL(mailto);
+      if (!canOpen) {
+        showAlert("Email unavailable", "No email app is available on this device.");
+        return;
+      }
+      await Linking.openURL(mailto);
+    } catch {
+      showAlert("Email failed", "Unable to open email composer.");
+    }
+  };
+
+  const smsLink = async () => {
+    if (!inviteLink) return;
+    const bodyText = message.trim()
+      ? `${message.trim()}\n\nJoin me on LocoMotive: ${inviteLink}`
+      : `Join me on LocoMotive: ${inviteLink}`;
+    const separator = Platform.OS === "ios" ? "&" : "?";
+    const smsTarget = clientPhone.trim().replace(/\s+/g, "");
+    const url = `sms:${smsTarget}${separator}body=${encodeURIComponent(bodyText)}`;
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        showAlert("SMS unavailable", "No SMS app is available on this device.");
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      showAlert("SMS failed", "Unable to open SMS composer.");
+    }
+  };
+
+  const offerDetailsIncluded = useMemo(() => {
+    if (!detailsOffer) return [];
+    const merged = new Set<string>();
+    for (const item of detailsOffer.included) {
+      if (item.trim()) merged.add(item.trim());
+    }
+    if (detailsOffer.description) {
+      for (const item of extractListItemsFromHtml(detailsOffer.description)) {
+        if (item.trim()) merged.add(item.trim());
+      }
+    }
+    return Array.from(merged);
+  }, [detailsOffer]);
 
   return (
-    <ScreenContainer className="flex-1">
-      {/* Header */}
-      <View className="px-4 pt-2 pb-4">
-        <View className="flex-row items-center">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
-          >
-            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
-          </TouchableOpacity>
-          <View>
-            <Text className="text-2xl font-bold text-foreground">Invite Client</Text>
-            <Text className="text-sm text-muted mt-1">
-              Send personalized invitations to new clients
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
-        {/* Select Bundle */}
-        {!bundleId ? (
-          <View className="mb-6">
-            <Text className="text-lg font-semibold text-foreground mb-3">
-              Select Bundle
-            </Text>
-            {bundlesLoading ? (
-              <View className="py-8 items-center">
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text className="text-muted mt-2">Loading bundles...</Text>
-              </View>
-            ) : bundles.length === 0 ? (
-              <View className="bg-surface rounded-xl p-6 items-center border border-border">
-                <IconSymbol name="bag.fill" size={32} color={colors.muted} />
-                <Text className="text-muted mt-2">No bundles created yet</Text>
-                <Text className="text-muted text-sm text-center mt-1">
-                  Create a bundle first to invite clients
-                </Text>
-              </View>
-            ) : (
-            <View className="gap-3">
-              {bundles.map((bundle) => {
-                const isSelected = selectedBundle?.id === bundle.id;
-                return (
-                  <TouchableOpacity
-                    key={bundle.id}
-                    onPress={() => {
-                      setSelectedBundle(bundle);
-                      setInviteLink(null);
-                    }}
-                    className={`p-4 rounded-xl border ${isSelected
-                      ? "bg-primary/10 border-primary"
-                      : "bg-surface border-border"
-                      }`}
-                  >
-                    <View className="flex-row items-center justify-between">
-                      <View className="flex-1">
-                        <Text
-                          className={`text-base font-semibold ${isSelected ? "text-primary" : "text-foreground"
-                            }`}
-                        >
-                          {bundle.title}
-                        </Text>
-                        <Text className="text-sm text-muted">
-                          ${bundle.price}/{bundle.cadence === "weekly" ? "week" : "month"}
-                        </Text>
-                      </View>
-                      <View
-                        className={`w-6 h-6 rounded-full border-2 items-center justify-center ${isSelected ? "border-primary bg-primary" : "border-border"
-                          }`}
-                      >
-                        {isSelected && (
-                          <IconSymbol name="checkmark" size={14} color="#fff" />
-                        )}
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            )}
-          </View>
-        ) : (
-          <View className="mb-6 bg-primary/5 border border-primary/20 rounded-2xl p-4">
-            <View className="flex-row items-center mb-2">
-              <View className="w-8 h-8 rounded-full bg-primary/20 items-center justify-center mr-3">
-                <IconSymbol name="cart.fill" size={16} color={colors.primary} />
-              </View>
-              <Text className="text-lg font-bold text-foreground">
-                Bundle Selected
-              </Text>
-            </View>
-            <View className="bg-surface rounded-xl p-3 border border-border">
-              <Text className="text-base font-semibold text-foreground">{bundleTitle}</Text>
-              <Text className="text-sm text-primary font-medium mt-1">Price: ${bundlePrice}</Text>
-            </View>
-            <Text className="text-xs text-muted mt-3 italic">
-              * This invite is context-locked to the bundle you were viewing.
-            </Text>
-          </View>
-        )}
-
-        {/* Assigned Trainer */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">
-            Assigned Trainer
-          </Text>
-          {isTrainer ? (
-            <View className="bg-surface border border-border rounded-xl px-4 py-3">
-              <Text className="text-foreground font-medium">
-                {user?.name || "You"}
-              </Text>
-              <Text className="text-xs text-muted mt-1">
-                Bundles must be assigned to a trainer at invite.
-              </Text>
-            </View>
-          ) : (
-            <View>
-              <Text className="text-sm font-medium text-foreground mb-1">Trainer Name</Text>
-              <TextInput
-                value={assignedTrainer}
-                onChangeText={setAssignedTrainer}
-                placeholder="Assign a trainer"
-                placeholderTextColor={colors.muted}
-                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-              />
-              {trainerName && (
-                <View className="flex-row items-center mt-2 px-1">
-                  <IconSymbol name="info.circle.fill" size={14} color={colors.primary} />
-                  <Text className="text-xs text-primary font-medium ml-1">
-                    Pre-assigned from the bundle owner.
-                  </Text>
-                </View>
-              )}
-              <Text className="text-xs text-muted mt-2">
-                Required for manager/coordinator invites.
-              </Text>
-            </View>
+    <ScreenContainer>
+      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false}>
+        <ScreenHeader
+          title={clientName.trim() ? `Invite ${clientName.trim()}` : "Invite Client"}
+          subtitle={clientEmail.trim() ? `Preparing invite for ${clientEmail.trim()}` : "Send an invite link in under 30 seconds."}
+          leftSlot={(
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+            >
+              <IconSymbol name="arrow.left" size={18} color={colors.foreground} />
+            </TouchableOpacity>
           )}
-        </View>
+        />
 
-        {/* Client Details */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">
-            Client Details (Optional)
-          </Text>
-
-          {/* Client Name */}
-          <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground mb-1">Name</Text>
+        <View className="px-4 pb-8">
+          <SurfaceCard className="mb-4">
+            <Text className="text-sm font-medium text-muted mb-2">Client name (optional)</Text>
             <TextInput
+              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
               value={clientName}
               onChangeText={setClientName}
-              placeholder="Client's name"
+              placeholder="Jane Doe"
               placeholderTextColor={colors.muted}
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
             />
-          </View>
 
-          {/* Client Email */}
-          <View className="mb-3">
-            <Text className="text-sm font-medium text-foreground mb-1">Email</Text>
+            <Text className="text-sm font-medium text-muted mb-2">Client email</Text>
             <TextInput
+              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
               value={clientEmail}
               onChangeText={setClientEmail}
-              placeholder="client@email.com"
+              placeholder="jane@email.com"
               placeholderTextColor={colors.muted}
               keyboardType="email-address"
               autoCapitalize="none"
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
             />
-          </View>
 
-          {/* Personal Message */}
-          <View>
-            <Text className="text-sm font-medium text-foreground mb-1">
-              Personal Message
-            </Text>
+            <Text className="text-sm font-medium text-muted mb-2">Client phone (optional)</Text>
             <TextInput
-              value={personalMessage}
-              onChangeText={setPersonalMessage}
-              placeholder="Add a personal message to your invitation..."
+              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+              value={clientPhone}
+              onChangeText={setClientPhone}
+              placeholder="+44 7700 900123"
+              placeholderTextColor={colors.muted}
+              keyboardType="phone-pad"
+            />
+
+            <Text className="text-sm font-medium text-muted mb-2">Optional message</Text>
+            <TextInput
+              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground min-h-[90px]"
+              value={message}
+              onChangeText={setMessage}
+              placeholder="Excited to train with you. Here is your invite."
               placeholderTextColor={colors.muted}
               multiline
-              numberOfLines={3}
               textAlignVertical="top"
-              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground min-h-[80px]"
             />
-          </View>
-        </View>
+          </SurfaceCard>
 
-        {/* Generate Link Section */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">
-            Invite Link
-          </Text>
+          <SurfaceCard className="mb-4">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-sm font-semibold text-foreground">Attach offer (optional)</Text>
+              {selectedOfferId ? (
+                <TouchableOpacity onPress={() => setSelectedOfferId(null)}>
+                  <Text className="text-primary text-sm font-medium">Clear</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {options.length === 0 ? (
+              <EmptyStateCard
+                icon="tag.fill"
+                title="No offers yet"
+                description="You can still invite clients now and add offers later."
+                ctaLabel="Create Offer"
+                onCtaPress={() => router.push("/(trainer)/offers/new" as any)}
+              />
+            ) : (
+              options.map((offer) => {
+                const offerImageUrl = getOfferImageUrl(offer);
+                return (
+                  <View key={offer.id} className="mb-2">
+                    <TouchableOpacity
+                      className={`border rounded-xl p-3 ${
+                        selectedOfferId === offer.id ? "border-primary bg-primary/10" : "border-border bg-background"
+                      }`}
+                      onPress={() => setSelectedOfferId(offer.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select offer ${offer.title}`}
+                      testID={`invite-offer-${offer.id}`}
+                    >
+                      <View className="flex-row">
+                        <View className="w-16 h-16 rounded-lg bg-surface overflow-hidden items-center justify-center mr-3">
+                          {offerImageUrl ? (
+                            <Image source={{ uri: offerImageUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+                          ) : (
+                            <IconSymbol name="photo" size={18} color={colors.muted} />
+                          )}
+                        </View>
+                        <View className="flex-1">
+                        <View className="flex-row items-start justify-between">
+                          <Text className={selectedOfferId === offer.id ? "text-primary font-semibold flex-1 pr-2" : "text-foreground font-medium flex-1 pr-2"}>
+                            {offer.title}
+                          </Text>
+                          <Text className={selectedOfferId === offer.id ? "text-primary font-semibold" : "text-foreground font-semibold"}>
+                            {formatGBPFromMinor(offer.priceMinor)}
+                          </Text>
+                        </View>
+
+                        <View className="flex-row flex-wrap items-center mt-1 gap-2">
+                          <Text className="text-xs text-muted">{formatOfferTypeLabel(offer.type)}</Text>
+                          <Text className="text-xs text-muted">
+                            {offer.paymentType === "recurring" ? "Recurring" : "One-off"}
+                          </Text>
+                          {offer.sessionCount ? (
+                            <Text className="text-xs text-muted">{offer.sessionCount} sessions</Text>
+                          ) : null}
+                        </View>
+
+                        {offer.description ? (
+                          <Text className="text-xs text-muted mt-1" numberOfLines={2}>
+                            {offer.description}
+                          </Text>
+                        ) : null}
+
+                        {offer.included.length > 0 ? (
+                          <Text className="text-xs text-muted mt-1" numberOfLines={1}>
+                            Includes: {offer.included.slice(0, 2).join(", ")}
+                            {offer.included.length > 2 ? ` +${offer.included.length - 2}` : ""}
+                          </Text>
+                        ) : null}
+
+                        <View className="flex-row items-center mt-2">
+                          {(() => {
+                            const meta = OFFER_STATUS_META[offer.status] || OFFER_STATUS_META.draft;
+                            const dotColor =
+                              meta.colorKey === "success"
+                                ? colors.success
+                                : meta.colorKey === "primary"
+                                  ? colors.primary
+                                  : meta.colorKey === "error"
+                                    ? colors.error
+                                    : colors.warning;
+                            return (
+                              <>
+                                <View className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
+                                <Text className="text-xs text-muted ml-1">{meta.label}</Text>
+                              </>
+                            );
+                          })()}
+                        </View>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      className="self-start mt-1 px-2 py-1"
+                      onPress={() => setDetailsOffer(offer)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View details for ${offer.title}`}
+                      testID={`invite-offer-details-${offer.id}`}
+                    >
+                      <Text className="text-primary text-xs font-semibold">View details</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            )}
+          </SurfaceCard>
 
           {inviteLink ? (
-            <View className="bg-surface rounded-xl p-4 border border-border">
-              <View className="flex-row items-center bg-background rounded-lg p-3 mb-4">
-                <IconSymbol name="link" size={20} color={colors.primary} />
-                <Text
-                  className="flex-1 text-foreground ml-2"
-                  numberOfLines={1}
-                  ellipsizeMode="middle"
-                >
-                  {inviteLink}
-                </Text>
+            <View
+              className="bg-success/10 border border-success/30 rounded-xl p-4"
+              onLayout={(event) => {
+                inviteResultTopRef.current = event.nativeEvent.layout.y;
+              }}
+            >
+              <View className="flex-row items-center mb-2">
+                <IconSymbol name="checkmark.circle.fill" size={18} color={colors.success} />
+                <Text className="text-success font-semibold ml-2">Invite link ready</Text>
               </View>
-
-              <View className="flex-row gap-3">
+              <Text className="text-foreground text-sm" selectable>{inviteLink}</Text>
+              <View className="flex-row gap-2 mt-4">
                 <TouchableOpacity
-                  onPress={copyLink}
-                  className="flex-1 bg-surface border border-border py-3 rounded-xl flex-row items-center justify-center"
+                  className="flex-1 bg-primary rounded-xl py-3 items-center"
+                  onPress={emailLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="Email invite link"
+                  testID="invite-email-link"
                 >
-                  <IconSymbol name="doc.text.fill" size={18} color={colors.foreground} />
-                  <Text className="text-foreground font-semibold ml-2">Copy</Text>
+                  <Text className="text-background font-semibold">Email</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
-                  onPress={shareLink}
-                  className="flex-1 bg-primary py-3 rounded-xl flex-row items-center justify-center"
+                  className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
+                  onPress={copyLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy invite link"
+                  testID="invite-copy-link"
                 >
-                  <IconSymbol name="square.and.arrow.up" size={18} color="#fff" />
-                  <Text className="text-white font-semibold ml-2">Share</Text>
+                  <Text className="text-foreground font-semibold">Copy</Text>
+                </TouchableOpacity>
+              </View>
+              <View className="flex-row gap-2 mt-2">
+                <TouchableOpacity
+                  className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
+                  onPress={shareLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share invite link"
+                  testID="invite-share-link"
+                >
+                  <Text className="text-foreground font-semibold">Share</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
+                  onPress={smsLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send invite by SMS"
+                  testID="invite-sms-link"
+                >
+                  <Text className="text-foreground font-semibold">SMS</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <TouchableOpacity
-              onPress={generateInviteLink}
-              disabled={!selectedBundle}
-              className={`py-4 rounded-xl items-center ${selectedBundle ? "bg-primary" : "bg-muted"
-                }`}
+              className="bg-primary rounded-xl py-4 items-center"
+              onPress={createInvite}
+              disabled={inviteMutation.isPending}
             >
-              <View className="flex-row items-center">
-                <IconSymbol name="link" size={20} color="#fff" />
-                <Text className="text-white font-semibold ml-2">
-                  Generate Invite Link
-                </Text>
-              </View>
+              {inviteMutation.isPending ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text className="text-background font-semibold text-lg">Create Invite Link</Text>
+              )}
             </TouchableOpacity>
           )}
         </View>
-
-        {/* Send Email Invite */}
-        <View className="mb-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">
-            Or Send Email Invite
-          </Text>
-
-          <TouchableOpacity
-            onPress={sendEmailInvite}
-            disabled={isSending || !selectedBundle}
-            className={`py-4 rounded-xl items-center border ${selectedBundle && !isSending
-              ? "bg-surface border-primary"
-              : "bg-muted/20 border-border"
-              }`}
-          >
-            <View className="flex-row items-center">
-              <IconSymbol
-                name="envelope.fill"
-                size={20}
-                color={selectedBundle && !isSending ? colors.primary : colors.muted}
-              />
-              <Text
-                className={`font-semibold ml-2 ${selectedBundle && !isSending ? "text-primary" : "text-muted"
-                  }`}
-              >
-                {isSending ? "Sending..." : "Send Email Invitation"}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* Tips */}
-        <View className="mb-6 bg-primary/10 rounded-xl p-4">
-          <View className="flex-row items-center mb-2">
-            <IconSymbol name="info.circle.fill" size={20} color={colors.primary} />
-            <Text className="text-primary font-semibold ml-2">Tips</Text>
-          </View>
-          <Text className="text-foreground text-sm leading-5">
-            • Personalized invitations have a higher acceptance rate{"\n"}
-            • Include your {"client's"} name for a personal touch{"\n"}
-            • Share the link via text, email, or social media{"\n"}
-            • Links expire after 7 days for security
-          </Text>
-        </View>
-
-        {/* Bottom padding */}
-        <View className="h-24" />
       </ScrollView>
+
+      <Modal
+        visible={Boolean(detailsOffer)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDetailsOffer(null)}
+      >
+        <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setDetailsOffer(null)}>
+          <Pressable className="bg-background rounded-t-2xl border-t border-border max-h-[84%]">
+            <View className="px-4 py-3 border-b border-border flex-row items-center justify-between">
+              <Text className="text-foreground font-semibold text-base">Offer details</Text>
+              <TouchableOpacity
+                onPress={() => setDetailsOffer(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Close offer details"
+                testID="invite-offer-details-close"
+              >
+                <IconSymbol name="xmark" size={18} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            {detailsOffer ? (
+              <ScrollView className="px-4 py-4" showsVerticalScrollIndicator={false}>
+                <View className="flex-row">
+                  <View className="w-20 h-20 rounded-xl bg-surface overflow-hidden items-center justify-center mr-3">
+                    {getOfferImageUrl(detailsOffer) ? (
+                      <Image source={{ uri: getOfferImageUrl(detailsOffer)! }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+                    ) : (
+                      <IconSymbol name="photo" size={20} color={colors.muted} />
+                    )}
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-foreground font-semibold text-base">{detailsOffer.title}</Text>
+                    <Text className="text-primary font-semibold mt-0.5">{formatGBPFromMinor(detailsOffer.priceMinor)}</Text>
+                    <Text className="text-muted text-xs mt-1">
+                      {formatOfferTypeLabel(detailsOffer.type)} • {detailsOffer.paymentType === "recurring" ? "Recurring" : "One-off"}
+                      {detailsOffer.sessionCount ? ` • ${detailsOffer.sessionCount} sessions` : ""}
+                    </Text>
+                  </View>
+                </View>
+
+                {detailsOffer.description ? (
+                  <View className="mt-4">
+                    <Text className="text-foreground text-sm font-semibold mb-2">Description</Text>
+                    {/<[a-z][\s\S]*>/i.test(detailsOffer.description) ? (
+                      <RenderHTML
+                        contentWidth={Math.max(0, width - 32)}
+                        source={{ html: sanitizeHtml(detailsOffer.description) }}
+                        tagsStyles={{
+                          p: { color: colors.muted, lineHeight: 20, marginTop: 0, marginBottom: 8 },
+                          ul: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
+                          ol: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
+                          li: { color: colors.muted, marginBottom: 4 },
+                          strong: { color: colors.foreground, fontWeight: "600" },
+                          b: { color: colors.foreground, fontWeight: "600" },
+                        }}
+                      />
+                    ) : (
+                      <Text className="text-muted text-sm leading-6">{detailsOffer.description}</Text>
+                    )}
+                  </View>
+                ) : null}
+
+                {offerDetailsIncluded.length > 0 ? (
+                  <View className="mt-4">
+                    <Text className="text-foreground text-sm font-semibold mb-2">{"What's included"}</Text>
+                    {offerDetailsIncluded.map((item, index) => (
+                      <View key={`${item}-${index}`} className="flex-row items-start mb-2">
+                        <IconSymbol name="checkmark.circle.fill" size={16} color={colors.success} />
+                        <Text className="text-muted text-sm ml-2 flex-1">{item}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </ScrollView>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }

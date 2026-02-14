@@ -5,7 +5,7 @@ import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
 
 export default function CoordinatorTabLayout() {
   const navItems: RoleNavItem[] = [
-    { label: "Home", icon: "house.fill", href: "/(coordinator)", testID: "tab-home" },
+    { label: "Home", icon: "house.fill", href: "/(coordinator)/dashboard", testID: "tab-home" },
     { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
     { label: "Products", icon: "storefront.fill", href: "/(coordinator)/products", testID: "tab-products" },
     { label: "Analytics", icon: "chart.bar.fill", href: "/(coordinator)/analytics", testID: "tab-analytics" },

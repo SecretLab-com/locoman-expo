@@ -2,6 +2,7 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { navigateToHome } from "@/lib/navigation";
+import { trpc } from "@/lib/trpc";
 import { usePathname } from "expo-router";
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,8 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 export function ImpersonationBanner() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isImpersonating, impersonatedUser, stopImpersonation } = useAuthContext();
+  const { isImpersonating, impersonatedUser, stopImpersonation, user } = useAuthContext();
   const pathname = usePathname();
+  const logAction = trpc.admin.logUserAction.useMutation();
 
   if (!isImpersonating || !impersonatedUser || pathname === "/welcome") {
     return null;
@@ -22,6 +24,16 @@ export function ImpersonationBanner() {
 
   const handleEndImpersonation = async () => {
     await haptics.medium();
+    // Log the end of impersonation
+    try {
+      await logAction.mutateAsync({
+        targetUserId: impersonatedUser.id,
+        action: "impersonation_ended",
+        notes: `Impersonation ended by ${user?.name || "coordinator"}`,
+      });
+    } catch {
+      // Don't block end of impersonation if logging fails
+    }
     stopImpersonation();
     navigateToHome({ isCoordinator: true });
   };

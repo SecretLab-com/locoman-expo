@@ -7,6 +7,7 @@ import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { getHomeRoute } from "@/lib/navigation";
 import { supabase } from "@/lib/supabase-client";
+import { TEST_LOGIN_ACCOUNTS } from "@/constants/test-login-accounts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -57,10 +58,11 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
-    if (authLoading) return;
-    if (isAuthenticated) {
+    if (authLoading || !isAuthenticated) return;
+    const timer = setTimeout(() => {
       router.replace("/");
-    }
+    }, 800);
+    return () => clearTimeout(timer);
   }, [authLoading, isAuthenticated]);
 
   const handleLogin = async (testEmail?: string | any, testPassword?: string) => {
@@ -116,7 +118,7 @@ export default function LoginScreen() {
         // Small delay to allow auth state to propagate
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        router.replace("/(tabs)");
+        router.replace("/");
       } else {
         await haptics.error();
         setError("Login failed — no session returned");
@@ -142,7 +144,7 @@ export default function LoginScreen() {
 
   const handleGuestPress = async () => {
     await haptics.light();
-    router.replace("/(tabs)");
+    router.replace("/(tabs)/products?guest=true");
   };
 
   const togglePasswordVisibility = async () => {
@@ -187,7 +189,7 @@ export default function LoginScreen() {
             {/* OAuth Buttons (Apple & Google) */}
             <OAuthButtons
               onSuccess={() => {
-                // OAuth success is handled in the component
+                router.replace("/");
               }}
               onError={(err) => {
                 setError(err.message || "OAuth login failed");
@@ -314,77 +316,27 @@ export default function LoginScreen() {
               <Text className="text-muted">Browse as guest</Text>
             </TouchableOpacity>
 
-            {/* Test Account Hints */}
-            <View className="mt-8 p-4 bg-surface/50 rounded-xl border border-border">
-              <Text className="text-xs text-muted text-center mb-2">Test Accounts (password: supertest)</Text>
+            {/* Quick test account sign-in buttons */}
+            <View className="mt-8 pt-4 border-t border-border/70">
+              <Text className="text-center text-xs text-muted mb-3">Test accounts</Text>
               <View className="flex-row flex-wrap justify-center gap-2">
-                <TouchableOpacity
-                  onPress={() => {
-                    setEmail("trainer@secretlab.com");
-                    setPassword("supertest");
-                    handleLogin("trainer@secretlab.com", "supertest");
-                  }}
-                  className="px-2 py-1 bg-primary/10 rounded"
-                  accessibilityRole="button"
-                  accessibilityLabel="Fill trainer test account"
-                  testID="test-account-trainer"
-                >
-                  <Text className="text-xs text-primary">Trainer</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    setEmail("client@secretlab.com");
-                    setPassword("supertest");
-                    handleLogin("client@secretlab.com", "supertest");
-                  }}
-                  className="px-2 py-1 bg-primary/10 rounded"
-                  accessibilityRole="button"
-                  accessibilityLabel="Fill client test account"
-                  testID="test-account-client"
-                >
-                  <Text className="text-xs text-primary">Client</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    setEmail("manager@secretlab.com");
-                    setPassword("supertest");
-                    handleLogin("manager@secretlab.com", "supertest");
-                  }}
-                  className="px-2 py-1 bg-primary/10 rounded"
-                  accessibilityRole="button"
-                  accessibilityLabel="Fill manager test account"
-                  testID="test-account-manager"
-                >
-                  <Text className="text-xs text-primary">Manager</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    setEmail("testuser@secretlab.com");
-                    setPassword("supertest");
-                    handleLogin("testuser@secretlab.com", "supertest");
-                  }}
-                  className="px-2 py-1 bg-primary/10 rounded"
-                  accessibilityRole="button"
-                  accessibilityLabel="Fill shopper test account"
-                  testID="test-account-shopper"
-                >
-                  <Text className="text-xs text-purple-500">Super User</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    setEmail("coordinator@secretlab.com");
-                    setPassword("supertest");
-                    handleLogin("coordinator@secretlab.com", "supertest");
-                  }}
-                  className="px-2 py-1 bg-purple-500/10 rounded"
-                  accessibilityRole="button"
-                  accessibilityLabel="Fill coordinator test account"
-                  testID="test-account-coordinator"
-                >
-                  <Text className="text-xs text-purple-500">Coordinator</Text>
-                </TouchableOpacity>
+                {TEST_LOGIN_ACCOUNTS.map((account) => (
+                  <TouchableOpacity
+                    key={account.testID}
+                    className="bg-surface border border-border rounded-full px-3 py-2"
+                    onPress={() => handleLogin(account.email, account.password)}
+                    disabled={loading}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Sign in as ${account.label} test account`}
+                    testID={account.testID}
+                  >
+                    <Text className="text-xs font-medium text-foreground">{account.label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </View>
+
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

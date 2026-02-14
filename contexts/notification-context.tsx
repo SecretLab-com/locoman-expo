@@ -4,6 +4,7 @@ import {
   getLastNotificationResponse,
   registerForPushNotificationsAsync,
 } from "@/lib/notifications";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { useAuthContext } from "@/contexts/auth-context";
 import { handleNotificationDeepLink } from "@/hooks/use-deep-link";
 import { trpc } from "@/lib/trpc";
@@ -22,7 +23,7 @@ type NotificationContextType = {
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const { user, isAuthenticated } = useAuthContext();
+  const { user, isAuthenticated, effectiveRole } = useAuthContext();
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
@@ -34,16 +35,19 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
 
   useEffect(() => {
-    if (Platform.OS === "web") {
-      return;
-    }
     // Register for push notifications
     registerForPushNotificationsAsync().then((token) => {
       if (token) {
         setExpoPushToken(token);
         setHasPermission(true);
+      } else if (Platform.OS === "web" && typeof window !== "undefined" && "Notification" in window) {
+        setHasPermission(window.Notification.permission === "granted");
       }
     });
+
+    if (Platform.OS === "web") {
+      return;
+    }
 
     // Handle notification received while app is foregrounded
     notificationListener.current = addNotificationReceivedListener((notification) => {
@@ -135,7 +139,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       case "message":
         if (data.conversationId) {
           router.push({
-            pathname: "/conversation/[id]" as any,
+            pathname: getRoleConversationPath(effectiveRole as any) as any,
             params: { 
               id: String(data.conversationId),
               name: String(data.senderName || "Message"),
@@ -171,6 +175,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setExpoPushToken(token);
       setHasPermission(true);
       return true;
+    }
+    if (Platform.OS === "web" && typeof window !== "undefined" && "Notification" in window) {
+      const granted = window.Notification.permission === "granted";
+      setHasPermission(granted);
+      return granted;
     }
     return false;
   };

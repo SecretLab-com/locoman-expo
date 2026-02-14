@@ -42,33 +42,6 @@ export function AdyenCheckout({
   onPaymentComplete,
   onError,
 }: AdyenCheckoutProps) {
-  const colors = useColors();
-  const [loading, setLoading] = useState(true);
-  const [nativeAvailable, setNativeAvailable] = useState(false);
-
-  useEffect(() => {
-    // Check if native Adyen module is available (requires dev build)
-    try {
-      // Dynamic import to avoid crash in Expo Go
-      const AdyenModule = require("@adyen/react-native");
-      if (AdyenModule?.AdyenCheckout) {
-        setNativeAvailable(true);
-      }
-    } catch {
-      setNativeAvailable(false);
-    }
-    setLoading(false);
-  }, []);
-
-  if (loading) {
-    return (
-      <View className="items-center justify-center py-8">
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text className="text-muted mt-3">Loading payment form...</Text>
-      </View>
-    );
-  }
-
   if (Platform.OS === "web") {
     return (
       <AdyenWebCheckout
@@ -82,26 +55,20 @@ export function AdyenCheckout({
     );
   }
 
-  if (!nativeAvailable) {
-    return (
-      <View className="items-center justify-center py-8 px-4">
-        <Text className="text-foreground font-semibold text-center mb-2">
-          Native payment module not available
-        </Text>
-        <Text className="text-muted text-center text-sm">
-          Card payments require a development build. Use a payment link instead,
-          or build the app with EAS to enable native Adyen checkout.
+  const colors = useColors();
+  return (
+    <View className="items-center justify-center py-8 px-4">
+      <Text className="text-foreground font-semibold text-center mb-2">
+        Card checkout requires native module setup
+      </Text>
+      <Text className="text-muted text-center text-sm">
+        Use payment links for now, or add a platform-specific native Adyen checkout implementation.
+      </Text>
+      <View className="mt-3 rounded-lg bg-surface px-3 py-2 border border-border">
+        <Text className="text-xs text-muted">
+          Session: {sessionId.slice(0, 20)}...
         </Text>
       </View>
-    );
-  }
-
-  // Native Adyen Drop-in would go here
-  // This requires @adyen/react-native native modules
-  return (
-    <View className="items-center justify-center py-8">
-      <Text className="text-foreground font-semibold">Adyen Drop-in</Text>
-      <Text className="text-muted text-sm mt-1">Session: {sessionId.slice(0, 20)}...</Text>
     </View>
   );
 }

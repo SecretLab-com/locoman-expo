@@ -109,6 +109,11 @@ export default function TrainerBundlesScreen() {
 
   // Fetch bundles from tRPC
   const { data: bundlesData, isLoading, refetch, isRefetching } = trpc.bundles.list.useQuery();
+  const deleteBundleMutation = trpc.bundles.delete.useMutation({
+    onSuccess: async () => {
+      await refetch();
+    },
+  });
 
   const bundles: Bundle[] = (bundlesData || []).map((b: any) => ({
     id: String(b.id),
@@ -147,9 +152,13 @@ export default function TrainerBundlesScreen() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            // TODO: Replace with trpc.bundles.delete.useMutation() when endpoint is created
-            refetch();
+          onPress: async () => {
+            try {
+              await deleteBundleMutation.mutateAsync({ id: bundle.id });
+            } catch (error) {
+              console.error("Failed to delete bundle:", error);
+              Alert.alert("Error", "Failed to delete bundle. Please try again.");
+            }
           },
         },
       ]

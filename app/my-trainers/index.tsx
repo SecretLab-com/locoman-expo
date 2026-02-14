@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
-import { navigateToHome } from "@/lib/navigation";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
@@ -190,17 +190,7 @@ function PendingRequestCard({
 
 export default function MyTrainersScreen() {
   const colors = useColors();
-  const { effectiveRole } = useAuthContext();
-  const roleBase =
-    effectiveRole === "client"
-      ? "/(client)"
-      : effectiveRole === "trainer"
-        ? "/(trainer)"
-        : effectiveRole === "manager"
-          ? "/(manager)"
-          : effectiveRole === "coordinator"
-            ? "/(coordinator)"
-            : "/(tabs)";
+  const { user, effectiveRole } = useAuthContext();
   
   // Fetch trainers from API
   const { 
@@ -242,7 +232,19 @@ export default function MyTrainersScreen() {
 
   const handleMessageTrainer = async (trainer: MyTrainer) => {
     await haptics.light();
-    router.push(`${roleBase}/messages/${trainer.id}` as any);
+    if (!user?.id) {
+      router.push("/login" as any);
+      return;
+    }
+    const conversationId = [String(user?.id || ""), String(trainer.id)].sort().join("-");
+    router.push({
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
+      params: {
+        id: conversationId,
+        participantId: String(trainer.id),
+        name: trainer.name || "Trainer",
+      },
+    });
   };
 
   const handleRemoveTrainer = (trainer: MyTrainer) => {
@@ -369,7 +371,6 @@ export default function MyTrainersScreen() {
         title="My Trainers" 
         showBack
         showHome
-        onBack={() => navigateToHome()}
       />
       
       <FlatList

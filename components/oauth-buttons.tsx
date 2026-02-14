@@ -1,15 +1,9 @@
 import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
+import { signInWithGoogle } from "@/lib/google-oauth";
 import { supabase } from "@/lib/supabase-client";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { makeRedirectUri } from "expo-auth-session";
-import * as QueryParams from "expo-auth-session/build/QueryParams";
-import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-
-// Ensure web browser redirects are handled
-WebBrowser.maybeCompleteAuthSession();
 
 interface OAuthButtonsProps {
   onSuccess?: () => void;
@@ -46,92 +40,11 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
 
   const handleGoogleSignIn = async () => {
     try {
-      if (Platform.OS === "web") {
-        // Web: use Supabase OAuth redirect (works natively in browser)
-        const redirectTo = `${window.location.origin}/oauth/callback`;
-        console.log("[OAuth] Web: starting Supabase OAuth, redirectTo:", redirectTo);
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo },
-        });
-        if (error) throw error;
+      await signInWithGoogle();
+      // Web OAuth redirects away immediately and does not have a session yet here.
+      // Calling onSuccess early can trigger route churn (/ -> /welcome) before callback.
+      if (Platform.OS !== "web") {
         onSuccess?.();
-        return;
-      }
-
-      // Native: use Supabase signInWithOAuth + WebBrowser
-      // The redirect URL must be in Supabase's allowed redirect URLs
-      const redirectTo = makeRedirectUri();
-      console.log("[OAuth] Native: redirect URI:", redirectTo);
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo,
-          skipBrowserRedirect: true,
-        },
-      });
-
-      if (error) throw error;
-      if (!data.url) throw new Error("No OAuth URL returned");
-
-      console.log("[OAuth] Opening Supabase OAuth URL:", data.url);
-
-      // Open the auth URL in an in-app browser
-      const result = await WebBrowser.openAuthSessionAsync(
-        data.url,
-        redirectTo,
-      );
-
-      console.log("[OAuth] WebBrowser result:", result.type);
-
-      if (result.type === "success" && result.url) {
-        // Extract the tokens from the redirect URL
-        // Supabase puts them in the hash fragment: #access_token=...&refresh_token=...
-        const url = result.url;
-        console.log("[OAuth] Redirect URL received:", url.substring(0, 100));
-
-        // Parse hash fragment parameters
-        const hashIndex = url.indexOf("#");
-        if (hashIndex !== -1) {
-          const fragment = url.substring(hashIndex + 1);
-          const params = new URLSearchParams(fragment);
-          const accessToken = params.get("access_token");
-          const refreshToken = params.get("refresh_token");
-
-          if (accessToken && refreshToken) {
-            console.log("[OAuth] Setting Supabase session from tokens...");
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            if (sessionError) throw sessionError;
-
-            console.log("[OAuth] Session set successfully!");
-            triggerAuthRefresh();
-            onSuccess?.();
-            return;
-          }
-        }
-
-        // Fallback: try query params (for PKCE flow)
-        const queryIndex = url.indexOf("?");
-        if (queryIndex !== -1) {
-          const queryParams = new URLSearchParams(url.substring(queryIndex + 1));
-          const code = queryParams.get("code");
-          if (code) {
-            console.log("[OAuth] Exchanging code for session...");
-            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-            if (exchangeError) throw exchangeError;
-            triggerAuthRefresh();
-            onSuccess?.();
-            return;
-          }
-        }
-
-        console.warn("[OAuth] No tokens or code found in redirect URL");
-      } else if (result.type === "cancel" || result.type === "dismiss") {
-        console.log("[OAuth] User cancelled sign-in");
       }
     } catch (error: any) {
       console.error("Google Sign In error:", error);

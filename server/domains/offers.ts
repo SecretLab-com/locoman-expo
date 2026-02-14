@@ -8,6 +8,7 @@ export type Offer = {
   id: string;
   title: string;
   description: string | null;
+  imageUrl: string | null;
   type: OfferType;
   priceMinor: number;
   currency: "GBP";
@@ -108,6 +109,7 @@ export function mapBundleToOffer(bundle: BundleDraft): Offer {
     id: bundle.id,
     title: bundle.title || "Offer",
     description: bundle.description || null,
+    imageUrl: bundle.imageUrl || null,
     type: resolvedOfferType,
     priceMinor: Math.round((parseFloat(bundle.price || "0") || 0) * 100),
     currency: "GBP",

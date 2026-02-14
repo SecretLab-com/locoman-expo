@@ -1,8 +1,11 @@
 import { Slot } from "expo-router";
+import { router } from "expo-router";
+import { useEffect } from "react";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
 import { useAuthContext } from "@/contexts/auth-context";
+import { getHomeRoute } from "@/lib/navigation";
 
 /**
  * Shopper Tab Layout
@@ -15,7 +18,21 @@ import { useAuthContext } from "@/contexts/auth-context";
  * - Profile: Settings, account
  */
 export default function UnifiedTabLayout() {
-  const { isTrainer, canManage } = useAuthContext();
+  const { isAuthenticated, loading, hasSession, profileHydrated, effectiveRole, isTrainer, canManage } = useAuthContext();
+
+  useEffect(() => {
+    const authTransit = loading || (hasSession && !profileHydrated);
+    if (authTransit) return;
+    if (!isAuthenticated) return;
+
+    if (effectiveRole && effectiveRole !== "shopper") {
+      const target = getHomeRoute(effectiveRole);
+      if (target !== "/(tabs)") {
+        router.navigate(target as any);
+      }
+    }
+  }, [effectiveRole, hasSession, isAuthenticated, loading, profileHydrated]);
+
   const showCart = !canManage && !isTrainer;
 
   const navItems: RoleNavItem[] = [

@@ -1,25 +1,51 @@
 /**
  * API Configuration
  * 
- * This file contains hardcoded API URLs for different environments.
- * The native fallback URL is used when running on physical devices via Expo Go.
- * 
- * IMPORTANT: Update NATIVE_API_URL when the sandbox URL changes.
+ * This file resolves API URLs for web and native platforms.
+ * Prefer explicit environment configuration in production.
  */
 import Constants from "expo-constants";
 import { NativeModules, Platform } from "react-native";
 
-// Hardcoded API URL for native platforms (Expo Go on physical devices)
-// This URL must be publicly accessible from the internet
-const NATIVE_API_URL = "https://3002-i4anndi9mla842misgiwl-a70979ba.sg1.manus.computer";
-const WEB_API_URL = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.VITE_API_BASE_URL || "";
+function readRuntimeExtraApiUrl(): string {
+  const expoConfigExtra = (Constants?.expoConfig as { extra?: { apiBaseUrl?: string } } | undefined)?.extra;
+  const manifestExtra = (Constants?.manifest as { extra?: { apiBaseUrl?: string } } | undefined)?.extra;
+  return expoConfigExtra?.apiBaseUrl || manifestExtra?.apiBaseUrl || "";
+}
+
+function getExplicitApiUrl(): string {
+  return (
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.EXPO_PUBLIC_NATIVE_API_URL ||
+    process.env.VITE_API_BASE_URL ||
+    readRuntimeExtraApiUrl() ||
+    ""
+  );
+}
+
+const FORCE_SINGLE_API_URL = process.env.EXPO_PUBLIC_FORCE_SINGLE_API_URL === "true";
+const PREFER_LOCAL_WEB_API = process.env.EXPO_PUBLIC_PREFER_LOCAL_WEB_API === "true";
 const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
 // Web API URL derivation from current hostname
 function getWebApiUrl(): string {
+  const explicitApiUrl = getExplicitApiUrl();
+
+  // Prefer explicit API URL whenever provided, unless local override is explicitly requested.
+  if (explicitApiUrl && !PREFER_LOCAL_WEB_API) {
+    return explicitApiUrl;
+  }
+
   const location = typeof window !== "undefined" ? window.location : undefined;
   if (location) {
     const { protocol, hostname, port } = location;
+    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    // Force explicit API URL when requested.
+    if (explicitApiUrl && FORCE_SINGLE_API_URL) {
+      return explicitApiUrl;
+    }
+
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       const apiPort = port === "8081" ? "3000" : "3000";
       return `${protocol}//${hostname}:${apiPort}`;
@@ -27,9 +53,6 @@ function getWebApiUrl(): string {
     // Local LAN access (e.g. 192.168.x.x:8081)
     if (port === "8081") {
       return `${protocol}//${hostname}:3000`;
-    }
-    if (WEB_API_URL) {
-      return WEB_API_URL;
     }
     // Pattern: 8081-sandboxid.region.domain -> 3002-sandboxid.region.domain
     const apiHostname = hostname.replace(/^8081-/, "3002-");
@@ -45,15 +68,18 @@ function getWebApiUrl(): string {
 }
 
 function getNativeApiUrl(): string {
-  // 1. Check for manual environment override
-  const envNativeUrl = process.env.EXPO_PUBLIC_NATIVE_API_URL;
-  if (envNativeUrl) {
-    return envNativeUrl;
+  const explicitApiUrl = getExplicitApiUrl();
+
+  // 1. Check for explicit environment configuration first
+  if (explicitApiUrl) {
+    return explicitApiUrl;
   }
 
   // 2. Try to derive from Metro dev server address
   const scriptURL = NativeModules?.SourceCode?.scriptURL as string | undefined;
-  const hostUri = Constants?.expoConfig?.hostUri || (Constants?.manifest as any)?.hostUri;
+  const expoConfigHost = (Constants?.expoConfig as { hostUri?: string } | undefined)?.hostUri;
+  const manifestHost = (Constants?.manifest as { hostUri?: string } | undefined)?.hostUri;
+  const hostUri = expoConfigHost || manifestHost;
   const rawUrl = scriptURL || (hostUri ? `http://${hostUri}` : "");
 
   if (rawUrl) {
@@ -81,11 +107,11 @@ function getNativeApiUrl(): string {
     }
   }
 
-  // 3. Fallback to hardcoded URL if all else fails
-  if (WEB_API_URL) {
-    return WEB_API_URL;
+  // 3. Fallbacks
+  if (IS_DEV) {
+    return "http://localhost:3000";
   }
-  return NATIVE_API_URL;
+  return "";
 }
 
 /**

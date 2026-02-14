@@ -7,17 +7,19 @@ import {
   RefreshControl,
   Alert,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 
 type JoinRequest = {
-  id: number;
-  userId: number;
+  id: string;
+  userId: string;
   userName: string;
   userEmail: string;
   userAvatar: string | null;
@@ -26,46 +28,6 @@ type JoinRequest = {
   status: "pending" | "approved" | "rejected";
   createdAt: Date;
 };
-
-// TODO: Replace with real API when trainer join requests endpoint is created
-// Needs: trpc.joinRequests.list.useQuery() or trpc.clients.joinRequests.useQuery()
-// The server currently has myTrainers.requestToJoin (client-side) but no trainer-side
-// endpoint to list incoming join requests.
-const MOCK_JOIN_REQUESTS: JoinRequest[] = [
-  {
-    id: 1,
-    userId: 101,
-    userName: "Alex Thompson",
-    userEmail: "alex.t@email.com",
-    userAvatar: "https://i.pravatar.cc/150?img=33",
-    message: "I've been following your content for months and would love to work with you on my weight loss journey!",
-    goals: ["Weight Loss", "Nutrition"],
-    status: "pending",
-    createdAt: new Date(Date.now() - 86400000 * 2),
-  },
-  {
-    id: 2,
-    userId: 102,
-    userName: "Emma Davis",
-    userEmail: "emma.d@email.com",
-    userAvatar: "https://i.pravatar.cc/150?img=44",
-    message: "Looking to build strength and improve my overall fitness. Your programs look perfect for my goals.",
-    goals: ["Strength Training", "HIIT"],
-    status: "pending",
-    createdAt: new Date(Date.now() - 86400000 * 1),
-  },
-  {
-    id: 3,
-    userId: 103,
-    userName: "Chris Miller",
-    userEmail: "chris.m@email.com",
-    userAvatar: "https://i.pravatar.cc/150?img=55",
-    message: "Referred by a friend who's your client. Ready to start my fitness transformation!",
-    goals: ["Weight Loss", "Muscle Building"],
-    status: "pending",
-    createdAt: new Date(Date.now() - 86400000 * 0.5),
-  },
-];
 
 function JoinRequestCard({
   request,
@@ -132,24 +94,40 @@ function JoinRequestCard({
       )}
 
       {/* Action buttons */}
-      <View className="flex-row gap-3">
-        <TouchableOpacity
-          onPress={onReject}
-          className="flex-1 py-3 rounded-lg border border-border items-center"
-          style={{ opacity: 1 }}
-          activeOpacity={0.7}
+      {request.status === "pending" ? (
+        <View className="flex-row gap-3">
+          <TouchableOpacity
+            onPress={onReject}
+            className="flex-1 py-3 rounded-lg border border-border items-center"
+            style={{ opacity: 1 }}
+            activeOpacity={0.7}
+          >
+            <Text className="text-muted font-semibold">Decline</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onApprove}
+            className="flex-1 py-3 rounded-lg items-center"
+            style={{ backgroundColor: colors.primary }}
+            activeOpacity={0.7}
+          >
+            <Text className="text-white font-semibold">Accept</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View
+          className="self-start px-3 py-1 rounded-full"
+          style={{
+            backgroundColor: request.status === "approved" ? `${colors.success}20` : `${colors.error}20`,
+          }}
         >
-          <Text className="text-muted font-semibold">Decline</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={onApprove}
-          className="flex-1 py-3 rounded-lg items-center"
-          style={{ backgroundColor: colors.primary }}
-          activeOpacity={0.7}
-        >
-          <Text className="text-white font-semibold">Accept</Text>
-        </TouchableOpacity>
-      </View>
+          <Text
+            className="text-xs font-semibold capitalize"
+            style={{ color: request.status === "approved" ? colors.success : colors.error }}
+          >
+            {request.status}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -157,24 +135,58 @@ function JoinRequestCard({
 export default function JoinRequestsScreen() {
   const colors = useColors();
   const [refreshing, setRefreshing] = useState(false);
-  const [requests, setRequests] = useState(MOCK_JOIN_REQUESTS);
+  const [processedRequests, setProcessedRequests] = useState<JoinRequest[]>([]);
   const [filter, setFilter] = useState<"pending" | "all">("pending");
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+
+  const requestsQuery = trpc.myTrainers.forTrainerPendingRequests.useQuery();
+  const approveRequest = trpc.myTrainers.approveRequest.useMutation({
+    onSuccess: () => {
+      requestsQuery.refetch();
+    },
+  });
+  const rejectRequest = trpc.myTrainers.rejectRequest.useMutation({
+    onSuccess: () => {
+      requestsQuery.refetch();
+    },
+  });
+
+  const pendingRequests: JoinRequest[] = (requestsQuery.data || []).map((request: any) => {
+    const user = request.requestUser || {};
+    const goals = Array.isArray(request.goals)
+      ? request.goals.map((goal: any) => String(goal))
+      : null;
+    return {
+      id: String(request.id),
+      userId: String(request.userId || user.id || request.id),
+      userName: user.name || request.name || "Unknown User",
+      userEmail: user.email || request.email || "",
+      userAvatar: user.photoUrl || request.photoUrl || null,
+      message: request.notes || null,
+      goals,
+      status: "pending",
+      createdAt: new Date(request.createdAt || Date.now()),
+    };
+  });
+
+  const requests = [
+    ...pendingRequests,
+    ...processedRequests.filter((processed) => !pendingRequests.some((pending) => pending.id === processed.id)),
+  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
   const filteredRequests = requests.filter(
     (r) => filter === "all" || r.status === "pending"
   );
 
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
+  const pendingCount = pendingRequests.length;
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    // TODO: Replace with real API refetch when endpoint is created
-    // e.g. await refetch();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await requestsQuery.refetch();
     setRefreshing(false);
   };
 
-  const handleApprove = (requestId: number) => {
+  const handleApprove = (requestId: string) => {
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
@@ -186,20 +198,29 @@ export default function JoinRequestsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Accept",
-          onPress: () => {
-            setRequests((prev) =>
-              prev.map((r) =>
-                r.id === requestId ? { ...r, status: "approved" as const } : r
-              )
-            );
-            // TODO: Replace with trpc.clients.approveJoinRequest.useMutation() when endpoint is created
+          onPress: async () => {
+            const request = pendingRequests.find((item) => item.id === requestId);
+            if (!request) return;
+            setProcessingRequestId(requestId);
+            try {
+              await approveRequest.mutateAsync({ requestId });
+              setProcessedRequests((prev) => {
+                const next = prev.filter((item) => item.id !== requestId);
+                return [{ ...request, status: "approved" }, ...next];
+              });
+            } catch (error) {
+              console.error("Failed to approve join request:", error);
+              Alert.alert("Error", "Failed to approve request. Please try again.");
+            } finally {
+              setProcessingRequestId(null);
+            }
           },
         },
       ]
     );
   };
 
-  const handleReject = (requestId: number) => {
+  const handleReject = (requestId: string) => {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
@@ -212,13 +233,22 @@ export default function JoinRequestsScreen() {
         {
           text: "Decline",
           style: "destructive",
-          onPress: () => {
-            setRequests((prev) =>
-              prev.map((r) =>
-                r.id === requestId ? { ...r, status: "rejected" as const } : r
-              )
-            );
-            // TODO: Replace with trpc.clients.rejectJoinRequest.useMutation() when endpoint is created
+          onPress: async () => {
+            const request = pendingRequests.find((item) => item.id === requestId);
+            if (!request) return;
+            setProcessingRequestId(requestId);
+            try {
+              await rejectRequest.mutateAsync({ requestId });
+              setProcessedRequests((prev) => {
+                const next = prev.filter((item) => item.id !== requestId);
+                return [{ ...request, status: "rejected" }, ...next];
+              });
+            } catch (error) {
+              console.error("Failed to reject join request:", error);
+              Alert.alert("Error", "Failed to decline request. Please try again.");
+            } finally {
+              setProcessingRequestId(null);
+            }
           },
         },
       ]
@@ -284,7 +314,7 @@ export default function JoinRequestsScreen() {
       {/* Requests list */}
       <FlatList
         data={filteredRequests}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <JoinRequestCard
             request={item}
@@ -294,10 +324,18 @@ export default function JoinRequestsScreen() {
         )}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
+            refreshing={refreshing || requestsQuery.isRefetching}
             onRefresh={handleRefresh}
             tintColor={colors.primary}
           />
+        }
+        ListHeaderComponent={
+          requestsQuery.isLoading ? (
+            <View className="items-center py-6">
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text className="text-muted mt-2">Loading join requests...</Text>
+            </View>
+          ) : null
         }
         ListEmptyComponent={
           <View className="items-center justify-center py-12">
@@ -315,6 +353,15 @@ export default function JoinRequestsScreen() {
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
       />
+
+      {processingRequestId && (
+        <View className="absolute inset-0 bg-black/20 items-center justify-center">
+          <View className="bg-surface rounded-xl px-4 py-3 border border-border flex-row items-center">
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text className="text-foreground ml-2">Updating request...</Text>
+          </View>
+        </View>
+      )}
     </ScreenContainer>
   );
 }

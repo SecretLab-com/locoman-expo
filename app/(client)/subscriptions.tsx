@@ -46,6 +46,24 @@ export default function SubscriptionsScreen() {
 
   // Fetch real subscriptions
   const { data: rawSubscriptions, isLoading, refetch, isRefetching } = trpc.subscriptions.mySubscriptions.useQuery();
+  const pauseSubscription = trpc.subscriptions.pause.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowDetailModal(false);
+    },
+  });
+  const resumeSubscription = trpc.subscriptions.resume.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowDetailModal(false);
+    },
+  });
+  const cancelSubscription = trpc.subscriptions.cancel.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowDetailModal(false);
+    },
+  });
 
   // Map API data to UI type
   const subscriptions: Subscription[] = (rawSubscriptions || []).map((sub: any) => ({
@@ -63,6 +81,7 @@ export default function SubscriptionsScreen() {
     checkInsIncluded: sub.checkInsIncluded || 0,
     checkInsUsed: sub.checkInsUsed || 0,
   }));
+  const isMutating = pauseSubscription.isPending || resumeSubscription.isPending || cancelSubscription.isPending;
 
   // Get status color
   const getStatusColor = (status: SubscriptionStatus) => {
@@ -89,9 +108,6 @@ export default function SubscriptionsScreen() {
     });
   };
 
-  // TODO: Add pause/resume/cancel mutations when subscription management endpoints are created
-  // e.g. trpc.subscriptions.pause.useMutation(), trpc.subscriptions.resume.useMutation(), trpc.subscriptions.cancel.useMutation()
-
   // Handle pause subscription
   const handlePause = (subscription: Subscription) => {
     Alert.alert(
@@ -101,10 +117,13 @@ export default function SubscriptionsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Pause",
-          onPress: () => {
-            // TODO: Call trpc.subscriptions.pause.mutate({ id: subscription.id }) when endpoint exists
-            setShowDetailModal(false);
-            refetch();
+          onPress: async () => {
+            try {
+              await pauseSubscription.mutateAsync({ id: subscription.id });
+            } catch (error) {
+              console.error("Failed to pause subscription:", error);
+              Alert.alert("Error", "Unable to pause subscription. Please try again.");
+            }
           },
         },
       ]
@@ -120,10 +139,13 @@ export default function SubscriptionsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Resume",
-          onPress: () => {
-            // TODO: Call trpc.subscriptions.resume.mutate({ id: subscription.id }) when endpoint exists
-            setShowDetailModal(false);
-            refetch();
+          onPress: async () => {
+            try {
+              await resumeSubscription.mutateAsync({ id: subscription.id });
+            } catch (error) {
+              console.error("Failed to resume subscription:", error);
+              Alert.alert("Error", "Unable to resume subscription. Please try again.");
+            }
           },
         },
       ]
@@ -140,10 +162,13 @@ export default function SubscriptionsScreen() {
         {
           text: "Cancel Subscription",
           style: "destructive",
-          onPress: () => {
-            // TODO: Call trpc.subscriptions.cancel.mutate({ id: subscription.id }) when endpoint exists
-            setShowDetailModal(false);
-            refetch();
+          onPress: async () => {
+            try {
+              await cancelSubscription.mutateAsync({ id: subscription.id });
+            } catch (error) {
+              console.error("Failed to cancel subscription:", error);
+              Alert.alert("Error", "Unable to cancel subscription. Please try again.");
+            }
           },
         },
       ]
@@ -426,6 +451,7 @@ export default function SubscriptionsScreen() {
                     {selectedSubscription.status === "active" && (
                       <TouchableOpacity
                         onPress={() => handlePause(selectedSubscription)}
+                        disabled={isMutating}
                         className="bg-warning/10 py-4 rounded-xl items-center border border-warning/30"
                       >
                         <Text className="text-warning font-semibold">Pause Subscription</Text>
@@ -435,6 +461,7 @@ export default function SubscriptionsScreen() {
                     {selectedSubscription.status === "paused" && (
                       <TouchableOpacity
                         onPress={() => handleResume(selectedSubscription)}
+                        disabled={isMutating}
                         className="bg-primary py-4 rounded-xl items-center"
                       >
                         <Text className="text-white font-semibold">Resume Subscription</Text>
@@ -444,6 +471,7 @@ export default function SubscriptionsScreen() {
                     {(selectedSubscription.status === "active" || selectedSubscription.status === "paused") && (
                       <TouchableOpacity
                         onPress={() => handleCancel(selectedSubscription)}
+                        disabled={isMutating}
                         className="bg-error/10 py-4 rounded-xl items-center border border-error/30"
                       >
                         <Text className="text-error font-semibold">Cancel Subscription</Text>

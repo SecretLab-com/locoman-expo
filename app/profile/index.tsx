@@ -6,6 +6,7 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { useBadgeContext } from "@/contexts/badge-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
 import { Image } from "expo-image";
@@ -114,6 +115,11 @@ export default function SharedProfileScreen() {
   const managerBase = isCoordinator ? "/(coordinator)" : "/(manager)";
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
   const profileUser = effectiveUser ?? user;
+  const profilePhotoUrlRaw = normalizeAssetUrl(profileUser?.photoUrl);
+  const profilePhotoUrl =
+    profilePhotoUrlRaw && profileUser?.updatedAt
+      ? `${profilePhotoUrlRaw}${profilePhotoUrlRaw.includes("?") ? "&" : "?"}v=${encodeURIComponent(String(profileUser.updatedAt))}`
+      : profilePhotoUrlRaw;
 
   // Navigate back to the user's role-specific home (initial landing page)
   const handleGoHome = async () => {
@@ -204,7 +210,7 @@ export default function SharedProfileScreen() {
   const navItems: RoleNavItem[] = (() => {
     if (effectiveRole === "manager") {
       return [
-        { label: "Home", icon: "house.fill", href: "/(manager)", testID: "tab-home" },
+        { label: "Home", icon: "house.fill", href: "/(manager)/dashboard", testID: "tab-home" },
         {
           label: "Approvals",
           icon: "checkmark.circle.fill",
@@ -217,7 +223,7 @@ export default function SharedProfileScreen() {
     }
     if (effectiveRole === "coordinator") {
       return [
-        { label: "Home", icon: "house.fill", href: "/(coordinator)", testID: "tab-home" },
+        { label: "Home", icon: "house.fill", href: "/(coordinator)/dashboard", testID: "tab-home" },
         { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
         { label: "Products", icon: "storefront.fill", href: "/(coordinator)/products", testID: "tab-products" },
         {
@@ -231,17 +237,11 @@ export default function SharedProfileScreen() {
     }
     if (effectiveRole === "trainer") {
       return [
-        { label: "Home", icon: "house.fill", href: "/(trainer)", testID: "tab-home" },
+        { label: "Home", icon: "house.fill", href: "/(trainer)/dashboard", testID: "tab-home" },
         { label: "Clients", icon: "person.2.fill", href: "/(trainer)/clients", testID: "tab-clients" },
-        { label: "Pay", icon: "creditcard.fill", href: "/(trainer)/pay", testID: "tab-pay" },
-        { label: "Analytics", icon: "chart.bar.fill", href: "/(trainer)/analytics", testID: "tab-analytics" },
-        {
-          label: "Deliveries",
-          icon: "shippingbox.fill",
-          href: "/(trainer)/deliveries",
-          testID: "tab-deliveries",
-          badge: counts.pendingDeliveries,
-        },
+        { label: "Get Paid", icon: "creditcard.fill", href: "/(trainer)/get-paid", testID: "tab-get-paid" },
+        { label: "Rewards", icon: "star.fill", href: "/(trainer)/rewards", testID: "tab-rewards" },
+        { label: "More", icon: "ellipsis.circle.fill", href: "/(trainer)/more", testID: "tab-more" },
       ];
     }
 
@@ -306,10 +306,10 @@ export default function SharedProfileScreen() {
         {/* Profile Header */}
         <View className="items-center py-6 px-4">
           <View className="w-24 h-24 rounded-full bg-primary items-center justify-center mb-4">
-            {profileUser?.photoUrl ? (
+            {profilePhotoUrl ? (
               <Image
-                source={{ uri: profileUser.photoUrl }}
-                className="w-24 h-24 rounded-full"
+                source={{ uri: profilePhotoUrl }}
+                style={{ width: "100%", height: "100%" }}
                 contentFit="cover"
               />
             ) : profileUser?.name ? (
@@ -374,7 +374,7 @@ export default function SharedProfileScreen() {
               icon="person.fill"
               title="Edit Profile"
               subtitle="Update your personal information"
-              onPress={() => router.push("/settings" as any)}
+              onPress={() => router.push(`${roleBase}/settings` as any)}
             />
             {isClient && (
               <MenuItem
@@ -443,7 +443,7 @@ export default function SharedProfileScreen() {
                   icon="person.badge.key.fill"
                   title="Impersonate User"
                   subtitle="View the app as any user"
-                  onPress={() => router.push("/(coordinator)" as any)}
+                  onPress={() => router.push("/(coordinator)/dashboard" as any)}
                 />
                 <MenuItem
                   icon="doc.text.fill"

@@ -22,21 +22,6 @@ if (fs.existsSync(envPath)) {
   });
 }
 
-// Map system variables to Expo public variables
-const mappings: Record<string, string> = {
-  VITE_APP_ID: "EXPO_PUBLIC_APP_ID",
-  VITE_OAUTH_PORTAL_URL: "EXPO_PUBLIC_OAUTH_PORTAL_URL",
-  OAUTH_SERVER_URL: "EXPO_PUBLIC_OAUTH_SERVER_URL",
-  OWNER_OPEN_ID: "EXPO_PUBLIC_OWNER_OPEN_ID",
-  OWNER_NAME: "EXPO_PUBLIC_OWNER_NAME",
-};
-
-for (const [systemVar, expoVar] of Object.entries(mappings)) {
-  if (process.env[systemVar] && !process.env[expoVar]) {
-    process.env[expoVar] = process.env[systemVar];
-  }
-}
-
 // Bundle ID format: com.loco.<project_name_dots>.<timestamp>
 // e.g., "my-app" created at 2024-01-15 10:30:45 -> "com.loco.my.app.t20240115103045"
 // Bundle ID can only contain letters, numbers, and dots
@@ -214,6 +199,7 @@ const config: ExpoConfig = {
   plugins: [
     "expo-router",
     "expo-font",
+    "expo-notifications",
     [
       "expo-audio",
       {

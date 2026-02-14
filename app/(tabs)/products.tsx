@@ -575,17 +575,18 @@ export default function ProductsScreen() {
           }
         >
           {showingBundles ? (
-            <View className="gap-3 pb-24">
+            <View className="flex-row flex-wrap justify-between pb-24">
               {filteredBundles.map((bundle) => (
                 <TouchableOpacity
                   key={bundle.id}
                   onPress={() => router.push(`/bundle/${bundle.id}` as any)}
-                  className="bg-surface rounded-xl overflow-hidden border border-border flex-row"
+                  className="mb-4 bg-surface rounded-xl overflow-hidden border border-border"
+                  style={{ width: "46%", maxWidth: 180 }}
                   accessibilityRole="button"
                   accessibilityLabel={`View ${bundle.title}`}
                   testID={`bundle-card-${bundle.id}`}
                 >
-                  <View className="w-24 h-24 bg-background items-center justify-center">
+                  <View className="bg-background items-center justify-center" style={{ height: 140 }}>
                     {bundle.imageUrl && !failedImages[`bundle-${bundle.id}`] ? (
                       <Image
                         source={{ uri: bundle.imageUrl }}
@@ -597,18 +598,24 @@ export default function ProductsScreen() {
                       <IconSymbol name="cube.box" size={32} color={colors.muted} />
                     )}
                   </View>
-                  <View className="flex-1 p-3">
-                    <Text className="text-base font-semibold text-foreground" numberOfLines={2}>
-                      {bundle.title}
-                    </Text>
+
+                  <View className="p-2.5">
+                    <View className="bg-primary/10 self-start px-2 py-0.5 rounded mb-1">
+                      <Text className="text-xs text-primary">Bundle</Text>
+                    </View>
+
                     {bundle.price && (
-                      <Text className="text-sm font-semibold text-primary mt-1">
+                      <Text className="text-base font-bold text-foreground">
                         ${parseFloat(bundle.price).toFixed(2)}
-                        {bundle.cadence && bundle.cadence !== "one_time" ? ` / ${bundle.cadence}` : ""}
                       </Text>
                     )}
+
+                    <Text className="text-xs text-foreground mt-1" numberOfLines={2}>
+                      {bundle.title}
+                    </Text>
+
                     {bundle.description && (
-                      <Text className="text-xs text-muted mt-1" numberOfLines={2}>
+                      <Text className="text-[11px] text-muted mt-1" numberOfLines={2}>
                         {stripHtml(bundle.description)}
                       </Text>
                     )}

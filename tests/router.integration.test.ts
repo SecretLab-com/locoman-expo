@@ -288,14 +288,14 @@ describe("router integration", () => {
     const caller = createCaller("trainer");
 
     vi.spyOn(db, "getUserById")
-      .mockResolvedValueOnce({ totalPoints: 6000 } as any)
-      .mockResolvedValueOnce({ totalPoints: 16000 } as any);
+      .mockResolvedValueOnce({ totalPoints: 3000 } as any)
+      .mockResolvedValueOnce({ totalPoints: 6000 } as any);
 
-    const gold = await caller.trainerDashboard.points();
-    const platinum = await caller.trainerDashboard.points();
+    const proTier = await caller.trainerDashboard.points();
+    const eliteTier = await caller.trainerDashboard.points();
 
-    expect(gold).toMatchObject({ totalPoints: 6000, statusTier: "Gold" });
-    expect(platinum).toMatchObject({ totalPoints: 16000, statusTier: "Platinum" });
+    expect(proTier).toMatchObject({ totalPoints: 3000, statusTier: "Pro" });
+    expect(eliteTier).toMatchObject({ totalPoints: 6000, statusTier: "Elite" });
   });
 
   it("allows managers to fetch a single template", async () => {

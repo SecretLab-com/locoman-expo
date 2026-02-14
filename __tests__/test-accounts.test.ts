@@ -6,85 +6,88 @@ describe("Test Accounts and OAuth Fixes", () => {
   const projectRoot = path.resolve(__dirname, "..");
 
   describe("Test Accounts Configuration", () => {
-    it("should have trainer test account configured", () => {
-      const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-      const content = fs.readFileSync(oauthPath, "utf-8");
-      
-      expect(content).toContain("trainer@secretlab.com");
-      expect(content).toContain('role: "trainer"');
-      expect(content).toContain("test_trainer_account");
+    it("should not include deprecated trainer test account quick-fill", () => {
+      const loginPath = path.join(projectRoot, "app/login.tsx");
+      const content = fs.readFileSync(loginPath, "utf-8");
+
+      expect(content).not.toContain("trainer@secretlab.com");
+      expect(content).not.toContain("test-account-trainer");
     });
 
-    it("should have client test account configured", () => {
-      const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-      const content = fs.readFileSync(oauthPath, "utf-8");
-      
-      expect(content).toContain("client@secretlab.com");
-      expect(content).toContain('role: "client"');
-      expect(content).toContain("test_client_account");
+    it("should not include deprecated client test account quick-fill", () => {
+      const loginPath = path.join(projectRoot, "app/login.tsx");
+      const content = fs.readFileSync(loginPath, "utf-8");
+
+      expect(content).not.toContain("client@secretlab.com");
+      expect(content).not.toContain("test-account-client");
     });
 
-    it("should have manager test account configured", () => {
-      const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-      const content = fs.readFileSync(oauthPath, "utf-8");
-      
-      expect(content).toContain("manager@secretlab.com");
-      expect(content).toContain('role: "manager"');
-      expect(content).toContain("test_manager_account");
+    it("should not include deprecated manager test account quick-fill", () => {
+      const loginPath = path.join(projectRoot, "app/login.tsx");
+      const content = fs.readFileSync(loginPath, "utf-8");
+
+      expect(content).not.toContain("manager@secretlab.com");
+      expect(content).not.toContain("test-account-manager");
     });
 
-    it("should have default coordinator test account configured", () => {
-      const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-      const content = fs.readFileSync(oauthPath, "utf-8");
-      
-      expect(content).toContain("testuser@secretlab.com");
-      expect(content).toContain("test_user_coordinator");
+    it("should not include deprecated default shopper test account quick-fill", () => {
+      const loginPath = path.join(projectRoot, "app/login.tsx");
+      const content = fs.readFileSync(loginPath, "utf-8");
+
+      expect(content).not.toContain("testuser@secretlab.com");
+      expect(content).not.toContain("test-account-shopper");
     });
 
-    it("should use same password for all test accounts", () => {
-      const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-      const content = fs.readFileSync(oauthPath, "utf-8");
-      
-      // All test accounts should use "supertest" password
-      const passwordMatches = content.match(/password === "supertest"/g);
-      expect(passwordMatches).not.toBeNull();
-      expect(passwordMatches!.length).toBeGreaterThanOrEqual(4);
+    it("should rely on direct credentials entry instead of hardcoded test passwords", () => {
+      const loginPath = path.join(projectRoot, "app/login.tsx");
+      const content = fs.readFileSync(loginPath, "utf-8");
+
+      expect(content).toContain("signInWithPassword");
+      expect(content).not.toContain("setPassword(\"supertest\")");
     });
   });
 
   describe("User Response includes Role", () => {
     it("should include role field in buildUserResponse", () => {
-      const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-      const content = fs.readFileSync(oauthPath, "utf-8");
+      const authUtilsPath = path.join(projectRoot, "server/_core/auth-utils.ts");
+      const content = fs.readFileSync(authUtilsPath, "utf-8");
       
-      expect(content).toContain("role: (user as any)?.role");
+      expect(content).toContain("buildUserResponse");
+      expect(content).toContain('role: user?.role ?? "shopper"');
     });
   });
 
   describe("OAuth Buttons Fix", () => {
-    it("should use startOAuthLogin for Google sign in", () => {
+    it("should use Supabase OAuth flow for Google sign in", () => {
       const oauthButtonsPath = path.join(projectRoot, "components/oauth-buttons.tsx");
-      const content = fs.readFileSync(oauthButtonsPath, "utf-8");
+      const helperPath = path.join(projectRoot, "lib/google-oauth.ts");
+      const buttonContent = fs.readFileSync(oauthButtonsPath, "utf-8");
+      const helperContent = fs.readFileSync(helperPath, "utf-8");
       
-      // Should import and use startOAuthLogin instead of relative URL
-      expect(content).toContain("startOAuthLogin");
-      expect(content).toContain('import { startOAuthLogin');
+      expect(buttonContent).toContain("handleGoogleSignIn");
+      expect(buttonContent).toContain("signInWithGoogle");
+      expect(helperContent).toContain("supabase.auth.signInWithOAuth");
+      expect(helperContent).toContain('provider: "google"');
     });
 
     it("should not use relative /api/auth/google URL", () => {
       const oauthButtonsPath = path.join(projectRoot, "components/oauth-buttons.tsx");
-      const content = fs.readFileSync(oauthButtonsPath, "utf-8");
+      const helperPath = path.join(projectRoot, "lib/google-oauth.ts");
+      const buttonContent = fs.readFileSync(oauthButtonsPath, "utf-8");
+      const helperContent = fs.readFileSync(helperPath, "utf-8");
       
       // Should not have the old relative URL that caused the routing error
-      expect(content).not.toContain('"/api/auth/google"');
+      expect(buttonContent).not.toContain('"/api/auth/google"');
+      expect(helperContent).not.toContain('"/api/auth/google"');
     });
 
-    it("should use getApiBaseUrl for Apple sign in", () => {
+    it("should use Supabase id token flow for Apple sign in", () => {
       const oauthButtonsPath = path.join(projectRoot, "components/oauth-buttons.tsx");
       const content = fs.readFileSync(oauthButtonsPath, "utf-8");
       
-      expect(content).toContain("getApiBaseUrl");
-      expect(content).toContain("apiBaseUrl");
+      expect(content).toContain("handleAppleSignIn");
+      expect(content).toContain("signInWithIdToken");
+      expect(content).toContain('provider: "apple"');
     });
   });
 

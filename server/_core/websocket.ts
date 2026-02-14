@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "http";
 import { Server } from "http";
 import { logError, logEvent } from "./logger";
-import { getServerSupabase } from "../../lib/supabase";
+import { resolveSupabaseUserFromToken } from "./token-resolver";
 
 import { WebSocket, WebSocketServer } from "ws";
 
@@ -10,6 +10,21 @@ const clients = new Map<string, Set<WebSocket>>();
 
 // Store typing status by conversation
 const typingStatus = new Map<string, Map<string, NodeJS.Timeout>>();
+
+// Server-side anti-spam protection for websocket upgrades/auth.
+const RATE_LIMIT_WINDOW_MS = 15_000;
+const RATE_LIMIT_MAX_ATTEMPTS = 20;
+const RATE_LIMIT_BLOCK_MS = 30_000;
+const INVALID_TOKEN_CACHE_TTL_MS = 60_000;
+
+type AttemptBucket = {
+  count: number;
+  windowStart: number;
+  blockedUntil: number;
+};
+
+const connectionAttemptsByIp = new Map<string, AttemptBucket>();
+const invalidTokenCache = new Map<string, number>();
 
 export type WSMessage =
   | { type: "new_message"; conversationId: string; message: any }
@@ -26,25 +41,61 @@ export type WSMessage =
  */
 async function verifyTokenToUserId(token: string): Promise<string | null> {
   try {
-    const sb = getServerSupabase();
-    const { data: { user: supabaseUser }, error } = await sb.auth.getUser(token);
-    if (error || !supabaseUser) return null;
-
-    // Look up app user by auth_id
-    const { getUserByAuthId, getUserByEmail } = await import("../db");
-    const appUser = await getUserByAuthId(supabaseUser.id);
-    if (appUser) return appUser.id;
-
-    // Fallback: email match
-    if (supabaseUser.email) {
-      const byEmail = await getUserByEmail(supabaseUser.email);
-      if (byEmail) return byEmail.id;
-    }
-
-    return null;
+    const supabaseUser = await resolveSupabaseUserFromToken(token);
+    if (!supabaseUser) return null;
+    const { resolveOrCreateAppUser } = await import("./auth-utils");
+    const appUser = await resolveOrCreateAppUser(supabaseUser);
+    return appUser?.id ?? null;
   } catch {
     return null;
   }
+}
+
+function getClientIp(req: IncomingMessage): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket.remoteAddress || "unknown";
+}
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const bucket = connectionAttemptsByIp.get(ip);
+  if (!bucket) {
+    connectionAttemptsByIp.set(ip, { count: 1, windowStart: now, blockedUntil: 0 });
+    return false;
+  }
+  if (bucket.blockedUntil > now) {
+    return true;
+  }
+  if (now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+    bucket.count = 1;
+    bucket.windowStart = now;
+    bucket.blockedUntil = 0;
+    return false;
+  }
+  bucket.count += 1;
+  if (bucket.count > RATE_LIMIT_MAX_ATTEMPTS) {
+    bucket.blockedUntil = now + RATE_LIMIT_BLOCK_MS;
+    return true;
+  }
+  return false;
+}
+
+function isTokenRecentlyInvalid(token: string): boolean {
+  const now = Date.now();
+  const until = invalidTokenCache.get(token);
+  if (!until) return false;
+  if (until <= now) {
+    invalidTokenCache.delete(token);
+    return false;
+  }
+  return true;
+}
+
+function markInvalidToken(token: string) {
+  invalidTokenCache.set(token, Date.now() + INVALID_TOKEN_CACHE_TTL_MS);
 }
 
 export function setupWebSocket(server: Server) {
@@ -54,16 +105,28 @@ export function setupWebSocket(server: Server) {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const token = url.searchParams.get("token");
     const impersonateUserId = url.searchParams.get("impersonateUserId");
+    const clientIp = getClientIp(req);
 
     try {
+      if (isRateLimited(clientIp)) {
+        ws.close(1013, "Rate limited");
+        return;
+      }
+
       if (!token) {
         ws.close(4001, "Authentication required");
+        return;
+      }
+
+      if (isTokenRecentlyInvalid(token)) {
+        ws.close(4001, "Invalid token");
         return;
       }
 
       let userId = await verifyTokenToUserId(token);
 
       if (!userId) {
+        markInvalidToken(token);
         ws.close(4001, "Invalid token");
         return;
       }
@@ -91,7 +154,9 @@ export function setupWebSocket(server: Server) {
       ws.on("message", (data: Buffer) => {
         try {
           const message = JSON.parse(data.toString());
-          handleClientMessage(userId, message, ws);
+          void handleClientMessage(userId, message, ws).catch((error) => {
+            logError("websocket.message_failed", error, { userId });
+          });
         } catch (e) {
           logError("websocket.parse_failed", e, { userId });
         }
@@ -118,43 +183,51 @@ export function setupWebSocket(server: Server) {
   return wss;
 }
 
-function handleClientMessage(userId: string, message: any, ws: WebSocket) {
+async function handleClientMessage(userId: string, message: any, ws: WebSocket) {
   switch (message.type) {
     case "typing_start":
-      handleTypingStart(userId, message.conversationId, message.userName);
+      await handleTypingStart(userId, message.conversationId, message.userName);
       break;
     case "typing_stop":
-      handleTypingStop(userId, message.conversationId);
+      await handleTypingStop(userId, message.conversationId);
       break;
     case "subscribe":
       break;
   }
 }
 
-function handleTypingStart(userId: string, conversationId: string, userName: string) {
+async function handleTypingStart(userId: string, conversationId: string, userName: string) {
+  const participantIds = await getConversationParticipants(conversationId);
+  if (!participantIds.includes(userId)) return;
+
   const convTyping = typingStatus.get(conversationId) || new Map();
   const existingTimeout = convTyping.get(userId);
   if (existingTimeout) clearTimeout(existingTimeout);
 
-  const timeout = setTimeout(() => handleTypingStop(userId, conversationId), 3000);
+  const timeout = setTimeout(() => {
+    void handleTypingStop(userId, conversationId);
+  }, 3000);
   convTyping.set(userId, timeout);
   typingStatus.set(conversationId, convTyping);
 
-  broadcastToConversation(conversationId, userId, {
+  await broadcastToConversation(conversationId, userId, {
     type: "typing_start", conversationId, userId, userName,
-  });
+  }, participantIds);
 }
 
-function handleTypingStop(userId: string, conversationId: string) {
+async function handleTypingStop(userId: string, conversationId: string) {
+  const participantIds = await getConversationParticipants(conversationId);
+  if (!participantIds.includes(userId)) return;
+
   const convTyping = typingStatus.get(conversationId);
   if (convTyping) {
     const timeout = convTyping.get(userId);
     if (timeout) clearTimeout(timeout);
     convTyping.delete(userId);
   }
-  broadcastToConversation(conversationId, userId, {
+  await broadcastToConversation(conversationId, userId, {
     type: "typing_stop", conversationId, userId,
-  });
+  }, participantIds);
 }
 
 export function sendToUser(userId: string, message: WSMessage) {
@@ -167,15 +240,27 @@ export function sendToUser(userId: string, message: WSMessage) {
   }
 }
 
-function broadcastToConversation(conversationId: string, senderId: string, message: any) {
+async function getConversationParticipants(conversationId: string): Promise<string[]> {
+  const { getConversationParticipantIds } = await import("../db");
+  return getConversationParticipantIds(conversationId);
+}
+
+async function broadcastToConversation(
+  conversationId: string,
+  senderId: string,
+  message: any,
+  participantIds?: string[],
+) {
+  const allowedUsers = participantIds ?? (await getConversationParticipants(conversationId));
   const data = JSON.stringify(message);
-  clients.forEach((userClients, userId) => {
-    if (userId !== senderId) {
-      userClients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) client.send(data);
-      });
-    }
-  });
+  for (const userId of allowedUsers) {
+    if (userId === senderId) continue;
+    const userClients = clients.get(userId);
+    if (!userClients) continue;
+    userClients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) client.send(data);
+    });
+  }
 }
 
 export function notifyNewMessage(conversationId: string, message: any, participantIds: string[]) {

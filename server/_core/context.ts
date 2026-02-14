@@ -1,8 +1,8 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../db";
 import { getUserById } from "../db";
-import { getServerSupabase } from "../../lib/supabase";
 import { resolveOrCreateAppUser } from "./auth-utils";
+import { resolveSupabaseUserFromToken } from "./token-resolver";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -28,10 +28,8 @@ export async function createContext(opts: CreateExpressContextOptions): Promise<
       return { req: opts.req, res: opts.res, user: null };
     }
 
-    // Verify the Supabase JWT
-    const sb = getServerSupabase();
-    const { data: { user: supabaseUser }, error } = await sb.auth.getUser(token);
-    if (error || !supabaseUser) {
+    const supabaseUser = await resolveSupabaseUserFromToken(token);
+    if (!supabaseUser) {
       return { req: opts.req, res: opts.res, user: null };
     }
 

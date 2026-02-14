@@ -19,14 +19,25 @@ async function startServer() {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const localDevOrigins = new Set([
+    "http://localhost:8081",
+    "http://localhost:3000",
+    "http://127.0.0.1:8081",
+    "http://127.0.0.1:3000",
+    "https://localhost:8081",
+    "https://localhost:3000",
+    "https://127.0.0.1:8081",
+    "https://127.0.0.1:3000",
+  ]);
   const allowAnyDevOrigin =
     process.env.NODE_ENV !== "production" && allowedOrigins.length === 0;
 
   // CORS: allow configured origins; in development only, allow all when no allowlist is set.
   app.use((req, res, next) => {
     const origin = req.headers.origin;
+    const isLocalDevOrigin = Boolean(origin && localDevOrigins.has(origin));
     const isAllowedOrigin =
-      !origin || allowAnyDevOrigin || allowedOrigins.includes(origin);
+      !origin || isLocalDevOrigin || allowAnyDevOrigin || allowedOrigins.includes(origin);
 
     if (origin && isAllowedOrigin) {
       res.header("Access-Control-Allow-Origin", origin);
@@ -227,6 +238,42 @@ async function startServer() {
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
+  });
+
+  // Invite fallback route:
+  // allows invite links on API host to still open the native app even when
+  // a separate web app domain is not configured.
+  app.get("/invite/:token", (req, res) => {
+    const rawToken = typeof req.params.token === "string" ? req.params.token : "";
+    const token = encodeURIComponent(rawToken);
+    const appUrl = `locomotivate://invite/${token}`;
+    const webBase = (process.env.PUBLIC_APP_URL || process.env.EXPO_PUBLIC_APP_URL || "").replace(/\/+$/g, "");
+    const webInviteUrl = webBase ? `${webBase}/invite/${token}` : "";
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Invitation</title>
+  </head>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px;">
+    <h2>Opening your invitation…</h2>
+    <p>If the app does not open automatically, tap below.</p>
+    <p><a href="${appUrl}">Open LocoMotivate app</a></p>
+    ${webInviteUrl ? `<p><a href="${webInviteUrl}">Continue in browser</a></p>` : ""}
+    <script>
+      window.location.replace(${JSON.stringify(appUrl)});
+      ${
+        webInviteUrl
+          ? `setTimeout(function () { window.location.replace(${JSON.stringify(webInviteUrl)}); }, 1200);`
+          : ""
+      }
+    </script>
+  </body>
+</html>`;
+
+    res.status(200).type("html").send(html);
   });
 
   app.use(

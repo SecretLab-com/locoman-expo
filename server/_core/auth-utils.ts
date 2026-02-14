@@ -2,7 +2,7 @@
  * Shared auth utilities used by both context.ts and oauth.ts.
  */
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
-import { getUserByAuthId, getUserByEmail, updateUser, upsertUser } from "../db";
+import { getUserByAuthId, getUserByEmail, getUserByOpenId, updateUser, upsertUser } from "../db";
 import type { User } from "../db";
 
 /**
@@ -41,9 +41,9 @@ export async function resolveAppUser(supabaseUserId: string, email?: string): Pr
  */
 export async function resolveOrCreateAppUser(supabaseUser: SupabaseAuthUser): Promise<User | null> {
   let user = await resolveAppUser(supabaseUser.id, supabaseUser.email);
+  const openId = generateOpenId(supabaseUser);
 
   if (!user) {
-    const openId = generateOpenId(supabaseUser);
     await upsertUser({
       openId,
       authId: supabaseUser.id,
@@ -54,6 +54,14 @@ export async function resolveOrCreateAppUser(supabaseUser: SupabaseAuthUser): Pr
       lastSignedIn: new Date().toISOString(),
     });
     user = await resolveAppUser(supabaseUser.id, supabaseUser.email);
+    if (!user) {
+      // Final fallback: read by openId in case auth_id/email linking lags behind.
+      user = (await getUserByOpenId(openId)) ?? null;
+      if (user && user.authId !== supabaseUser.id) {
+        await updateUser(user.id, { authId: supabaseUser.id });
+        user = { ...user, authId: supabaseUser.id };
+      }
+    }
   }
 
   return user;

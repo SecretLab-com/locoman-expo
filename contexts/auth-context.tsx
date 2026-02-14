@@ -2,12 +2,15 @@ import { useAuth } from "@/hooks/use-auth";
 import * as Auth from "@/lib/_core/auth";
 import { logError, logEvent } from "@/lib/logger";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
 
 export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 
 type AuthContextType = {
   user: Auth.User | null;
+  hasSession: boolean;
+  profileHydrated: boolean;
   loading: boolean;
   error: Error | null;
   isAuthenticated: boolean;
@@ -32,6 +35,17 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const IMPERSONATION_KEY = "locomotivate_impersonation";
+const VALID_ROLES: UserRole[] = ["shopper", "client", "trainer", "manager", "coordinator"];
+
+function hasValidRole(user: Auth.User | null | undefined): user is Auth.User {
+  return Boolean(user?.role && VALID_ROLES.includes(user.role as UserRole));
+}
+
+function toValidRole(value: unknown): UserRole | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return VALID_ROLES.includes(normalized as UserRole) ? (normalized as UserRole) : null;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
@@ -43,8 +57,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const saved = await AsyncStorage.getItem(IMPERSONATION_KEY);
         if (saved) {
-          setImpersonatedUser(JSON.parse(saved));
-          logEvent("impersonation.restore");
+          const parsed = JSON.parse(saved) as Auth.User;
+          if (hasValidRole(parsed)) {
+            setImpersonatedUser(parsed);
+            logEvent("impersonation.restore");
+          } else {
+            // Drop stale/invalid impersonation records that can block auth hydration.
+            await AsyncStorage.removeItem(IMPERSONATION_KEY);
+          }
         }
       } catch (error) {
         logError("impersonation.restore_failed", error);
@@ -77,13 +97,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await auth.refresh();
   }, [auth]);
 
+  const logout = useCallback(async () => {
+    try {
+      setImpersonatedUser(null);
+      await AsyncStorage.removeItem(IMPERSONATION_KEY);
+      await auth.logout();
+    } finally {
+      router.replace("/welcome");
+    }
+  }, [auth]);
+
   // Determine effective user (impersonated or real)
   const effectiveUser = impersonatedUser || auth.user;
   const isImpersonating = !!impersonatedUser;
 
   // Role helpers
-  const role = (auth.user?.role as UserRole) || null;
-  const effectiveRole = (effectiveUser?.role as UserRole) || null;
+  const role = toValidRole(auth.user?.role);
+  const effectiveRole = toValidRole(effectiveUser?.role);
 
   const isTrainer = effectiveRole === "trainer" || effectiveRole === "manager" || effectiveRole === "coordinator";
   const isClient = effectiveRole === "client";
@@ -93,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextType = {
     ...auth,
+    logout,
     role,
     isTrainer,
     isClient,

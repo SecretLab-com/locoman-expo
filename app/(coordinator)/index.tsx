@@ -118,9 +118,49 @@ export default function CoordinatorHomeScreen() {
   const { data: coordinatorStats, isLoading: statsLoading, refetch: refetchStats } = trpc.coordinator.stats.useQuery();
   const { data: topTrainersData, refetch: refetchTrainers } = trpc.coordinator.topTrainers.useQuery();
   const { data: topBundlesData, refetch: refetchBundles } = trpc.coordinator.topBundles.useQuery();
+  const { data: pendingBundlesData, refetch: refetchPendingBundles } = trpc.admin.pendingBundles.useQuery();
+  const { data: pendingDeliveriesData, refetch: refetchPendingDeliveries } = trpc.admin.deliveries.useQuery({
+    status: "pending",
+    limit: 200,
+    offset: 0,
+  });
+  const { data: revenueSummary, refetch: refetchRevenueSummary } = trpc.admin.revenueSummary.useQuery();
+  const { data: revenueTrendData, refetch: refetchRevenueTrend } = trpc.admin.revenueTrend.useQuery({ months: 7 });
+  const { data: lowInventoryData, refetch: refetchLowInventory } = trpc.admin.lowInventory.useQuery({
+    threshold: 5,
+    limit: 50,
+  });
 
-  const userGrowth = useMemo(() => [14, 18, 22, 16, 24, 28, 31], []);
-  const revenueTrend = useMemo(() => [22, 30, 26, 34, 42, 38, 46], []);
+  const revenueTrend = useMemo(
+    () =>
+      (revenueTrendData || []).map((entry) => Number(entry.revenue || 0)),
+    [revenueTrendData]
+  );
+  const formatCurrency = useCallback((amount: number) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: amount >= 1000 ? 0 : 2,
+    }).format(amount || 0);
+  }, []);
+  const formatPercent = useCallback((value: number) => {
+    const rounded = Math.round((value || 0) * 10) / 10;
+    return `${rounded > 0 ? "+" : ""}${rounded}%`;
+  }, []);
+  const pendingApprovalsCount = useMemo(
+    () =>
+      (pendingBundlesData || []).filter(
+        (bundle: any) =>
+          bundle.status === "pending_review" || bundle.status === "changes_requested"
+      ).length,
+    [pendingBundlesData]
+  );
+  const pendingDeliveriesCount = pendingDeliveriesData?.deliveries.length || 0;
+  const lowStockCount = lowInventoryData?.length || 0;
+  const thisMonthRevenue = Number(revenueSummary?.thisMonth || 0);
+  const lastMonthRevenue = Number(revenueSummary?.lastMonth || 0);
+  const lifetimeRevenue = Number(revenueSummary?.total || 0);
+  const revenueGrowth = Number(revenueSummary?.growth || 0);
 
   const topTrainers = (topTrainersData || []).map(t => ({
     id: t.id,
@@ -138,14 +178,14 @@ export default function CoordinatorHomeScreen() {
   const pendingActions = [
     {
       label: "Approvals",
-      value: coordinatorStats?.pendingApprovals.toString() || "0",
+      value: String(pendingApprovalsCount),
       tone: "warning" as const,
       onPress: () => router.push("/(coordinator)/approvals" as any),
       testID: "coord-pending-approvals",
     },
     {
       label: "Deliveries",
-      value: "0", // placeholder for now
+      value: String(pendingDeliveriesCount),
       tone: "primary" as const,
       onPress: () => router.push("/(coordinator)/deliveries" as any),
       testID: "coord-pending-deliveries",
@@ -154,39 +194,49 @@ export default function CoordinatorHomeScreen() {
   const alerts = useMemo(
     () => [
       {
-        label: "Failed payments",
-        value: "4",
-        tone: colors.error,
-        icon: "exclamationmark.triangle.fill",
-        route: "/(coordinator)/analytics",
-        testID: "coord-alert-failed-payments",
+        label: "Actionable approvals",
+        value: String(pendingApprovalsCount),
+        tone: colors.warning,
+        icon: "checkmark.circle.fill",
+        route: "/(coordinator)/approvals",
+        testID: "coord-alert-approvals",
       },
       {
-        label: "Overdue deliveries",
-        value: "6",
+        label: "Pending deliveries",
+        value: String(pendingDeliveriesCount),
         tone: colors.warning,
-        icon: "clock.fill",
-        route: "/(coordinator)/deliveries?filter=overdue",
-        testID: "coord-alert-overdue-deliveries",
+        icon: "shippingbox.fill",
+        route: "/(coordinator)/deliveries",
+        testID: "coord-alert-pending-deliveries",
       },
       {
         label: "Low stock",
-        value: "9",
+        value: String(lowStockCount),
         tone: colors.primary,
         icon: "shippingbox.fill",
         route: "/(coordinator)/bundles?filter=low-stock",
         testID: "coord-alert-low-stock",
       },
       {
-        label: "Flagged accounts",
-        value: "2",
-        tone: colors.error,
-        icon: "person.crop.circle.badge.exclamationmark",
-        route: "/(coordinator)/users?sort=alphabetical",
-        testID: "coord-alert-flagged",
+        label: "Revenue growth",
+        value: formatPercent(revenueGrowth),
+        tone: revenueGrowth >= 0 ? colors.success : colors.error,
+        icon: "chart.line.uptrend.xyaxis",
+        route: "/(coordinator)/analytics?section=finance",
+        testID: "coord-alert-revenue-growth",
       },
     ],
-    [colors.error, colors.warning, colors.primary]
+    [
+      colors.warning,
+      colors.primary,
+      colors.success,
+      colors.error,
+      pendingApprovalsCount,
+      pendingDeliveriesCount,
+      lowStockCount,
+      revenueGrowth,
+      formatPercent,
+    ]
   );
 
   const onRefresh = useCallback(async () => {
@@ -196,9 +246,24 @@ export default function CoordinatorHomeScreen() {
       refetchStats(),
       refetchTrainers(),
       refetchBundles(),
+      refetchPendingBundles(),
+      refetchPendingDeliveries(),
+      refetchRevenueSummary(),
+      refetchRevenueTrend(),
+      refetchLowInventory(),
     ]);
     setRefreshing(false);
-  }, [refetch, refetchStats, refetchTrainers, refetchBundles]);
+  }, [
+    refetch,
+    refetchStats,
+    refetchTrainers,
+    refetchBundles,
+    refetchPendingBundles,
+    refetchPendingDeliveries,
+    refetchRevenueSummary,
+    refetchRevenueTrend,
+    refetchLowInventory,
+  ]);
 
   return (
     <ScreenContainer>
@@ -278,23 +343,25 @@ export default function CoordinatorHomeScreen() {
             <View className="flex-row items-center justify-between">
               <View>
                 <Text className="text-sm text-muted">Revenue</Text>
-                <Text className="text-2xl font-bold text-foreground">$48.2k</Text>
-                <Text className="text-xs text-success mt-1">+12% vs last week</Text>
+                <Text className="text-2xl font-bold text-foreground">{formatCurrency(thisMonthRevenue)}</Text>
+                <Text className={`text-xs mt-1 ${revenueGrowth >= 0 ? "text-success" : "text-error"}`}>
+                  {formatPercent(revenueGrowth)} vs last month
+                </Text>
               </View>
-              <MiniBarChart values={revenueTrend} color={colors.primary} />
+              <MiniBarChart values={revenueTrend.length ? revenueTrend : [0, 0, 0, 0, 0, 0, 0]} color={colors.primary} />
             </View>
             <View className="mt-4 flex-row justify-between">
               <View>
-                <Text className="text-xs text-muted">Failed payments</Text>
-                <Text className="text-base font-semibold text-foreground">4</Text>
+                <Text className="text-xs text-muted">This month</Text>
+                <Text className="text-base font-semibold text-foreground">{formatCurrency(thisMonthRevenue)}</Text>
               </View>
               <View>
-                <Text className="text-xs text-muted">Chargebacks</Text>
-                <Text className="text-base font-semibold text-foreground">1</Text>
+                <Text className="text-xs text-muted">Last month</Text>
+                <Text className="text-base font-semibold text-foreground">{formatCurrency(lastMonthRevenue)}</Text>
               </View>
               <View>
-                <Text className="text-xs text-muted">Payouts due</Text>
-                <Text className="text-base font-semibold text-foreground">$6.4k</Text>
+                <Text className="text-xs text-muted">Lifetime</Text>
+                <Text className="text-base font-semibold text-foreground">{formatCurrency(lifetimeRevenue)}</Text>
               </View>
             </View>
           </TouchableOpacity>
@@ -319,7 +386,6 @@ export default function CoordinatorHomeScreen() {
                 <Text className="text-sm text-muted">New users</Text>
                 <Text className="text-2xl font-bold text-foreground">{coordinatorStats?.newUsersThisMonth || 0}</Text>
               </View>
-              <MiniBarChart values={userGrowth} color={colors.success} />
             </View>
             <View className="mt-4 flex-row justify-between">
               <View>
@@ -332,7 +398,7 @@ export default function CoordinatorHomeScreen() {
               </View>
               <View>
                 <Text className="text-xs text-muted">Pending</Text>
-                <Text className="text-base font-semibold text-foreground">{coordinatorStats?.pendingApprovals || 0}</Text>
+                <Text className="text-base font-semibold text-foreground">{pendingApprovalsCount}</Text>
               </View>
             </View>
           </View>

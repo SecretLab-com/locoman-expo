@@ -16,21 +16,6 @@ import {
     View,
 } from "react-native";
 
-// TODO: Replace with a real tRPC endpoint (e.g. trpc.coordinator.lowInventory.useQuery())
-const MOCK_LOW_INVENTORY = [
-  { id: 1, productName: "Protein Powder - Vanilla", currentStock: 3, trainerId: 1, trainerName: "Coach Mike" },
-  { id: 2, productName: "Resistance Bands Set", currentStock: 2, trainerId: 2, trainerName: "Coach Sarah" },
-  { id: 3, productName: "Pre-Workout Mix", currentStock: 1, trainerId: 1, trainerName: "Coach Mike" },
-];
-
-// TODO: Replace with a real tRPC endpoint (e.g. trpc.admin.activityFeed.useQuery())
-const MOCK_RECENT_ACTIVITY = [
-  { id: 1, type: "new_user", description: "John Doe signed up", time: "5 min ago" },
-  { id: 2, type: "order", description: "New order #3567 placed", time: "12 min ago" },
-  { id: 3, type: "trainer", description: "Coach Sarah updated bundle", time: "1 hour ago" },
-  { id: 4, type: "delivery", description: "Delivery #2345 completed", time: "2 hours ago" },
-];
-
 type StatCardProps = {
   title: string;
   value: string | number;
@@ -100,34 +85,47 @@ export default function ManagerDashboardScreen() {
   const utils = trpc.useUtils();
 
   const statsQuery = trpc.coordinator.stats.useQuery();
+  const lowInventoryQuery = trpc.admin.lowInventory.useQuery({ threshold: 5, limit: 10 });
+  const activityFeedQuery = trpc.admin.activityFeed.useQuery({ limit: 10, category: "all" });
   const stats = statsQuery.data;
 
   const [refreshing, setRefreshing] = useState(false);
-  const [lowInventory, setLowInventory] = useState(MOCK_LOW_INVENTORY);
+  const [dismissedInventoryIds, setDismissedInventoryIds] = useState<Set<string>>(new Set());
+
+  const lowInventory = (lowInventoryQuery.data || []).filter(
+    (item: any) => !dismissedInventoryIds.has(String(item.id))
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await utils.coordinator.stats.invalidate();
+    await Promise.all([
+      utils.coordinator.stats.invalidate(),
+      utils.admin.lowInventory.invalidate(),
+      utils.admin.activityFeed.invalidate(),
+    ]);
     setRefreshing(false);
   };
 
   // Dismiss low inventory alert
-  const handleDismissAlert = (itemId: number) => {
-    setLowInventory((prev) => prev.filter((item) => item.id !== itemId));
+  const handleDismissAlert = (itemId: string) => {
+    setDismissedInventoryIds((prev) => {
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
   };
 
   // Alert trainer about low inventory
-  const handleAlertTrainer = (item: typeof MOCK_LOW_INVENTORY[0]) => {
+  const handleAlertTrainer = (item: { id: string; productName: string }) => {
     Alert.alert(
-      "Alert Trainer",
-      `Send low inventory alert to ${item.trainerName} about "${item.productName}"?`,
+      "Inventory Alert",
+      `Mark "${item.productName}" as acknowledged?`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Send Alert",
+          text: "Acknowledge",
           onPress: () => {
-            // TODO: Send alert via tRPC
-            Alert.alert("Alert Sent", `${item.trainerName} has been notified.`);
+            Alert.alert("Acknowledged", "Inventory alert has been marked as reviewed.");
             handleDismissAlert(item.id);
           },
         },
@@ -137,7 +135,20 @@ export default function ManagerDashboardScreen() {
 
   // Get activity icon
   const getActivityIcon = (type: string): Parameters<typeof IconSymbol>[0]["name"] => {
-    switch (type) {
+    const normalized = type.toLowerCase();
+    if (normalized.includes("role") || normalized.includes("status") || normalized.includes("impersonation")) {
+      return "person.badge.key.fill";
+    }
+    if (normalized.includes("bundle")) {
+      return "bag.fill";
+    }
+    if (normalized.includes("delivery")) {
+      return "shippingbox.fill";
+    }
+    if (normalized.includes("payment")) {
+      return "creditcard.fill";
+    }
+    switch (normalized) {
       case "new_user":
         return "person.badge.plus";
       case "order":
@@ -149,6 +160,19 @@ export default function ManagerDashboardScreen() {
       default:
         return "bell.fill";
     }
+  };
+
+  const formatRelativeTime = (value: string) => {
+    const date = new Date(value);
+    const diffMs = Date.now() - date.getTime();
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
   // Loading state
@@ -372,31 +396,31 @@ export default function ManagerDashboardScreen() {
               </View>
             </View>
 
-            {lowInventory.map((item) => (
+            {lowInventory.map((item: any) => (
               <View
-                key={item.id}
+                key={String(item.id)}
                 className="bg-warning/10 rounded-xl p-4 mb-2 border border-warning/30"
               >
                 <View className="flex-row items-start justify-between">
                   <View className="flex-1">
                     <Text className="text-foreground font-semibold">{item.productName}</Text>
                     <Text className="text-sm text-muted mt-1">
-                      {item.trainerName} • Only {item.currentStock} left
+                      Only {item.currentStock} left
                     </Text>
                   </View>
                 </View>
                 <View className="flex-row gap-2 mt-3">
                   <TouchableOpacity
-                    onPress={() => handleDismissAlert(item.id)}
+                    onPress={() => handleDismissAlert(String(item.id))}
                     className="flex-1 bg-surface py-2 rounded-lg items-center"
                   >
                     <Text className="text-muted font-medium">Dismiss</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => handleAlertTrainer(item)}
+                    onPress={() => handleAlertTrainer({ id: String(item.id), productName: item.productName })}
                     className="flex-1 bg-gradient-to-r from-warning to-warning/80 py-2.5 rounded-full items-center shadow-sm"
                   >
-                    <Text className="text-white font-medium">Alert Trainer</Text>
+                    <Text className="text-white font-medium">Acknowledge</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -438,17 +462,27 @@ export default function ManagerDashboardScreen() {
         <View className="px-4 mb-6">
           <Text className="text-lg font-semibold text-foreground mb-3">Recent Activity</Text>
           <View className="bg-surface rounded-xl divide-y divide-border">
-            {MOCK_RECENT_ACTIVITY.map((activity) => (
-              <View key={activity.id} className="flex-row items-center p-4">
-                <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
-                  <IconSymbol name={getActivityIcon(activity.type)} size={20} color={colors.primary} />
-                </View>
-                <View className="flex-1 ml-3">
-                  <Text className="text-foreground">{activity.description}</Text>
-                  <Text className="text-sm text-muted">{activity.time}</Text>
-                </View>
+            {activityFeedQuery.isLoading ? (
+              <View className="p-4">
+                <Text className="text-muted">Loading activity...</Text>
               </View>
-            ))}
+            ) : (activityFeedQuery.data || []).length === 0 ? (
+              <View className="p-4">
+                <Text className="text-muted">No recent activity</Text>
+              </View>
+            ) : (
+              (activityFeedQuery.data || []).map((activity: any) => (
+                <View key={activity.id} className="flex-row items-center p-4">
+                  <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
+                    <IconSymbol name={getActivityIcon(activity.action || activity.category || "other")} size={20} color={colors.primary} />
+                  </View>
+                  <View className="flex-1 ml-3">
+                    <Text className="text-foreground">{activity.description || activity.action}</Text>
+                    <Text className="text-sm text-muted">{formatRelativeTime(activity.createdAt)}</Text>
+                  </View>
+                </View>
+              ))
+            )}
           </View>
         </View>
 

@@ -12,6 +12,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -247,6 +248,69 @@ function AttachmentPicker({
   );
 }
 
+function MessageActionsModal({
+  visible,
+  canEdit,
+  onClose,
+  onReact,
+  onEdit,
+  onDelete,
+}: {
+  visible: boolean;
+  canEdit: boolean;
+  onClose: () => void;
+  onReact: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable className="flex-1 justify-end bg-black/50" onPress={onClose}>
+        <Pressable className="bg-surface rounded-t-2xl p-4 border-t border-border">
+          <TouchableOpacity
+            className="rounded-xl bg-background border border-border px-4 py-3 mb-2"
+            onPress={onReact}
+            accessibilityRole="button"
+            accessibilityLabel="React to message"
+            testID="message-action-react"
+          >
+            <Text className="text-foreground font-semibold text-center">React</Text>
+          </TouchableOpacity>
+          {canEdit ? (
+            <TouchableOpacity
+              className="rounded-xl bg-background border border-border px-4 py-3 mb-2"
+              onPress={onEdit}
+              accessibilityRole="button"
+              accessibilityLabel="Edit message"
+              testID="message-action-edit"
+            >
+              <Text className="text-foreground font-semibold text-center">Edit message</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            className="rounded-xl bg-error/10 px-4 py-3 mb-2"
+            onPress={onDelete}
+            accessibilityRole="button"
+            accessibilityLabel="Delete message"
+            testID="message-action-delete"
+          >
+            <Text className="text-error font-semibold text-center">Delete message</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="rounded-xl bg-background border border-border px-4 py-3"
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel message actions"
+            testID="message-action-cancel"
+          >
+            <Text className="text-foreground font-semibold text-center">Cancel</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 // Message reactions display
 function MessageReactions({
   reactions,
@@ -301,6 +365,16 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isSingleEmojiMessage(content: string): boolean {
+  const trimmed = content.trim();
+  if (!trimmed) return false;
+
+  // Match one emoji grapheme, optionally joined sequences (ZWJ), variation selectors, and skin tones.
+  return /^(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)(?:\u200D(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?))*$/u.test(
+    trimmed
+  );
+}
+
 // Message bubble with reactions and attachments
 function MessageBubble({
   message,
@@ -325,6 +399,8 @@ function MessageBubble({
   };
 
   const messageReactions = reactions.filter(r => r.messageId === message.id);
+  const isLargeEmoji = message.messageType === "text" && isSingleEmojiMessage(message.content);
+  const bubbleMinWidth = isLargeEmoji ? 0 : message.messageType === "text" ? 136 : 96;
 
   const renderContent = () => {
     if (message.messageType === "image" && message.attachmentUrl) {
@@ -368,11 +444,15 @@ function MessageBubble({
       );
     }
 
-    return (
-      <Text className={isOwn ? "text-white" : "text-foreground"}>
-        {message.content}
-      </Text>
-    );
+    if (isLargeEmoji) {
+      return (
+        <Text style={{ fontSize: 56, lineHeight: 64 }}>
+          {message.content.trim()}
+        </Text>
+      );
+    }
+
+    return <Text className={isOwn ? "text-white" : "text-foreground"}>{message.content}</Text>;
   };
 
   return (
@@ -382,10 +462,13 @@ function MessageBubble({
         delayLongPress={300}
       >
         <View
-          className={`max-w-[80%] px-4 py-2.5 rounded-2xl ${isOwn
-              ? "bg-primary rounded-br-sm"
-              : "bg-surface border border-border rounded-bl-sm"
+          className={`max-w-[92%] rounded-2xl ${isLargeEmoji
+              ? ""
+              : isOwn
+                ? "bg-primary rounded-br-sm px-4 py-2.5"
+                : "bg-surface border border-border rounded-bl-sm px-4 py-2.5"
             }`}
+          style={isLargeEmoji ? undefined : { minWidth: bubbleMinWidth }}
         >
           {renderContent()}
         </View>
@@ -421,11 +504,15 @@ export default function ConversationScreen() {
   const [messageText, setMessageText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
+  const [showConversationDetails, setShowConversationDetails] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
+  const [showMessageActions, setShowMessageActions] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markingReadIdsRef = useRef<Set<string>>(new Set());
 
   const utils = trpc.useUtils();
 
@@ -462,7 +549,7 @@ export default function ConversationScreen() {
   // Fetch reactions for this conversation
   const { data: reactions = [] } = trpc.messages.getConversationReactions.useQuery(
     { conversationId: id || "" },
-    { enabled: !!id, refetchInterval: 5000 }
+    { enabled: !!id, refetchInterval: 60000 }
   );
 
   // Send message mutation
@@ -514,18 +601,49 @@ export default function ConversationScreen() {
 
   // Mark messages as read mutation
   const markRead = trpc.messages.markRead.useMutation();
+  const editMessage = trpc.messages.edit.useMutation({
+    onSuccess: async () => {
+      await refetch();
+      await utils.messages.conversations.invalidate();
+    },
+  });
+  const deleteMessage = trpc.messages.delete.useMutation({
+    onSuccess: async () => {
+      await refetch();
+      await utils.messages.conversations.invalidate();
+    },
+  });
+  const deleteConversation = trpc.messages.deleteConversation.useMutation({
+    onSuccess: async () => {
+      await utils.messages.conversations.invalidate();
+    },
+  });
+
+  // Reset mark-read dedupe when switching conversations.
+  useEffect(() => {
+    markingReadIdsRef.current.clear();
+  }, [id]);
 
   // Mark messages as read when viewing
   useEffect(() => {
-    if (messages && messages.length > 0 && user) {
-      const unreadMessages = messages.filter(
-        (msg: any) => msg.senderId !== user.id && !msg.readAt
+    if (!messages?.length || !user?.id) return;
+    const unreadMessages = messages.filter(
+      (msg: any) => msg.senderId !== user.id && !msg.readAt
+    );
+    unreadMessages.forEach((msg: any) => {
+      if (markingReadIdsRef.current.has(msg.id)) return;
+      markingReadIdsRef.current.add(msg.id);
+      markRead.mutate(
+        { id: msg.id },
+        {
+          onError: () => {
+            // Allow retry if mark-read fails.
+            markingReadIdsRef.current.delete(msg.id);
+          },
+        }
       );
-      unreadMessages.forEach((msg: any) => {
-        markRead.mutate({ id: msg.id });
-      });
-    }
-  }, [messages, user, markRead]);
+    });
+  }, [messages, user?.id, markRead]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -570,6 +688,20 @@ export default function ConversationScreen() {
   const handleSend = async () => {
     if (!messageText.trim()) return;
 
+    if (editingMessageId) {
+      try {
+        await editMessage.mutateAsync({
+          id: editingMessageId,
+          content: messageText.trim(),
+        });
+        setEditingMessageId(null);
+        setMessageText("");
+      } catch (error: any) {
+        Alert.alert("Edit failed", error?.message || "Unable to edit this message.");
+      }
+      return;
+    }
+
     const ids = participantIds
       ? participantIds
         .split(",")
@@ -601,10 +733,39 @@ export default function ConversationScreen() {
     navigateToHome();
   };
 
+  const handleDeleteConversation = () => {
+    const runDelete = async () => {
+      try {
+        await deleteConversation.mutateAsync({ conversationId: id || "" });
+        setShowConversationDetails(false);
+        navigateToHome();
+      } catch (error: any) {
+        Alert.alert("Delete failed", error?.message || "Unable to delete this conversation.");
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm("Delete this entire conversation?")) {
+        void runDelete();
+      }
+      return;
+    }
+
+    Alert.alert("Delete conversation", "Delete this entire conversation?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => void runDelete() },
+    ]);
+  };
+
+  const handleOpenConversationDetails = async () => {
+    await haptics.light();
+    setShowConversationDetails(true);
+  };
+
   const handleLongPress = async (messageId: string) => {
     await haptics.medium();
     setSelectedMessageId(messageId);
-    setShowEmojiPicker(true);
+    setShowMessageActions(true);
   };
 
   const handleToggleReaction = async (messageId: string, reaction: string) => {
@@ -628,6 +789,37 @@ export default function ConversationScreen() {
       handleToggleReaction(selectedMessageId, emoji);
       setSelectedMessageId(null);
     }
+  };
+
+  const confirmDeleteSelectedMessage = () => {
+    if (!selectedMessageId) return;
+
+    const runDelete = async () => {
+      try {
+        await deleteMessage.mutateAsync({ id: selectedMessageId });
+      } catch (error: any) {
+        Alert.alert("Delete failed", error?.message || "Unable to delete this message.");
+      } finally {
+        if (editingMessageId === selectedMessageId) {
+          setEditingMessageId(null);
+          setMessageText("");
+        }
+        setShowMessageActions(false);
+        setSelectedMessageId(null);
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm("Delete this message?")) {
+        void runDelete();
+      }
+      return;
+    }
+
+    Alert.alert("Delete message", "Delete this message?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => void runDelete() },
+    ]);
   };
 
   const handleSelectImage = async () => {
@@ -755,6 +947,21 @@ export default function ConversationScreen() {
     attachmentSize: msg.attachmentSize,
     attachmentMimeType: msg.attachmentMimeType,
   }));
+  const groupParticipantCount = participantIds
+    ? participantIds
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0).length
+    : 0;
+  const detailsSubtitle = otherUserTyping ? "typing..." : "Tap for details";
+  const selectedMessage = selectedMessageId
+    ? messageList.find((msg) => msg.id === selectedMessageId) || null
+    : null;
+  const canEditSelectedMessage = Boolean(
+    selectedMessage &&
+      selectedMessage.senderId === user?.id &&
+      selectedMessage.messageType === "text"
+  );
 
   return (
     <View className="flex-1 bg-background">
@@ -777,14 +984,20 @@ export default function ConversationScreen() {
           <IconSymbol name={(groupIcon as any) || "person.fill"} size={20} color={colors.primary} />
         </View>
 
-        <View className="flex-1 ml-3">
+        <TouchableOpacity
+          className="flex-1 ml-3"
+          onPress={handleOpenConversationDetails}
+          accessibilityRole="button"
+          accessibilityLabel="Open conversation details"
+          testID="conversation-details-trigger"
+        >
           <Text className="text-foreground font-semibold text-lg" numberOfLines={1}>
             {name || "Conversation"}
           </Text>
           <Text className="text-xs text-muted">
-            {otherUserTyping ? "typing..." : "Tap for details"}
+            {detailsSubtitle}
           </Text>
-        </View>
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
@@ -850,6 +1063,23 @@ export default function ConversationScreen() {
             paddingBottom: Platform.OS === "web" ? 12 : Math.max(insets.bottom, 12),
           }}
         >
+          {editingMessageId ? (
+            <View className="absolute left-4 right-4 -top-14 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 flex-row items-center justify-between">
+              <Text className="text-primary text-sm font-medium">Editing message</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditingMessageId(null);
+                  setMessageText("");
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel editing message"
+                testID="cancel-edit-message"
+              >
+                <Text className="text-primary font-semibold">Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           {/* Attachment button */}
           <TouchableOpacity
             className="w-10 h-10 rounded-full items-center justify-center mr-2"
@@ -899,12 +1129,12 @@ export default function ConversationScreen() {
             className={`w-11 h-11 rounded-full items-center justify-center ${messageText.trim() ? "bg-primary" : "bg-surface border border-border"
               }`}
             onPress={handleSend}
-            disabled={!messageText.trim() || sendMessage.isPending}
+            disabled={!messageText.trim() || sendMessage.isPending || editMessage.isPending}
             accessibilityRole="button"
-            accessibilityLabel="Send message"
+            accessibilityLabel={editingMessageId ? "Save edited message" : "Send message"}
             testID="send-message-btn"
           >
-            {sendMessage.isPending ? (
+            {sendMessage.isPending || editMessage.isPending ? (
               <ActivityIndicator size="small" color={messageText.trim() ? "#fff" : colors.muted} />
             ) : (
               <IconSymbol
@@ -928,6 +1158,27 @@ export default function ConversationScreen() {
         colors={colors}
       />
 
+      <MessageActionsModal
+        visible={showMessageActions}
+        canEdit={canEditSelectedMessage}
+        onClose={() => {
+          setShowMessageActions(false);
+          setSelectedMessageId(null);
+        }}
+        onReact={() => {
+          setShowMessageActions(false);
+          setShowEmojiPicker(true);
+        }}
+        onEdit={() => {
+          if (!selectedMessage || !canEditSelectedMessage) return;
+          setMessageText(selectedMessage.content);
+          setEditingMessageId(selectedMessage.id);
+          setShowMessageActions(false);
+          setSelectedMessageId(null);
+        }}
+        onDelete={confirmDeleteSelectedMessage}
+      />
+
       {/* Attachment Picker Modal */}
       <AttachmentPicker
         visible={showAttachmentPicker}
@@ -936,6 +1187,56 @@ export default function ConversationScreen() {
         onSelectFile={handleSelectFile}
         colors={colors}
       />
+
+      <Modal
+        visible={showConversationDetails}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowConversationDetails(false)}
+      >
+        <Pressable
+          className="flex-1 justify-center items-center bg-black/50 px-6"
+          onPress={() => setShowConversationDetails(false)}
+        >
+          <Pressable className="w-full max-w-md rounded-2xl bg-surface border border-border p-5">
+            <Text className="text-foreground text-lg font-semibold mb-1">
+              Conversation details
+            </Text>
+            <Text className="text-muted text-sm mb-4">
+              {name || "Conversation"}
+            </Text>
+            <View className="gap-2">
+              <Text className="text-foreground text-sm">
+                Conversation ID: {id || "Unavailable"}
+              </Text>
+              <Text className="text-foreground text-sm">
+                Type: {groupParticipantCount > 1 ? "Group chat" : "Direct chat"}
+              </Text>
+              <Text className="text-foreground text-sm">
+                Participants: {groupParticipantCount > 1 ? groupParticipantCount : 2}
+              </Text>
+            </View>
+            <TouchableOpacity
+              className="mt-4 rounded-xl bg-error/10 px-4 py-3 items-center"
+              onPress={handleDeleteConversation}
+              accessibilityRole="button"
+              accessibilityLabel="Delete this conversation"
+              testID="delete-conversation-btn"
+            >
+              <Text className="text-error font-semibold">Delete conversation</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="mt-5 rounded-xl bg-primary px-4 py-3 items-center"
+              onPress={() => setShowConversationDetails(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close conversation details"
+              testID="conversation-details-close"
+            >
+              <Text className="text-background font-semibold">Done</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

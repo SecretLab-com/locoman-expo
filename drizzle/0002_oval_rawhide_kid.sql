@@ -1,2 +1,0 @@
-ALTER TABLE `bundle_drafts` MODIFY COLUMN `status` enum('draft','validating','ready','pending_review','changes_requested','pending_update','publishing','published','failed','rejected') NOT NULL DEFAULT 'draft';--> statement-breakpoint
-ALTER TABLE `bundle_drafts` ADD `reviewComments` text;

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   Text,
   View,
@@ -10,17 +10,19 @@ import {
   ScrollView,
   Alert,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 
 type PartnershipStatus = "pending" | "active" | "rejected" | "expired";
 
 type Partnership = {
-  id: number;
+  id: string;
   businessName: string;
   businessType: string;
   description: string;
@@ -30,11 +32,11 @@ type Partnership = {
   clickCount: number;
   conversionCount: number;
   createdAt: string;
-  expiresAt?: string;
+  expiresAt?: string | null;
 };
 
 type Business = {
-  id: number;
+  id: string;
   name: string;
   type: string;
   description: string;
@@ -42,71 +44,48 @@ type Business = {
   isAvailable: boolean;
 };
 
-// TODO: Replace with tRPC API calls when partnerships endpoints are created
-// e.g. trpc.partnerships.list.useQuery(), trpc.partnerships.create.useMutation()
-// Mock data (no partnerships API endpoint exists yet)
-const MOCK_PARTNERSHIPS: Partnership[] = [
-  {
-    id: 1,
-    businessName: "FitGear Pro",
-    businessType: "Equipment",
-    description: "Premium fitness equipment and accessories",
-    status: "active",
-    commissionRate: 15,
-    totalEarnings: 450.0,
-    clickCount: 234,
-    conversionCount: 12,
-    createdAt: "2025-12-01",
-    expiresAt: "2026-12-01",
-  },
-  {
-    id: 2,
-    businessName: "NutriMax",
-    businessType: "Supplements",
-    description: "High-quality supplements and nutrition products",
-    status: "pending",
-    commissionRate: 10,
-    totalEarnings: 0,
-    clickCount: 0,
-    conversionCount: 0,
-    createdAt: "2026-01-20",
-  },
-];
+function toPartnershipStatus(value: unknown): PartnershipStatus {
+  if (value === "active" || value === "rejected" || value === "expired") {
+    return value;
+  }
+  return "pending";
+}
 
-// TODO: Replace with trpc.partnerships.availableBusinesses.useQuery() when endpoint exists
-const MOCK_AVAILABLE_BUSINESSES: Business[] = [
-  {
-    id: 1,
-    name: "PowerLift Gym",
-    type: "Gym",
-    description: "Local gym chain with premium facilities",
-    commissionRate: 20,
-    isAvailable: true,
-  },
-  {
-    id: 2,
-    name: "HealthyMeals Co",
-    type: "Meal Prep",
-    description: "Healthy meal prep delivery service",
-    commissionRate: 12,
-    isAvailable: true,
-  },
-  {
-    id: 3,
-    name: "SportWear Plus",
-    type: "Apparel",
-    description: "Athletic wear and sportswear brand",
-    commissionRate: 8,
-    isAvailable: true,
-  },
-];
+function toNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
 
 export default function TrainerPartnershipsScreen() {
   const colors = useColors();
-  const [refreshing, setRefreshing] = useState(false);
-  const [partnerships, setPartnerships] = useState<Partnership[]>(MOCK_PARTNERSHIPS);
+  const utils = trpc.useUtils();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  const partnershipsQuery = trpc.partnerships.list.useQuery();
+  const availableBusinessesQuery = trpc.partnerships.availableBusinesses.useQuery();
+
+  const requestPartnershipMutation = trpc.partnerships.request.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.partnerships.list.invalidate(),
+        utils.partnerships.availableBusinesses.invalidate(),
+      ]);
+    },
+  });
+
+  const submitBusinessMutation = trpc.partnerships.submitBusiness.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.partnerships.list.invalidate(),
+        utils.partnerships.availableBusinesses.invalidate(),
+      ]);
+    },
+  });
 
   // Submit business form state
   const [businessForm, setBusinessForm] = useState({
@@ -117,10 +96,43 @@ export default function TrainerPartnershipsScreen() {
     contactEmail: "",
   });
 
+  const partnerships = useMemo<Partnership[]>(() => {
+    const rows = (partnershipsQuery.data ?? []) as any[];
+    return rows.map((row) => ({
+      id: String(row.id),
+      businessName: String(row.businessName || "Business"),
+      businessType: String(row.businessType || "General"),
+      description: String(row.description || ""),
+      status: toPartnershipStatus(row.status),
+      commissionRate: toNumber(row.commissionRate, 0),
+      totalEarnings: toNumber(row.totalEarnings, 0),
+      clickCount: Math.max(0, Math.round(toNumber(row.clickCount, 0))),
+      conversionCount: Math.max(0, Math.round(toNumber(row.conversionCount, 0))),
+      createdAt: String(row.createdAt || ""),
+      expiresAt: row.expiresAt ? String(row.expiresAt) : null,
+    }));
+  }, [partnershipsQuery.data]);
+
+  const availableBusinesses = useMemo<Business[]>(() => {
+    const rows = (availableBusinessesQuery.data ?? []) as any[];
+    return rows.map((row) => ({
+      id: String(row.id),
+      name: String(row.name || "Business"),
+      type: String(row.type || "General"),
+      description: String(row.description || ""),
+      commissionRate: toNumber(row.commissionRate, 0),
+      isAvailable: row.isAvailable !== false,
+    }));
+  }, [availableBusinessesQuery.data]);
+
+  const refreshing = partnershipsQuery.isRefetching || availableBusinessesQuery.isRefetching;
+
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    await Promise.all([
+      partnershipsQuery.refetch(),
+      availableBusinessesQuery.refetch(),
+    ]);
+  }, [availableBusinessesQuery, partnershipsQuery]);
 
   const handleCreatePartnership = (business: Business) => {
     if (Platform.OS !== "web") {
@@ -134,51 +146,57 @@ export default function TrainerPartnershipsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Request",
-          onPress: () => {
-            const newPartnership: Partnership = {
-              id: Date.now(),
-              businessName: business.name,
-              businessType: business.type,
-              description: business.description,
-              status: "pending",
-              commissionRate: business.commissionRate,
-              totalEarnings: 0,
-              clickCount: 0,
-              conversionCount: 0,
-              createdAt: new Date().toISOString().split("T")[0],
-            };
-            setPartnerships((prev) => [...prev, newPartnership]);
-            setShowAddModal(false);
-            Alert.alert("Success", "Partnership request submitted!");
+          onPress: async () => {
+            try {
+              await requestPartnershipMutation.mutateAsync({ businessId: business.id });
+              setShowAddModal(false);
+              Alert.alert("Success", "Partnership request submitted!");
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Failed to submit partnership request.";
+              Alert.alert("Error", message);
+            }
           },
         },
       ]
     );
   };
 
-  const handleSubmitBusiness = () => {
-    if (!businessForm.name || !businessForm.type || !businessForm.contactEmail) {
+  const handleSubmitBusiness = async () => {
+    if (!businessForm.name.trim() || !businessForm.type.trim() || !businessForm.contactEmail.trim()) {
       Alert.alert("Error", "Please fill in all required fields");
       return;
     }
 
-    if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      await submitBusinessMutation.mutateAsync({
+        name: businessForm.name.trim(),
+        type: businessForm.type.trim(),
+        description: businessForm.description.trim() || undefined,
+        website: businessForm.website.trim() || undefined,
+        contactEmail: businessForm.contactEmail.trim(),
+      });
+
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+
+      Alert.alert(
+        "Business Submitted",
+        "Your business submission has been received. We'll review it and get back to you within 2-3 business days.",
+        [{ text: "OK", onPress: () => setShowSubmitModal(false) }]
+      );
+
+      setBusinessForm({
+        name: "",
+        type: "",
+        description: "",
+        website: "",
+        contactEmail: "",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to submit business.";
+      Alert.alert("Error", message);
     }
-
-    Alert.alert(
-      "Business Submitted",
-      "Your business submission has been received. We'll review it and get back to you within 2-3 business days.",
-      [{ text: "OK", onPress: () => setShowSubmitModal(false) }]
-    );
-
-    setBusinessForm({
-      name: "",
-      type: "",
-      description: "",
-      website: "",
-      contactEmail: "",
-    });
   };
 
   const getStatusColor = (status: PartnershipStatus) => {
@@ -198,10 +216,10 @@ export default function TrainerPartnershipsScreen() {
 
   // Calculate totals
   const totalEarnings = partnerships
-    .filter((p) => p.status === "active")
-    .reduce((sum, p) => sum + p.totalEarnings, 0);
-  const activeCount = partnerships.filter((p) => p.status === "active").length;
-  const pendingCount = partnerships.filter((p) => p.status === "pending").length;
+    .filter((partnership) => partnership.status === "active")
+    .reduce((sum, partnership) => sum + partnership.totalEarnings, 0);
+  const activeCount = partnerships.filter((partnership) => partnership.status === "active").length;
+  const pendingCount = partnerships.filter((partnership) => partnership.status === "pending").length;
 
   const renderPartnership = ({ item }: { item: Partnership }) => (
     <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
@@ -262,6 +280,15 @@ export default function TrainerPartnershipsScreen() {
     </View>
   );
 
+  if (partnershipsQuery.isLoading && partnerships.length === 0) {
+    return (
+      <ScreenContainer className="items-center justify-center">
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text className="text-muted mt-4">Loading partnerships...</Text>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer className="px-4">
       {/* Header */}
@@ -299,11 +326,19 @@ export default function TrainerPartnershipsScreen() {
         </View>
       </View>
 
+      {partnershipsQuery.isError && (
+        <View className="bg-error/10 border border-error rounded-xl p-3 mb-3">
+          <Text className="text-error text-sm">
+            {partnershipsQuery.error.message || "Failed to load partnerships."}
+          </Text>
+        </View>
+      )}
+
       {/* Partnerships List */}
       <FlatList
         data={partnerships}
         renderItem={renderPartnership}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}
         refreshControl={
@@ -365,26 +400,38 @@ export default function TrainerPartnershipsScreen() {
             <Text className="text-lg font-semibold text-foreground mb-3">
               Available Businesses
             </Text>
-            {MOCK_AVAILABLE_BUSINESSES.map((business) => (
-              <TouchableOpacity
-                key={business.id}
-                className="bg-surface border border-border rounded-xl p-4 mb-3"
-                onPress={() => handleCreatePartnership(business)}
-              >
-                <View className="flex-row justify-between items-start mb-2">
-                  <View className="flex-1">
-                    <Text className="text-foreground font-semibold">{business.name}</Text>
-                    <Text className="text-muted text-sm">{business.type}</Text>
+
+            {availableBusinessesQuery.isLoading ? (
+              <View className="py-8 items-center">
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : availableBusinesses.length === 0 ? (
+              <View className="bg-surface border border-border rounded-xl p-4">
+                <Text className="text-muted text-center">No available businesses right now</Text>
+              </View>
+            ) : (
+              availableBusinesses.map((business) => (
+                <TouchableOpacity
+                  key={business.id}
+                  className="bg-surface border border-border rounded-xl p-4 mb-3"
+                  onPress={() => handleCreatePartnership(business)}
+                  disabled={!business.isAvailable || requestPartnershipMutation.isPending}
+                >
+                  <View className="flex-row justify-between items-start mb-2">
+                    <View className="flex-1">
+                      <Text className="text-foreground font-semibold">{business.name}</Text>
+                      <Text className="text-muted text-sm">{business.type}</Text>
+                    </View>
+                    <View className="bg-success/10 px-3 py-1 rounded-full">
+                      <Text className="text-success text-sm font-medium">
+                        {business.commissionRate}%
+                      </Text>
+                    </View>
                   </View>
-                  <View className="bg-success/10 px-3 py-1 rounded-full">
-                    <Text className="text-success text-sm font-medium">
-                      {business.commissionRate}%
-                    </Text>
-                  </View>
-                </View>
-                <Text className="text-muted text-sm">{business.description}</Text>
-              </TouchableOpacity>
-            ))}
+                  <Text className="text-muted text-sm">{business.description}</Text>
+                </TouchableOpacity>
+              ))
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -397,8 +444,10 @@ export default function TrainerPartnershipsScreen() {
               <Text className="text-primary font-medium">Cancel</Text>
             </TouchableOpacity>
             <Text className="text-lg font-semibold text-foreground">Submit Business</Text>
-            <TouchableOpacity onPress={handleSubmitBusiness}>
-              <Text className="text-primary font-medium">Submit</Text>
+            <TouchableOpacity onPress={handleSubmitBusiness} disabled={submitBusinessMutation.isPending}>
+              <Text className="text-primary font-medium">
+                {submitBusinessMutation.isPending ? "Submitting..." : "Submit"}
+              </Text>
             </TouchableOpacity>
           </View>
 

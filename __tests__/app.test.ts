@@ -56,7 +56,7 @@ describe("LocoMotivate App", () => {
       expect(fileContent).toContain("appName:");
       expect(fileContent).toContain("LocoMotivate");
       expect(fileContent).toContain("appSlug:");
-      expect(fileContent).toContain("locoman-expo");
+      expect(fileContent).toContain("locomotivate");
       
       // Check for logo URL configuration
       expect(fileContent).toContain("logoUrl:");

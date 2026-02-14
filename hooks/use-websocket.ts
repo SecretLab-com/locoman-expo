@@ -23,6 +23,8 @@ type WSConnection = {
   handlers: Set<MessageHandler>;
   refCount: number;
   lastConnectAt: number;
+  authBlockedUntil: number;
+  failedToken: string | null;
 };
 
 const sharedConnection: WSConnection = {
@@ -33,6 +35,8 @@ const sharedConnection: WSConnection = {
   handlers: new Set(),
   refCount: 0,
   lastConnectAt: 0,
+  authBlockedUntil: 0,
+  failedToken: null,
 };
 
 export function useWebSocket() {
@@ -51,13 +55,34 @@ export function useWebSocket() {
       sharedConnection.idleCloseTimeout = null;
     }
     try {
-      const now = Date.now();
-      if (sharedConnection.lastConnectAt && now - sharedConnection.lastConnectAt < 2000) {
-        // Multiple components may call connect() simultaneously — this is expected
-        // The shared connection handles deduplication, so just log quietly
-        console.debug("[WebSocket] Duplicate connect (already connecting/connected)");
+      // Skip when not authenticated — always require a Supabase token
+      const token = await Auth.getSessionToken();
+      if (!token) {
+        console.log("[WebSocket] No Supabase session token, skipping connection");
+        sharedConnection.isConnecting = false;
+        return;
       }
-      sharedConnection.lastConnectAt = now;
+
+      // Backoff when server reports auth/token failures for the same token.
+      // This prevents multiple screens/hooks from hammering /ws.
+      const now = Date.now();
+      if (
+        sharedConnection.authBlockedUntil > now &&
+        sharedConnection.failedToken === token
+      ) {
+        return;
+      }
+      if (sharedConnection.failedToken !== token) {
+        sharedConnection.authBlockedUntil = 0;
+        sharedConnection.failedToken = null;
+      }
+
+      const connectNow = Date.now();
+      if (sharedConnection.lastConnectAt && connectNow - sharedConnection.lastConnectAt < 2000) {
+        // Multiple components may call connect() simultaneously.
+        // Shared connection deduplicates this, so no-op silently.
+      }
+      sharedConnection.lastConnectAt = connectNow;
 
       if (sharedConnection.ws) {
         const state = sharedConnection.ws.readyState;
@@ -69,14 +94,7 @@ export function useWebSocket() {
         return;
       }
       sharedConnection.isConnecting = true;
-
-      // Skip when not authenticated — always require a Supabase token
-      const token = await Auth.getSessionToken();
-      if (!token) {
-        console.log("[WebSocket] No Supabase session token, skipping connection");
-        sharedConnection.isConnecting = false;
-        return;
-      }
+      const tokenUsed = token;
 
       // Get API base URL
       const apiUrl = getApiBaseUrl() || process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000";
@@ -85,9 +103,7 @@ export function useWebSocket() {
       const impersonated = await AsyncStorage.getItem("locomotivate_impersonation");
       const impersonateUserId = impersonated ? JSON.parse(impersonated)?.id : null;
 
-      let wsUrl = token
-        ? `${wsBase}/ws?token=${encodeURIComponent(token)}`
-        : `${wsBase}/ws`;
+      let wsUrl = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
 
       if (impersonateUserId) {
         wsUrl += (wsUrl.includes("?") ? "&" : "?") + `impersonateUserId=${impersonateUserId}`;
@@ -109,13 +125,18 @@ export function useWebSocket() {
           const message = JSON.parse(event.data) as WSMessage;
           sharedConnection.handlers.forEach((handler) => handler(message));
         } catch (e) {
-          console.error("[WebSocket] Failed to parse message:", e);
+          console.warn("[WebSocket] Failed to parse message:", e);
         }
       };
 
       ws.onerror = (error) => {
-        console.error("[WebSocket] Error:", error);
-        setConnectionError("Connection error");
+        // Browser/native WebSocket "error" events are often opaque and expected during reconnects.
+        const eventType =
+          error && typeof error === "object" && "type" in error
+            ? String((error as { type?: unknown }).type ?? "error")
+            : "error";
+        console.warn("[WebSocket] Event:", eventType);
+        setConnectionError("Reconnecting…");
         sharedConnection.isConnecting = false;
       };
 
@@ -128,6 +149,8 @@ export function useWebSocket() {
         // Skip reconnect on auth failure or intentional close
         if (event.code === 4001) {
           setConnectionError("Authentication required");
+          sharedConnection.failedToken = tokenUsed;
+          sharedConnection.authBlockedUntil = Date.now() + 30000;
           return;
         }
         if (event.code !== 1000) {
@@ -139,7 +162,7 @@ export function useWebSocket() {
 
       sharedConnection.ws = ws;
     } catch (e) {
-      console.error("[WebSocket] Connection failed:", e);
+      console.warn("[WebSocket] Connection failed:", e);
       setConnectionError("Failed to connect");
       sharedConnection.isConnecting = false;
     }

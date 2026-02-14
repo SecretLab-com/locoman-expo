@@ -5,8 +5,6 @@ steps:
         "build",
         "--build-arg",
         "EXPO_PUBLIC_API_BASE_URL=https://locoman-backend-870100645593.us-central1.run.app",
-        "--build-arg",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=870100645593-fbrh3313a5srvmnmvel0pg1f72cm2n80.apps.googleusercontent.com",
         "-t",
         "gcr.io/locoman-486301/locoman-web",
         "-f",

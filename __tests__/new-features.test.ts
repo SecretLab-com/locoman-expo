@@ -237,22 +237,22 @@ describe("Superadmin Impersonation Feature", () => {
 });
 
 describe("Test Accounts", () => {
-  it("should have trainer test account", () => {
-    const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-    const content = fs.readFileSync(oauthPath, "utf-8");
-    expect(content).toContain("trainer@secretlab.com");
+  it("should not include deprecated trainer test account quick-fill", () => {
+    const loginPath = path.join(projectRoot, "app/login.tsx");
+    const content = fs.readFileSync(loginPath, "utf-8");
+    expect(content).not.toContain("trainer@secretlab.com");
   });
 
-  it("should have client test account", () => {
-    const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-    const content = fs.readFileSync(oauthPath, "utf-8");
-    expect(content).toContain("client@secretlab.com");
+  it("should not include deprecated client test account quick-fill", () => {
+    const loginPath = path.join(projectRoot, "app/login.tsx");
+    const content = fs.readFileSync(loginPath, "utf-8");
+    expect(content).not.toContain("client@secretlab.com");
   });
 
-  it("should have manager test account", () => {
-    const oauthPath = path.join(projectRoot, "server/_core/oauth.ts");
-    const content = fs.readFileSync(oauthPath, "utf-8");
-    expect(content).toContain("manager@secretlab.com");
+  it("should not include deprecated manager test account quick-fill", () => {
+    const loginPath = path.join(projectRoot, "app/login.tsx");
+    const content = fs.readFileSync(loginPath, "utf-8");
+    expect(content).not.toContain("manager@secretlab.com");
   });
 });
 
@@ -365,12 +365,12 @@ describe("Login Enhancements", () => {
     expect(content).toContain("eye.slash.fill");
   });
 
-  it("should have test account quick fill buttons", () => {
+  it("should not expose test account quick fill buttons", () => {
     const loginPath = path.join(projectRoot, "app/login.tsx");
     const content = fs.readFileSync(loginPath, "utf-8");
-    expect(content).toContain("Test Accounts");
-    expect(content).toContain("trainer@secretlab.com");
-    expect(content).toContain("client@secretlab.com");
-    expect(content).toContain("manager@secretlab.com");
+    expect(content).not.toContain("Test Accounts");
+    expect(content).not.toContain("trainer@secretlab.com");
+    expect(content).not.toContain("client@secretlab.com");
+    expect(content).not.toContain("manager@secretlab.com");
   });
 });

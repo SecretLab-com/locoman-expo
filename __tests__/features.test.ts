@@ -53,22 +53,22 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
   });
 
   describe("Client Detail Screen", () => {
-    it("should have client detail screen with session tracking", () => {
+    it("should have client detail screen with active offers and payment history", () => {
       const clientDetailPath = path.join(projectRoot, "app/client-detail/[id].tsx");
       expect(fs.existsSync(clientDetailPath)).toBe(true);
       
       const content = fs.readFileSync(clientDetailPath, "utf-8");
       expect(content).toContain("ClientDetailScreen");
-      expect(content).toContain("sessionsIncluded");
-      expect(content).toContain("sessionsUsed");
-      expect(content).toContain("sessionsRemaining");
+      expect(content).toContain("Active offers");
+      expect(content).toContain("Payment history");
+      expect(content).toContain("Get Paid");
     });
 
-    it("should allow marking sessions as complete", () => {
+    it("should include payment and offer CTAs", () => {
       const clientDetailPath = path.join(projectRoot, "app/client-detail/[id].tsx");
       const content = fs.readFileSync(clientDetailPath, "utf-8");
-      expect(content).toContain("handleMarkSessionComplete");
-      expect(content).toContain(">Complete<");
+      expect(content).toContain("Create Offer");
+      expect(content).toContain("Take Payment");
     });
   });
 

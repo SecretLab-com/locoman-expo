@@ -9,12 +9,13 @@ import { supabase } from "@/lib/supabase-client";
 import { Platform } from "react-native";
 
 const USER_INFO_KEY = "loco-runtime-user-info";
-const TOKEN_FALLBACK_TTL_MS = 30_000;
-const TOKEN_REFRESH_DEBOUNCE_MS = 15_000;
+const TOKEN_FALLBACK_TTL_MS = 60_000;
+const TOKEN_REFRESH_DEBOUNCE_MS = 60_000;
 let lastKnownSessionToken: string | null = null;
 let lastKnownSessionTokenExpiresAt = 0;
 let lastKnownSessionTokenSeenAt = 0;
 let sessionTokenInFlight: Promise<string | null> | null = null;
+let lastAuthDesyncHandledAt = 0;
 
 export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 
@@ -110,6 +111,32 @@ export async function signOut(): Promise<void> {
   lastKnownSessionTokenExpiresAt = 0;
   lastKnownSessionTokenSeenAt = 0;
   await clearUserInfo();
+}
+
+/**
+ * Resolve frontend/backend auth desync:
+ * - backend returns unauthorized while frontend still has stale session cache
+ * - force local sign out so app state converges quickly without manual relogin
+ */
+export async function handleAuthDesync(reason = "unknown"): Promise<void> {
+  const now = Date.now();
+  if (now - lastAuthDesyncHandledAt < 5000) return;
+  lastAuthDesyncHandledAt = now;
+
+  console.warn(`[Auth] Handling auth desync: ${reason}`);
+
+  try {
+    await supabase.auth.signOut({ scope: "local" });
+  } catch (error) {
+    // Continue cleanup even if local signout throws.
+    console.warn("[Auth] Local signOut failed during desync recovery:", error);
+  } finally {
+    lastKnownSessionToken = null;
+    lastKnownSessionTokenExpiresAt = 0;
+    lastKnownSessionTokenSeenAt = 0;
+    sessionTokenInFlight = null;
+    await clearUserInfo();
+  }
 }
 
 /** @deprecated Use signOut() instead. Kept for backward compatibility. */

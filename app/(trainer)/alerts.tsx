@@ -1,1 +1,1 @@
-export { default } from "./deliveries";
+export { default } from "../activity/index";

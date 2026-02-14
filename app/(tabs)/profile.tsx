@@ -6,6 +6,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { useThemeContext } from "@/lib/theme-provider";
 import { Image } from "expo-image";
 
@@ -106,6 +107,11 @@ export default function ProfileScreen() {
   const managerBase = isCoordinator ? "/(coordinator)" : "/(manager)";
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
   const profileUser = effectiveUser ?? user;
+  const profilePhotoUrlRaw = normalizeAssetUrl(profileUser?.photoUrl);
+  const profilePhotoUrl =
+    profilePhotoUrlRaw && profileUser?.updatedAt
+      ? `${profilePhotoUrlRaw}${profilePhotoUrlRaw.includes("?") ? "&" : "?"}v=${encodeURIComponent(String(profileUser.updatedAt))}`
+      : profilePhotoUrlRaw;
 
 
   const cycleTheme = async () => {
@@ -194,10 +200,10 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View className="items-center py-6 px-4">
           <View className="w-24 h-24 rounded-full bg-primary items-center justify-center mb-4">
-            {profileUser?.photoUrl ? (
+            {profilePhotoUrl ? (
               <Image
-                source={{ uri: profileUser.photoUrl }}
-                className="w-24 h-24 rounded-full"
+                source={{ uri: profilePhotoUrl }}
+                style={{ width: "100%", height: "100%" }}
                 contentFit="cover"
               />
             ) : profileUser?.name ? (
@@ -245,7 +251,7 @@ export default function ProfileScreen() {
               icon="person.fill"
               title="Edit Profile"
               subtitle="Update your personal information"
-              onPress={() => router.push("/settings" as any)}
+              onPress={() => router.push(`${roleBase}/settings` as any)}
             />
             {isClient && (
               <MenuItem

@@ -1,10 +1,9 @@
-import { useEffect } from "react";
-import { ActivityIndicator } from "react-native";
+import { useEffect, useRef } from "react";
+import { ActivityIndicator, View } from "react-native";
 
-import { ScreenContainer } from "@/components/screen-container";
 import { useAuthContext } from "@/contexts/auth-context";
-import { navigateToHome } from "@/lib/navigation";
-import { router, useLocalSearchParams } from "expo-router";
+import { getHomeRoute } from "@/lib/navigation";
+import { router } from "expo-router";
 import ShopperHome from "../../components/shopper-home";
 
 /**
@@ -26,42 +25,56 @@ export default function UnifiedHomeScreen() {
     isAuthenticated,
     effectiveRole,
     loading,
-    isCoordinator,
-    isManager,
-    isTrainer,
-    isClient,
   } = useAuthContext();
 
-  const { guest } = useLocalSearchParams<{ guest: string }>();
+  const validRoles = new Set(["shopper", "client", "trainer", "manager", "coordinator"]);
+  const normalizedRole =
+    typeof effectiveRole === "string" && validRoles.has(effectiveRole)
+      ? effectiveRole
+      : null;
+  const redirectedRoleRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Wait for hydration and a small mount delay to prevent flakiness
     if (loading) return;
 
     if (isAuthenticated) {
-      console.log("[UnifiedHome] Authenticated as:", effectiveRole);
-      if (effectiveRole && effectiveRole !== "shopper") {
-        console.log("[UnifiedHome] Navigating to dashboard...");
-        navigateToHome({ isCoordinator, isManager, isTrainer, isClient });
+      if (normalizedRole && normalizedRole !== "shopper") {
+        if (redirectedRoleRef.current === normalizedRole) return;
+        redirectedRoleRef.current = normalizedRole;
+        const timer = setTimeout(() => {
+          const target = getHomeRoute(normalizedRole);
+          if (target !== "/(tabs)") {
+            router.replace(target as any);
+          }
+        }, 0);
+        return () => clearTimeout(timer);
       }
-    } else if (!guest || guest === "false") {
-      // Not authenticated -> Landing Page
-      // Only redirect if we're sure we're not just about to log in
-      console.log("[UnifiedHome] Not authenticated, redirecting to welcome...");
-      router.replace("/welcome");
     }
-  }, [loading, isAuthenticated, effectiveRole, isCoordinator, isManager, isTrainer, isClient, guest]);
+  }, [loading, isAuthenticated, normalizedRole, effectiveRole]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (isAuthenticated && normalizedRole && normalizedRole !== "shopper") {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
   // Not authenticated or shopper → Decide between Welcome or Shopper experience
-  if (!isAuthenticated || effectiveRole === "shopper" || !effectiveRole) {
+  if (!isAuthenticated || normalizedRole === "shopper" || !normalizedRole) {
     // If not authenticated, we prefer showing the high-impact landing page first
     // unless they explicitly chose to browse programs.
     return <ShopperHome />;
   }
 
-  return (
-    <ScreenContainer className="items-center justify-center">
-      <ActivityIndicator size="large" />
-    </ScreenContainer>
-  );
+  // Avoid deadlocks on handoff by showing shopper home while redirecting.
+  return <ShopperHome />;
 }

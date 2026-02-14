@@ -32,18 +32,18 @@ export function getHomeRoute(roleOrFlags?: RoleFlags | string | null): string {
   if (!roleOrFlags) return "/(tabs)";
 
   if (typeof roleOrFlags === "string") {
-    if (roleOrFlags === "coordinator") return "/(coordinator)";
-    if (roleOrFlags === "manager") return "/(manager)";
-    if (roleOrFlags === "trainer") return "/(trainer)";
-    if (roleOrFlags === "client") return "/(client)";
+    if (roleOrFlags === "coordinator") return "/(coordinator)/dashboard";
+    if (roleOrFlags === "manager") return "/(manager)/dashboard";
+    if (roleOrFlags === "trainer") return "/(trainer)/dashboard";
+    if (roleOrFlags === "client") return "/(client)/dashboard";
     return "/(tabs)";
   }
 
   const flags = roleOrFlags as RoleFlags;
-  if (flags.isCoordinator) return "/(coordinator)";
-  if (flags.isManager) return "/(manager)";
-  if (flags.isTrainer) return "/(trainer)";
-  if (flags.isClient) return "/(client)";
+  if (flags.isCoordinator) return "/(coordinator)/dashboard";
+  if (flags.isManager) return "/(manager)/dashboard";
+  if (flags.isTrainer) return "/(trainer)/dashboard";
+  if (flags.isClient) return "/(client)/dashboard";
   return "/(tabs)";
 }
 
@@ -51,14 +51,16 @@ export function getHomeRoute(roleOrFlags?: RoleFlags | string | null): string {
  * Navigate to home.
  * Uses router.replace to prevent back navigation to the previous screen.
  */
-export function navigateToHome(_roleFlags?: RoleFlags): void {
-  router.replace(getHomeRoute(_roleFlags) as any);
+export function navigateToHome(_roleFlags?: RoleFlags | string | null): void {
+  // Use navigate for cross-group routing; replace can fail from nested navigators
+  // with "REPLACE ... was not handled by any navigator".
+  router.navigate(getHomeRoute(_roleFlags) as any);
 }
 
 /**
  * Navigate to home using push (allows back navigation).
  */
-export function pushToHome(_roleFlags?: RoleFlags): void {
+export function pushToHome(_roleFlags?: RoleFlags | string | null): void {
   router.push(getHomeRoute(_roleFlags) as any);
 }
 
@@ -89,6 +91,18 @@ export function getHomeLabelWithRole(roleFlags: RoleFlags): string {
  */
 export function navigateToRoleScreen(screen: string): void {
   router.push(screen as any);
+}
+
+/**
+ * Get role-scoped conversation route to preserve stack gesture behavior.
+ * Falls back to shared conversation route for shopper/guest contexts.
+ */
+export function getRoleConversationPath(role?: UserRole | string | null): string {
+  if (role === "coordinator") return "/(coordinator)/conversation/[id]";
+  if (role === "manager") return "/(manager)/conversation/[id]";
+  if (role === "trainer") return "/(trainer)/conversation/[id]";
+  if (role === "client") return "/(client)/conversation/[id]";
+  return "/conversation/[id]";
 }
 
 /**

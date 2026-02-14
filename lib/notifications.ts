@@ -3,6 +3,57 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
+function canUseWebNotifications(): boolean {
+  return (
+    Platform.OS === "web" &&
+    typeof window !== "undefined" &&
+    "Notification" in window
+  );
+}
+
+function toWebTag(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function showWebNotification(
+  title: string,
+  body: string,
+  data?: Record<string, string | number | boolean | null | undefined>
+): string {
+  if (!canUseWebNotifications()) return "";
+  if (Notification.permission !== "granted") return "";
+
+  const tagSource =
+    data && typeof data === "object" && typeof data.type === "string"
+      ? String(data.type)
+      : `notif_${Date.now()}`;
+  const tag = toWebTag(tagSource);
+
+  const notification = new Notification(title, {
+    body,
+    tag,
+  });
+
+  const deepLink =
+    data && typeof data === "object" && typeof data.deepLink === "string"
+      ? String(data.deepLink)
+      : null;
+  if (deepLink) {
+    notification.onclick = () => {
+      try {
+        const target = deepLink.startsWith("http")
+          ? deepLink
+          : `${window.location.origin}${deepLink.startsWith("/") ? "" : "/"}${deepLink}`;
+        window.location.assign(target);
+      } catch {
+        // Ignore URL navigation errors on web notifications.
+      }
+    };
+  }
+
+  return tag;
+}
+
 // Configure notification handler for foreground notifications (only on native)
 if (Platform.OS !== "web") {
   Notifications.setNotificationHandler({
@@ -20,8 +71,15 @@ if (Platform.OS !== "web") {
  * Register for push notifications and get the Expo push token
  */
 export async function registerForPushNotificationsAsync(): Promise<string | undefined> {
-  // Push notifications not supported on web
   if (Platform.OS === "web") {
+    if (!canUseWebNotifications()) return undefined;
+    if (Notification.permission === "granted") {
+      return "web-notifications-enabled";
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      return "web-notifications-enabled";
+    }
     return undefined;
   }
 
@@ -114,8 +172,7 @@ export async function scheduleDeliveryNotification(
   delaySeconds: number = 0
 ): Promise<string> {
   if (Platform.OS === "web") {
-    console.log("Notifications not supported on web");
-    return "";
+    return showWebNotification(title, body, { type: "delivery", deliveryId });
   }
 
   const identifier = await Notifications.scheduleNotificationAsync({
@@ -141,8 +198,10 @@ export async function scheduleSessionReminder(
   minutesBefore: number = 30
 ): Promise<string> {
   if (Platform.OS === "web") {
-    console.log("Notifications not supported on web");
-    return "";
+    return showWebNotification("Upcoming Session", `Your session with ${clientName} starts in ${minutesBefore} minutes`, {
+      type: "session",
+      sessionId,
+    });
   }
 
   const reminderDate = new Date(sessionDate);
@@ -175,11 +234,6 @@ export async function scheduleOrderNotification(
   status: string,
   message: string
 ): Promise<string> {
-  if (Platform.OS === "web") {
-    console.log("Notifications not supported on web");
-    return "";
-  }
-
   const titles: Record<string, string> = {
     confirmed: "Order Confirmed",
     processing: "Order Processing",
@@ -187,6 +241,14 @@ export async function scheduleOrderNotification(
     delivered: "Order Delivered",
     cancelled: "Order Cancelled",
   };
+
+  if (Platform.OS === "web") {
+    return showWebNotification(titles[status] || "Order Update", message, {
+      type: "order",
+      orderId,
+      status,
+    });
+  }
 
   const identifier = await Notifications.scheduleNotificationAsync({
     content: {
@@ -210,16 +272,15 @@ export async function scheduleBundleApprovalNotification(
   status: "approved" | "rejected",
   reason?: string
 ): Promise<string> {
-  if (Platform.OS === "web") {
-    console.log("Notifications not supported on web");
-    return "";
-  }
-
   const isApproved = status === "approved";
   const title = isApproved ? "Bundle Approved!" : "Bundle Needs Revision";
   const body = isApproved
     ? `Your bundle "${bundleTitle}" has been approved and is now live!`
     : `Your bundle "${bundleTitle}" needs changes: ${reason || "Please review feedback"}`;
+
+  if (Platform.OS === "web") {
+    return showWebNotification(title, body, { type: "bundle_approval", bundleId, status });
+  }
 
   const identifier = await Notifications.scheduleNotificationAsync({
     content: {
@@ -244,8 +305,10 @@ export async function scheduleNewOrderNotification(
   amount: string
 ): Promise<string> {
   if (Platform.OS === "web") {
-    console.log("Notifications not supported on web");
-    return "";
+    return showWebNotification("New Order Received!", `${clientName} purchased "${bundleTitle}" for $${amount}`, {
+      type: "new_order",
+      orderId,
+    });
   }
 
   const identifier = await Notifications.scheduleNotificationAsync({
@@ -270,11 +333,6 @@ export async function scheduleDeliveryUpdateNotification(
   bundleTitle: string,
   trackingInfo?: string
 ): Promise<string> {
-  if (Platform.OS === "web") {
-    console.log("Notifications not supported on web");
-    return "";
-  }
-
   const titles: Record<string, string> = {
     shipped: "Order Shipped!",
     out_for_delivery: "Out for Delivery",
@@ -286,6 +344,14 @@ export async function scheduleDeliveryUpdateNotification(
     out_for_delivery: `Your "${bundleTitle}" order is out for delivery today`,
     delivered: `Your "${bundleTitle}" order has been delivered!`,
   };
+
+  if (Platform.OS === "web") {
+    return showWebNotification(titles[status], bodies[status], {
+      type: "delivery_update",
+      deliveryId,
+      status,
+    });
+  }
 
   const identifier = await Notifications.scheduleNotificationAsync({
     content: {
@@ -306,11 +372,20 @@ export async function scheduleDeliveryUpdateNotification(
 export async function scheduleMessageNotification(
   conversationId: string,
   senderName: string,
-  messagePreview: string
+  messagePreview: string,
+  senderId?: string
 ): Promise<string> {
   if (Platform.OS === "web") {
-    console.log("Notifications not supported on web");
-    return "";
+    const preview = messagePreview.length > 50
+      ? messagePreview.substring(0, 47) + "..."
+      : messagePreview;
+    return showWebNotification(senderName, preview, {
+      type: "message",
+      conversationId,
+      senderName,
+      senderId,
+      deepLink: `/conversation/${conversationId}`,
+    });
   }
 
   // Truncate message preview if too long
@@ -322,7 +397,7 @@ export async function scheduleMessageNotification(
     content: {
       title: senderName,
       body: preview,
-      data: { type: "message", conversationId },
+      data: { type: "message", conversationId, senderName, senderId },
       sound: true,
     },
     trigger: null, // Immediate

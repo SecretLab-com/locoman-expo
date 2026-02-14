@@ -3,7 +3,6 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
-import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -299,7 +298,6 @@ export default function FindTrainerScreen() {
         title="Find a Trainer" 
         showBack
         showHome
-        onBack={() => navigateToHome()}
       />
       
       {/* Search Bar */}

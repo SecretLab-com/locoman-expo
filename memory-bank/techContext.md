@@ -37,7 +37,7 @@
 - **Client**: Supabase JS client with service role key
 - **Conversion**: Automatic snake_case ↔ camelCase conversion
 - **Functions**: 60+ database functions for CRUD operations
-- **Types**: Exported from db.ts (replaces old Drizzle types)
+- **Types**: Exported from `server/db.ts`
 
 ## Real-time
 - **WebSocket**: Custom WebSocket server (`server/_core/websocket.ts`)
@@ -55,8 +55,9 @@
 - `SUPABASE_URL` - Supabase project URL
 - `SUPABASE_ANON_KEY` - Supabase anonymous key (frontend)
 - `SUPABASE_SERVICE_ROLE_KEY` - Supabase service role key (backend)
-- `GOOGLE_CLIENT_ID` - Google OAuth client ID (if using Google OAuth)
-- `GOOGLE_CLIENT_SECRET` - Google OAuth client secret (if using Google OAuth)
+- `EXPO_PUBLIC_SUPABASE_URL` - Supabase project URL exposed to client apps
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` - Supabase anon key exposed to client apps
+- `EXPO_PUBLIC_API_BASE_URL` - API base URL used by client apps
 
 ## Dev Setup
 - Install dependencies: `pnpm install`

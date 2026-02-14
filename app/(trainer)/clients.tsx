@@ -1,14 +1,16 @@
 import { BulkInviteModal } from "@/components/bulk-invite-modal";
+import { EmptyStateCard } from "@/components/empty-state-card";
 import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -58,22 +60,47 @@ type Client = {
   status: string;
 };
 
-function ClientAvatar({ uri }: { uri?: string | null }) {
+function getInitials(name?: string | null) {
+  const parts = String(name || "Client")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "C";
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
+}
+
+function ClientAvatar({ uri, name }: { uri?: string | null; name?: string | null }) {
   const colors = useColors();
   const [hasError, setHasError] = useState(false);
-  const isValidUri = typeof uri === "string" && uri.trim().length > 0;
+  const normalizedUri = useMemo(() => normalizeAssetUrl(uri), [uri]);
+  const hasImage = typeof normalizedUri === "string" && normalizedUri.trim().length > 0 && !hasError;
+
+  useEffect(() => {
+    setHasError(false);
+  }, [normalizedUri]);
 
   return (
-    <View className="w-14 h-14 rounded-full bg-muted/30 overflow-hidden items-center justify-center">
-      {isValidUri && !hasError ? (
+    <View
+      className="w-14 h-14 rounded-full overflow-hidden items-center justify-center border"
+      style={{ borderColor: "rgba(96,165,250,0.35)" }}
+    >
+      {hasImage ? (
         <Image
-          source={{ uri }}
-          className="w-14 h-14 rounded-full"
+          source={{ uri: normalizedUri }}
+          style={{ width: "100%", height: "100%" }}
           contentFit="cover"
           onError={() => setHasError(true)}
         />
       ) : (
-        <IconSymbol name="person.fill" size={22} color={colors.muted} />
+        <View
+          className="w-14 h-14 rounded-full items-center justify-center"
+          style={{ backgroundColor: "rgba(96,165,250,0.22)" }}
+        >
+          <Text className="text-sm font-bold" style={{ color: colors.primary }}>
+            {getInitials(name)}
+          </Text>
+        </View>
       )}
     </View>
   );
@@ -93,7 +120,7 @@ function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onP
         testID={`trainer-client-${client.id}`}
       >
         <View className="flex-row items-center">
-          <ClientAvatar uri={client.avatar || client.photoUrl} />
+          <ClientAvatar uri={client.avatar || client.photoUrl} name={client.name} />
           <View className="flex-1 ml-4">
             <View className="flex-row items-center">
               <Text className="text-base font-semibold text-foreground">{client.name}</Text>
@@ -134,7 +161,7 @@ function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onP
 
 export default function TrainerClientsScreen() {
   const colors = useColors();
-  const { user } = useAuth();
+  const { effectiveUser } = useAuthContext();
   const [searchQuery, setSearchQuery] = useState("");
   const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
@@ -207,6 +234,7 @@ export default function TrainerClientsScreen() {
       <NavigationHeader
         title="Clients"
         subtitle={`${clients.length} total clients`}
+        showBack={false}
         rightAction={{
           icon: "person.badge.plus",
           onPress: () => setShowBulkInvite(true),
@@ -275,9 +303,14 @@ export default function TrainerClientsScreen() {
           <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
         ListEmptyComponent={
-          <View className="items-center py-12">
-            <IconSymbol name="person.2.fill" size={48} color={colors.muted} />
-            <Text className="text-muted text-center mt-4">No clients found</Text>
+          <View className="px-4 py-12">
+            <EmptyStateCard
+              icon="person.2.fill"
+              title="No clients yet"
+              description="This is empty because you have not invited any clients yet."
+              ctaLabel="Invite Client"
+              onCtaPress={() => router.push("/(trainer)/invite" as any)}
+            />
           </View>
         }
         contentContainerStyle={{ paddingBottom: 20 }}
@@ -289,7 +322,7 @@ export default function TrainerClientsScreen() {
         visible={showBulkInvite}
         onClose={() => setShowBulkInvite(false)}
         onSubmit={async (invites) => {
-          if (!user?.id) return;
+          if (!effectiveUser?.id) return;
           await bulkInviteMutation.mutateAsync({
             invitations: invites.map((invite) => ({
               email: invite.email,

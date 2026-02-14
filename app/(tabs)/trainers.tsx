@@ -2,6 +2,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { trpc } from "@/lib/trpc";
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -192,7 +193,9 @@ export default function TrainersScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {filteredTrainers.map((trainer: Trainer) => (
+          {filteredTrainers.map((trainer: Trainer) => {
+            const trainerPhotoUrl = normalizeAssetUrl(trainer.photoUrl);
+            return (
             <TouchableOpacity
               key={trainer.id}
               onPress={() => openTrainerProfile(trainer)}
@@ -201,9 +204,9 @@ export default function TrainersScreen() {
               <View className="flex-row">
                 {/* Avatar */}
                 <View className="w-16 h-16 rounded-full bg-background items-center justify-center overflow-hidden">
-                  {trainer.photoUrl ? (
+                  {trainerPhotoUrl ? (
                     <Image
-                      source={{ uri: trainer.photoUrl }}
+                      source={{ uri: trainerPhotoUrl }}
                       className="w-full h-full"
                       resizeMode="cover"
                     />
@@ -282,7 +285,8 @@ export default function TrainersScreen() {
                 </View>
               </View>
             </TouchableOpacity>
-          ))}
+            );
+          })}
 
           {/* Empty State */}
           {filteredTrainers.length === 0 && (

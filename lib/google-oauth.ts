@@ -8,6 +8,12 @@ import { Platform } from "react-native";
 
 WebBrowser.maybeCompleteAuthSession();
 
+const GOOGLE_OAUTH_QUERY_PARAMS = {
+  // Always show the Google account chooser so users can switch accounts
+  // after app logout, even if Google still has an active browser session.
+  prompt: "select_account",
+};
+
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -30,7 +36,10 @@ export async function signInWithGoogle(): Promise<void> {
     const redirectTo = `${window.location.origin}/oauth/callback`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo },
+      options: {
+        redirectTo,
+        queryParams: GOOGLE_OAUTH_QUERY_PARAMS,
+      },
     });
     if (error) throw error;
     return;
@@ -50,6 +59,7 @@ export async function signInWithGoogle(): Promise<void> {
     options: {
       redirectTo,
       skipBrowserRedirect: true,
+      queryParams: GOOGLE_OAUTH_QUERY_PARAMS,
     },
   });
 

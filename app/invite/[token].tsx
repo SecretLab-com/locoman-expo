@@ -2,6 +2,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { getInviteLink } from "@/lib/invite-links";
 import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
@@ -179,7 +180,7 @@ export default function InvitationScreen() {
     try {
       await Share.share({
         message: `Check out this fitness program: ${invitation.bundleTitle} by ${invitation.trainerName}`,
-        url: `https://locomotivate.app/invite/${invitation.token}`,
+        url: getInviteLink(invitation.token),
       });
     } catch (error) {
       console.error("Share failed:", error);

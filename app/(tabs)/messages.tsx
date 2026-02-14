@@ -5,13 +5,17 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
     FlatList,
+    Modal,
+    Pressable,
     RefreshControl,
     Text,
     TouchableOpacity,
@@ -32,7 +36,15 @@ type Conversation = {
   lastMessageIsRead: boolean;
 };
 
-function ConversationItem({ conversation, onPress }: { conversation: Conversation; onPress: () => void }) {
+function ConversationItem({
+  conversation,
+  onPress,
+  onLongPress,
+}: {
+  conversation: Conversation;
+  onPress: () => void;
+  onLongPress?: () => void;
+}) {
   const colors = useColors();
 
   const handlePress = async () => {
@@ -62,6 +74,7 @@ function ConversationItem({ conversation, onPress }: { conversation: Conversatio
     <TouchableOpacity
       className="flex-row items-center p-4 bg-surface border-b border-border"
       onPress={handlePress}
+      onLongPress={onLongPress}
       activeOpacity={0.7}
     >
       {/* Avatar */}
@@ -152,6 +165,7 @@ export default function MessagesScreen() {
             : "/(tabs)";
 
   const { connect, disconnect, subscribe } = useWebSocket();
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
 
   // Fetch conversations from API
   const {
@@ -161,6 +175,11 @@ export default function MessagesScreen() {
     isRefetching,
   } = trpc.messages.conversations.useQuery(undefined, {
     enabled: isAuthenticated,
+  });
+  const deleteConversation = trpc.messages.deleteConversation.useMutation({
+    onSuccess: async () => {
+      await refetch();
+    },
   });
 
   // Real-time conversation updates via WebSocket
@@ -191,13 +210,29 @@ export default function MessagesScreen() {
   const handleConversationPress = (conversation: Conversation) => {
     // Navigate to conversation detail
     router.push({
-      pathname: "/conversation/[id]" as any,
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
       params: { 
         id: conversation.id,
         name: conversation.participantName,
         participantId: conversation.participantId,
       },
     });
+  };
+
+  const handleConversationLongPress = async (conversation: Conversation) => {
+    await haptics.medium();
+    setSelectedConversation(conversation);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!selectedConversation) return;
+    try {
+      await deleteConversation.mutateAsync({ conversationId: selectedConversation.id });
+      setSelectedConversation(null);
+      Alert.alert("Conversation deleted", "This conversation has been removed.");
+    } catch (error: any) {
+      Alert.alert("Delete failed", error?.message || "Unable to delete conversation.");
+    }
   };
 
   const handleNewMessage = async () => {
@@ -281,6 +316,7 @@ export default function MessagesScreen() {
             <ConversationItem
               conversation={item}
               onPress={() => handleConversationPress(item)}
+              onLongPress={() => handleConversationLongPress(item)}
             />
           )}
           refreshControl={
@@ -330,6 +366,50 @@ export default function MessagesScreen() {
       >
         <IconSymbol name="plus" size={24} color={colors.background} />
       </TouchableOpacity>
+
+      <Modal
+        visible={Boolean(selectedConversation)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedConversation(null)}
+      >
+        <Pressable
+          className="flex-1 justify-end bg-black/40"
+          onPress={() => setSelectedConversation(null)}
+        >
+          <Pressable className="bg-surface rounded-t-2xl p-5 border-t border-border">
+            <Text className="text-foreground text-lg font-semibold mb-1">
+              Conversation options
+            </Text>
+            <Text className="text-muted mb-4">
+              {selectedConversation?.participantName || "Conversation"}
+            </Text>
+            <TouchableOpacity
+              className="rounded-xl bg-error/15 px-4 py-3 mb-2"
+              onPress={confirmDeleteConversation}
+              disabled={deleteConversation.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Delete this conversation"
+              testID="conversation-delete"
+            >
+              {deleteConversation.isPending ? (
+                <ActivityIndicator size="small" color={colors.error} />
+              ) : (
+                <Text className="text-error font-semibold">Delete conversation</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="rounded-xl bg-background border border-border px-4 py-3"
+              onPress={() => setSelectedConversation(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel conversation options"
+              testID="conversation-options-cancel"
+            >
+              <Text className="text-foreground font-semibold text-center">Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }

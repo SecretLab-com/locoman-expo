@@ -1,6 +1,6 @@
 # LocoMotivate Deployment Guide
 
-This guide provides step-by-step instructions for deploying LocoMotivate on your own server. The application consists of an Expo React Native frontend and a Node.js/Express backend with MySQL database.
+This guide provides step-by-step instructions for deploying LocoMotivate on your own server. The application consists of an Expo React Native frontend and a Node.js/Express backend backed by Supabase (PostgreSQL + Auth).
 
 ---
 
@@ -12,7 +12,8 @@ Before starting, ensure your server has the following installed:
 |-------------|-----------------|---------|
 | Node.js | 22.x | JavaScript runtime |
 | pnpm | 9.12.0 | Package manager |
-| MySQL | 8.0+ | Database |
+| Supabase project | N/A | Database + authentication |
+| Supabase CLI | Latest | Apply SQL migrations (optional but recommended) |
 | Git | 2.x | Version control |
 
 ---
@@ -43,21 +44,22 @@ This will install both frontend (Expo/React Native) and backend (Express/tRPC) d
 Create a `.env` file in the project root with the following variables:
 
 ```bash
-# Database Configuration (Required)
-DATABASE_URL="mysql://username:password@host:3306/database_name"
+# Supabase Configuration (Required)
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Server Configuration
 NODE_ENV=production
 PORT=3000
 
-# OAuth Configuration (Required for user authentication)
-# These are provided by your OAuth provider
-OAUTH_CLIENT_ID=your_oauth_client_id
-OAUTH_CLIENT_SECRET=your_oauth_client_secret
-OAUTH_REDIRECT_URI=https://your-domain.com/oauth/callback
+# Frontend Runtime Configuration (Required)
+EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+EXPO_PUBLIC_API_BASE_URL=https://your-api-domain.com
 
-# Session Secret (Required - generate a random 32+ character string)
-SESSION_SECRET=your_random_session_secret_here
+# Optional native OAuth callback fallback
+OAUTH_NATIVE_RETURN_TO=locomotivate://oauth/callback
 
 # S3 Storage Configuration (Optional - for file uploads)
 S3_BUCKET=your-bucket-name
@@ -73,43 +75,44 @@ S3_SECRET_ACCESS_KEY=your_secret_key
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | MySQL connection string |
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-side Supabase key (secret) |
+| `SUPABASE_ANON_KEY` | Recommended | Anon key for user-scoped server client usage |
+| `EXPO_PUBLIC_SUPABASE_URL` | Yes | Supabase URL exposed to client apps |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key exposed to client apps |
+| `EXPO_PUBLIC_API_BASE_URL` | Yes | Public backend base URL used by clients |
 | `NODE_ENV` | Yes | Set to `production` for deployment |
 | `PORT` | No | Server port (default: 3000) |
-| `SESSION_SECRET` | Yes | Random string for session encryption |
-| `OAUTH_CLIENT_ID` | Yes* | OAuth provider client ID |
-| `OAUTH_CLIENT_SECRET` | Yes* | OAuth provider client secret |
+| `OAUTH_NATIVE_RETURN_TO` | No | Native app callback deep link |
 | `S3_BUCKET` | No | S3 bucket for file storage |
-
-*Required if using user authentication
 
 ---
 
 ## Step 4: Set Up the Database
 
-### 4.1 Create the MySQL Database
+### 4.1 Create and Configure Supabase Project
+
+1. Create a Supabase project in the Supabase dashboard.
+2. Copy project values into `.env`:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+3. (Recommended) install and login to Supabase CLI:
 
 ```bash
-mysql -u root -p
+supabase login
+supabase link --project-ref <your-project-ref>
 ```
 
-```sql
-CREATE DATABASE locomotivate CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'locomotivate'@'localhost' IDENTIFIED BY 'your_secure_password';
-GRANT ALL PRIVILEGES ON locomotivate.* TO 'locomotivate'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
-```
+### 4.2 Apply Database Migrations
 
-### 4.2 Run Database Migrations
-
-Generate and apply database migrations:
+Apply the SQL migrations in `supabase/migrations/` to your Supabase project.
 
 ```bash
-pnpm db:push
+supabase db push
 ```
 
-This command runs `drizzle-kit generate` followed by `drizzle-kit migrate` to create all necessary tables.
+If you are not using the Supabase CLI, run each migration file in the Supabase SQL Editor in filename order.
 
 ---
 
@@ -240,7 +243,7 @@ Create `/etc/systemd/system/locomotivate-api.service`:
 ```ini
 [Unit]
 Description=LocoMotivate API Server
-After=network.target mysql.service
+After=network.target
 
 [Service]
 Type=simple
@@ -297,11 +300,11 @@ npx expo start --tunnel
 
 | Issue | Solution |
 |-------|----------|
-| Database connection failed | Verify `DATABASE_URL` format and MySQL is running |
+| Database connection failed | Verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set correctly |
 | Port already in use | Change `PORT` in `.env` or kill existing process |
-| OAuth redirect error | Ensure `OAUTH_REDIRECT_URI` matches OAuth provider settings |
+| OAuth redirect error | Ensure Supabase Auth redirect URLs include your web and native callback URLs |
 | Build errors | Run `pnpm check` to verify TypeScript types |
-| Migration failed | Check database permissions and connection |
+| Migration failed | Confirm project is linked (`supabase link`) and rerun `supabase db push` |
 
 ### Useful Commands
 
@@ -325,10 +328,11 @@ pnpm lint
 
 Before going to production, ensure:
 
-- [ ] `SESSION_SECRET` is a strong, unique random string
-- [ ] Database credentials are not committed to version control
+- [ ] `SUPABASE_SERVICE_ROLE_KEY` is stored only in backend/server secrets
+- [ ] `EXPO_PUBLIC_SUPABASE_ANON_KEY` is anon-only (never service role)
+- [ ] Supabase keys and URLs are not committed to version control
 - [ ] SSL/TLS is configured for all external connections
-- [ ] Database user has minimal required permissions
+- [ ] Supabase RLS policies are reviewed and tested
 - [ ] Environment variables are properly secured
 - [ ] Rate limiting is configured on the reverse proxy
 - [ ] CORS is properly configured for your domain
@@ -363,8 +367,8 @@ Before going to production, ensure:
     └─────────┘      └─────┬─────┘    └──────┬──────┘
                            │                 │
                     ┌──────▼─────────────────▼──────┐
-                    │         MySQL Database        │
-                    │        (Drizzle ORM)          │
+                    │     Supabase PostgreSQL DB    │
+                    │      (SQL migrations)         │
                     └───────────────────────────────┘
 ```
 

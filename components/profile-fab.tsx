@@ -4,6 +4,7 @@ import { useBadgeContext } from "@/contexts/badge-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { getApiBaseUrl } from "@/lib/api-config";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { router, usePathname } from "expo-router";
@@ -33,8 +34,19 @@ export function ProfileFAB() {
   const insets = useSafeAreaInsets();
   const { user, effectiveUser, isAuthenticated, logout, isTrainer, effectiveRole } = useAuthContext();
   const { counts } = useBadgeContext();
+  const { data: latestProfile } = trpc.profile.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
   const [menuVisible, setMenuVisible] = useState(false);
   const pathname = usePathname();
+  const { data: conversations } = trpc.messages.conversations.useQuery(undefined, {
+    enabled: isAuthenticated,
+    staleTime: Infinity,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  });
 
   const roleBase =
     effectiveRole === "client"
@@ -63,7 +75,19 @@ export function ProfileFAB() {
   const alertFabRightOffset = 68;
   const isOnMessageThread = pathname.includes("/messages/") || pathname.includes("/conversation/");
   const isOnBundleDetail = pathname.includes("/bundle/");
-  const hasUnreadMessages = counts.unreadMessages > 0;
+  const openConversationId = useMemo(() => {
+    const isConversationRoute =
+      pathname.startsWith("/conversation/") || pathname.startsWith("/messages/");
+    if (!isConversationRoute) return null;
+    const parts = pathname.split("/");
+    return parts.length >= 3 ? decodeURIComponent(parts[2]) : null;
+  }, [pathname]);
+  const unreadMessagesExcludingOpenConversation =
+    conversations?.reduce((sum: number, conversation: any) => {
+      if (openConversationId && conversation.conversationId === openConversationId) return sum;
+      return sum + Number(conversation.unreadCount || 0);
+    }, 0) ?? counts.unreadMessages;
+  const hasUnreadMessages = unreadMessagesExcludingOpenConversation > 0;
 
   const handlePress = () => {
     if (Platform.OS !== "web") {
@@ -101,7 +125,8 @@ export function ProfileFAB() {
   };
 
   const isUserAuthenticated = isAuthenticated || Boolean(effectiveUser);
-  const rawAvatarUrl = effectiveUser?.photoUrl || user?.photoUrl || undefined;
+  const rawAvatarUrl = latestProfile?.photoUrl || effectiveUser?.photoUrl || user?.photoUrl || undefined;
+  const avatarVersion = latestProfile?.updatedAt || effectiveUser?.updatedAt || user?.updatedAt || "";
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const isDark = colorScheme === "dark";
   const overlayColor = isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(15, 23, 42, 0.12)";
@@ -112,11 +137,18 @@ export function ProfileFAB() {
 
   const avatarUrl = useMemo(() => {
     if (!rawAvatarUrl) return undefined;
-    if (/^https?:\/\//i.test(rawAvatarUrl)) return rawAvatarUrl;
-    const baseUrl = getApiBaseUrl();
-    if (!baseUrl) return undefined;
-    return `${baseUrl}${rawAvatarUrl.startsWith("/") ? "" : "/"}${rawAvatarUrl}`;
-  }, [rawAvatarUrl]);
+    const absoluteUrl = /^https?:\/\//i.test(rawAvatarUrl)
+      ? rawAvatarUrl
+      : (() => {
+          const baseUrl = getApiBaseUrl();
+          if (!baseUrl) return undefined;
+          return `${baseUrl}${rawAvatarUrl.startsWith("/") ? "" : "/"}${rawAvatarUrl}`;
+        })();
+    if (!absoluteUrl) return undefined;
+    if (!avatarVersion) return absoluteUrl;
+    const separator = absoluteUrl.includes("?") ? "&" : "?";
+    return `${absoluteUrl}${separator}v=${encodeURIComponent(String(avatarVersion))}`;
+  }, [avatarVersion, rawAvatarUrl]);
 
   useEffect(() => {
     setAvatarLoadFailed(false);
@@ -173,7 +205,7 @@ export function ProfileFAB() {
 
   // Get user initials for avatar fallback
   const getInitials = () => {
-    const displayName = effectiveUser?.name || user?.name;
+    const displayName = latestProfile?.name || effectiveUser?.name || user?.name;
     if (!displayName) return "?";
     const parts = displayName.split(" ");
     if (parts.length >= 2) {

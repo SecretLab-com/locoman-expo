@@ -18,7 +18,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
-import { navigateToHome } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
@@ -224,6 +223,20 @@ export default function BundleEditorScreen() {
     onError: (error) => {
       haptics.error();
       platformAlert("Error", error.message);
+    },
+  });
+
+  // Delete bundle mutation
+  const deleteBundleMutation = trpc.bundles.delete.useMutation({
+    onSuccess: () => {
+      haptics.success();
+      platformAlert("Deleted", "Bundle deleted successfully.", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message || "Failed to delete bundle.");
     },
   });
 
@@ -690,9 +703,8 @@ export default function BundleEditorScreen() {
   // Delete bundle
   const handleDelete = () => {
     const doDelete = async () => {
-      // TODO: Implement delete mutation
-      haptics.success();
-      router.back();
+      if (!isValidBundleId) return;
+      await deleteBundleMutation.mutateAsync({ id: bundleIdParam });
     };
 
     platformAlert(
@@ -729,7 +741,6 @@ export default function BundleEditorScreen() {
           title={isNewBundle ? "Create Bundle" : "Edit Bundle"}
           showBack
           showHome
-          onBack={() => navigateToHome()}
           confirmBack={{
             title: "Discard Changes?",
             message: "You have unsaved changes. Are you sure you want to leave?",

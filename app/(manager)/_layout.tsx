@@ -7,7 +7,7 @@ import { useBadgeContext } from "@/contexts/badge-context";
 export default function ManagerTabLayout() {
   const { counts } = useBadgeContext();
   const navItems: RoleNavItem[] = [
-    { label: "Home", icon: "house.fill", href: "/(manager)", testID: "tab-home" },
+    { label: "Home", icon: "house.fill", href: "/(manager)/dashboard", testID: "tab-home" },
     {
       label: "Approvals",
       icon: "checkmark.circle.fill",

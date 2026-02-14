@@ -1,7 +1,7 @@
 import { useAuthContext } from "@/contexts/auth-context";
 import { useOffline } from "@/contexts/offline-context";
 import React, { useEffect, useRef } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { Animated, Platform, StyleSheet, Text, View } from "react-native";
 
 /**
  * Offline indicator banner that shows when the device is offline
@@ -22,6 +22,9 @@ export function OfflineIndicator() {
     }).start();
   }, [isOnline, isLoading, slideAnim]);
 
+  // On web, backend reachability and browser connectivity can diverge (CORS/proxy),
+  // causing noisy false-positive banners during development.
+  if (Platform.OS === "web") return null;
   if (isLoading || isImpersonating) return null;
 
   return (

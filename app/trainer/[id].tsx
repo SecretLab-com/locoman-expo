@@ -3,6 +3,8 @@ import { ShareButton } from "@/components/share-button";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { normalizeAssetUrl } from "@/lib/asset-url";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
@@ -33,17 +35,19 @@ export default function TrainerProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const { user, effectiveRole } = useAuthContext();
-  const roleBase =
-    effectiveRole === "client"
-      ? "/(client)"
-      : effectiveRole === "trainer"
-        ? "/(trainer)"
-        : effectiveRole === "manager"
-          ? "/(manager)"
-          : effectiveRole === "coordinator"
-            ? "/(coordinator)"
-            : "/(tabs)";
   const [requestSent, setRequestSent] = useState(false);
+  const requestJoin = trpc.myTrainers.requestToJoin.useMutation({
+    onSuccess: () => {
+      setRequestSent(true);
+      Alert.alert(
+        "Request Sent",
+        `Your request to join ${trainer?.name || "this trainer"} has been sent. They will review your request shortly.`
+      );
+    },
+    onError: (error) => {
+      Alert.alert("Unable to send request", error.message || "Please try again.");
+    },
+  });
 
   // Parse id safely
   const trainerId = id || "";
@@ -77,12 +81,7 @@ export default function TrainerProfileScreen() {
       return;
     }
 
-    // TODO: Implement actual join request via tRPC
-    setRequestSent(true);
-    Alert.alert(
-      "Request Sent",
-      `Your request to join ${trainer?.name || "this trainer"} has been sent. They will review your request shortly.`
-    );
+    requestJoin.mutate({ trainerId });
   };
 
   // Handle message trainer
@@ -99,7 +98,15 @@ export default function TrainerProfileScreen() {
       return;
     }
 
-    router.push(`${roleBase}/messages/${id}` as any);
+    const conversationId = [String(user.id), String(trainerId)].sort().join("-");
+    router.push({
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
+      params: {
+        id: conversationId,
+        participantId: String(trainerId),
+        name: trainer?.name || "Trainer",
+      },
+    });
   };
 
   // Open social link
@@ -112,6 +119,7 @@ export default function TrainerProfileScreen() {
   const specialties = Array.isArray(trainer?.specialties)
     ? (trainer.specialties as string[])
     : [];
+  const trainerPhotoUrl = normalizeAssetUrl(trainer?.photoUrl);
 
   if (isLoading) {
     return (
@@ -175,9 +183,9 @@ export default function TrainerProfileScreen() {
         <View className="items-center px-6 py-6">
           {/* Avatar */}
           <View className="w-28 h-28 rounded-full bg-surface items-center justify-center overflow-hidden border-4 border-primary/20">
-            {trainer.photoUrl ? (
+            {trainerPhotoUrl ? (
               <Image
-                source={{ uri: trainer.photoUrl }}
+                source={{ uri: trainerPhotoUrl }}
                 className="w-full h-full"
                 resizeMode="cover"
               />
@@ -258,7 +266,7 @@ export default function TrainerProfileScreen() {
         <View className="px-6 mb-6 gap-2">
           <TouchableOpacity
             onPress={handleJoinRequest}
-            disabled={requestSent}
+            disabled={requestSent || requestJoin.isPending}
             className={`py-2.5 rounded-lg items-center ${
               requestSent ? "bg-success" : "bg-primary"
             }`}
@@ -270,7 +278,7 @@ export default function TrainerProfileScreen() {
                 color="#fff"
               />
               <Text className="text-white font-semibold ml-2 text-sm">
-                {requestSent ? "Request Sent" : "Request to Join"}
+                {requestJoin.isPending ? "Sending..." : requestSent ? "Request Sent" : "Request to Join"}
               </Text>
             </View>
           </TouchableOpacity>
@@ -300,7 +308,9 @@ export default function TrainerProfileScreen() {
               </Text>
             </View>
           ) : (
-            trainerBundles.map((bundle: any) => (
+            trainerBundles.map((bundle: any) => {
+              const bundleImageUrl = normalizeAssetUrl(bundle.imageUrl);
+              return (
               <TouchableOpacity
                 key={bundle.id}
                 onPress={() => router.push(`/bundle/${bundle.id}`)}
@@ -309,9 +319,9 @@ export default function TrainerProfileScreen() {
                 <View className="flex-row">
                   {/* Bundle Image */}
                   <View className="w-20 h-20 rounded-lg bg-background items-center justify-center overflow-hidden">
-                    {bundle.imageUrl ? (
+                    {bundleImageUrl ? (
                       <Image
-                        source={{ uri: bundle.imageUrl }}
+                        source={{ uri: bundleImageUrl }}
                         className="w-full h-full"
                         resizeMode="cover"
                       />
@@ -348,7 +358,8 @@ export default function TrainerProfileScreen() {
                   </View>
                 </View>
               </TouchableOpacity>
-            ))
+              );
+            })
           )}
         </View>
 

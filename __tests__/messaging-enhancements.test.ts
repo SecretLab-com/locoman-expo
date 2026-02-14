@@ -83,7 +83,7 @@ describe("Messaging Enhancements", () => {
         path.join(APP_DIR, "components/profile-fab.tsx"),
         "utf-8"
       );
-      expect(content).toContain("counts.unreadMessages > 0");
+      expect(content).toContain("unreadMessagesExcludingOpenConversation > 0");
       expect(content).toContain("testID=\"profile-fab\"");
       expect(content).toContain("backgroundColor: \"#EF4444\"");
     });
@@ -139,7 +139,7 @@ describe("Messaging Enhancements", () => {
         "utf-8"
       );
       expect(content).toContain('case "message"');
-      expect(content).toContain("/conversation/[id]");
+      expect(content).toContain("getRoleConversationPath");
       expect(content).toContain("conversationId");
     });
 

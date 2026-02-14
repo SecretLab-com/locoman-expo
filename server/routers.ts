@@ -377,7 +377,18 @@ export const appRouter = router({
   // CATALOG (Public bundle browsing)
   // ============================================================================
   catalog: router({
-    bundles: publicProcedure.query(async () => {
+    bundles: publicProcedure.query(async ({ ctx }) => {
+      // Clients only see bundles from trainers they are actively assigned to.
+      // Shoppers/guests keep full catalog browsing behavior.
+      if (ctx.user?.role === "client") {
+        const myTrainers = await db.getMyTrainers(ctx.user.id);
+        const activeTrainerIds = myTrainers
+          .filter((trainer: any) => trainer.relationshipStatus === "active")
+          .map((trainer: any) => trainer.id)
+          .filter((id: unknown): id is string => typeof id === "string" && id.length > 0);
+        if (activeTrainerIds.length === 0) return [];
+        return db.getPublishedBundlesByTrainerIds(activeTrainerIds);
+      }
       return db.getPublishedBundles();
     }),
 
@@ -743,7 +754,18 @@ export const appRouter = router({
   offers: router({
     list: trainerProcedure.query(async ({ ctx }) => {
       const bundles = await db.getBundleDraftsByTrainer(ctx.user.id);
-      return bundles.map(mapBundleToOffer);
+      const offers = await Promise.all(
+        bundles.map(async (bundle) => {
+          const mapped = mapBundleToOffer(bundle);
+          if (mapped.imageUrl || !bundle.shopifyProductId) return mapped;
+          const linkedProduct = await db.getProductByShopifyProductId(bundle.shopifyProductId);
+          return {
+            ...mapped,
+            imageUrl: linkedProduct?.imageUrl || null,
+          };
+        }),
+      );
+      return offers;
     }),
 
     get: trainerProcedure
@@ -752,7 +774,13 @@ export const appRouter = router({
         const bundle = await db.getBundleDraftById(input.id);
         if (!bundle) return undefined;
         assertTrainerOwned(ctx.user, bundle.trainerId, "offer");
-        return mapBundleToOffer(bundle);
+        const mapped = mapBundleToOffer(bundle);
+        if (mapped.imageUrl || !bundle.shopifyProductId) return mapped;
+        const linkedProduct = await db.getProductByShopifyProductId(bundle.shopifyProductId);
+        return {
+          ...mapped,
+          imageUrl: linkedProduct?.imageUrl || null,
+        };
       }),
 
     create: trainerProcedure
@@ -882,10 +910,15 @@ export const appRouter = router({
       const trainerClients = await db.getClientsByTrainer(ctx.user.id);
       return Promise.all(
         trainerClients.map(async (client) => {
-          const activeBundles = await db.getActiveBundlesCountForClient(client.id);
-          const totalSpent = await db.getTotalSpentByClient(client.id);
+          const [activeBundles, totalSpent, linkedUser] = await Promise.all([
+            db.getActiveBundlesCountForClient(client.id),
+            db.getTotalSpentByClient(client.id),
+            client.userId ? db.getUserById(client.userId) : Promise.resolve(undefined),
+          ]);
+          const resolvedPhotoUrl = client.photoUrl || linkedUser?.photoUrl || null;
           return {
             ...client,
+            photoUrl: resolvedPhotoUrl,
             activeBundles,
             totalSpent,
           };
@@ -1810,6 +1843,54 @@ export const appRouter = router({
           forbidden("Only the recipient can mark this message as read");
         }
         await db.markMessageRead(input.id);
+        return { success: true };
+      }),
+
+    edit: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          content: z.string().min(1).max(4000),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.id);
+        if (!message) notFound("Message");
+        assertMessageAccess(ctx.user, message);
+        if (!isManagerLikeRole(ctx.user.role) && message.senderId !== ctx.user.id) {
+          forbidden("Only the sender can edit this message");
+        }
+        if (message.messageType && message.messageType !== "text") {
+          forbidden("Only text messages can be edited");
+        }
+
+        await db.updateMessageContent(input.id, input.content.trim());
+        return { success: true };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.id);
+        if (!message) notFound("Message");
+        assertMessageAccess(ctx.user, message);
+        if (!isManagerLikeRole(ctx.user.role) && message.senderId !== ctx.user.id) {
+          forbidden("Only the sender can delete this message");
+        }
+
+        await db.deleteMessage(input.id);
+        return { success: true };
+      }),
+
+    deleteConversation: protectedProcedure
+      .input(z.object({ conversationId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+        if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+          forbidden("You do not have access to this conversation");
+        }
+
+        await db.deleteConversation(input.conversationId);
         return { success: true };
       }),
 
@@ -3217,6 +3298,38 @@ export const appRouter = router({
           merchantReference: ref,
           expiresAt: link.expiresAt ? String(link.expiresAt) : null,
         };
+      }),
+
+    /** Cancel a pending payment link */
+    cancelLink: trainerProcedure
+      .input(
+        z.object({
+          merchantReference: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getPaymentSessionByReference(input.merchantReference);
+        if (!session) notFound("Payment link");
+        if (session.requestedBy !== ctx.user.id) {
+          forbidden("You do not have access to this payment link");
+        }
+        if ((session.method || "").toLowerCase() !== "link") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only payment links can be cancelled" });
+        }
+
+        const rawStatus = (session.status || "").toLowerCase();
+        const isSettled = rawStatus === "authorised" || rawStatus === "captured" || rawStatus === "paid_out";
+        if (isSettled) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Paid links cannot be cancelled" });
+        }
+        if (rawStatus === "cancelled") {
+          return { success: true, cancelled: false };
+        }
+
+        await db.updatePaymentSessionByReference(input.merchantReference, {
+          status: "cancelled",
+        });
+        return { success: true, cancelled: true };
       }),
 
     /** Get payment history for the current trainer */

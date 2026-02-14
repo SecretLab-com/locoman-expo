@@ -2,9 +2,12 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { useWebSocket } from "@/hooks/use-websocket";
+import { getApiBaseUrl } from "@/lib/api-config";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { scheduleMessageNotification } from "@/lib/notifications";
 import { trpc } from "@/lib/trpc";
 import { router, usePathname } from "expo-router";
+import { Image } from "expo-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +16,7 @@ type IncomingMessageState = {
   conversationId: string;
   senderId?: string;
   senderName?: string;
+  avatarUrl?: string;
   preview?: string;
   count: number;
 };
@@ -23,13 +27,14 @@ export function IncomingMessageFAB() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const { user } = useAuthContext();
+  const { user, effectiveRole } = useAuthContext();
   const { connect, disconnect, subscribe } = useWebSocket();
   const [incoming, setIncoming] = useState<IncomingMessageState | null>(null);
   const [renderedIncoming, setRenderedIncoming] = useState<IncomingMessageState | null>(null);
   const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
   const hasInitializedConversationStampsRef = useRef(false);
   const conversationStampByIdRef = useRef<Map<string, string>>(new Map());
+  const conversationAvatarByIdRef = useRef<Map<string, string>>(new Map());
   const hasInitializedUnreadRef = useRef(false);
   const previousUnreadTotalRef = useRef(0);
   const alertAnim = useRef(new Animated.Value(0)).current;
@@ -42,10 +47,42 @@ export function IncomingMessageFAB() {
   });
 
   const openConversationId = useMemo(() => {
-    if (!pathname.startsWith("/conversation/")) return null;
+    if (!pathname.includes("/conversation/")) return null;
     const parts = pathname.split("/");
-    return parts.length >= 3 ? decodeURIComponent(parts[2]) : null;
+    const conversationSegmentIndex = parts.findIndex((segment) => segment === "conversation");
+    if (conversationSegmentIndex < 0 || parts.length <= conversationSegmentIndex + 1) return null;
+    return decodeURIComponent(parts[conversationSegmentIndex + 1]);
   }, [pathname]);
+  const isMessagingRoute = useMemo(() => {
+    const parts = pathname.split("/").filter(Boolean);
+    return (
+      parts.includes("messages") ||
+      parts.includes("conversation") ||
+      parts.includes("new-message")
+    );
+  }, [pathname]);
+
+  const resolveAvatarUrl = (rawValue: unknown): string | undefined => {
+    if (typeof rawValue !== "string" || !rawValue.trim()) return undefined;
+    const value = rawValue.trim();
+    if (/^https?:\/\//i.test(value)) return value;
+    const baseUrl = getApiBaseUrl();
+    if (!baseUrl) return undefined;
+    return `${baseUrl}${value.startsWith("/") ? "" : "/"}${value}`;
+  };
+
+  useEffect(() => {
+    const nextMap = new Map<string, string>();
+    for (const conversation of conversations as any[]) {
+      const conversationId = conversation.conversationId as string | undefined;
+      if (!conversationId) continue;
+      const avatarUrl = resolveAvatarUrl(conversation.otherUserAvatar);
+      if (avatarUrl) {
+        nextMap.set(conversationId, avatarUrl);
+      }
+    }
+    conversationAvatarByIdRef.current = nextMap;
+  }, [conversations]);
 
   useEffect(() => {
     if (!canListenForMessages || !user?.id) {
@@ -67,6 +104,7 @@ export function IncomingMessageFAB() {
       const conversationId = message?.conversationId || msg.conversationId;
       if (!conversationId) return;
       if (message.senderId === user.id) return;
+      if (isMessagingRoute) return;
       if (openConversationId && openConversationId === conversationId) return;
 
       const messageId = message.id ?? `${conversationId}-${Date.now()}`;
@@ -75,6 +113,7 @@ export function IncomingMessageFAB() {
 
       const senderName = message.senderName || "New message";
       const preview = (message.content || "").trim();
+      const avatarUrl = conversationAvatarByIdRef.current.get(conversationId);
 
       void scheduleMessageNotification(
         conversationId,
@@ -89,6 +128,7 @@ export function IncomingMessageFAB() {
             conversationId,
             senderId: message.senderId,
             senderName,
+            avatarUrl,
             preview,
             count: 1,
           };
@@ -105,7 +145,13 @@ export function IncomingMessageFAB() {
       unsubscribe();
       disconnect();
     };
-  }, [canListenForMessages, connect, disconnect, openConversationId, subscribe, user?.id]);
+  }, [canListenForMessages, connect, disconnect, isMessagingRoute, openConversationId, subscribe, user?.id]);
+
+  useEffect(() => {
+    if (!isMessagingRoute) return;
+    setIncoming(null);
+    setRenderedIncoming(null);
+  }, [isMessagingRoute]);
 
   useEffect(() => {
     if (!incoming || !openConversationId) return;
@@ -116,6 +162,7 @@ export function IncomingMessageFAB() {
   // Fallback: trigger alert when unread total increases (e.g. websocket miss).
   useEffect(() => {
     if (!canListenForMessages) return;
+    if (isMessagingRoute) return;
     const unreadTotal = (conversations as any[]).reduce(
       (sum, conversation) => sum + Number(conversation.unreadCount || 0),
       0
@@ -146,15 +193,17 @@ export function IncomingMessageFAB() {
       conversationId: unreadConversation.conversationId,
       senderId: unreadConversation.otherUserId || undefined,
       senderName: unreadConversation.otherUserName || "New message",
+      avatarUrl: resolveAvatarUrl(unreadConversation.otherUserAvatar),
       preview: unreadConversation.lastMessageContent || "",
       count: Math.max(1, Number(unreadConversation.unreadCount || 1)),
     });
-  }, [canListenForMessages, conversations, openConversationId]);
+  }, [canListenForMessages, conversations, isMessagingRoute, openConversationId]);
 
   // Secondary fallback: detect any new incoming last message from conversations list.
   // This catches cases where unread counts are already consumed or websocket events are missed.
   useEffect(() => {
     if (!canListenForMessages || !user?.id) return;
+    if (isMessagingRoute) return;
     if (!conversations.length) return;
 
     let newestIncoming: any = null;
@@ -190,13 +239,14 @@ export function IncomingMessageFAB() {
       conversationId: newestIncoming.conversationId,
       senderId: newestIncoming.otherUserId || undefined,
       senderName: newestIncoming.otherUserName || "New message",
+      avatarUrl: resolveAvatarUrl(newestIncoming.otherUserAvatar),
       preview: newestIncoming.lastMessageContent || "",
       count: Math.max(
         current?.conversationId === newestIncoming.conversationId ? (current?.count ?? 0) + 1 : 1,
         Number(newestIncoming.unreadCount || 1),
       ),
     }));
-  }, [canListenForMessages, conversations, openConversationId, user?.id]);
+  }, [canListenForMessages, conversations, isMessagingRoute, openConversationId, user?.id]);
 
   useEffect(() => {
     if (!incoming) return;
@@ -277,7 +327,7 @@ export function IncomingMessageFAB() {
     <AnimatedPressable
       onPress={() => {
         router.push({
-          pathname: "/conversation/[id]" as any,
+          pathname: getRoleConversationPath(effectiveRole as any) as any,
           params: {
             id: renderedIncoming.conversationId,
             name: renderedIncoming.senderName || "Messages",
@@ -318,12 +368,21 @@ export function IncomingMessageFAB() {
             width: 28,
             height: 28,
             borderRadius: 14,
-            backgroundColor: colors.primary,
+            backgroundColor: renderedIncoming.avatarUrl ? colors.border : colors.primary,
             alignItems: "center",
             justifyContent: "center",
+            overflow: "hidden",
           }}
         >
-          <IconSymbol name="message.fill" size={15} color={colors.background} />
+          {renderedIncoming.avatarUrl ? (
+            <Image
+              source={{ uri: renderedIncoming.avatarUrl }}
+              style={{ width: 28, height: 28 }}
+              contentFit="cover"
+            />
+          ) : (
+            <IconSymbol name="message.fill" size={15} color={colors.background} />
+          )}
         </View>
         <View style={{ flex: 1 }}>
           <Text

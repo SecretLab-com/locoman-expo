@@ -15,7 +15,7 @@ import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
  */
 export default function ClientTabLayout() {
   const navItems: RoleNavItem[] = [
-    { label: "Home", icon: "house.fill", href: "/(client)", testID: "tab-home" },
+    { label: "Home", icon: "house.fill", href: "/(client)/dashboard", testID: "tab-home" },
     { label: "Shop", icon: "storefront.fill", href: "/(client)/orders", testID: "tab-orders" },
     { label: "Trainer", icon: "person.2.fill", href: "/my-trainers", testID: "tab-trainer" },
     { label: "Basket", icon: "cart.fill", href: "/(client)/subscriptions", testID: "tab-basket" },
