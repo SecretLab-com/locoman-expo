@@ -33,6 +33,7 @@ import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
 import { useDeepLink } from "@/hooks/use-deep-link";
 import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
+import { getHomeRoute } from "@/lib/navigation";
 import { createTRPCClient, trpc } from "@/lib/trpc";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -86,7 +87,8 @@ function getHeaderTitle(routeName: string): string {
 }
 
 function RootAccessGate({ children }: { children: React.ReactNode }) {
-  const { loading, hasSession, profileHydrated, isAuthenticated } = useAuthContext();
+  const { loading, hasSession, profileHydrated, isAuthenticated, effectiveRole, isImpersonating } =
+    useAuthContext();
   const pathname = usePathname();
   const router = useRouter();
   const [redirecting, setRedirecting] = useState(false);
@@ -131,8 +133,36 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
       router.replace("/welcome");
       return;
     }
+    const rolePathChecks: Array<{ prefix: string; role: string }> = [
+      { prefix: "/(coordinator)", role: "coordinator" },
+      { prefix: "/(manager)", role: "manager" },
+      { prefix: "/(trainer)", role: "trainer" },
+      { prefix: "/(client)", role: "client" },
+    ];
+    const mismatchedRolePath = rolePathChecks.find(
+      ({ prefix, role }) => pathname.startsWith(prefix) && effectiveRole !== role
+    );
+    if (mismatchedRolePath) {
+      setRedirecting(true);
+      router.replace(getHomeRoute(effectiveRole) as any);
+      return;
+    }
+    if (pathname.startsWith("/(tabs)") && effectiveRole && effectiveRole !== "shopper") {
+      setRedirecting(true);
+      router.replace(getHomeRoute(effectiveRole) as any);
+      return;
+    }
     setRedirecting(false);
-  }, [authGateReady, isAuthTransit, authGraceActive, isAuthenticated, isGuestSafeRoute, router]);
+  }, [
+    authGateReady,
+    isAuthTransit,
+    authGraceActive,
+    isAuthenticated,
+    isGuestSafeRoute,
+    pathname,
+    effectiveRole,
+    router,
+  ]);
 
   if (
     !authGateReady ||
@@ -147,7 +177,9 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  const roleScope = isAuthenticated ? effectiveRole || "shopper" : "guest";
+  const navigatorKey = `${roleScope}:${isImpersonating ? "impersonating" : "base"}`;
+  return <View key={navigatorKey} style={{ flex: 1 }}>{children}</View>;
 }
 
 export const unstable_settings = {
@@ -404,9 +436,18 @@ export default function RootLayout() {
                               name="(trainer)"
                               options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
                             />
-                            <Stack.Screen name="(client)" options={{ headerShown: false }} />
-                            <Stack.Screen name="(manager)" options={{ headerShown: false }} />
-                            <Stack.Screen name="(coordinator)" options={{ headerShown: false }} />
+                            <Stack.Screen
+                              name="(client)"
+                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                            />
+                            <Stack.Screen
+                              name="(manager)"
+                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                            />
+                            <Stack.Screen
+                              name="(coordinator)"
+                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                            />
                             <Stack.Screen name="welcome" options={{ headerShown: false }} />
                             <Stack.Screen name="oauth/callback" />
                           </Stack>

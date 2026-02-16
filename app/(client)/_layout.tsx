@@ -1,7 +1,10 @@
-import { Slot } from "expo-router";
+import { Slot, usePathname } from "expo-router";
+import { useEffect } from "react";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
+import { useAuthContext } from "@/contexts/auth-context";
+import { resetToHome } from "@/lib/navigation";
 
 /**
  * Client Tab Layout
@@ -14,6 +17,16 @@ import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
  * - Account: Insights and billing
  */
 export default function ClientTabLayout() {
+  const { isAuthenticated, loading, hasSession, profileHydrated, effectiveRole } = useAuthContext();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const authTransit = loading || (hasSession && !profileHydrated);
+    if (authTransit || !isAuthenticated) return;
+    if (effectiveRole === "client") return;
+    resetToHome(effectiveRole);
+  }, [effectiveRole, hasSession, isAuthenticated, loading, profileHydrated]);
+
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(client)/dashboard", testID: "tab-home" },
     { label: "Shop", icon: "storefront.fill", href: "/(client)/orders", testID: "tab-orders" },
@@ -21,13 +34,14 @@ export default function ClientTabLayout() {
     { label: "Basket", icon: "cart.fill", href: "/(client)/subscriptions", testID: "tab-basket" },
     { label: "Account", icon: "person.circle.fill", href: "/(client)/spending", testID: "tab-revenue" },
   ];
+  const hideBottomNav = pathname.includes("/conversation/") || pathname.endsWith("/messages/new");
 
   return (
     <View className="flex-1 bg-background">
       <View style={{ flex: 1 }}>
         <Slot />
       </View>
-      <RoleBottomNav items={navItems} />
+      {!hideBottomNav && <RoleBottomNav items={navItems} />}
     </View>
   );
 }

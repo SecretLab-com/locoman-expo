@@ -5,7 +5,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
@@ -32,28 +32,34 @@ export default function RewardsScreen() {
 
   if (pointsLoading || paymentLoading) {
     return (
-      <ScreenContainer>
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      </ScreenContainer>
+      <>
+        <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
+        <ScreenContainer>
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        </ScreenContainer>
+      </>
     );
   }
 
   if (!hasFirstPayment) {
     return (
-      <ScreenContainer>
-        <ScreenHeader title="Rewards" subtitle="Motivation without pressure." />
-        <View className="px-4 mt-6">
-          <EmptyStateCard
-            icon="star.fill"
-            title="Rewards unlock after your first payment"
-            description="Take your first payment to start earning points and status progress."
-            ctaLabel="Go to Get Paid"
-            onCtaPress={() => router.push("/(trainer)/get-paid" as any)}
-          />
-        </View>
-      </ScreenContainer>
+      <>
+        <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
+        <ScreenContainer>
+          <ScreenHeader title="Rewards" subtitle="Motivation without pressure." />
+          <View className="px-4 mt-6">
+            <EmptyStateCard
+              icon="star.fill"
+              title="Rewards unlock after your first payment"
+              description="Take your first payment to start earning points and status progress."
+              ctaLabel="Go to Get Paid"
+              onCtaPress={() => router.push("/(trainer)/get-paid" as any)}
+            />
+          </View>
+        </ScreenContainer>
+      </>
     );
   }
 
@@ -62,9 +68,11 @@ export default function RewardsScreen() {
   const tierColor = TIER_COLORS[statusTier] || colors.primary;
 
   return (
-    <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <ScreenHeader title="Rewards" subtitle="Earn points by training clients and selling more." />
+    <>
+      <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
+      <ScreenContainer>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <ScreenHeader title="Rewards" subtitle="Earn points by training clients and selling more." />
 
         <View className="px-4 mb-4">
           <SurfaceCard>
@@ -111,7 +119,8 @@ export default function RewardsScreen() {
             </SurfaceCard>
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </ScreenContainer>
+        </ScrollView>
+      </ScreenContainer>
+    </>
   );
 }

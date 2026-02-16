@@ -1,11 +1,10 @@
 import { Slot } from "expo-router";
-import { router } from "expo-router";
 import { useEffect } from "react";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
 import { useAuthContext } from "@/contexts/auth-context";
-import { getHomeRoute } from "@/lib/navigation";
+import { getHomeRoute, resetToHome } from "@/lib/navigation";
 
 /**
  * Shopper Tab Layout
@@ -28,7 +27,7 @@ export default function UnifiedTabLayout() {
     if (effectiveRole && effectiveRole !== "shopper") {
       const target = getHomeRoute(effectiveRole);
       if (target !== "/(tabs)") {
-        router.navigate(target as any);
+        resetToHome(effectiveRole);
       }
     }
   }, [effectiveRole, hasSession, isAuthenticated, loading, profileHydrated]);

@@ -4,7 +4,11 @@ steps:
       [
         "build",
         "--build-arg",
-        "EXPO_PUBLIC_API_BASE_URL=https://locoman-backend-870100645593.us-central1.run.app",
+        "EXPO_PUBLIC_API_BASE_URL=https://services.bright.coach",
+        "--build-arg",
+        "EXPO_PUBLIC_SUPABASE_URL=https://cvtvsfeaqauxlwgykdxb.supabase.co",
+        "--build-arg",
+        "EXPO_PUBLIC_SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2dHZzZmVhcWF1eGx3Z3lrZHhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NzM5MjYsImV4cCI6MjA4NDQ0OTkyNn0.QUxHdkcfE0rdTBNVHVWiu0TRuovdeoRM6PKdqMKdjDo",
         "-t",
         "gcr.io/locoman-486301/locoman-web",
         "-f",

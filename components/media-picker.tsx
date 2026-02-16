@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import {
   View,
   Text,
@@ -214,7 +215,11 @@ export function MediaPicker({
             onPress={() => setShowOptions(false)}
             style={{ backgroundColor: overlayStrong }}
           >
-          <View className="bg-background rounded-t-3xl p-6">
+          <SwipeDownSheet
+            visible={showOptions}
+            onClose={() => setShowOptions(false)}
+            className="bg-background rounded-t-3xl p-6"
+          >
             <Text className="text-xl font-bold text-foreground mb-4">Add Photo</Text>
 
             <TouchableOpacity
@@ -249,7 +254,7 @@ export function MediaPicker({
             >
               <Text className="text-center text-muted">Cancel</Text>
             </TouchableOpacity>
-          </View>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
 
@@ -417,7 +422,11 @@ export function SingleImagePicker({
           onPress={() => setShowOptions(false)}
           style={{ backgroundColor: overlayStrong }}
         >
-          <View className="bg-background rounded-t-3xl p-6">
+          <SwipeDownSheet
+            visible={showOptions}
+            onClose={() => setShowOptions(false)}
+            className="bg-background rounded-t-3xl p-6"
+          >
             <TouchableOpacity
               onPress={takePhoto}
               className="flex-row items-center py-4 border-b border-border"
@@ -435,7 +444,7 @@ export function SingleImagePicker({
             <TouchableOpacity onPress={() => setShowOptions(false)} className="py-4 mt-2">
               <Text className="text-center text-muted">Cancel</Text>
             </TouchableOpacity>
-          </View>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
     </View>

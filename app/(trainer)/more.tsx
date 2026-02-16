@@ -3,7 +3,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 type MoreItem = {
@@ -98,7 +98,9 @@ export default function TrainerMoreScreen() {
   const colors = useColors();
 
   return (
-    <ScreenContainer>
+    <>
+      <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
+      <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
         <ScreenHeader title="More" subtitle="Advanced tools live here." />
 
@@ -113,6 +115,7 @@ export default function TrainerMoreScreen() {
           ))}
         </View>
       </ScrollView>
-    </ScreenContainer>
+      </ScreenContainer>
+    </>
   );
 }

@@ -9,8 +9,8 @@ import { formatGBP } from "@/lib/currency";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useMemo, useRef } from "react";
+import { ActivityIndicator, Animated, Easing, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 function paymentLabel(status: string | null | undefined) {
   const value = (status || "").toLowerCase();
@@ -32,9 +32,15 @@ function extractListItemsFromHtml(description: string): string[] {
   return names;
 }
 
+function toProgressPercent(used: number, included: number) {
+  if (!included || included <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((used / included) * 100)));
+}
+
 export default function ClientDetailScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const offerAttentionAnim = useRef(new Animated.Value(0)).current;
   const { data, isLoading } = trpc.clients.detail.useQuery({ id: id || "" }, { enabled: !!id });
   const { data: trainerOffers = [], isLoading: offersLoading } = trpc.offers.list.useQuery(undefined, {
     enabled: !!id,
@@ -128,6 +134,27 @@ export default function ClientDetailScreen() {
     return getOfferFallbackImageUrl(offer?.title);
   };
 
+  useEffect(() => {
+    const attentionLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(offerAttentionAnim, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(offerAttentionAnim, {
+          toValue: 0,
+          duration: 1200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    attentionLoop.start();
+    return () => attentionLoop.stop();
+  }, [offerAttentionAnim]);
+
   if (isLoading) {
     return (
       <ScreenContainer>
@@ -215,7 +242,93 @@ export default function ClientDetailScreen() {
         />
 
         <View className="px-4 mb-4">
-          <Text className="text-lg font-semibold text-foreground mb-3">Invite to offer</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Current bundle status</Text>
+          {data.currentBundle ? (
+            <SurfaceCard className="mb-3">
+              <Text className="text-base font-semibold text-foreground">
+                {data.currentBundle.title || "Active bundle"}
+              </Text>
+              <View className="mt-3">
+                <Text className="text-xs text-muted">
+                  Sessions: {Number(data.currentBundle.sessionsUsed || 0)}/{Number(data.currentBundle.sessionsIncluded || 0)}
+                </Text>
+                <View className="h-2 rounded-full mt-1.5 mb-2 overflow-hidden" style={{ backgroundColor: colors.surface }}>
+                  <View
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${toProgressPercent(
+                        Number(data.currentBundle.sessionsUsed || 0),
+                        Number(data.currentBundle.sessionsIncluded || 0),
+                      )}%`,
+                      backgroundColor:
+                        toProgressPercent(
+                          Number(data.currentBundle.sessionsUsed || 0),
+                          Number(data.currentBundle.sessionsIncluded || 0),
+                        ) >= 80
+                          ? colors.warning
+                          : colors.primary,
+                    }}
+                  />
+                </View>
+
+                <Text className="text-xs text-muted">
+                  Products: {Number(data.currentBundle.productsUsed || 0)}/{Number(data.currentBundle.productsIncluded || 0)}
+                </Text>
+                <View className="h-2 rounded-full mt-1.5 overflow-hidden" style={{ backgroundColor: colors.surface }}>
+                  <View
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${toProgressPercent(
+                        Number(data.currentBundle.productsUsed || 0),
+                        Number(data.currentBundle.productsIncluded || 0),
+                      )}%`,
+                      backgroundColor:
+                        toProgressPercent(
+                          Number(data.currentBundle.productsUsed || 0),
+                          Number(data.currentBundle.productsIncluded || 0),
+                        ) >= 80
+                          ? colors.warning
+                          : colors.success,
+                    }}
+                  />
+                </View>
+              </View>
+
+              {Array.isArray(data.currentBundle.alerts) && data.currentBundle.alerts.length > 0 ? (
+                <View className="mt-3">
+                  {data.currentBundle.alerts.map((alert: string, index: number) => (
+                    <View
+                      key={`${alert}-${index}`}
+                      className="px-2.5 py-1.5 rounded-full self-start mb-1.5"
+                      style={{ backgroundColor: `${colors.warning}20` }}
+                    >
+                      <Text className="text-xs font-semibold" style={{ color: colors.warning }}>
+                        {alert}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </SurfaceCard>
+          ) : (
+            <SurfaceCard className="mb-3">
+              <View className="flex-row items-center">
+                <View className="w-10 h-10 rounded-full bg-surface border border-border items-center justify-center mr-3">
+                  <IconSymbol name="bag.fill" size={18} color={colors.muted} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-base font-semibold text-foreground">No active bundle</Text>
+                  <Text className="text-sm text-muted mt-1">
+                    This client is not currently signed up for a bundle. Use the Invite buttons below.
+                  </Text>
+                </View>
+              </View>
+            </SurfaceCard>
+          )}
+        </View>
+
+        <View className="px-4 mb-4">
+          <Text className="text-lg font-semibold text-foreground mb-3">Active offers</Text>
           {offersLoading ? (
             <View className="items-center py-6">
               <ActivityIndicator size="small" color={colors.primary} />
@@ -231,8 +344,27 @@ export default function ClientDetailScreen() {
             />
           ) : (
             <>
-              {topOffers.map((offer: any) => (
-              <SurfaceCard key={offer.id} className="mb-3">
+              {topOffers.map((offer: any, index: number) => (
+              <Animated.View
+                key={offer.id}
+                style={{
+                  transform: [
+                    {
+                      scale: offerAttentionAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [1, 1.012 + index * 0.002, 1],
+                      }),
+                    },
+                    {
+                      translateY: offerAttentionAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [0, -1.5 - index * 0.5, 0],
+                      }),
+                    },
+                  ],
+                }}
+              >
+              <SurfaceCard className="mb-3">
                 <View className="flex-row items-center justify-between">
                   <View className="flex-row flex-1 items-center pr-3">
                     <View className="w-14 h-14 rounded-lg bg-surface border border-border overflow-hidden items-center justify-center mr-3">
@@ -279,6 +411,7 @@ export default function ClientDetailScreen() {
                   </TouchableOpacity>
                 </View>
               </SurfaceCard>
+              </Animated.View>
               ))}
               <TouchableOpacity
                 className="self-start mt-1 px-1 py-2"

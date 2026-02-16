@@ -176,11 +176,12 @@ export default function InvitationScreen() {
   // Share invitation
   const handleShare = async () => {
     if (!invitation) return;
+    const inviteUrl = getInviteLink(invitation.token);
 
     try {
       await Share.share({
-        message: `Check out this fitness program: ${invitation.bundleTitle} by ${invitation.trainerName}`,
-        url: getInviteLink(invitation.token),
+        message: `Check out this fitness program: ${invitation.bundleTitle} by ${invitation.trainerName}\n\n${inviteUrl}`,
+        url: inviteUrl,
       });
     } catch (error) {
       console.error("Share failed:", error);

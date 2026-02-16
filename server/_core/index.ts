@@ -3,9 +3,9 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import path from "path";
-import { appRouter } from "../routers";
 import * as adyen from "../adyen";
 import * as db from "../db";
+import { appRouter } from "../routers";
 import * as shopify from "../shopify";
 import { createContext } from "./context";
 import { logError, logEvent } from "./logger";
@@ -15,10 +15,28 @@ import { setupWebSocket } from "./websocket";
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
+  const configuredAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const derivedProdOrigins = [
+    process.env.EXPO_PUBLIC_APP_URL,
+    process.env.PUBLIC_APP_URL,
+    process.env.EXPO_PUBLIC_API_BASE_URL,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .map((value) => {
+      try {
+        return new URL(value).origin;
+      } catch {
+        return "";
+      }
+    })
+    .filter(Boolean);
+  const allowedOrigins = Array.from(
+    new Set([...configuredAllowedOrigins, ...derivedProdOrigins]),
+  );
   const localDevOrigins = new Set([
     "http://localhost:8081",
     "http://localhost:3000",
@@ -247,8 +265,37 @@ async function startServer() {
     const rawToken = typeof req.params.token === "string" ? req.params.token : "";
     const token = encodeURIComponent(rawToken);
     const appUrl = `locomotivate://invite/${token}`;
-    const webBase = (process.env.PUBLIC_APP_URL || process.env.EXPO_PUBLIC_APP_URL || "").replace(/\/+$/g, "");
+    const webBase = (
+      process.env.PUBLIC_APP_URL ||
+      process.env.EXPO_PUBLIC_APP_URL ||
+      process.env.EXPO_PUBLIC_API_BASE_URL ||
+      ""
+    ).replace(/\/+$/g, "");
     const webInviteUrl = webBase ? `${webBase}/invite/${token}` : "";
+    const forwardedProtoHeader = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+    const requestProtocol = forwardedProtoHeader || req.protocol || "https";
+    const requestHost = req.get("host") || "";
+    const currentInviteUrl = requestHost ? `${requestProtocol}://${requestHost}${req.originalUrl || ""}` : "";
+    const webInviteIsSelf =
+      Boolean(webInviteUrl) &&
+      Boolean(currentInviteUrl) &&
+      webInviteUrl.replace(/\/+$/g, "") === currentInviteUrl.replace(/\/+$/g, "");
+    const safeWebInviteUrl = webInviteIsSelf ? "" : webInviteUrl;
+    const iosStoreUrl =
+      (process.env.IOS_APP_STORE_URL || process.env.EXPO_PUBLIC_IOS_APP_STORE_URL || "").trim() ||
+      "https://apps.apple.com/us/search?term=LocoMotivate";
+    const androidStoreUrl =
+      (process.env.ANDROID_PLAY_STORE_URL || process.env.EXPO_PUBLIC_ANDROID_PLAY_STORE_URL || "").trim() ||
+      "https://play.google.com/store/search?q=LocoMotivate&c=apps";
+    const userAgent = String(req.headers["user-agent"] || "").toLowerCase();
+    const isIos = /iphone|ipad|ipod/.test(userAgent);
+    const isAndroid = /android/.test(userAgent);
+    const isMobile = isIos || isAndroid;
+
+    if (!isMobile && safeWebInviteUrl) {
+      res.redirect(302, safeWebInviteUrl);
+      return;
+    }
 
     const html = `<!doctype html>
 <html>
@@ -261,13 +308,19 @@ async function startServer() {
     <h2>Opening your invitation…</h2>
     <p>If the app does not open automatically, tap below.</p>
     <p><a href="${appUrl}">Open LocoMotivate app</a></p>
-    ${webInviteUrl ? `<p><a href="${webInviteUrl}">Continue in browser</a></p>` : ""}
+    ${safeWebInviteUrl ? `<p><a href="${safeWebInviteUrl}">Continue in browser</a></p>` : ""}
+    ${isIos ? `<p><a href="${iosStoreUrl}">Get the iOS app</a></p>` : ""}
+    ${isAndroid ? `<p><a href="${androidStoreUrl}">Get the Android app</a></p>` : ""}
     <script>
       window.location.replace(${JSON.stringify(appUrl)});
       ${
-        webInviteUrl
-          ? `setTimeout(function () { window.location.replace(${JSON.stringify(webInviteUrl)}); }, 1200);`
-          : ""
+        safeWebInviteUrl
+          ? `setTimeout(function () { window.location.replace(${JSON.stringify(safeWebInviteUrl)}); }, 1200);`
+          : isIos
+            ? `setTimeout(function () { window.location.replace(${JSON.stringify(iosStoreUrl)}); }, 1600);`
+            : isAndroid
+              ? `setTimeout(function () { window.location.replace(${JSON.stringify(androidStoreUrl)}); }, 1600);`
+              : ""
       }
     </script>
   </body>

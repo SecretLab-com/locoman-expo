@@ -84,6 +84,7 @@ const MAPPING = {
   "clock.fill": "schedule",
   "location.fill": "location-on",
   "phone.fill": "phone",
+  "iphone": "smartphone",
   "envelope.fill": "email",
   "lock.fill": "lock",
   "eye.fill": "visibility",

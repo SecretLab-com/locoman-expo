@@ -1,5 +1,6 @@
 // import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useCart } from "@/contexts/cart-context";
@@ -832,7 +833,11 @@ export default function ProductsScreen() {
           onPress={() => setFilterModalOpen(false)}
           style={{ backgroundColor: overlayColor }}
         >
-          <View className="bg-background rounded-t-3xl p-6">
+          <SwipeDownSheet
+            visible={filterModalOpen}
+            onClose={() => setFilterModalOpen(false)}
+            className="bg-background rounded-t-3xl p-6"
+          >
             <Text className="text-xl font-bold text-foreground mb-4">Filter by Category</Text>
             
             {categories.map((cat) => (
@@ -856,7 +861,7 @@ export default function ProductsScreen() {
             >
               <Text className="text-center text-muted">Cancel</Text>
             </TouchableOpacity>
-          </View>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
 
@@ -874,9 +879,10 @@ export default function ProductsScreen() {
             onPress={() => setDetailModalOpen(false)}
           />
           {/* Sheet — anchored to bottom, above the nav */}
-          <View
+          <SwipeDownSheet
+            visible={detailModalOpen}
+            onClose={() => setDetailModalOpen(false)}
             className="bg-background rounded-t-3xl overflow-hidden"
-            onStartShouldSetResponder={() => true}
           >
             {selectedProduct && (
               <ScrollView>
@@ -1047,7 +1053,7 @@ export default function ProductsScreen() {
                 </View>
               </ScrollView>
             )}
-          </View>
+          </SwipeDownSheet>
         </View>
       </Modal>
 

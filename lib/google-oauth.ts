@@ -14,8 +14,64 @@ const GOOGLE_OAUTH_QUERY_PARAMS = {
   prompt: "select_account",
 };
 
+function isMissingCodeVerifierError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = (error.message || "").toLowerCase();
+  return (
+    message.includes("code verifier") ||
+    message.includes("both auth code and code verifier should be non-empty")
+  );
+}
+
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/g, "");
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function normalizeConfiguredWebOrigin(): string {
+  const configured = String(process.env.EXPO_PUBLIC_APP_URL || "").trim();
+  if (!configured) return "";
+  try {
+    const parsed = new URL(configured);
+    if (!/^https?:$/i.test(parsed.protocol)) return "";
+    if (isLoopbackHostname(parsed.hostname)) return "";
+    return trimTrailingSlash(parsed.origin);
+  } catch {
+    return "";
+  }
+}
+
+function getWebRedirectOrigin(): string {
+  const configuredOrigin = normalizeConfiguredWebOrigin();
+  if (configuredOrigin) {
+    // Force a stable public callback origin for production web OAuth.
+    return configuredOrigin;
+  }
+
+  if (typeof window === "undefined" || !window.location?.origin) {
+    return "";
+  }
+
+  const runtimeOrigin = trimTrailingSlash(window.location.origin);
+  try {
+    const hostname = new URL(runtimeOrigin).hostname;
+    const isLocalRuntime = isLoopbackHostname(hostname);
+    // On iOS Safari "Add to Home Screen" sessions we should never attempt
+    // OAuth callback through localhost; prefer the configured public origin.
+    if (isLocalRuntime) {
+      return "";
+    }
+  } catch {
+    // Fall through to runtime origin if URL parsing fails.
+  }
+  return runtimeOrigin;
 }
 
 function getNativeRedirectUri(): string {
@@ -33,7 +89,11 @@ function getNativeRedirectUri(): string {
 
 export async function signInWithGoogle(): Promise<void> {
   if (Platform.OS === "web") {
-    const redirectTo = `${window.location.origin}/oauth/callback`;
+    const redirectOrigin = getWebRedirectOrigin();
+    if (!redirectOrigin) {
+      throw new Error("OAuth redirect origin is not configured. Set EXPO_PUBLIC_APP_URL.");
+    }
+    const redirectTo = `${redirectOrigin}/oauth/callback`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -157,7 +217,13 @@ async function processCallbackUrl(url: string): Promise<void> {
     if (code) {
       console.log("[OAuth] Exchanging code...");
       const { error } = await supabase.auth.exchangeCodeForSession(code);
-      if (error) throw error;
+      if (error) {
+        // Callback may be replayed after session is already established.
+        // Treat missing verifier as non-fatal and let session polling continue.
+        if (!isMissingCodeVerifierError(error)) throw error;
+        console.warn("[OAuth] Code verifier missing during callback replay; continuing.");
+        return;
+      }
       triggerAuthRefresh();
       return;
     }

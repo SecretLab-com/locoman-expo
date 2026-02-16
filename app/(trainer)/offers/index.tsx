@@ -1,6 +1,7 @@
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScreenHeader } from "@/components/ui/screen-header";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
@@ -32,20 +33,24 @@ export default function OffersListScreen() {
         <ScreenHeader
           title="Offers"
           subtitle="Sessions, packages, and bundles in one place."
-          rightSlot={(
-            <TouchableOpacity
-              className="bg-primary px-4 py-2 rounded-full"
-              onPress={() => router.push("/(trainer)/offers/new" as any)}
-              accessibilityRole="button"
-              accessibilityLabel="Create new offer"
-              testID="offers-new"
-            >
-              <Text className="text-background font-semibold">New</Text>
-            </TouchableOpacity>
-          )}
         />
 
         <View className="px-4 pb-8">
+          <View className="flex-row justify-end mb-3">
+            <TouchableOpacity
+              className="flex-row items-center px-3.5 py-2 rounded-full border"
+              style={{ borderColor: colors.primary, backgroundColor: `${colors.primary}22` }}
+              onPress={() => router.push("/(trainer)/offers/new" as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Create new offer"
+              testID="offers-add-button"
+            >
+              <IconSymbol name="plus" size={16} color={colors.primary} />
+              <Text className="font-semibold ml-1.5" style={{ color: colors.primary }}>
+                Create
+              </Text>
+            </TouchableOpacity>
+          </View>
           {isLoading ? (
             <View className="items-center py-16">
               <ActivityIndicator size="large" color={colors.primary} />

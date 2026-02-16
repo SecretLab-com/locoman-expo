@@ -71,6 +71,12 @@ export function MobileAppBanner() {
         style={{ backgroundColor: "rgba(15,23,42,0.95)", borderColor: "rgba(96,165,250,0.45)" }}
       >
         <View className="flex-row items-start">
+          <View
+            className="mr-3 h-10 w-10 items-center justify-center rounded-lg"
+            style={{ backgroundColor: "rgba(191,219,254,0.14)" }}
+          >
+            <IconSymbol name="iphone" size={20} color="#DBEAFE" />
+          </View>
           <TouchableOpacity
             className="flex-1 pr-3"
             onPress={openAppOrStore}
@@ -84,15 +90,28 @@ export function MobileAppBanner() {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            className="p-1"
-            onPress={() => setVisible(false)}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss get mobile app banner"
-            testID="mobile-app-banner-close"
-          >
-            <IconSymbol name="xmark" size={14} color="#BFDBFE" />
-          </TouchableOpacity>
+          <View className="items-end">
+            <TouchableOpacity
+              className="rounded-md px-3 py-1.5 mb-2"
+              style={{ backgroundColor: "#2563EB" }}
+              onPress={openAppOrStore}
+              accessibilityRole="button"
+              accessibilityLabel="Open mobile app"
+              testID="mobile-app-banner-open-button"
+            >
+              <Text className="text-xs font-semibold text-white">Open</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              className="p-1"
+              onPress={() => setVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss get mobile app banner"
+              testID="mobile-app-banner-close"
+            >
+              <IconSymbol name="xmark" size={14} color="#BFDBFE" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </View>

@@ -1,5 +1,6 @@
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
@@ -101,7 +102,7 @@ export default function InviteScreen() {
   const { data: offers = [] } = trpc.offers.list.useQuery();
   const { data: products = [] } = trpc.catalog.products.useQuery();
   const inviteMutation = trpc.clients.invite.useMutation({
-    onError: (err) => showAlert("Invite failed", err.message),
+    onError: (err) => showAlert("Invite failed", `${err.message}\n\nA Server message with next steps has been sent to your inbox.`),
   });
 
   const options: OfferOption[] = offers
@@ -222,6 +223,7 @@ export default function InviteScreen() {
       email: clientEmail.trim(),
       name: clientName.trim() || undefined,
       bundleDraftId: selectedOfferId || undefined,
+      message: message.trim() || undefined,
     });
 
     await Promise.all([
@@ -262,8 +264,8 @@ export default function InviteScreen() {
   const shareLink = async () => {
     if (!inviteLink) return;
     const text = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotive: ${inviteLink}`
-      : `Join me on LocoMotive: ${inviteLink}`;
+      ? `${message.trim()}\n\nJoin me on LocoMotive:\n${inviteLink}`
+      : `Join me on LocoMotive:\n${inviteLink}`;
     try {
       await Share.share({ message: text, url: inviteLink });
     } catch {
@@ -275,8 +277,8 @@ export default function InviteScreen() {
     if (!inviteLink) return;
     const subject = encodeURIComponent("Your LocoMotive invite");
     const bodyText = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotive: ${inviteLink}`
-      : `Join me on LocoMotive: ${inviteLink}`;
+      ? `${message.trim()}\n\nJoin me on LocoMotive:\n${inviteLink}`
+      : `Join me on LocoMotive:\n${inviteLink}`;
     const body = encodeURIComponent(bodyText);
     const recipient = encodeURIComponent(clientEmail.trim());
     const mailto = `mailto:${recipient}?subject=${subject}&body=${body}`;
@@ -295,8 +297,8 @@ export default function InviteScreen() {
   const smsLink = async () => {
     if (!inviteLink) return;
     const bodyText = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotive: ${inviteLink}`
-      : `Join me on LocoMotive: ${inviteLink}`;
+      ? `${message.trim()}\n\nJoin me on LocoMotive:\n${inviteLink}`
+      : `Join me on LocoMotive:\n${inviteLink}`;
     const separator = Platform.OS === "ios" ? "&" : "?";
     const smsTarget = clientPhone.trim().replace(/\s+/g, "");
     const url = `sms:${smsTarget}${separator}body=${encodeURIComponent(bodyText)}`;
@@ -571,7 +573,12 @@ export default function InviteScreen() {
         onRequestClose={() => setDetailsOffer(null)}
       >
         <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setDetailsOffer(null)}>
-          <Pressable className="bg-background rounded-t-2xl border-t border-border max-h-[84%]">
+          <View>
+            <SwipeDownSheet
+              visible={Boolean(detailsOffer)}
+              onClose={() => setDetailsOffer(null)}
+              className="bg-background rounded-t-2xl border-t border-border max-h-[84%]"
+            >
             <View className="px-4 py-3 border-b border-border flex-row items-center justify-between">
               <Text className="text-foreground font-semibold text-base">Offer details</Text>
               <TouchableOpacity
@@ -639,7 +646,8 @@ export default function InviteScreen() {
                 ) : null}
               </ScrollView>
             ) : null}
-          </Pressable>
+            </SwipeDownSheet>
+          </View>
         </Pressable>
       </Modal>
     </ScreenContainer>

@@ -2,8 +2,7 @@ import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 import { useAuthContext } from "@/contexts/auth-context";
-import { getHomeRoute } from "@/lib/navigation";
-import { router } from "expo-router";
+import { getHomeRoute, resetToHome } from "@/lib/navigation";
 import ShopperHome from "../../components/shopper-home";
 
 /**
@@ -44,7 +43,7 @@ export default function UnifiedHomeScreen() {
         const timer = setTimeout(() => {
           const target = getHomeRoute(normalizedRole);
           if (target !== "/(tabs)") {
-            router.replace(target as any);
+            resetToHome(normalizedRole);
           }
         }, 0);
         return () => clearTimeout(timer);

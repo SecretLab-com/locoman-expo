@@ -9,9 +9,11 @@ function toInvitePath(token: string): string {
 }
 
 export function getInviteBaseUrl(): string {
-  const configured = (process.env.EXPO_PUBLIC_APP_URL || "").trim();
-  if (configured) {
-    return trimTrailingSlash(configured);
+  const preferred =
+    (process.env.EXPO_PUBLIC_APP_URL || "").trim() ||
+    (process.env.EXPO_PUBLIC_API_BASE_URL || "").trim();
+  if (preferred) {
+    return trimTrailingSlash(preferred);
   }
 
   if (Platform.OS === "web" && typeof window !== "undefined" && window.location?.origin) {

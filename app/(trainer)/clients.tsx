@@ -2,6 +2,7 @@ import { BulkInviteModal } from "@/components/bulk-invite-modal";
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -9,20 +10,20 @@ import { haptics } from "@/hooks/use-haptics";
 import { normalizeAssetUrl } from "@/lib/asset-url";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 const showAlert = (title: string, message: string) => {
@@ -58,7 +59,22 @@ type Client = {
   totalSpent: number;
   lastActive?: string | null;
   status: string;
+  currentBundle?: {
+    sessionsUsed: number;
+    sessionsIncluded: number;
+    productsUsed: number;
+    productsIncluded: number;
+    sessionsProgressPct: number;
+    productsProgressPct: number;
+    alerts: string[];
+    bundleTitle?: string;
+  } | null;
 };
+
+function toProgressPercent(used: number, included: number) {
+  if (!included || included <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((used / included) * 100)));
+}
 
 function getInitials(name?: string | null) {
   const parts = String(name || "Client")
@@ -108,6 +124,15 @@ function ClientAvatar({ uri, name }: { uri?: string | null; name?: string | null
 
 function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onPress: () => void; onRequestPayment: () => void }) {
   const colors = useColors();
+  const bundleProgress = client.currentBundle || null;
+  const sessionsProgress = toProgressPercent(
+    Number(bundleProgress?.sessionsUsed || 0),
+    Number(bundleProgress?.sessionsIncluded || 0),
+  );
+  const productsProgress = toProgressPercent(
+    Number(bundleProgress?.productsUsed || 0),
+    Number(bundleProgress?.productsIncluded || 0),
+  );
 
   return (
     <View className="bg-surface rounded-xl mb-3 border border-border overflow-hidden">
@@ -143,6 +168,46 @@ function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onP
           </View>
           <IconSymbol name="chevron.right" size={20} color={colors.muted} />
         </View>
+        {bundleProgress ? (
+          <View className="mt-3">
+            <Text className="text-xs font-semibold text-foreground mb-1.5" numberOfLines={1}>
+              {bundleProgress.bundleTitle || "Current bundle"}
+            </Text>
+            <Text className="text-xs text-muted">
+              Sessions: {bundleProgress.sessionsUsed}/{bundleProgress.sessionsIncluded || 0}
+            </Text>
+            <View className="h-1.5 rounded-full mt-1.5 mb-2" style={{ backgroundColor: colors.surface }}>
+              <View
+                className="h-full rounded-full"
+                style={{
+                  width: `${sessionsProgress}%`,
+                  backgroundColor: sessionsProgress >= 80 ? colors.warning : colors.primary,
+                }}
+              />
+            </View>
+            <Text className="text-xs text-muted">
+              Products: {bundleProgress.productsUsed}/{bundleProgress.productsIncluded || 0}
+            </Text>
+            <View className="h-1.5 rounded-full mt-1.5" style={{ backgroundColor: colors.surface }}>
+              <View
+                className="h-full rounded-full"
+                style={{
+                  width: `${productsProgress}%`,
+                  backgroundColor: productsProgress >= 80 ? colors.warning : colors.success,
+                }}
+              />
+            </View>
+            {Array.isArray(bundleProgress.alerts) && bundleProgress.alerts.length > 0 ? (
+              <Text className="text-[11px] mt-2" style={{ color: colors.warning }} numberOfLines={1}>
+                {bundleProgress.alerts[0]}
+              </Text>
+            ) : null}
+          </View>
+        ) : (
+          <View className="mt-3">
+            <Text className="text-xs text-warning">No active bundle. Tap to invite this client.</Text>
+          </View>
+        )}
       </TouchableOpacity>
       <TouchableOpacity
         className="flex-row items-center justify-center py-2.5 border-t border-border"
@@ -225,11 +290,43 @@ export default function TrainerClientsScreen() {
   };
 
   const handleClientPress = (client: any) => {
-    router.push(`/client-detail/${client.id}` as any);
+    if (client?.currentBundle) {
+      router.push(`/client-detail/${client.id}` as any);
+      return;
+    }
+
+    const openInvite = () =>
+      router.push({
+        pathname: "/(trainer)/invite",
+        params: {
+          clientId: client.id,
+          clientName: client.name || "",
+          clientEmail: client.email || "",
+        },
+      } as any);
+
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm(
+        `${client.name || "This client"} has no active bundle yet.\n\nInvite them to a bundle now?`,
+      );
+      if (confirmed) openInvite();
+      return;
+    }
+
+    Alert.alert(
+      "No active bundle",
+      `${client.name || "This client"} has no active bundle yet. Invite them now?`,
+      [
+        { text: "Not now", style: "cancel" },
+        { text: "Invite", onPress: openInvite },
+      ],
+    );
   };
 
   return (
-    <ScreenContainer edges={["left", "right"]}>
+    <>
+      <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
+      <ScreenContainer edges={["left", "right"]}>
       {/* Navigation Header */}
       <NavigationHeader
         title="Clients"
@@ -341,7 +438,11 @@ export default function TrainerClientsScreen() {
       >
         <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
           <Pressable style={{ flex: 1 }} onPress={() => { setPayModalOpen(false); setPayLinkResult(null); }} />
-          <View className="bg-background rounded-t-3xl p-6" onStartShouldSetResponder={() => true}>
+          <SwipeDownSheet
+            visible={payModalOpen}
+            onClose={() => { setPayModalOpen(false); setPayLinkResult(null); }}
+            className="bg-background rounded-t-3xl p-6"
+          >
             <View className="flex-row items-center justify-between mb-4">
               <View>
                 <Text className="text-xl font-bold text-foreground">
@@ -419,9 +520,10 @@ export default function TrainerClientsScreen() {
                 </TouchableOpacity>
               </View>
             )}
-          </View>
+          </SwipeDownSheet>
         </View>
       </Modal>
-    </ScreenContainer>
+      </ScreenContainer>
+    </>
   );
 }

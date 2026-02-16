@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -378,7 +379,11 @@ export default function OrdersScreen() {
           onPress={() => setShowDetailModal(false)}
           style={{ backgroundColor: overlayColor }}
         >
-          <View className="bg-background rounded-t-3xl max-h-[85%]">
+          <SwipeDownSheet
+            visible={showDetailModal}
+            onClose={() => setShowDetailModal(false)}
+            className="bg-background rounded-t-3xl max-h-[85%]"
+          >
             {selectedOrder && (
               <ScrollView>
                 <View className="p-6">
@@ -493,7 +498,7 @@ export default function OrdersScreen() {
                 </View>
               </ScrollView>
             )}
-          </View>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
     </ScreenContainer>

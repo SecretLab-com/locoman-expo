@@ -1,23 +1,28 @@
+import { NavigationHeader } from "@/components/navigation-header";
+import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
+import * as Linking from "expo-linking";
+import { useLocalSearchParams } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  Alert,
-  ActivityIndicator,
-  RefreshControl,
-  TextInput,
+    ActivityIndicator,
+    Alert,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
-import { ScreenContainer } from "@/components/screen-container";
-import { NavigationHeader } from "@/components/navigation-header";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useColors } from "@/hooks/use-colors";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { trpc } from "@/lib/trpc";
 
 // Days of the week
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -49,7 +54,8 @@ type Session = {
 
 export default function CalendarScreen() {
   const colors = useColors();
-  const params = useLocalSearchParams<{ scheduleClientId?: string | string[] }>();
+  const { width: windowWidth } = useWindowDimensions();
+  const params = useLocalSearchParams<{ scheduleClientId?: string | string[]; code?: string | string[] }>();
   const scheduleClientId = Array.isArray(params.scheduleClientId)
     ? params.scheduleClientId[0]
     : params.scheduleClientId;
@@ -69,6 +75,12 @@ export default function CalendarScreen() {
   const [newSessionLocation, setNewSessionLocation] = useState("");
   const [newSessionNotes, setNewSessionNotes] = useState("");
   const [searchClient, setSearchClient] = useState("");
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("09:00");
+  const [rescheduleDuration, setRescheduleDuration] = useState("60");
+  const [rescheduleNote, setRescheduleNote] = useState("");
+  const isWideScreen = windowWidth >= 1100;
 
   // Fetch sessions from tRPC
   const { data: clientsData = [], isLoading: clientsLoading } = trpc.clients.list.useQuery();
@@ -89,6 +101,41 @@ export default function CalendarScreen() {
       Alert.alert("Error", error.message || "Failed to schedule session.");
     },
   });
+  const googleStatus = trpc.googleCalendar.status.useQuery();
+  const googleCalendars = trpc.googleCalendar.calendars.useQuery(undefined, {
+    enabled: Boolean(googleStatus.data?.connected),
+  });
+  const getGoogleAuthUrl = trpc.googleCalendar.getAuthUrl.useMutation();
+  const connectGoogleCalendar = trpc.googleCalendar.connectWithCode.useMutation({
+    onSuccess: async () => {
+      await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+      Alert.alert("Connected", "Google Calendar connected successfully.");
+    },
+    onError: (error) => {
+      Alert.alert("Google Calendar Error", error.message || "Could not connect Google Calendar.");
+    },
+  });
+  const selectGoogleCalendar = trpc.googleCalendar.selectCalendar.useMutation({
+    onSuccess: async () => {
+      await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+    },
+  });
+  const disconnectGoogleCalendar = trpc.googleCalendar.disconnect.useMutation({
+    onSuccess: async () => {
+      await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+      Alert.alert("Disconnected", "Google Calendar has been disconnected.");
+    },
+  });
+  const suggestRescheduleMutation = trpc.sessions.suggestReschedule.useMutation({
+    onSuccess: () => {
+      setShowRescheduleModal(false);
+      setShowSessionModal(false);
+      Alert.alert("Suggestion sent", "Reschedule suggestion shared via Google Calendar.");
+    },
+    onError: (error) => {
+      Alert.alert("Could not suggest move", error.message || "Try again.");
+    },
+  });
 
   useEffect(() => {
     if (scheduleClientId) {
@@ -96,6 +143,19 @@ export default function CalendarScreen() {
       setShowAddModal(true);
     }
   }, [scheduleClientId]);
+
+  useEffect(() => {
+    const code = Array.isArray(params.code) ? params.code[0] : params.code;
+    if (!code || Platform.OS !== "web" || connectGoogleCalendar.isPending) return;
+    const redirectUri = `${window.location.origin}/calendar`;
+    connectGoogleCalendar
+      .mutateAsync({ code, redirectUri })
+      .finally(() => {
+        if (typeof window !== "undefined") {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      });
+  }, [params.code, connectGoogleCalendar]);
 
   // Map API data to Session type
   const sessions: Session[] = useMemo(() => {
@@ -303,6 +363,67 @@ export default function CalendarScreen() {
     setShowAddModal(true);
   };
 
+  const getGoogleRedirectUri = () => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      return `${window.location.origin}/calendar`;
+    }
+    return Linking.createURL("calendar-google-auth");
+  };
+
+  const handleConnectGoogleCalendar = async () => {
+    const redirectUri = getGoogleRedirectUri();
+    const { authUrl } = await getGoogleAuthUrl.mutateAsync({ redirectUri });
+    if (Platform.OS === "web") {
+      window.location.assign(authUrl);
+      return;
+    }
+    const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+    if (result.type !== "success" || !result.url) return;
+    const callbackUrl = new URL(result.url);
+    const code = callbackUrl.searchParams.get("code");
+    if (!code) return;
+    await connectGoogleCalendar.mutateAsync({ code, redirectUri });
+  };
+
+  const openRescheduleModal = (session: Session) => {
+    setSelectedSession(session);
+    setRescheduleDate(session.date.toISOString().slice(0, 10));
+    setRescheduleTime(session.time || "09:00");
+    setRescheduleDuration(String(session.duration || 60));
+    setRescheduleNote("");
+    setShowRescheduleModal(true);
+  };
+
+  const handleSuggestReschedule = async () => {
+    if (!selectedSession) return;
+    const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(rescheduleTime.trim());
+    if (!timeMatch) {
+      Alert.alert("Invalid time", "Use 24-hour format HH:MM.");
+      return;
+    }
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rescheduleDate.trim());
+    if (!dateMatch) {
+      Alert.alert("Invalid date", "Use date format YYYY-MM-DD.");
+      return;
+    }
+    const durationMinutes = Math.max(15, Math.min(480, Number.parseInt(rescheduleDuration, 10) || 60));
+    const proposed = new Date(
+      Number.parseInt(dateMatch[1], 10),
+      Number.parseInt(dateMatch[2], 10) - 1,
+      Number.parseInt(dateMatch[3], 10),
+      Number.parseInt(timeMatch[1], 10),
+      Number.parseInt(timeMatch[2], 10),
+      0,
+      0,
+    );
+    await suggestRescheduleMutation.mutateAsync({
+      id: selectedSession.id,
+      proposedStartTime: proposed,
+      durationMinutes,
+      note: rescheduleNote.trim() || undefined,
+    });
+  };
+
   const handleScheduleSession = async () => {
     if (!newSessionClientId) {
       Alert.alert("Client Required", "Please select a client.");
@@ -370,142 +491,316 @@ export default function CalendarScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Calendar Grid */}
-      <View className="px-4 mb-4">
-        {/* Day Headers */}
-        <View className="flex-row mb-2">
-          {DAYS.map((day) => (
-            <View key={day} className="flex-1 items-center">
-              <Text className="text-xs text-muted font-medium">{day}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Date Grid */}
-        <View className="flex-row flex-wrap">
-          {calendarData.map((day, index) => (
-            <TouchableOpacity
-              key={index}
-              onPress={() => setSelectedDate(day.date)}
-              className="w-[14.28%] aspect-square items-center justify-center"
-            >
-              <View
-                className={`w-10 h-10 rounded-full items-center justify-center ${
-                  isSelected(day.date)
-                    ? "bg-primary"
-                    : isToday(day.date)
-                    ? "bg-primary/20"
-                    : ""
-                }`}
-              >
-                <Text
-                  className={`text-sm ${
-                    isSelected(day.date)
-                      ? "text-white font-bold"
-                      : day.isCurrentMonth
-                      ? "text-foreground"
-                      : "text-muted"
-                  }`}
-                >
-                  {day.date.getDate()}
-                </Text>
-                {day.hasEvents && !isSelected(day.date) && (
-                  <View className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
-                )}
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Selected Date Sessions */}
-      <View className="flex-1 px-4">
-        <Text className="text-base font-semibold text-foreground mb-3">
-          {selectedDate.toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          })}
-        </Text>
-
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
-          }
-        >
-          {isLoading ? (
-            <View className="items-center py-12">
-              <ActivityIndicator size="large" color={colors.primary} />
-            </View>
-          ) : selectedDateSessions.length === 0 ? (
-            <View className="bg-surface rounded-xl p-6 items-center">
-              <IconSymbol name="calendar" size={32} color={colors.muted} />
-              <Text className="text-muted mt-2">No sessions scheduled</Text>
+      <View className="px-4 mb-3">
+        <View className="bg-surface rounded-xl border border-border p-3">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-sm font-semibold text-foreground">Google Calendar</Text>
+            {googleStatus.data?.connected ? (
               <TouchableOpacity
-                onPress={openAddSessionModal}
-                className="mt-3 px-4 py-2 border border-border rounded-lg"
+                onPress={() => disconnectGoogleCalendar.mutate()}
+                accessibilityRole="button"
+                accessibilityLabel="Disconnect Google Calendar"
+                testID="calendar-google-disconnect"
               >
-                <Text className="text-foreground">Schedule Session</Text>
+                <Text className="text-xs text-error font-semibold">Disconnect</Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            selectedDateSessions.map((session) => (
+            ) : (
               <TouchableOpacity
-                key={session.id}
-                onPress={() => {
-                  setSelectedSession(session);
-                  setShowSessionModal(true);
-                }}
-                className="bg-surface rounded-xl p-4 mb-3 border border-border"
+                onPress={handleConnectGoogleCalendar}
+                accessibilityRole="button"
+                accessibilityLabel="Connect Google Calendar"
+                testID="calendar-google-connect"
               >
-                <View className="flex-row items-start">
-                  {/* Time */}
-                  <View className="w-16">
-                    <Text className="text-lg font-bold text-foreground">
-                      {session.time}
-                    </Text>
-                    <Text className="text-xs text-muted">{session.duration}min</Text>
-                  </View>
-
-                  {/* Divider */}
-                  <View
-                    className="w-1 h-full rounded-full mr-3"
-                    style={{ backgroundColor: getStatusColor(session.status) }}
-                  />
-
-                  {/* Content */}
-                  <View className="flex-1">
-                    <Text className="text-base font-semibold text-foreground">
-                      {session.clientName}
-                    </Text>
-                    <Text className="text-sm text-muted">{session.bundleTitle}</Text>
-                    <View className="flex-row items-center mt-1">
-                      <View
-                        className="px-2 py-0.5 rounded"
-                        style={{ backgroundColor: `${getStatusColor(session.status)}20` }}
-                      >
-                        <Text
-                          className="text-xs font-medium"
-                          style={{ color: getStatusColor(session.status) }}
+                <Text className="text-xs text-primary font-semibold">Connect</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {googleStatus.data?.connected ? (
+            <>
+              <Text className="text-xs text-muted mt-1">
+                Connected: {googleStatus.data.selectedCalendarName || "Google Calendar"}
+              </Text>
+              {googleCalendars.data?.calendars?.length ? (
+                <View className="mt-2">
+                  <Text className="text-xs text-muted mb-1">Sync calendar</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {googleCalendars.data.calendars.slice(0, 8).map((calendar) => {
+                      const active = googleCalendars.data?.selectedCalendarId === calendar.id;
+                      return (
+                        <TouchableOpacity
+                          key={calendar.id}
+                          onPress={() =>
+                            selectGoogleCalendar.mutate({
+                              calendarId: calendar.id,
+                              calendarName: calendar.summary,
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded-full border ${active ? "bg-primary border-primary" : "bg-background border-border"}`}
                         >
-                          {getTypeLabel(session.type)}
-                        </Text>
-                      </View>
-                    </View>
+                          <Text className={active ? "text-white text-xs font-medium" : "text-foreground text-xs"}>
+                            {calendar.summary}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-
-                  {/* Chevron */}
-                  <IconSymbol name="chevron.right" size={20} color={colors.muted} />
                 </View>
-              </TouchableOpacity>
-            ))
+              ) : null}
+            </>
+          ) : (
+            <Text className="text-xs text-muted mt-1">
+              Connect Google Calendar to auto-sync sessions and reschedule suggestions.
+            </Text>
           )}
-
-          {/* Bottom padding */}
-          <View className="h-24" />
-        </ScrollView>
+        </View>
       </View>
+
+      {isWideScreen ? (
+        <View className="flex-1 flex-row px-4 pb-3">
+          <View className="rounded-xl border border-border bg-surface p-4 mr-4" style={{ width: "58%", maxWidth: 760 }}>
+            <View className="flex-row mb-2">
+              {DAYS.map((day) => (
+                <View key={day} className="flex-1 items-center">
+                  <Text className="text-xs text-muted font-medium">{day}</Text>
+                </View>
+              ))}
+            </View>
+            <View className="flex-row flex-wrap">
+              {calendarData.map((day, index) => (
+                <TouchableOpacity
+                  key={index}
+                  onPress={() => setSelectedDate(day.date)}
+                  className="w-[14.28%] aspect-square items-center justify-center"
+                >
+                  <View
+                    className={`w-10 h-10 rounded-full items-center justify-center ${
+                      isSelected(day.date)
+                        ? "bg-primary"
+                        : isToday(day.date)
+                        ? "bg-primary/20"
+                        : ""
+                    }`}
+                  >
+                    <Text
+                      className={`text-sm ${
+                        isSelected(day.date)
+                          ? "text-white font-bold"
+                          : day.isCurrentMonth
+                          ? "text-foreground"
+                          : "text-muted"
+                      }`}
+                    >
+                      {day.date.getDate()}
+                    </Text>
+                    {day.hasEvents && !isSelected(day.date) && (
+                      <View className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View className="flex-1 rounded-xl border border-border bg-surface p-4">
+            <Text className="text-base font-semibold text-foreground mb-3">
+              {selectedDate.toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}
+            </Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />}
+            >
+              {isLoading ? (
+                <View className="items-center py-12">
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+              ) : selectedDateSessions.length === 0 ? (
+                <View className="bg-background rounded-xl p-6 items-center">
+                  <IconSymbol name="calendar" size={32} color={colors.muted} />
+                  <Text className="text-muted mt-2">No sessions scheduled</Text>
+                  <TouchableOpacity onPress={openAddSessionModal} className="mt-3 px-4 py-2 border border-border rounded-lg">
+                    <Text className="text-foreground">Schedule Session</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                selectedDateSessions.map((session) => (
+                  <TouchableOpacity
+                    key={session.id}
+                    onPress={() => {
+                      setSelectedSession(session);
+                      setShowSessionModal(true);
+                    }}
+                    className="bg-background rounded-xl p-4 mb-3 border border-border"
+                  >
+                    <View className="flex-row items-start">
+                      <View className="w-16">
+                        <Text className="text-lg font-bold text-foreground">{session.time}</Text>
+                        <Text className="text-xs text-muted">{session.duration}min</Text>
+                      </View>
+                      <View className="w-1 h-full rounded-full mr-3" style={{ backgroundColor: getStatusColor(session.status) }} />
+                      <View className="flex-1">
+                        <Text className="text-base font-semibold text-foreground">{session.clientName}</Text>
+                        <Text className="text-sm text-muted">{session.bundleTitle}</Text>
+                        <View className="flex-row items-center mt-1">
+                          <View className="px-2 py-0.5 rounded" style={{ backgroundColor: `${getStatusColor(session.status)}20` }}>
+                            <Text className="text-xs font-medium" style={{ color: getStatusColor(session.status) }}>
+                              {getTypeLabel(session.type)}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <IconSymbol name="chevron.right" size={20} color={colors.muted} />
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+              <View className="h-16" />
+            </ScrollView>
+          </View>
+        </View>
+      ) : (
+        <>
+          {/* Calendar Grid */}
+          <View className="px-4 mb-4">
+            {/* Day Headers */}
+            <View className="flex-row mb-2">
+              {DAYS.map((day) => (
+                <View key={day} className="flex-1 items-center">
+                  <Text className="text-xs text-muted font-medium">{day}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Date Grid */}
+            <View className="flex-row flex-wrap">
+              {calendarData.map((day, index) => (
+                <TouchableOpacity
+                  key={index}
+                  onPress={() => setSelectedDate(day.date)}
+                  className="w-[14.28%] aspect-square items-center justify-center"
+                >
+                  <View
+                    className={`w-10 h-10 rounded-full items-center justify-center ${
+                      isSelected(day.date)
+                        ? "bg-primary"
+                        : isToday(day.date)
+                        ? "bg-primary/20"
+                        : ""
+                    }`}
+                  >
+                    <Text
+                      className={`text-sm ${
+                        isSelected(day.date)
+                          ? "text-white font-bold"
+                          : day.isCurrentMonth
+                          ? "text-foreground"
+                          : "text-muted"
+                      }`}
+                    >
+                      {day.date.getDate()}
+                    </Text>
+                    {day.hasEvents && !isSelected(day.date) && (
+                      <View className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Selected Date Sessions */}
+          <View className="flex-1 px-4">
+            <Text className="text-base font-semibold text-foreground mb-3">
+              {selectedDate.toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}
+            </Text>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
+              }
+            >
+              {isLoading ? (
+                <View className="items-center py-12">
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+              ) : selectedDateSessions.length === 0 ? (
+                <View className="bg-surface rounded-xl p-6 items-center">
+                  <IconSymbol name="calendar" size={32} color={colors.muted} />
+                  <Text className="text-muted mt-2">No sessions scheduled</Text>
+                  <TouchableOpacity
+                    onPress={openAddSessionModal}
+                    className="mt-3 px-4 py-2 border border-border rounded-lg"
+                  >
+                    <Text className="text-foreground">Schedule Session</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                selectedDateSessions.map((session) => (
+                  <TouchableOpacity
+                    key={session.id}
+                    onPress={() => {
+                      setSelectedSession(session);
+                      setShowSessionModal(true);
+                    }}
+                    className="bg-surface rounded-xl p-4 mb-3 border border-border"
+                  >
+                    <View className="flex-row items-start">
+                      {/* Time */}
+                      <View className="w-16">
+                        <Text className="text-lg font-bold text-foreground">
+                          {session.time}
+                        </Text>
+                        <Text className="text-xs text-muted">{session.duration}min</Text>
+                      </View>
+
+                      {/* Divider */}
+                      <View
+                        className="w-1 h-full rounded-full mr-3"
+                        style={{ backgroundColor: getStatusColor(session.status) }}
+                      />
+
+                      {/* Content */}
+                      <View className="flex-1">
+                        <Text className="text-base font-semibold text-foreground">
+                          {session.clientName}
+                        </Text>
+                        <Text className="text-sm text-muted">{session.bundleTitle}</Text>
+                        <View className="flex-row items-center mt-1">
+                          <View
+                            className="px-2 py-0.5 rounded"
+                            style={{ backgroundColor: `${getStatusColor(session.status)}20` }}
+                          >
+                            <Text
+                              className="text-xs font-medium"
+                              style={{ color: getStatusColor(session.status) }}
+                            >
+                              {getTypeLabel(session.type)}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Chevron */}
+                      <IconSymbol name="chevron.right" size={20} color={colors.muted} />
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+
+              {/* Bottom padding */}
+              <View className="h-24" />
+            </ScrollView>
+          </View>
+        </>
+      )}
 
       {/* Session Detail Modal */}
       <Modal
@@ -519,7 +814,11 @@ export default function CalendarScreen() {
           onPress={() => setShowSessionModal(false)}
           style={{ backgroundColor: overlayColor }}
         >
-          <View className="bg-background rounded-t-3xl p-6">
+          <SwipeDownSheet
+            visible={showSessionModal}
+            onClose={() => setShowSessionModal(false)}
+            className="bg-background rounded-t-3xl p-6"
+          >
             {selectedSession && (
               <>
                 <View className="flex-row items-center justify-between mb-4">
@@ -549,6 +848,12 @@ export default function CalendarScreen() {
                 {selectedSession.status === "scheduled" && (
                   <View className="gap-3">
                     <TouchableOpacity
+                      onPress={() => openRescheduleModal(selectedSession)}
+                      className="bg-primary/15 py-4 rounded-xl items-center border border-primary/40"
+                    >
+                      <Text className="text-primary font-semibold">Suggest Reschedule</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       onPress={() => handleCompleteSession(selectedSession)}
                       className="bg-success py-4 rounded-xl items-center"
                     >
@@ -572,7 +877,69 @@ export default function CalendarScreen() {
                 </TouchableOpacity>
               </>
             )}
-          </View>
+          </SwipeDownSheet>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showRescheduleModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRescheduleModal(false)}
+      >
+        <Pressable className="flex-1 justify-end" onPress={() => setShowRescheduleModal(false)} style={{ backgroundColor: overlayColor }}>
+          <SwipeDownSheet
+            visible={showRescheduleModal}
+            onClose={() => setShowRescheduleModal(false)}
+            className="bg-background rounded-t-3xl p-6"
+          >
+            <Text className="text-xl font-bold text-foreground mb-4">Suggest Appointment Move</Text>
+            <Text className="text-sm text-muted mb-2">Date (YYYY-MM-DD)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+              value={rescheduleDate}
+              onChangeText={setRescheduleDate}
+              placeholder="2026-02-15"
+              placeholderTextColor={colors.muted}
+            />
+            <Text className="text-sm text-muted mb-2">Time (HH:MM)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+              value={rescheduleTime}
+              onChangeText={setRescheduleTime}
+              placeholder="09:00"
+              placeholderTextColor={colors.muted}
+            />
+            <Text className="text-sm text-muted mb-2">Duration (minutes)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+              value={rescheduleDuration}
+              onChangeText={setRescheduleDuration}
+              keyboardType="number-pad"
+              placeholder="60"
+              placeholderTextColor={colors.muted}
+            />
+            <Text className="text-sm text-muted mb-2">Message (optional)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+              value={rescheduleNote}
+              onChangeText={setRescheduleNote}
+              placeholder="Can we move this by an hour?"
+              placeholderTextColor={colors.muted}
+              multiline
+              numberOfLines={3}
+              style={{ minHeight: 88, textAlignVertical: "top" }}
+            />
+            <TouchableOpacity
+              onPress={handleSuggestReschedule}
+              className="bg-primary py-4 rounded-xl items-center"
+              disabled={suggestRescheduleMutation.isPending}
+            >
+              <Text className="text-white font-semibold">
+                {suggestRescheduleMutation.isPending ? "Sending..." : "Send Suggestion"}
+              </Text>
+            </TouchableOpacity>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
 
@@ -588,7 +955,11 @@ export default function CalendarScreen() {
           onPress={() => setShowAddModal(false)}
           style={{ backgroundColor: overlayColor }}
         >
-          <View className="bg-background rounded-t-3xl p-6">
+          <SwipeDownSheet
+            visible={showAddModal}
+            onClose={() => setShowAddModal(false)}
+            className="bg-background rounded-t-3xl p-6"
+          >
             <View className="flex-row items-center justify-between mb-4">
               <Text className="text-xl font-bold text-foreground">Schedule Session</Text>
               <TouchableOpacity onPress={() => setShowAddModal(false)}>
@@ -744,7 +1115,7 @@ export default function CalendarScreen() {
                 </TouchableOpacity>
               </View>
             </ScrollView>
-          </View>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
     </ScreenContainer>

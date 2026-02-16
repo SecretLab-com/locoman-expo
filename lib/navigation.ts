@@ -47,14 +47,33 @@ export function getHomeRoute(roleOrFlags?: RoleFlags | string | null): string {
   return "/(tabs)";
 }
 
+function tryDismissAll(): void {
+  try {
+    const dismissAll = (router as any).dismissAll;
+    if (typeof dismissAll === "function") {
+      dismissAll();
+    }
+  } catch {
+    // Best-effort stack reset.
+  }
+}
+
+export function resetToHome(roleOrFlags?: RoleFlags | string | null): void {
+  const target = getHomeRoute(roleOrFlags);
+  tryDismissAll();
+  try {
+    router.replace(target as any);
+  } catch {
+    router.navigate(target as any);
+  }
+}
+
 /**
  * Navigate to home.
  * Uses router.replace to prevent back navigation to the previous screen.
  */
 export function navigateToHome(_roleFlags?: RoleFlags | string | null): void {
-  // Use navigate for cross-group routing; replace can fail from nested navigators
-  // with "REPLACE ... was not handled by any navigator".
-  router.navigate(getHomeRoute(_roleFlags) as any);
+  resetToHome(_roleFlags);
 }
 
 /**

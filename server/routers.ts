@@ -1,23 +1,28 @@
-import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { getInviteEmailFailureUserMessage, sendInviteEmail } from "./_core/email";
+import { logError } from "./_core/logger";
 import { generateImage } from "./_core/imageGeneration";
+import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
 import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
-import { sendPushToUsers } from "./_core/push";
 import { notifyBadgeCounts, notifyNewMessage } from "./_core/websocket";
 import * as adyen from "./adyen";
 import * as db from "./db";
 import {
-  mapBundleToOffer,
-  mapOfferInputToBundleDraft,
-  type OfferPaymentType,
-  type OfferType,
+    mapBundleToOffer,
+    mapOfferInputToBundleDraft,
+    type OfferPaymentType,
+    type OfferType,
 } from "./domains/offers";
 import { mapPaymentSessionForView, mapPaymentState, summarizePaymentSessions } from "./domains/payments";
+import * as googleCalendar from "./google-calendar";
 import * as shopify from "./shopify";
 import { storagePut } from "./storage";
+
+const SERVER_USER_ID = "00000000-0000-0000-0000-000000000000";
 
 const BOT_REPLIES = [
   "Thanks for your message! How can I help you today?",
@@ -50,6 +55,42 @@ function toMessagePushBody(content: string, messageType: "text" | "image" | "fil
 
 function isManagerLikeRole(role: string): boolean {
   return role === "manager" || role === "coordinator";
+}
+
+async function notifyInviteFailureByMessage(user: { id: string; name?: string | null }, email: string, errorMessage: string) {
+  const conversationId = `server-alert-${user.id}`;
+  const content = `Server notice: We could not send an invite email to ${email}.\n\n${getInviteEmailFailureUserMessage(errorMessage)}`;
+  try {
+    const messageId = await db.createMessage({
+      senderId: SERVER_USER_ID,
+      receiverId: user.id,
+      conversationId,
+      content,
+      messageType: "system",
+    });
+
+    notifyNewMessage(conversationId, {
+      id: messageId,
+      senderId: SERVER_USER_ID,
+      senderName: "Server",
+      receiverId: user.id,
+      content,
+      conversationId,
+    }, [user.id]);
+    notifyBadgeCounts([user.id]);
+    await sendPushToUsers([user.id], {
+      title: "Server notice",
+      body: "Invite email failed. Open messages for details.",
+      data: {
+        type: "message",
+        conversationId,
+        senderId: SERVER_USER_ID,
+        senderName: "Server",
+      },
+    });
+  } catch (notifyError) {
+    console.error("[Invite] Failed to send server failure message", notifyError);
+  }
 }
 
 function notFound(resource: string): never {
@@ -197,6 +238,148 @@ function parseBundleServices(servicesJson: unknown) {
     .filter((item): item is { id: string; name: string; sessions: number } => Boolean(item));
 }
 
+type TrainerPayoutBankDetails = {
+  accountHolderName: string;
+  bankName: string;
+  sortCode: string;
+  accountNumber: string;
+  accountNumberLast4: string;
+  connectedAt: string;
+  updatedAt: string;
+};
+
+type TrainerGoogleCalendarIntegration = {
+  connected: boolean;
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: string | null;
+  selectedCalendarId: string | null;
+  selectedCalendarName: string | null;
+};
+
+function toObjectRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function toSanitizedDigits(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function getTrainerPayoutBankDetails(metadataRaw: unknown): TrainerPayoutBankDetails | null {
+  const metadata = toObjectRecord(metadataRaw);
+  const payout = toObjectRecord(metadata.payout);
+  const bank = toObjectRecord(payout.bank);
+
+  const accountHolderName = String(bank.accountHolderName || "").trim();
+  const bankName = String(bank.bankName || "").trim();
+  const sortCode = toSanitizedDigits(String(bank.sortCode || ""));
+  const accountNumber = toSanitizedDigits(String(bank.accountNumber || ""));
+  const accountNumberLast4 = String(bank.accountNumberLast4 || accountNumber.slice(-4) || "").trim();
+  const connectedAt = String(bank.connectedAt || "").trim();
+  const updatedAt = String(bank.updatedAt || "").trim();
+
+  if (!accountHolderName || !bankName || sortCode.length !== 6 || accountNumber.length < 6 || !connectedAt) {
+    return null;
+  }
+
+  return {
+    accountHolderName,
+    bankName,
+    sortCode,
+    accountNumber,
+    accountNumberLast4: accountNumberLast4 || accountNumber.slice(-4),
+    connectedAt,
+    updatedAt: updatedAt || connectedAt,
+  };
+}
+
+function getGoogleCalendarIntegration(metadataRaw: unknown): TrainerGoogleCalendarIntegration | null {
+  const metadata = toObjectRecord(metadataRaw);
+  const google = toObjectRecord(metadata.googleCalendar);
+  const accessToken = String(google.accessToken || "").trim();
+  const refreshTokenRaw = String(google.refreshToken || "").trim();
+  const expiresAtRaw = String(google.expiresAt || "").trim();
+  const selectedCalendarIdRaw = String(google.selectedCalendarId || "").trim();
+  const selectedCalendarNameRaw = String(google.selectedCalendarName || "").trim();
+  if (!accessToken) return null;
+  return {
+    connected: true,
+    accessToken,
+    refreshToken: refreshTokenRaw || null,
+    expiresAt: expiresAtRaw || null,
+    selectedCalendarId: selectedCalendarIdRaw || null,
+    selectedCalendarName: selectedCalendarNameRaw || null,
+  };
+}
+
+function isIsoExpired(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return false;
+  const expiresMs = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiresMs)) return false;
+  return expiresMs <= Date.now() + 30_000;
+}
+
+async function ensureGoogleCalendarAccessToken(user: db.User): Promise<{
+  token: string;
+  metadata: Record<string, unknown>;
+  integration: TrainerGoogleCalendarIntegration;
+}> {
+  const metadata = toObjectRecord(user.metadata);
+  const integration = getGoogleCalendarIntegration(metadata);
+  if (!integration) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Google Calendar is not connected." });
+  }
+
+  if (!isIsoExpired(integration.expiresAt)) {
+    return { token: integration.accessToken, metadata, integration };
+  }
+
+  if (!integration.refreshToken) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Google Calendar token expired. Reconnect your Google account.",
+    });
+  }
+
+  const refreshed = await googleCalendar.refreshGoogleCalendarAccessToken(integration.refreshToken);
+  const nextMetadata = {
+    ...metadata,
+    googleCalendar: {
+      ...toObjectRecord(metadata.googleCalendar),
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken || integration.refreshToken,
+      expiresAt: refreshed.expiresAt,
+      updatedAt: new Date().toISOString(),
+      selectedCalendarId: integration.selectedCalendarId,
+      selectedCalendarName: integration.selectedCalendarName,
+    },
+  };
+  await db.updateUser(user.id, { metadata: nextMetadata });
+  return {
+    token: refreshed.accessToken,
+    metadata: nextMetadata,
+    integration: {
+      ...integration,
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken || integration.refreshToken,
+      expiresAt: refreshed.expiresAt,
+    },
+  };
+}
+
 type OrderPaymentProvision = {
   required: boolean;
   configured: boolean;
@@ -341,6 +524,86 @@ function parseBundleGoals(goalsJson: unknown): string[] {
       return "";
     })
     .filter((goal) => goal.length > 0);
+}
+
+function normalizeLookupKey(value: string | null | undefined): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function safePositiveInt(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.floor(parsed);
+}
+
+function computeBundleProgress(
+  subscription: db.Subscription,
+  bundle: db.BundleDraft | undefined,
+  deliveredQtyByProductName?: Map<string, number>,
+) {
+  const sessionsFromSubscription = safePositiveInt(subscription.sessionsIncluded);
+  const sessionsFromServices = parseBundleServices(bundle?.servicesJson).reduce(
+    (sum, service) => sum + safePositiveInt(service.sessions),
+    0,
+  );
+  const sessionsFromGoals = safePositiveInt(
+    bundle && bundle.goalsJson && typeof bundle.goalsJson === "object"
+      ? (bundle.goalsJson as Record<string, unknown>).sessionCount
+      : 0,
+  );
+  const sessionsIncluded =
+    sessionsFromSubscription || sessionsFromServices || sessionsFromGoals;
+  const sessionsUsed = Math.max(0, safePositiveInt(subscription.sessionsUsed));
+
+  const plannedProducts = parseBundleProducts(bundle?.productsJson);
+  const productsIncluded = plannedProducts.reduce(
+    (sum, product) => sum + safePositiveInt(product.quantity || 1),
+    0,
+  );
+  const productsUsed = plannedProducts.reduce((sum, product) => {
+    const key = normalizeLookupKey(product.name);
+    const deliveredQty = deliveredQtyByProductName?.get(key) || 0;
+    return sum + Math.max(0, deliveredQty);
+  }, 0);
+
+  const sessionsProgressPct =
+    sessionsIncluded > 0 ? Math.min(100, Math.round((sessionsUsed / sessionsIncluded) * 100)) : 0;
+  const productsProgressPct =
+    productsIncluded > 0 ? Math.min(100, Math.round((productsUsed / productsIncluded) * 100)) : 0;
+  const sessionsRemaining = Math.max(sessionsIncluded - sessionsUsed, 0);
+  const productsRemaining = Math.max(productsIncluded - productsUsed, 0);
+  const alerts: string[] = [];
+
+  if (sessionsIncluded > 0) {
+    if (sessionsUsed >= sessionsIncluded) alerts.push("Sessions exhausted");
+    else if (sessionsUsed / sessionsIncluded >= 0.8) alerts.push("Sessions are running low");
+  }
+  if (productsIncluded > 0) {
+    if (productsUsed >= productsIncluded) alerts.push("Products exhausted");
+    else if (productsUsed / productsIncluded >= 0.8) alerts.push("Products are running low");
+  }
+  if (sessionsUsed > 0 && productsUsed > sessionsUsed + 1) {
+    alerts.push("Product usage is outpacing sessions");
+  }
+
+  return {
+    subscriptionId: subscription.id,
+    bundleDraftId: subscription.bundleDraftId || null,
+    bundleTitle: bundle?.title || "Current bundle",
+    status: subscription.status || "active",
+    sessionsUsed,
+    sessionsIncluded,
+    sessionsRemaining,
+    sessionsProgressPct,
+    productsUsed,
+    productsIncluded,
+    productsRemaining,
+    productsProgressPct,
+    alerts,
+  };
 }
 
 function toDeliveryMethod(
@@ -907,20 +1170,75 @@ export const appRouter = router({
   // ============================================================================
   clients: router({
     list: trainerProcedure.query(async ({ ctx }) => {
-      const trainerClients = await db.getClientsByTrainer(ctx.user.id);
+      const [trainerClients, trainerSubscriptions, trainerDeliveries] = await Promise.all([
+        db.getClientsByTrainer(ctx.user.id),
+        db.getSubscriptionsByTrainer(ctx.user.id),
+        db.getDeliveriesByTrainer(ctx.user.id),
+      ]);
+
+      const activeBundleCountsByClient = new Map<string, number>();
+      const activeSubscriptionByClient = new Map<string, db.Subscription>();
+      for (const subscription of trainerSubscriptions) {
+        if (subscription.status !== "active") continue;
+        activeBundleCountsByClient.set(
+          subscription.clientId,
+          (activeBundleCountsByClient.get(subscription.clientId) || 0) + 1,
+        );
+        if (!activeSubscriptionByClient.has(subscription.clientId)) {
+          activeSubscriptionByClient.set(subscription.clientId, subscription);
+        }
+      }
+
+      const activeBundleIds = Array.from(
+        new Set(
+          Array.from(activeSubscriptionByClient.values())
+            .map((subscription) => subscription.bundleDraftId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      );
+      const bundleById = new Map<string, db.BundleDraft>();
+      if (activeBundleIds.length > 0) {
+        const bundles = await Promise.all(activeBundleIds.map((id) => db.getBundleDraftById(id)));
+        for (const bundle of bundles) {
+          if (bundle?.id) bundleById.set(bundle.id, bundle);
+        }
+      }
+
+      const consumedDeliveriesByClientAndProduct = new Map<string, Map<string, number>>();
+      for (const delivery of trainerDeliveries) {
+        const status = String(delivery.status || "").toLowerCase();
+        if (status !== "delivered" && status !== "confirmed") continue;
+        const clientId = delivery.clientId;
+        const productKey = normalizeLookupKey(delivery.productName);
+        if (!clientId || !productKey) continue;
+        const perClient = consumedDeliveriesByClientAndProduct.get(clientId) || new Map<string, number>();
+        perClient.set(productKey, (perClient.get(productKey) || 0) + Math.max(1, Number(delivery.quantity || 1)));
+        consumedDeliveriesByClientAndProduct.set(clientId, perClient);
+      }
+
       return Promise.all(
         trainerClients.map(async (client) => {
-          const [activeBundles, totalSpent, linkedUser] = await Promise.all([
-            db.getActiveBundlesCountForClient(client.id),
+          const [totalSpent, linkedUser] = await Promise.all([
             db.getTotalSpentByClient(client.id),
             client.userId ? db.getUserById(client.userId) : Promise.resolve(undefined),
           ]);
           const resolvedPhotoUrl = client.photoUrl || linkedUser?.photoUrl || null;
+          const currentSubscription = activeSubscriptionByClient.get(client.id);
+          const currentBundle = currentSubscription
+            ? computeBundleProgress(
+                currentSubscription,
+                currentSubscription.bundleDraftId
+                  ? bundleById.get(currentSubscription.bundleDraftId)
+                  : undefined,
+                consumedDeliveriesByClientAndProduct.get(client.id),
+              )
+            : null;
           return {
             ...client,
             photoUrl: resolvedPhotoUrl,
-            activeBundles,
+            activeBundles: activeBundleCountsByClient.get(client.id) || 0,
             totalSpent,
+            currentBundle,
           };
         }),
       );
@@ -942,22 +1260,46 @@ export const appRouter = router({
         if (!client) return undefined;
         assertTrainerOwned(ctx.user, client.trainerId, "client");
 
-        const [subscriptions, trainerOrders] = await Promise.all([
+        const [subscriptions, trainerOrders, deliveriesByClient] = await Promise.all([
           db.getSubscriptionsByClient(client.id),
           db.getOrdersByTrainer(ctx.user.id),
+          db.getDeliveriesByClient(client.id),
         ]);
+
+        const consumedDeliveriesByProduct = new Map<string, number>();
+        for (const delivery of deliveriesByClient) {
+          const status = String(delivery.status || "").toLowerCase();
+          if (status !== "delivered" && status !== "confirmed") continue;
+          const productKey = normalizeLookupKey(delivery.productName);
+          if (!productKey) continue;
+          consumedDeliveriesByProduct.set(
+            productKey,
+            (consumedDeliveriesByProduct.get(productKey) || 0) + Math.max(1, Number(delivery.quantity || 1)),
+          );
+        }
 
         const activeOffers = await Promise.all(
           subscriptions
             .filter((sub) => sub.status === "active")
             .map(async (sub) => {
               const bundle = sub.bundleDraftId ? await db.getBundleDraftById(sub.bundleDraftId) : undefined;
+              const progress = computeBundleProgress(sub, bundle, consumedDeliveriesByProduct);
               return {
                 id: sub.id,
+                bundleDraftId: sub.bundleDraftId || null,
                 title: bundle?.title || "Offer",
                 price: sub.price,
                 cadence: sub.subscriptionType || "monthly",
                 status: sub.status || "active",
+                sessionsUsed: progress.sessionsUsed,
+                sessionsIncluded: progress.sessionsIncluded,
+                sessionsRemaining: progress.sessionsRemaining,
+                sessionsProgressPct: progress.sessionsProgressPct,
+                productsUsed: progress.productsUsed,
+                productsIncluded: progress.productsIncluded,
+                productsRemaining: progress.productsRemaining,
+                productsProgressPct: progress.productsProgressPct,
+                alerts: progress.alerts,
               };
             }),
         );
@@ -979,6 +1321,7 @@ export const appRouter = router({
 
         return {
           ...client,
+          currentBundle: activeOffers[0] || null,
           activeOffers,
           paymentHistory,
         };
@@ -1027,6 +1370,7 @@ export const appRouter = router({
         email: z.string().email(),
         name: z.string().optional(),
         bundleDraftId: z.string().optional(),
+        message: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (input.bundleDraftId) {
@@ -1044,6 +1388,28 @@ export const appRouter = router({
           bundleDraftId: input.bundleDraftId,
           expiresAt,
         });
+        try {
+          await sendInviteEmail({
+            to: input.email,
+            token,
+            recipientName: input.name,
+            trainerName: ctx.user.name || ctx.user.email || "Your trainer",
+            expiresAtIso: expiresAt,
+            personalMessage: input.message,
+          });
+        } catch (error: any) {
+          logError("invite.email_failed", error, {
+            trainerId: ctx.user.id,
+            trainerRole: ctx.user.role,
+            recipient: input.email,
+            flow: "single",
+          });
+          await notifyInviteFailureByMessage(ctx.user, input.email, error?.message || "unknown error");
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: getInviteEmailFailureUserMessage(error),
+          });
+        }
         return { token, expiresAt };
       }),
 
@@ -1078,6 +1444,28 @@ export const appRouter = router({
             bundleDraftId: input.bundleDraftId,
             expiresAt,
           });
+          try {
+            await sendInviteEmail({
+              to: invite.email,
+              token,
+              recipientName: invite.name,
+              trainerName: ctx.user.name || ctx.user.email || "Your trainer",
+              expiresAtIso: expiresAt,
+              personalMessage: input.message,
+            });
+          } catch (error: any) {
+            logError("invite.email_failed", error, {
+              trainerId: ctx.user.id,
+              trainerRole: ctx.user.role,
+              recipient: invite.email,
+              flow: "bulk",
+            });
+            await notifyInviteFailureByMessage(ctx.user, invite.email, error?.message || "unknown error");
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Invite email to ${invite.email} failed. ${getInviteEmailFailureUserMessage(error)}`,
+            });
+          }
           results.push({ email: invite.email, token, success: true });
         }
         return { sent: results.length, results };
@@ -1239,7 +1627,7 @@ export const appRouter = router({
         const client = await db.getClientById(input.clientId);
         if (!client) notFound("Client");
         assertTrainerOwned(ctx.user, client.trainerId, "client");
-        return db.createSession({
+        const sessionId = await db.createSession({
           clientId: input.clientId,
           trainerId: client.trainerId,
           subscriptionId: input.subscriptionId,
@@ -1249,6 +1637,30 @@ export const appRouter = router({
           location: input.location,
           notes: input.notes,
         });
+
+        // Best-effort sync to connected Google Calendar.
+        try {
+          const trainer = await db.getUserById(client.trainerId);
+          if (trainer) {
+            const ensured = await ensureGoogleCalendarAccessToken(trainer);
+            const calendarId = ensured.integration.selectedCalendarId || "primary";
+            const eventEnd = new Date(input.sessionDate.getTime() + input.durationMinutes * 60_000).toISOString();
+            await googleCalendar.createGoogleCalendarEvent({
+              accessToken: ensured.token,
+              calendarId,
+              summary: `${input.sessionType || "Training"} with ${client.name || "Client"}`,
+              description: input.notes || "Scheduled from LocoMotivate trainer calendar.",
+              location: input.location || undefined,
+              startTimeIso: input.sessionDate.toISOString(),
+              endTimeIso: eventEnd,
+              attendeeEmails: client.email ? [client.email] : [],
+            });
+          }
+        } catch (error) {
+          console.warn("[GoogleCalendar] Session sync failed:", error);
+        }
+
+        return sessionId;
       }),
 
     // Mark session as completed - this increments the usage count
@@ -1279,6 +1691,54 @@ export const appRouter = router({
         if (!session) notFound("Session");
         assertTrainerOwned(ctx.user, session.trainerId, "session");
         await db.updateSession(input.id, { status: "no_show" });
+        return { success: true };
+      }),
+
+    suggestReschedule: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          proposedStartTime: z.date(),
+          durationMinutes: z.number().int().min(15).max(480),
+          note: z.string().max(500).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getSessionById(input.id);
+        if (!session) notFound("Session");
+        if (!(isManagerLikeRole(ctx.user.role) || session.trainerId === ctx.user.id || session.clientId === ctx.user.id)) {
+          forbidden("You do not have access to this session");
+        }
+
+        const proposer = session.trainerId === ctx.user.id ? "trainer" : session.clientId === ctx.user.id ? "client" : "manager";
+        const proposedEnd = new Date(input.proposedStartTime.getTime() + input.durationMinutes * 60_000);
+        const noteLine = input.note?.trim() ? ` Note: ${input.note.trim()}` : "";
+        const suggestionLine = `\n[Reschedule suggestion by ${proposer}] ${input.proposedStartTime.toISOString()} (${input.durationMinutes}m).${noteLine}`;
+        const nextNotes = `${session.notes || ""}${suggestionLine}`.trim();
+
+        await db.updateSession(input.id, { notes: nextNotes });
+
+        // Best-effort Google Calendar suggestion event.
+        try {
+          const trainer = await db.getUserById(session.trainerId);
+          const client = await db.getClientById(session.clientId);
+          if (trainer) {
+            const ensured = await ensureGoogleCalendarAccessToken(trainer);
+            const calendarId = ensured.integration.selectedCalendarId || "primary";
+            await googleCalendar.createGoogleCalendarEvent({
+              accessToken: ensured.token,
+              calendarId,
+              summary: `Reschedule suggestion: ${client?.name || "Client"}`,
+              description: `Suggested move from LocoMotivate by ${proposer}.${noteLine || ""}`.trim(),
+              startTimeIso: input.proposedStartTime.toISOString(),
+              endTimeIso: proposedEnd.toISOString(),
+              attendeeEmails: client?.email ? [client.email] : [],
+            });
+          }
+        } catch (error) {
+          console.warn("[GoogleCalendar] Reschedule suggestion sync failed:", error);
+        }
+
         return { success: true };
       }),
   }),
@@ -2247,6 +2707,124 @@ export const appRouter = router({
         });
         return { success: true };
       }),
+  }),
+
+  googleCalendar: router({
+    status: trainerProcedure.query(async ({ ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      if (!user) notFound("Trainer");
+      const integration = getGoogleCalendarIntegration(user.metadata);
+      return {
+        connected: Boolean(integration),
+        selectedCalendarId: integration?.selectedCalendarId || null,
+        selectedCalendarName: integration?.selectedCalendarName || null,
+      };
+    }),
+
+    getAuthUrl: trainerProcedure
+      .input(
+        z.object({
+          redirectUri: z.string().url(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const authUrl = googleCalendar.buildGoogleCalendarAuthUrl(input.redirectUri);
+        return { authUrl };
+      }),
+
+    connectWithCode: trainerProcedure
+      .input(
+        z.object({
+          code: z.string().min(1),
+          redirectUri: z.string().url(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserById(ctx.user.id);
+        if (!user) notFound("Trainer");
+
+        const token = await googleCalendar.exchangeGoogleCalendarCode({
+          code: input.code,
+          redirectUri: input.redirectUri,
+        });
+        const calendars = await googleCalendar.listGoogleCalendars(token.accessToken);
+        const trainingCalendar = calendars.find((calendar) =>
+          String(calendar.summary || "").trim().toLowerCase() === "training",
+        );
+        const primaryCalendar = calendars.find((calendar) => calendar.primary);
+        const selected = trainingCalendar || primaryCalendar || calendars[0] || null;
+
+        const metadata = toObjectRecord(user.metadata);
+        const nextMetadata = {
+          ...metadata,
+          googleCalendar: {
+            ...toObjectRecord(metadata.googleCalendar),
+            accessToken: token.accessToken,
+            refreshToken: token.refreshToken,
+            expiresAt: token.expiresAt,
+            scope: token.scope,
+            tokenType: token.tokenType,
+            selectedCalendarId: selected?.id || null,
+            selectedCalendarName: selected?.summary || null,
+            connectedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        };
+        await db.updateUser(ctx.user.id, { metadata: nextMetadata });
+
+        return {
+          success: true,
+          selectedCalendarId: selected?.id || null,
+          selectedCalendarName: selected?.summary || null,
+          calendarsCount: calendars.length,
+        };
+      }),
+
+    calendars: trainerProcedure.query(async ({ ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      if (!user) notFound("Trainer");
+      const ensured = await ensureGoogleCalendarAccessToken(user);
+      const calendars = await googleCalendar.listGoogleCalendars(ensured.token);
+      return {
+        selectedCalendarId: ensured.integration.selectedCalendarId,
+        selectedCalendarName: ensured.integration.selectedCalendarName,
+        calendars,
+      };
+    }),
+
+    selectCalendar: trainerProcedure
+      .input(
+        z.object({
+          calendarId: z.string().min(1),
+          calendarName: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserById(ctx.user.id);
+        if (!user) notFound("Trainer");
+        const metadata = toObjectRecord(user.metadata);
+        const nextMetadata = {
+          ...metadata,
+          googleCalendar: {
+            ...toObjectRecord(metadata.googleCalendar),
+            selectedCalendarId: input.calendarId,
+            selectedCalendarName: input.calendarName,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+        await db.updateUser(ctx.user.id, { metadata: nextMetadata });
+        return { success: true };
+      }),
+
+    disconnect: trainerProcedure.mutation(async ({ ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      if (!user) notFound("Trainer");
+      const metadata = toObjectRecord(user.metadata);
+      const nextMetadata = { ...metadata };
+      delete (nextMetadata as any).googleCalendar;
+      await db.updateUser(ctx.user.id, { metadata: nextMetadata });
+      return { success: true };
+    }),
   }),
 
   // ============================================================================
@@ -3366,14 +3944,106 @@ export const appRouter = router({
     payoutSummary: trainerProcedure.query(async ({ ctx }) => {
       const earnings = await db.getEarningsSummary(ctx.user.id);
       const available = Math.max((earnings.total || 0) - (earnings.pending || 0), 0);
+      const trainer = await db.getUserById(ctx.user.id);
+      const payoutBank = getTrainerPayoutBankDetails(trainer?.metadata);
+      const destination = payoutBank
+        ? `${payoutBank.bankName} ••••${payoutBank.accountNumberLast4}`
+        : null;
       return {
         available,
         pending: earnings.pending || 0,
         nextPayoutDate: null as string | null,
-        automatic: true,
-        message: "Payouts happen automatically — no action needed.",
+        automatic: Boolean(payoutBank),
+        destination,
+        bankConnected: Boolean(payoutBank),
+        message: payoutBank
+          ? `Payouts are enabled to ${destination}.`
+          : "Connect your bank account to receive payouts.",
       };
     }),
+
+    payoutSetup: trainerProcedure.query(async ({ ctx }) => {
+      const trainer = await db.getUserById(ctx.user.id);
+      if (!trainer) notFound("Trainer");
+
+      const payoutBank = getTrainerPayoutBankDetails(trainer.metadata);
+      if (!payoutBank) {
+        return {
+          connected: false,
+          accountHolderName: null,
+          bankName: null,
+          sortCode: null,
+          accountNumberLast4: null,
+          connectedAt: null,
+          updatedAt: null,
+        };
+      }
+
+      return {
+        connected: true,
+        accountHolderName: payoutBank.accountHolderName,
+        bankName: payoutBank.bankName,
+        sortCode: payoutBank.sortCode,
+        accountNumberLast4: payoutBank.accountNumberLast4,
+        connectedAt: payoutBank.connectedAt,
+        updatedAt: payoutBank.updatedAt,
+      };
+    }),
+
+    connectPayoutBank: trainerProcedure
+      .input(
+        z.object({
+          accountHolderName: z.string().min(2).max(120),
+          bankName: z.string().min(2).max(120),
+          sortCode: z.string().min(6).max(12),
+          accountNumber: z.string().min(6).max(20),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const trainer = await db.getUserById(ctx.user.id);
+        if (!trainer) notFound("Trainer");
+
+        const sortCode = toSanitizedDigits(input.sortCode);
+        if (sortCode.length !== 6) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Sort code must be 6 digits." });
+        }
+
+        const accountNumber = toSanitizedDigits(input.accountNumber);
+        if (accountNumber.length < 6 || accountNumber.length > 10) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Account number must be between 6 and 10 digits.",
+          });
+        }
+
+        const nowIso = new Date().toISOString();
+        const existingMetadata = toObjectRecord(trainer.metadata);
+        const existingPayout = toObjectRecord(existingMetadata.payout);
+        const existingBank = toObjectRecord(existingPayout.bank);
+        const connectedAt =
+          typeof existingBank.connectedAt === "string" && existingBank.connectedAt.trim().length > 0
+            ? existingBank.connectedAt
+            : nowIso;
+
+        const nextMetadata = {
+          ...existingMetadata,
+          payout: {
+            ...existingPayout,
+            bank: {
+              accountHolderName: input.accountHolderName.trim(),
+              bankName: input.bankName.trim(),
+              sortCode,
+              accountNumber,
+              accountNumberLast4: accountNumber.slice(-4),
+              connectedAt,
+              updatedAt: nowIso,
+            },
+          },
+        };
+
+        await db.updateUser(ctx.user.id, { metadata: nextMetadata });
+        return { success: true };
+      }),
   }),
 
   // ============================================================================

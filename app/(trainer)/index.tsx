@@ -1,4 +1,5 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -109,6 +110,23 @@ function formatOfferType(value: string | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function getNameInitials(name: unknown): string {
+  const parts = String(name || "Client")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "C";
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
+}
+
+function toUsagePercent(used: unknown, included: unknown): number {
+  const usedValue = Number(used || 0);
+  const includedValue = Number(included || 0);
+  if (!Number.isFinite(usedValue) || !Number.isFinite(includedValue) || includedValue <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((usedValue / includedValue) * 100)));
 }
 
 function extractListItemsFromHtml(description: string): string[] {
@@ -1098,26 +1116,108 @@ export default function TrainerHomeScreen() {
           ) : (
             <SurfaceCard style={CARD_STYLE}>
               {previewClients.map((client, index) => (
-                <View
+                <TouchableOpacity
                   key={client.id}
                   className={index < previewClients.length - 1 ? "pb-3 mb-3 border-b" : ""}
                   style={index < previewClients.length - 1 ? { borderColor: "rgba(255,255,255,0.10)" } : undefined}
+                  onPress={() => router.push(`/client-detail/${client.id}` as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${client.name} status`}
+                  testID={`trainer-dashboard-client-${client.id}`}
                 >
-                  <View className="flex-row items-center justify-between">
-                    <View className="flex-row items-center flex-1 pr-2">
-                      <View
-                        className="w-2 h-2 rounded-full mr-2"
-                        style={{ backgroundColor: client.status === "active" ? DASH.primary : "#64748B" }}
-                      />
-                      <Text className="font-medium" style={{ color: DASH.text }} numberOfLines={1}>
-                        {client.name}
-                      </Text>
-                    </View>
-                    <Text className="text-xs" style={{ color: DASH.muted }}>
-                      {client.activeBundles || 0} active
-                    </Text>
-                  </View>
-                </View>
+                  {(() => {
+                    const avatarUrl = normalizeAssetUrl(client.photoUrl);
+                    const hasAvatar = typeof avatarUrl === "string" && avatarUrl.trim().length > 0;
+                    const bundle = client.currentBundle;
+                    const sessionsUsed = Number(bundle?.sessionsUsed || 0);
+                    const sessionsIncluded = Number(bundle?.sessionsIncluded || 0);
+                    const productsUsed = Number(bundle?.productsUsed || 0);
+                    const productsIncluded = Number(bundle?.productsIncluded || 0);
+                    const sessionsPct = toUsagePercent(sessionsUsed, sessionsIncluded);
+                    const productsPct = toUsagePercent(productsUsed, productsIncluded);
+                    const firstAlert =
+                      Array.isArray(bundle?.alerts) && bundle.alerts.length > 0 ? String(bundle.alerts[0]) : "";
+
+                    return (
+                      <View>
+                        <View className="flex-row items-center justify-between">
+                          <View className="flex-row items-center flex-1 pr-2">
+                            <View
+                              className="w-10 h-10 rounded-full overflow-hidden items-center justify-center mr-3 border"
+                              style={{ borderColor: "rgba(96,165,250,0.35)" }}
+                            >
+                              {hasAvatar ? (
+                                <Image
+                                  source={{ uri: avatarUrl }}
+                                  style={{ width: "100%", height: "100%" }}
+                                  contentFit="cover"
+                                />
+                              ) : (
+                                <View
+                                  className="w-10 h-10 rounded-full items-center justify-center"
+                                  style={{ backgroundColor: "rgba(96,165,250,0.22)" }}
+                                >
+                                  <Text className="text-xs font-bold" style={{ color: DASH.primary }}>
+                                    {getNameInitials(client.name)}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                            <View className="flex-1">
+                              <View className="flex-row items-center">
+                                <View
+                                  className="w-2 h-2 rounded-full mr-2"
+                                  style={{ backgroundColor: client.status === "active" ? DASH.primary : "#64748B" }}
+                                />
+                                <Text className="font-medium" style={{ color: DASH.text }} numberOfLines={1}>
+                                  {client.name}
+                                </Text>
+                              </View>
+                              <Text className="text-[11px] mt-1" style={{ color: DASH.muted }} numberOfLines={1}>
+                                {bundle?.bundleTitle || "No active bundle"}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text className="text-xs" style={{ color: DASH.muted }}>
+                            {client.activeBundles || 0} active
+                          </Text>
+                        </View>
+
+                        {bundle ? (
+                          <View className="mt-3">
+                            <Text className="text-[11px]" style={{ color: DASH.muted }}>
+                              Sessions: {sessionsUsed}/{sessionsIncluded}
+                            </Text>
+                            <View className="h-1.5 rounded-full mt-1 mb-2 overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+                              <View
+                                className="h-full rounded-full"
+                                style={{ width: `${sessionsPct}%`, backgroundColor: sessionsPct >= 80 ? "#F59E0B" : DASH.primary }}
+                              />
+                            </View>
+                            <Text className="text-[11px]" style={{ color: DASH.muted }}>
+                              Products: {productsUsed}/{productsIncluded}
+                            </Text>
+                            <View className="h-1.5 rounded-full mt-1 overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+                              <View
+                                className="h-full rounded-full"
+                                style={{ width: `${productsPct}%`, backgroundColor: productsPct >= 80 ? "#F59E0B" : "#34D399" }}
+                              />
+                            </View>
+                            {firstAlert ? (
+                              <Text className="text-[11px] mt-2" style={{ color: "#FBBF24" }} numberOfLines={1}>
+                                {firstAlert}
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : (
+                          <Text className="text-[11px] mt-3" style={{ color: "#FBBF24" }}>
+                            No active bundle yet. Tap to invite.
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })()}
+                </TouchableOpacity>
               ))}
             </SurfaceCard>
           )}
@@ -1297,7 +1397,9 @@ export default function TrainerHomeScreen() {
         onRequestClose={() => setPendingPaymentsVisible(false)}
       >
         <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(2,6,23,0.66)" }}>
-          <View
+          <SwipeDownSheet
+            visible={pendingPaymentsVisible}
+            onClose={() => setPendingPaymentsVisible(false)}
             className="rounded-t-3xl px-6 pt-5 pb-8"
             style={{ backgroundColor: "#0F172A", borderTopColor: DASH.border, borderTopWidth: 1 }}
           >
@@ -1390,7 +1492,7 @@ export default function TrainerHomeScreen() {
                 ))}
               </ScrollView>
             )}
-          </View>
+          </SwipeDownSheet>
         </View>
       </Modal>
     </ScreenContainer>

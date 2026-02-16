@@ -1,4 +1,5 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
@@ -15,6 +16,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -207,8 +209,11 @@ function AttachmentPicker({
         className="flex-1 justify-end bg-black/50"
         onPress={onClose}
       >
-        <View className="bg-surface rounded-t-2xl p-4 pb-8">
-          <View className="w-12 h-1 bg-border rounded-full self-center mb-4" />
+        <SwipeDownSheet
+          visible={visible}
+          onClose={onClose}
+          className="bg-surface rounded-t-2xl p-4 pb-8"
+        >
           <Text className="text-foreground font-semibold text-lg mb-4">
             Send Attachment
           </Text>
@@ -242,7 +247,7 @@ function AttachmentPicker({
               <Text className="text-muted text-sm">Send a document or file</Text>
             </View>
           </TouchableOpacity>
-        </View>
+        </SwipeDownSheet>
       </Pressable>
     </Modal>
   );
@@ -373,6 +378,12 @@ function isSingleEmojiMessage(content: string): boolean {
   return /^(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)(?:\u200D(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?))*$/u.test(
     trimmed
   );
+}
+
+function estimateBase64SizeBytes(base64: string): number {
+  const sanitized = base64.replace(/\s/g, "");
+  const padding = sanitized.endsWith("==") ? 2 : sanitized.endsWith("=") ? 1 : 0;
+  return Math.floor((sanitized.length * 3) / 4) - padding;
 }
 
 // Message bubble with reactions and attachments
@@ -510,13 +521,15 @@ export default function ConversationScreen() {
   const [showMessageActions, setShowMessageActions] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [typingUserName, setTypingUserName] = useState<string | null>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markingReadIdsRef = useRef<Set<string>>(new Set());
 
   const utils = trpc.useUtils();
 
-  const { connect, disconnect, subscribe } = useWebSocket();
+  const { connect, disconnect, subscribe, sendTypingStart, sendTypingStop } = useWebSocket();
 
   // Fetch messages for this conversation
   const {
@@ -538,13 +551,23 @@ export default function ConversationScreen() {
       if (msg.type === "new_message" && msg.conversationId === id) {
         refetch();
         utils.messages.conversations.invalidate();
+        return;
+      }
+      if (msg.type === "typing_start" && msg.conversationId === id && msg.userId !== user?.id) {
+        setTypingUserName(msg.userName || String(name || "User"));
+        setOtherUserTyping(true);
+        return;
+      }
+      if (msg.type === "typing_stop" && msg.conversationId === id && msg.userId !== user?.id) {
+        setOtherUserTyping(false);
+        setTypingUserName(null);
       }
     });
     return () => {
       unsubscribe();
       disconnect();
     };
-  }, [id, isAuthenticated, connect, disconnect, subscribe, refetch, utils]);
+  }, [id, isAuthenticated, connect, disconnect, subscribe, refetch, utils, user?.id, name]);
 
   // Fetch reactions for this conversation
   const { data: reactions = [] } = trpc.messages.getConversationReactions.useQuery(
@@ -576,14 +599,24 @@ export default function ConversationScreen() {
       refetch();
       utils.messages.conversations.invalidate();
     },
+    onError: (error: any) => {
+      Alert.alert("Send failed", error?.message || "Unable to send attachment.");
+    },
   });
   const sendGroupWithAttachment = trpc.messages.sendGroupWithAttachment.useMutation({
     onSuccess: () => {
       refetch();
       utils.messages.conversations.invalidate();
     },
+    onError: (error: any) => {
+      Alert.alert("Send failed", error?.message || "Unable to send attachment.");
+    },
   });
-  const uploadAttachment = trpc.messages.uploadAttachment.useMutation();
+  const uploadAttachment = trpc.messages.uploadAttachment.useMutation({
+    onError: (error: any) => {
+      Alert.alert("Upload failed", error?.message || "Unable to upload attachment.");
+    },
+  });
 
   // Add reaction mutation
   const addReaction = trpc.messages.addReaction.useMutation({
@@ -654,39 +687,66 @@ export default function ConversationScreen() {
     }
   }, [messages]);
 
-  // Simulate other user typing (in a real app, this would come from WebSocket)
   useEffect(() => {
-    if (sendMessage.isSuccess) {
-      const showTypingTimeout = setTimeout(() => {
-        setOtherUserTyping(true);
-        const hideTypingTimeout = setTimeout(() => {
-          setOtherUserTyping(false);
-        }, 3000);
-        return () => clearTimeout(hideTypingTimeout);
-      }, 1000);
-      return () => clearTimeout(showTypingTimeout);
-    }
-  }, [sendMessage.isSuccess]);
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (id) {
+        sendTypingStop(id);
+      }
+    };
+  }, [id, sendTypingStop]);
 
   // Handle text input changes for typing indicator
   const handleTextChange = useCallback((text: string) => {
     setMessageText(text);
-
-    if (text.length > 0 && !isTyping) {
-      setIsTyping(true);
-    }
-
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
+    }
+    const hasText = text.trim().length > 0;
+
+    if (!hasText) {
+      if (isTyping && id) {
+        sendTypingStop(id);
+      }
+      setIsTyping(false);
+      return;
+    }
+
+    if (!isTyping && id) {
+      setIsTyping(true);
+      sendTypingStart(id, String(user?.name || "User"));
     }
 
     typingTimeoutRef.current = setTimeout(() => {
       setIsTyping(false);
-    }, 2000);
-  }, [isTyping]);
+      if (id) {
+        sendTypingStop(id);
+      }
+    }, 1500);
+  }, [id, isTyping, sendTypingStart, sendTypingStop, user?.name]);
 
   const handleSend = async () => {
     if (!messageText.trim()) return;
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    if (id) {
+      sendTypingStop(id);
+    }
+    setIsTyping(false);
 
     if (editingMessageId) {
       try {
@@ -823,21 +883,44 @@ export default function ConversationScreen() {
   };
 
   const handleSelectImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      base64: true,
-    });
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Permission required", "Allow photo access to send images in chat.");
+        return;
+      }
 
-    if (!result.canceled && result.assets[0]) {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.7,
+        base64: true,
+        exif: false,
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
       const asset = result.assets[0];
       const fileName = asset.fileName || `image-${Date.now()}.jpg`;
-      const mimeType = asset.mimeType || "image/jpeg";
-      const base64 =
-        asset.base64 ||
-        (await FileSystem.readAsStringAsync(asset.uri, {
+      const mimeType = asset.mimeType?.startsWith("image/") ? asset.mimeType : "image/jpeg";
+      let base64 = asset.base64 || "";
+
+      // iOS can return a library URI without inline base64; read from file URI as fallback.
+      if (!base64) {
+        base64 = await FileSystem.readAsStringAsync(asset.uri, {
           encoding: "base64",
-        }));
+        });
+      }
+      if (!base64) {
+        Alert.alert("Image unavailable", "Could not read this photo. Try a different image.");
+        return;
+      }
+
+      const bytes = estimateBase64SizeBytes(base64);
+      if (bytes > 8 * 1024 * 1024) {
+        Alert.alert("Image too large", "Please choose a smaller image (max 8 MB).");
+        return;
+      }
+
       const uploadResult = await uploadAttachment.mutateAsync({
         fileName,
         fileData: base64,
@@ -862,7 +945,7 @@ export default function ConversationScreen() {
           messageType: "image",
           attachmentUrl: uploadResult.url,
           attachmentName: fileName,
-          attachmentSize: asset.fileSize,
+          attachmentSize: asset.fileSize ?? bytes,
           attachmentMimeType: mimeType,
         });
         return;
@@ -874,9 +957,11 @@ export default function ConversationScreen() {
         messageType: "image",
         attachmentUrl: uploadResult.url,
         attachmentName: fileName,
-        attachmentSize: asset.fileSize,
+        attachmentSize: asset.fileSize ?? bytes,
         attachmentMimeType: mimeType,
       });
+    } catch (error: any) {
+      Alert.alert("Photo send failed", error?.message || "Unable to send this photo right now.");
     }
   };
 
@@ -1002,7 +1087,7 @@ export default function ConversationScreen() {
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        keyboardVerticalOffset={0}
         className="flex-1"
       >
         {/* Messages */}
@@ -1046,7 +1131,7 @@ export default function ConversationScreen() {
             }
             ListFooterComponent={
               otherUserTyping ? (
-                <TypingIndicator name={name || "User"} colors={colors} />
+                <TypingIndicator name={typingUserName || String(name || "User")} colors={colors} />
               ) : null
             }
             onContentSizeChange={() => {
@@ -1060,7 +1145,12 @@ export default function ConversationScreen() {
         <View
           className="flex-row items-end px-4 py-3 bg-surface border-t border-border"
           style={{
-            paddingBottom: Platform.OS === "web" ? 12 : Math.max(insets.bottom, 12),
+            paddingBottom:
+              Platform.OS === "web"
+                ? 12
+                : isKeyboardVisible
+                  ? 6
+                  : Math.max(insets.bottom, 12),
           }}
         >
           {editingMessageId ? (
@@ -1084,6 +1174,9 @@ export default function ConversationScreen() {
           <TouchableOpacity
             className="w-10 h-10 rounded-full items-center justify-center mr-2"
             onPress={() => setShowAttachmentPicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Open attachment options"
+            testID="conversation-open-attachments"
           >
             <IconSymbol name="plus.circle.fill" size={28} color={colors.primary} />
           </TouchableOpacity>
@@ -1195,10 +1288,21 @@ export default function ConversationScreen() {
         onRequestClose={() => setShowConversationDetails(false)}
       >
         <Pressable
-          className="flex-1 justify-center items-center bg-black/50 px-6"
+          className="flex-1 justify-center items-center px-6"
+          style={{ backgroundColor: "rgba(2, 6, 23, 0.7)" }}
           onPress={() => setShowConversationDetails(false)}
         >
-          <Pressable className="w-full max-w-md rounded-2xl bg-surface border border-border p-5">
+          <Pressable
+            className="w-full max-w-md rounded-2xl border border-border p-5"
+            style={{
+              backgroundColor: colors.surface,
+              shadowColor: "#000",
+              shadowOpacity: 0.35,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 8 },
+              elevation: 12,
+            }}
+          >
             <Text className="text-foreground text-lg font-semibold mb-1">
               Conversation details
             </Text>

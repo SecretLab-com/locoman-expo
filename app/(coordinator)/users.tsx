@@ -1,4 +1,5 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -13,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -152,6 +154,7 @@ export default function UsersScreen() {
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState<UserRole>("shopper");
   const [inviting, setInviting] = useState(false);
+  const [inviteKeyboardHeight, setInviteKeyboardHeight] = useState(0);
 
   // Pending invites state
   const [showInvites, setShowInvites] = useState(false);
@@ -282,6 +285,26 @@ export default function UsersScreen() {
     setOffset(0);
     setSelectedUserIds(new Set());
   }, [searchQuery, selectedRole, selectedStatus, joinedAfter, joinedBefore]);
+
+  useEffect(() => {
+    if (!inviteModalVisible) {
+      setInviteKeyboardHeight(0);
+      return;
+    }
+    if (Platform.OS !== "ios") return;
+
+    const showSub = Keyboard.addListener("keyboardWillShow", (event) => {
+      setInviteKeyboardHeight(Math.max(event.endCoordinates?.height ?? 0, 0));
+    });
+    const hideSub = Keyboard.addListener("keyboardWillHide", () => {
+      setInviteKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [inviteModalVisible]);
 
   // Load more users
   const loadMore = useCallback(() => {
@@ -473,7 +496,7 @@ export default function UsersScreen() {
       });
 
       // Start impersonation
-      startImpersonation(selectedUser as any);
+      await startImpersonation(selectedUser as any);
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -762,7 +785,7 @@ export default function UsersScreen() {
   return (
     <ScreenContainer className="flex-1">
       {/* Header with Export Button */}
-      <View className="px-4 pt-2 pb-4 flex-row items-center justify-between" style={{ paddingRight: 56 }}>
+      <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={handleBack}
@@ -780,7 +803,8 @@ export default function UsersScreen() {
             </Text>
           </View>
         </View>
-        <View style={styles.headerButtons}>
+
+        <View style={styles.headerButtonsRow}>
           {selectionMode ? (
             <>
               <TouchableOpacity
@@ -1260,10 +1284,14 @@ export default function UsersScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <SwipeDownSheet
+              visible={modalVisible}
+              onClose={closeModal}
+              style={[styles.modalContent, { backgroundColor: colors.background }]}
+            >
+              <ScrollView showsVerticalScrollIndicator={false}>
               {selectedUser && !activityLogVisible && (
                 <>
                   {/* Modal Header */}
@@ -1572,7 +1600,8 @@ export default function UsersScreen() {
                   )}
                 </>
               )}
-            </ScrollView>
+              </ScrollView>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1589,10 +1618,14 @@ export default function UsersScreen() {
           onPress={() => setBulkActionModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
+            <SwipeDownSheet
+              visible={bulkActionModalVisible}
+              onClose={() => setBulkActionModalVisible(false)}
+              style={[styles.modalContent, { backgroundColor: colors.background }]}
+            >
+              <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                 Bulk Actions ({selectedUserIds.size} users)
               </Text>
@@ -1663,6 +1696,7 @@ export default function UsersScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1679,100 +1713,120 @@ export default function UsersScreen() {
           onPress={() => setInviteModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                Invite New User
-              </Text>
-              <TouchableOpacity onPress={() => setInviteModalVisible(false)}>
-                <IconSymbol name="xmark" size={24} color={colors.muted} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inviteForm}>
-              <Text style={[styles.inputLabel, { color: colors.foreground }]}>Email *</Text>
-              <TextInput
-                value={inviteEmail}
-                onChangeText={setInviteEmail}
-                placeholder="user@example.com"
-                placeholderTextColor={colors.muted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                style={[
-                  styles.inviteInput,
-                  { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
-                ]}
-              />
-
-              <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
-                Name (optional)
-              </Text>
-              <TextInput
-                value={inviteName}
-                onChangeText={setInviteName}
-                placeholder="John Doe"
-                placeholderTextColor={colors.muted}
-                style={[
-                  styles.inviteInput,
-                  { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
-                ]}
-              />
-
-              <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
-                Assign Role
-              </Text>
-              <View style={styles.roleGrid}>
-                {allRoles.map((role) => (
-                  <TouchableOpacity
-                    key={role}
-                    onPress={() => setInviteRole(role)}
-                    style={[
-                      styles.roleOption,
-                      {
-                        backgroundColor:
-                          inviteRole === role ? `${ROLE_COLORS[role]}20` : colors.surface,
-                        borderColor: inviteRole === role ? ROLE_COLORS[role] : colors.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: inviteRole === role ? ROLE_COLORS[role] : colors.foreground,
-                        fontWeight: inviteRole === role ? "600" : "400",
-                        fontSize: 13,
-                      }}
-                    >
-                      {role.charAt(0).toUpperCase() + role.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <TouchableOpacity
-                onPress={sendInvitation}
-                disabled={inviting || !inviteEmail.trim()}
-                style={[
-                  styles.sendInviteButton,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: inviting || !inviteEmail.trim() ? 0.5 : 1,
-                  },
+            <SwipeDownSheet
+              visible={inviteModalVisible}
+              onClose={() => setInviteModalVisible(false)}
+              style={[
+                styles.modalContent,
+                { backgroundColor: colors.background },
+                Platform.OS === "ios" && inviteKeyboardHeight > 0
+                  ? { marginBottom: Math.max(inviteKeyboardHeight - 12, 0) }
+                  : null,
+              ]}
+            >
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={[
+                  styles.inviteScrollContent,
+                  inviteKeyboardHeight > 0 ? { paddingBottom: 16 } : null,
                 ]}
               >
-                {inviting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <IconSymbol name="paperplane.fill" size={18} color="#fff" />
-                    <Text style={{ color: "#fff", fontWeight: "600", marginLeft: 8 }}>
-                      Send Invitation
+                  <View style={styles.modalHeader}>
+                    <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                      Invite New User
                     </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
+                    <TouchableOpacity onPress={() => setInviteModalVisible(false)}>
+                      <IconSymbol name="xmark" size={24} color={colors.muted} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.inviteForm}>
+                    <Text style={[styles.inputLabel, { color: colors.foreground }]}>Email *</Text>
+                    <TextInput
+                      value={inviteEmail}
+                      onChangeText={setInviteEmail}
+                      placeholder="user@example.com"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      style={[
+                        styles.inviteInput,
+                        { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
+                      ]}
+                    />
+
+                    <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
+                      Name (optional)
+                    </Text>
+                    <TextInput
+                      value={inviteName}
+                      onChangeText={setInviteName}
+                      placeholder="John Doe"
+                      placeholderTextColor={colors.muted}
+                      style={[
+                        styles.inviteInput,
+                        { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
+                      ]}
+                    />
+
+                    <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
+                      Assign Role
+                    </Text>
+                    <View style={styles.roleGrid}>
+                      {allRoles.map((role) => (
+                        <TouchableOpacity
+                          key={role}
+                          onPress={() => setInviteRole(role)}
+                          style={[
+                            styles.roleOption,
+                            {
+                              backgroundColor:
+                                inviteRole === role ? `${ROLE_COLORS[role]}20` : colors.surface,
+                              borderColor: inviteRole === role ? ROLE_COLORS[role] : colors.border,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: inviteRole === role ? ROLE_COLORS[role] : colors.foreground,
+                              fontWeight: inviteRole === role ? "600" : "400",
+                              fontSize: 13,
+                            }}
+                          >
+                            {role.charAt(0).toUpperCase() + role.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={sendInvitation}
+                      disabled={inviting || !inviteEmail.trim()}
+                      style={[
+                        styles.sendInviteButton,
+                        {
+                          backgroundColor: colors.primary,
+                          opacity: inviting || !inviteEmail.trim() ? 0.5 : 1,
+                        },
+                      ]}
+                    >
+                      {inviting ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <IconSymbol name="paperplane.fill" size={18} color="#fff" />
+                          <Text style={{ color: "#fff", fontWeight: "600", marginLeft: 8 }}>
+                            Send Invitation
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+              </ScrollView>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1784,8 +1838,12 @@ const styles = StyleSheet.create({
   avatarImage: {
     ...StyleSheet.absoluteFillObject,
   },
-  headerButtons: {
+  headerButtonsRow: {
     flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    rowGap: 8,
+    marginTop: 12,
     gap: 8,
   },
   headerButton: {
@@ -2053,6 +2111,9 @@ const styles = StyleSheet.create({
   },
   inviteForm: {
     paddingTop: 8,
+  },
+  inviteScrollContent: {
+    paddingBottom: 24,
   },
   inputLabel: {
     fontSize: 14,

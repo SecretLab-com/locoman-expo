@@ -1,4 +1,5 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -473,7 +474,7 @@ export default function UsersScreen() {
       });
       
       // Start impersonation
-      startImpersonation(selectedUser as any);
+      await startImpersonation(selectedUser as any);
       
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -1260,11 +1261,15 @@ export default function UsersScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable
-            className="bg-background"
-            style={styles.modalContent}
             onPress={(e) => e.stopPropagation()}
           >
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <SwipeDownSheet
+              visible={modalVisible}
+              onClose={closeModal}
+              className="bg-background"
+              style={styles.modalContent}
+            >
+              <ScrollView showsVerticalScrollIndicator={false}>
               {selectedUser && !activityLogVisible && (
                 <>
                   {/* Modal Header */}
@@ -1569,7 +1574,8 @@ export default function UsersScreen() {
                   )}
                 </>
               )}
-            </ScrollView>
+              </ScrollView>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1586,11 +1592,15 @@ export default function UsersScreen() {
           onPress={() => setBulkActionModalVisible(false)}
         >
           <Pressable
-            className="bg-background"
-            style={styles.modalContent}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
+            <SwipeDownSheet
+              visible={bulkActionModalVisible}
+              onClose={() => setBulkActionModalVisible(false)}
+              className="bg-background"
+              style={styles.modalContent}
+            >
+              <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                 Bulk Actions ({selectedUserIds.size} users)
               </Text>
@@ -1661,6 +1671,7 @@ export default function UsersScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1677,11 +1688,15 @@ export default function UsersScreen() {
           onPress={() => setInviteModalVisible(false)}
         >
           <Pressable
-            className="bg-background"
-            style={styles.modalContent}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
+            <SwipeDownSheet
+              visible={inviteModalVisible}
+              onClose={() => setInviteModalVisible(false)}
+              className="bg-background"
+              style={styles.modalContent}
+            >
+              <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                 Invite New User
               </Text>
@@ -1772,6 +1787,7 @@ export default function UsersScreen() {
                 )}
               </TouchableOpacity>
             </View>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>

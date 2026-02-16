@@ -459,7 +459,7 @@ export default function CoordinatorHomeScreen() {
           <View className="flex-row gap-3">
             {topTrainers.map((trainer) => (
               <TouchableOpacity
-                key={trainer.name}
+                key={trainer.id}
                 onPress={async () => {
                   await haptics.light();
                   router.push(`/trainer/${trainer.id}` as any);
@@ -505,7 +505,7 @@ export default function CoordinatorHomeScreen() {
           <View className="flex-row gap-3">
             {topBundles.map((bundle) => (
               <TouchableOpacity
-                key={bundle.title}
+                key={bundle.id}
                 onPress={async () => {
                   await haptics.light();
                   router.push(`/bundle/${bundle.id}` as any);

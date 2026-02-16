@@ -20,6 +20,20 @@ function getDefaultNativeReturnTo(): string {
   return process.env.OAUTH_NATIVE_RETURN_TO || "locomotivate://oauth/callback";
 }
 
+function parseStateRedirectUri(rawState: unknown): string | null {
+  if (typeof rawState !== "string" || rawState.length === 0) return null;
+  try {
+    const decoded = Buffer.from(rawState, "base64").toString("utf8");
+    const parsed = JSON.parse(decoded) as { redirectUri?: unknown };
+    if (typeof parsed.redirectUri !== "string") return null;
+    const redirectUri = parsed.redirectUri.trim();
+    if (!/^https?:\/\//i.test(redirectUri)) return null;
+    return redirectUri.replace(/\/+$/g, "");
+  } catch {
+    return null;
+  }
+}
+
 function appendParam(target: URL, key: string, value: unknown) {
   if (typeof value === "string" && value.length > 0) {
     target.searchParams.set(key, value);
@@ -35,7 +49,12 @@ function appendParam(target: URL, key: string, value: unknown) {
 }
 
 function buildNativeCallbackTarget(req: Request): string {
-  const returnTo = (req.query.returnTo as string) || getDefaultNativeReturnTo();
+  const explicitReturnTo = typeof req.query.returnTo === "string" ? req.query.returnTo.trim() : "";
+  const stateRedirectUri = parseStateRedirectUri(req.query.state);
+  const returnTo =
+    explicitReturnTo ||
+    (stateRedirectUri ? `${stateRedirectUri}/oauth/callback` : "") ||
+    getDefaultNativeReturnTo();
   const deepLink = new URL(returnTo);
   for (const [key, value] of Object.entries(req.query)) {
     if (key === "returnTo") continue;

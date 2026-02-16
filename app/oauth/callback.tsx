@@ -14,6 +14,15 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+function isMissingCodeVerifierError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = (error.message || "").toLowerCase();
+  return (
+    message.includes("code verifier") ||
+    message.includes("both auth code and code verifier should be non-empty")
+  );
+}
+
 export default function OAuthCallback() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -32,6 +41,24 @@ export default function OAuthCallback() {
           hasAccessToken: !!params.access_token,
           platform: Platform.OS,
         });
+
+        // If a session already exists, this callback has already been processed
+        // (common on iOS when deep-link handoff completes and callback route re-renders).
+        const {
+          data: { session: preExistingSession },
+        } = await supabase.auth.getSession();
+        if (preExistingSession) {
+          console.log("[OAuth Callback] Session already present:", preExistingSession.user.email);
+          setStatus("success");
+          triggerAuthRefresh();
+          if (Platform.OS === "web" && typeof window !== "undefined") {
+            window.location.replace("/");
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            router.replace("/");
+          }
+          return;
+        }
 
         if (Platform.OS === "web") {
           let resolvedSession = (await supabase.auth.getSession()).data.session ?? null;
@@ -141,7 +168,12 @@ export default function OAuthCallback() {
         if (!params.access_token && params.code) {
           console.log("[OAuth Callback] Exchanging code for session...");
           const { error } = await supabase.auth.exchangeCodeForSession(params.code as string);
-          if (error) throw error;
+          if (error) {
+            // On iOS redirect handoffs, a prior successful exchange can consume the
+            // verifier before this screen runs. In that case, continue by checking session.
+            if (!isMissingCodeVerifierError(error)) throw error;
+            console.warn("[OAuth Callback] Code verifier unavailable; checking existing session...");
+          }
         }
 
         // 4. Check if we now have a valid session

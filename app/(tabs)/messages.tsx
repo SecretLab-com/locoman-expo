@@ -8,7 +8,7 @@ import { useWebSocket } from "@/hooks/use-websocket";
 import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -297,6 +297,7 @@ export default function MessagesScreen() {
 
   return (
     <ScreenContainer className="flex-1 relative">
+      <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
       {/* Header */}
       <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
         <View>
