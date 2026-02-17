@@ -44,10 +44,11 @@ function getInviteBaseUrl(): string {
 }
 
 function getInviteLink(token: string): string {
-  const path = `/invite/${encodeURIComponent(token)}`;
+  const tokenParam = encodeURIComponent(token);
+  const path = `/register?inviteToken=${tokenParam}`;
   const base = getInviteBaseUrl();
   if (base) return `${base}${path}`;
-  return `locomotivate://${path.replace(/^\//, "")}`;
+  return `locomotivate://register?inviteToken=${tokenParam}`;
 }
 
 function buildInviteHtml(input: InviteEmailInput, inviteLink: string): string {
@@ -119,7 +120,7 @@ export function getInviteEmailFailureUserMessage(error: unknown): string {
   return "Invite email could not be sent due to a mail provider issue. You can still share the invite link manually.";
 }
 
-export async function sendInviteEmail(input: InviteEmailInput): Promise<void> {
+export async function sendInviteEmail(input: InviteEmailInput): Promise<string> {
   if (!ENV.resendApiKey) {
     throw new InviteEmailError("INVITE_EMAIL_CONFIG_MISSING", "RESEND_API_KEY is not configured");
   }
@@ -132,7 +133,7 @@ export async function sendInviteEmail(input: InviteEmailInput): Promise<void> {
   const html = buildInviteHtml(input, inviteLink);
   const text = buildInviteText(input, inviteLink);
 
-  const { error } = await resend.emails.send({
+  const { data, error } = await resend.emails.send({
     from: ENV.resendFromEmail,
     to: input.to,
     subject: "You are invited to Bright Coach",
@@ -153,4 +154,14 @@ export async function sendInviteEmail(input: InviteEmailInput): Promise<void> {
     }
     throw new InviteEmailError("INVITE_EMAIL_PROVIDER_ERROR", `Resend failed: ${error.message}`);
   }
+
+  // Treat missing provider message ID as a failed/indeterminate send.
+  if (!data?.id) {
+    throw new InviteEmailError(
+      "INVITE_EMAIL_PROVIDER_ERROR",
+      "Resend failed: provider did not return a message id",
+    );
+  }
+
+  return data.id;
 }

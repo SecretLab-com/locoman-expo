@@ -48,6 +48,16 @@ export interface ShopifyImage {
   alt: string;
 }
 
+export interface ShopifyCollection {
+  id: number;
+  title: string;
+  handle: string;
+  image: { src?: string } | null;
+  channels: string[];
+  shopEnabled: boolean;
+  updated_at?: string;
+}
+
 export interface ShopifyOrder {
   id: number;
   order_number: number;
@@ -265,6 +275,200 @@ export async function fetchProducts(): Promise<ShopifyProduct[]> {
 
   const response = await shopifyRequest<{ products: ShopifyProduct[] }>("/products.json?limit=250");
   return response.products;
+}
+
+/**
+ * Fetch all published Shopify collections (custom + smart)
+ */
+export async function fetchCollections(): Promise<ShopifyCollection[]> {
+  if (MOCK_SHOPIFY) {
+    const seen = new Set<string>();
+    const mockCollections: ShopifyCollection[] = [];
+    for (const product of mockProducts) {
+      const handle = (product.product_type || "collection")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      if (!handle || seen.has(handle)) continue;
+      seen.add(handle);
+      mockCollections.push({
+        id: product.id,
+        title: product.product_type || "Collection",
+        handle,
+        image: { src: product.images?.[0]?.src },
+        channels: ["Shop"],
+        shopEnabled: true,
+      });
+    }
+    return mockCollections;
+  }
+
+  const graphqlQuery = `
+    query CollectionsWithPublications {
+      collections(first: 250) {
+        edges {
+          node {
+            id
+            title
+            handle
+            updatedAt
+            image {
+              url
+            }
+            publications(first: 20) {
+              edges {
+                node {
+                  publication {
+                    name
+                  }
+                  channel {
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  let publicationScopesUnavailable = false;
+  try {
+    const response = await fetch(`${SHOPIFY_BASE_URL}/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+      },
+      body: JSON.stringify({ query: graphqlQuery }),
+    });
+    if (!response.ok) {
+      throw new Error(`GraphQL request failed with status ${response.status}`);
+    }
+    const payload = await response.json();
+    if (payload?.errors?.length) {
+      throw new Error(String(payload.errors[0]?.message || "Unknown GraphQL error"));
+    }
+
+    const edges = payload?.data?.collections?.edges || [];
+    const byHandle = new Map<string, ShopifyCollection>();
+    for (const edge of edges) {
+      const node = edge?.node;
+      const rawId = String(node?.id || "");
+      const idMatch = rawId.match(/Collection\/(\d+)$/);
+      const id = idMatch ? Number(idMatch[1]) : 0;
+      const handle = String(node?.handle || "").trim().toLowerCase();
+      if (!id || !handle) continue;
+      const channels = (node?.publications?.edges || [])
+        .map((publicationEdge: any) =>
+          String(
+            publicationEdge?.node?.publication?.name ||
+              publicationEdge?.node?.channel?.name ||
+              publicationEdge?.node?.name ||
+              "",
+          ).trim(),
+        )
+        .filter(Boolean);
+      // Explicitly require the "Shop" channel (case-insensitive exact word match).
+      const shopEnabled = channels.some((name: string) => /\bshop\b/i.test(name));
+      const mapped: ShopifyCollection = {
+        id,
+        title: String(node?.title || handle),
+        handle,
+        image: node?.image?.url ? { src: String(node.image.url) } : null,
+        channels,
+        shopEnabled,
+        updated_at: node?.updatedAt || undefined,
+      };
+
+      if (!byHandle.has(handle)) {
+        byHandle.set(handle, mapped);
+        continue;
+      }
+      const existing = byHandle.get(handle)!;
+      if (!existing.image?.src && mapped.image?.src) {
+        byHandle.set(handle, mapped);
+      }
+    }
+    return Array.from(byHandle.values());
+  } catch (graphError) {
+    console.warn("[Shopify] Falling back to REST collections fetch:", graphError);
+    const message = String((graphError as Error)?.message || graphError || "").toLowerCase();
+    publicationScopesUnavailable =
+      message.includes("read_publications") || message.includes("access denied for publications");
+  }
+
+  const [custom, smart] = await Promise.all([
+    shopifyRequest<{ custom_collections: Array<{ id: number; title: string; handle: string; image?: { src?: string } | null; updated_at?: string; published_scope?: string }> }>("/custom_collections.json?limit=250"),
+    shopifyRequest<{ smart_collections: Array<{ id: number; title: string; handle: string; image?: { src?: string } | null; updated_at?: string; published_scope?: string }> }>("/smart_collections.json?limit=250"),
+  ]);
+
+  const byHandle = new Map<string, ShopifyCollection>();
+  for (const collection of [...(custom.custom_collections || []), ...(smart.smart_collections || [])]) {
+    const handle = String(collection.handle || "").trim().toLowerCase();
+    if (!handle) continue;
+    const scope = String(collection.published_scope || "").toLowerCase();
+    // REST collection payload does not provide per-channel publication list.
+    // Keep channel list explicit and do not infer "Shop" here.
+    const channels = scope === "global" || scope === "web" ? ["Online Store"] : [];
+    const shopEnabledFromScope = scope === "global" || scope === "web";
+    const mapped: ShopifyCollection = {
+      id: Number(collection.id),
+      title: String(collection.title || handle),
+      handle,
+      image: collection.image?.src ? { src: collection.image.src } : null,
+      channels,
+      // If publication scopes are unavailable, fail-open so visible storefront
+      // collections (e.g. Protein, Energy Drinks) still appear in app.
+      shopEnabled: publicationScopesUnavailable ? shopEnabledFromScope : false,
+      updated_at: collection.updated_at,
+    };
+    if (!byHandle.has(handle)) {
+      byHandle.set(handle, mapped);
+      continue;
+    }
+    const existing = byHandle.get(handle)!;
+    if (!existing.image?.src && mapped.image?.src) {
+      byHandle.set(handle, mapped);
+    }
+  }
+
+  return Array.from(byHandle.values());
+}
+
+/**
+ * Fetch product IDs that belong to each collection.
+ */
+export async function fetchCollectionProductMap(
+  collectionIds: number[],
+): Promise<Record<number, number[]>> {
+  if (MOCK_SHOPIFY) {
+    const map: Record<number, number[]> = {};
+    for (const id of collectionIds) {
+      map[id] = [];
+    }
+    return map;
+  }
+
+  const map: Record<number, number[]> = {};
+  await Promise.all(
+    collectionIds.map(async (collectionId) => {
+      try {
+        const response = await shopifyRequest<{
+          collects: Array<{ product_id?: number | null }>;
+        }>(`/collects.json?collection_id=${collectionId}&limit=250`);
+        const productIds = (response.collects || [])
+          .map((collect) => Number(collect.product_id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+        map[collectionId] = Array.from(new Set(productIds));
+      } catch (error) {
+        console.warn(`[Shopify] Unable to fetch collection products for ${collectionId}:`, error);
+        map[collectionId] = [];
+      }
+    }),
+  );
+  return map;
 }
 
 /**

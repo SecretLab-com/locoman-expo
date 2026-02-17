@@ -7,7 +7,7 @@ import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -51,8 +51,26 @@ type InvitationData = {
 
 export default function InvitationScreen() {
   const colors = useColors();
-  const { isAuthenticated, isClient } = useAuthContext();
+  const { isAuthenticated, isClient, effectiveRole, loading: authLoading } = useAuthContext();
   const { token } = useLocalSearchParams<{ token: string }>();
+
+  useEffect(() => {
+    if (!token) return;
+    if (authLoading) return;
+    if (isAuthenticated) return;
+    router.replace({
+      pathname: "/register",
+      params: { inviteToken: token },
+    } as any);
+  }, [authLoading, isAuthenticated, token]);
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    navigateToHome(effectiveRole);
+  };
 
   const invitationQuery = trpc.catalog.invitation.useQuery(
     { token: token || "" },
@@ -162,7 +180,7 @@ export default function InvitationScreen() {
             if (!invitation) return;
             try {
               await declineInvitation.mutateAsync({ token: invitation.token });
-              router.back();
+              handleBack();
             } catch (error) {
               console.error("Invitation decline failed:", error);
               Alert.alert("Error", "Failed to decline invitation. Please try again.");
@@ -230,7 +248,7 @@ export default function InvitationScreen() {
           This invitation link is invalid or has expired.
         </Text>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleBack}
           className="bg-primary px-6 py-3 rounded-xl mt-6"
         >
           <Text className="text-white font-semibold">Go Back</Text>
@@ -248,7 +266,7 @@ export default function InvitationScreen() {
           This invitation has expired. Please contact {invitation.trainerName} for a new one.
         </Text>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleBack}
           className="bg-primary px-6 py-3 rounded-xl mt-6"
         >
           <Text className="text-white font-semibold">Go Back</Text>
@@ -284,7 +302,7 @@ export default function InvitationScreen() {
           This invitation has already been declined.
         </Text>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleBack}
           className="bg-primary px-6 py-3 rounded-xl mt-6"
         >
           <Text className="text-white font-semibold">Go Back</Text>
@@ -298,7 +316,7 @@ export default function InvitationScreen() {
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
-          <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
+          <TouchableOpacity onPress={handleBack} className="p-2 -ml-2">
             <IconSymbol name="xmark" size={24} color={colors.foreground} />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleShare} className="p-2 -mr-2">

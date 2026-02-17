@@ -3,6 +3,7 @@ import {
   clearPendingOnboardingContext,
   getPendingOnboardingContext,
 } from "@/lib/onboarding-context";
+import { getHomeRoute } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import { router } from "expo-router";
 import { useEffect, useRef } from "react";
@@ -12,9 +13,10 @@ import { useEffect, useRef } from "react";
  * Example intents: deep-link invite acceptance and trainer join requests.
  */
 export function PostAuthOnboardingResolver() {
-  const { isAuthenticated, profileHydrated, effectiveRole } = useAuthContext();
+  const { isAuthenticated, profileHydrated, effectiveRole, refresh } = useAuthContext();
   const processingRef = useRef(false);
   const requestToJoin = trpc.myTrainers.requestToJoin.useMutation();
+  const acceptUserInvitation = trpc.auth.acceptUserInvitation.useMutation();
 
   useEffect(() => {
     if (!isAuthenticated || !profileHydrated || processingRef.current) return;
@@ -28,6 +30,22 @@ export function PostAuthOnboardingResolver() {
       processingRef.current = true;
       try {
         if (pending.inviteToken) {
+          try {
+            const result = await acceptUserInvitation.mutateAsync({
+              token: pending.inviteToken,
+            });
+            if (result.matched) {
+              await clearPendingOnboardingContext();
+              await refresh();
+              if (!cancelled) {
+                router.replace(getHomeRoute(result.role || effectiveRole) as any);
+              }
+              return;
+            }
+          } catch {
+            // Not a manager/coordinator role invite token or not applicable to this user.
+          }
+
           await clearPendingOnboardingContext();
           if (!cancelled) {
             router.replace({
@@ -67,7 +85,7 @@ export function PostAuthOnboardingResolver() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, profileHydrated, effectiveRole, requestToJoin]);
+  }, [isAuthenticated, profileHydrated, effectiveRole, requestToJoin, acceptUserInvitation, refresh]);
 
   return null;
 }

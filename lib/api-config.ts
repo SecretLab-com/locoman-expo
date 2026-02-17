@@ -141,3 +141,30 @@ export function getApiBaseUrl(): string {
 export function getTrpcUrl(): string {
   return `${getApiBaseUrl()}/api/trpc`;
 }
+
+/**
+ * Get fallback tRPC URLs used when the primary host is unreachable
+ * from certain mobile network contexts (for example, DNS/proxy edge cases).
+ */
+export function getTrpcFallbackUrls(): string[] {
+  const explicitFallback =
+    process.env.EXPO_PUBLIC_API_BASE_URL_FALLBACK ||
+    process.env.EXPO_PUBLIC_NATIVE_API_URL_FALLBACK ||
+    "";
+
+  const primary = getApiBaseUrl();
+  const candidates = new Set<string>();
+
+  if (explicitFallback) {
+    candidates.add(`${explicitFallback.replace(/\/+$/g, "")}/api/trpc`);
+  }
+
+  // Prefer a stable direct Cloud Run fallback when using the custom domain.
+  if (primary.includes("services.bright.coach")) {
+    candidates.add("https://locoman-backend-870100645593.us-central1.run.app/api/trpc");
+  }
+
+  // Never include the already-selected URL as a fallback.
+  candidates.delete(getTrpcUrl());
+  return Array.from(candidates);
+}

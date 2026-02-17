@@ -6,10 +6,11 @@ import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { getHomeRoute } from "@/lib/navigation";
+import { clearPendingOnboardingContext, savePendingOnboardingContext } from "@/lib/onboarding-context";
 import { supabase } from "@/lib/supabase-client";
 import { TEST_LOGIN_ACCOUNTS } from "@/constants/test-login-accounts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,6 +31,7 @@ const FormView = Platform.OS === 'web' ? 'form' : View;
 
 export default function LoginScreen() {
   const colors = useColors();
+  const { inviteToken } = useLocalSearchParams<{ inviteToken?: string }>();
   const { isAuthenticated, loading: authLoading } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -108,6 +110,11 @@ export default function LoginScreen() {
       }
 
       if (data.session) {
+        if (typeof inviteToken === "string" && inviteToken.trim().length > 0) {
+          await savePendingOnboardingContext({ inviteToken: inviteToken.trim() });
+        } else {
+          await clearPendingOnboardingContext();
+        }
         await haptics.success();
         console.log("[Login] Supabase sign-in successful:", data.user?.email);
 
@@ -134,6 +141,13 @@ export default function LoginScreen() {
 
   const handleRegisterPress = async () => {
     await haptics.light();
+    if (typeof inviteToken === "string" && inviteToken.trim().length > 0) {
+      router.push({
+        pathname: "/register",
+        params: { inviteToken: inviteToken.trim() },
+      } as any);
+      return;
+    }
     router.push("/register" as any);
   };
 

@@ -7,26 +7,29 @@ import { useCart } from "@/contexts/cart-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { useVideoPlayer, VideoView } from "expo-video";
 import { router, useLocalSearchParams } from "expo-router";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Easing,
-    Image,
-    Modal,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-    useWindowDimensions,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  Image,
+  ImageBackground,
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from "react-native";
 import RenderHTML from "react-native-render-html";
+
+import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
 
 type Product = {
   id: string;
@@ -59,7 +62,15 @@ type Bundle = {
   cadence: "one_time" | "weekly" | "monthly" | null;
 };
 
-import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
+type Collection = {
+  id: number;
+  title: string;
+  handle: string;
+  imageUrl: string | null;
+  productIds?: number[];
+  channels?: string[];
+  updatedAt: string | null;
+};
 
 export default function ProductsScreen() {
   const colors = useColors();
@@ -72,42 +83,30 @@ export default function ProductsScreen() {
     ? "rgba(0, 0, 0, 0.5)"
     : "rgba(15, 23, 42, 0.18)";
   const { addItem } = useCart();
-  const [viewMode, setViewMode] = useState<"categories" | "az">("categories");
+  const [viewMode, setViewMode] = useState<"bundles" | "categories" | "products">("categories");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [sortBy, setSortBy] = useState("popular");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [mediaModalOpen, setMediaModalOpen] = useState(false);
-  const [mediaItems, setMediaItems] = useState<Array<{ type: "image" | "video"; uri: string }>>([]);
+  const [mediaItems, setMediaItems] = useState<{ type: "image" | "video"; uri: string }[]>([]);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
-  const { sort, q } = useLocalSearchParams();
+  const { q } = useLocalSearchParams();
 
   useEffect(() => {
-    const sortParam = Array.isArray(sort) ? sort[0] : sort;
-    if (typeof sortParam === "string") {
-      const allowed = ["popular", "price_low", "price_high", "name"];
-      if (allowed.includes(sortParam)) {
-        setSortBy(sortParam);
-      }
-    }
     const searchParam = Array.isArray(q) ? q[0] : q;
     if (typeof searchParam === "string" && searchParam.trim().length > 0) {
-      setViewMode("az");
+      setViewMode("products");
       setSearchQuery(searchParam);
     }
-  }, [sort, q]);
+  }, [q]);
 
   useEffect(() => {
-    if (viewMode === "categories") {
-      setSelectedCategory("bundle");
-      setSearchQuery("");
-    } else {
+    if (viewMode !== "products") {
       setSelectedCategory("all");
-      setSortBy("name");
+      setSearchQuery("");
     }
   }, [viewMode]);
 
@@ -122,6 +121,9 @@ export default function ProductsScreen() {
     staleTime: 60000,
   });
   const { data: bundles } = trpc.catalog.bundles.useQuery(undefined, {
+    staleTime: 60000,
+  });
+  const { data: collections = [] } = trpc.catalog.collections.useQuery(undefined, {
     staleTime: 60000,
   });
   const shopifySync = trpc.shopify.sync.useMutation({
@@ -164,16 +166,23 @@ export default function ProductsScreen() {
   });
 
   // Category options
-  const categories = [
-    { value: "protein", label: "Protein" },
-    { value: "pre_workout", label: "Pre-Workout" },
-    { value: "post_workout", label: "Post-Workout" },
-    { value: "recovery", label: "Recovery" },
-    { value: "strength", label: "Strength" },
-    { value: "wellness", label: "Wellness" },
-    { value: "hydration", label: "Hydration" },
-    { value: "vitamins", label: "Vitamins" },
-  ];
+  const normalizeCategoryValue = useCallback((value: string | null | undefined) => {
+    const raw = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (!raw) return "";
+    const aliases: Record<string, string> = {
+      preworkout: "pre_workout",
+      pre_workout: "pre_workout",
+      postworkout: "post_workout",
+      post_workout: "post_workout",
+      amino_acids: "recovery",
+      hydration_electrolytes: "hydration",
+    };
+    return aliases[raw] || raw;
+  }, []);
 
   const baseProducts = useMemo(() => {
     if (!products) return [];
@@ -189,42 +198,158 @@ export default function ProductsScreen() {
     return Array.from(deduped.values());
   }, [products]);
 
+  const categories = useMemo(() => {
+    const fromCollections = (collections as Collection[])
+      .map((collection) => {
+        const value = normalizeCategoryValue(collection.handle || collection.title);
+        if (!value) return null;
+        return {
+          value,
+          label: collection.title || value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        };
+      })
+      .filter((item): item is { value: string; label: string } => Boolean(item));
+
+    const byValue = new Map<string, { value: string; label: string }>();
+    for (const item of fromCollections) {
+      if (!byValue.has(item.value)) byValue.set(item.value, item);
+    }
+
+    // Fallback to inferred categories from synced product data if collections are unavailable.
+    if (byValue.size === 0) {
+      for (const product of baseProducts) {
+        const value = normalizeCategoryValue(product.category);
+        if (!value || byValue.has(value)) continue;
+        byValue.set(value, {
+          value,
+          label: value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        });
+      }
+    }
+
+    return Array.from(byValue.values());
+  }, [baseProducts, collections, normalizeCategoryValue]);
+
+  const featuredProductsByCategory = useMemo(() => {
+    const featured = new Map<string, Product>();
+    for (const product of baseProducts) {
+      const key = normalizeCategoryValue(product.category);
+      if (key && !featured.has(key)) {
+        featured.set(key, product);
+      }
+    }
+    return featured;
+  }, [baseProducts, normalizeCategoryValue]);
+
+  const categorySections = useMemo(() => {
+    const collectionsByValue = new Map<string, Collection>();
+    for (const collection of collections as Collection[]) {
+      const key = normalizeCategoryValue(collection.handle || collection.title);
+      if (!key || collectionsByValue.has(key)) continue;
+      collectionsByValue.set(key, collection);
+    }
+
+    const tokenized = (value: string) =>
+      value
+        .split("_")
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0);
+
+    const categoryMatches = (collectionKey: string, productCategoryKey: string) => {
+      if (!collectionKey || !productCategoryKey) return false;
+      if (collectionKey === productCategoryKey) return true;
+      if (collectionKey.includes(productCategoryKey) || productCategoryKey.includes(collectionKey)) return true;
+      const collectionTokens = tokenized(collectionKey);
+      const productTokens = tokenized(productCategoryKey);
+      if (collectionTokens.length === 0 || productTokens.length === 0) return false;
+      return collectionTokens.some((token) => productTokens.includes(token));
+    };
+
+    const productsByCategory = new Map<string, Product[]>();
+    for (const product of baseProducts) {
+      const key = normalizeCategoryValue(product.category);
+      if (!key) continue;
+      const list = productsByCategory.get(key) ?? [];
+      list.push(product);
+      productsByCategory.set(key, list);
+    }
+
+    return categories.map((category) => {
+      const categoryTokens = tokenized(category.value).filter((token) => token.length > 2);
+      const collection = collectionsByValue.get(category.value);
+      const collectionProductIds = new Set(
+        (collection?.productIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      );
+      const collectionMatches = collectionProductIds.size
+        ? baseProducts.filter((product) => {
+            const shopifyId = Number(product.shopifyProductId);
+            return Number.isFinite(shopifyId) && collectionProductIds.has(shopifyId);
+          })
+        : [];
+      const directMatches = productsByCategory.get(category.value) ?? [];
+      const fallbackMatches = directMatches.length
+        ? []
+        : baseProducts.filter((product) => {
+            const productKey = normalizeCategoryValue(product.category);
+            if (categoryMatches(category.value, productKey)) return true;
+            if (!categoryTokens.length) return false;
+            const haystack = `${product.name} ${product.brand || ""} ${product.description || ""}`.toLowerCase();
+            return categoryTokens.some((token) => haystack.includes(token.replace(/_/g, " ")));
+          });
+      const previewProducts = [
+        ...(collectionMatches.length
+          ? collectionMatches
+          : directMatches.length
+            ? directMatches
+            : fallbackMatches),
+      ].sort(
+        (a, b) => a.name.localeCompare(b.name),
+      );
+      const fallbackProduct = featuredProductsByCategory.get(category.value);
+      return {
+        value: category.value,
+        label: category.label,
+        imageUrl: collection?.imageUrl || fallbackProduct?.imageUrl || null,
+        previewProducts,
+      };
+    }).filter((section) => section.previewProducts.length > 0);
+  }, [baseProducts, categories, collections, featuredProductsByCategory, normalizeCategoryValue]);
+
+  const categoryProductIdsByValue = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const section of categorySections) {
+      map.set(
+        section.value,
+        new Set(section.previewProducts.map((product) => product.id)),
+      );
+    }
+    return map;
+  }, [categorySections]);
+
+  useEffect(() => {
+    if (viewMode !== "categories") return;
+    if (selectedCategory === "all") return;
+    if (categories.some((category) => category.value === selectedCategory)) return;
+    setSelectedCategory("all");
+  }, [categories, selectedCategory, viewMode]);
+
   const filteredBundles = useMemo(() => {
     return (bundles as Bundle[] | undefined) ?? [];
   }, [bundles]);
 
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const product of baseProducts) {
-      const key = product.category || "other";
-      counts[key] = (counts[key] || 0) + 1;
-    }
-    return counts;
-  }, [baseProducts]);
-
-  const categoryProducts = useMemo(() => {
+  const filteredProducts = useMemo(() => {
     if (!baseProducts.length) return [];
     let result = baseProducts;
     if (selectedCategory !== "all") {
-      result = result.filter((product) => product.category === selectedCategory);
+      const selectedCategoryProductIds = categoryProductIdsByValue.get(selectedCategory);
+      if (selectedCategoryProductIds && selectedCategoryProductIds.size > 0) {
+        result = result.filter((product) => selectedCategoryProductIds.has(product.id));
+      } else {
+        result = result.filter((product) => normalizeCategoryValue(product.category) === selectedCategory);
+      }
     }
-    if (sortBy === "price_low") {
-      result = [...result].sort(
-        (a: Product, b: Product) => parseFloat(a.price) - parseFloat(b.price),
-      );
-    } else if (sortBy === "price_high") {
-      result = [...result].sort(
-        (a: Product, b: Product) => parseFloat(b.price) - parseFloat(a.price),
-      );
-    } else if (sortBy === "name") {
-      result = [...result].sort((a: Product, b: Product) => a.name.localeCompare(b.name));
-    }
-    return result;
-  }, [baseProducts, selectedCategory, sortBy]);
-
-  const alphaProducts = useMemo(() => {
-    if (!baseProducts.length) return [];
-    let result = baseProducts;
     if (searchQuery.trim().length > 0) {
       const term = searchQuery.toLowerCase();
       result = result.filter(
@@ -235,22 +360,7 @@ export default function ProductsScreen() {
       );
     }
     return [...result].sort((a: Product, b: Product) => a.name.localeCompare(b.name));
-  }, [baseProducts, searchQuery]);
-
-  const alphaBundles = useMemo(() => {
-    const list = (filteredBundles as Bundle[]) ?? [];
-    if (!list.length) return [];
-    let result = list;
-    if (searchQuery.trim().length > 0) {
-      const term = searchQuery.toLowerCase();
-      result = result.filter(
-        (bundle) =>
-          bundle.title.toLowerCase().includes(term) ||
-          (bundle.description || "").toLowerCase().includes(term),
-      );
-    }
-    return [...result].sort((a: Bundle, b: Bundle) => a.title.localeCompare(b.title));
-  }, [filteredBundles, searchQuery]);
+  }, [baseProducts, categoryProductIdsByValue, normalizeCategoryValue, searchQuery, selectedCategory]);
 
   // Handle add to cart
   const handleAddToCart = (product: Product) => {
@@ -275,32 +385,13 @@ export default function ProductsScreen() {
   // Get category label
   const getCategoryLabel = (category: string | null) => {
     if (!category) return null;
-    if (category === "bundle") return "Bundles";
     if (category === "all") return "All Products";
-    const cat = categories.find((c) => c.value === category);
-    return cat?.label || category.replace(/_/g, " ");
+    const normalized = normalizeCategoryValue(category);
+    const cat = categories.find((c) => c.value === normalized);
+    return cat?.label || normalized.replace(/_/g, " ");
   };
 
-  const showingBundles = viewMode === "categories" && selectedCategory === "bundle";
-  const isAzMode = viewMode === "az";
-  const azResults = useMemo(() => {
-    return [
-      ...alphaBundles.map((bundle) => ({ type: "bundle" as const, bundle })),
-      ...alphaProducts.map((product) => ({ type: "product" as const, product })),
-    ];
-  }, [alphaBundles, alphaProducts]);
-  const productsToShow = viewMode === "az" ? alphaProducts : categoryProducts;
-  const featuredProductsByCategory = useMemo(() => {
-    const featured = new Map<string, Product>();
-    for (const product of baseProducts) {
-      if (product.category && !featured.has(product.category)) {
-        featured.set(product.category, product);
-      }
-    }
-    return featured;
-  }, [baseProducts]);
-  const featuredBundle = filteredBundles[0];
-
+  const isProductsMode = viewMode === "products";
   const markImageFailed = (key: string) => {
     setFailedImages((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
   };
@@ -325,7 +416,7 @@ export default function ProductsScreen() {
   const getMediaItems = (product: Product) => {
     const { images, videos } = normalizeMedia(product.media);
     const set = new Set<string>();
-    const items: Array<{ type: "image" | "video"; uri: string }> = [];
+    const items: { type: "image" | "video"; uri: string }[] = [];
     if (product.imageUrl) {
       set.add(product.imageUrl);
       items.push({ type: "image", uri: product.imageUrl });
@@ -358,13 +449,56 @@ export default function ProductsScreen() {
     <ScreenContainer className="flex-1">
       {/* Header */}
       <View className="px-4 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-foreground">Products</Text>
+        <View className="flex-row items-center">
+          <Text className="text-2xl font-bold text-foreground">Products</Text>
+          {effectiveRole === "coordinator" && (
+            <TouchableOpacity
+              onPress={() => {
+                if (syncInFlight) return;
+                setIsSyncing(true);
+                shopifySync.mutate();
+              }}
+              className="flex-row items-center ml-3"
+              accessibilityRole="button"
+              accessibilityLabel="Sync products from Shopify"
+              testID="products-sync-shopify"
+              disabled={syncInFlight}
+              style={{ opacity: syncInFlight ? 0.6 : 1 }}
+            >
+              <Animated.View style={syncInFlight ? { transform: [{ rotate: spinInterpolate }] } : undefined}>
+                <IconSymbol
+                  name="arrow.triangle.2.circlepath"
+                  size={14}
+                  color={syncInFlight ? colors.primary : colors.muted}
+                />
+              </Animated.View>
+              <Text className={`ml-1.5 text-sm ${syncInFlight ? "text-primary font-medium" : "text-muted"}`}>
+                {syncInFlight ? "Syncing..." : "Sync"}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <Text className="text-sm text-muted mt-1">Browse wellness products</Text>
       </View>
 
       {/* Browse Mode Tabs */}
       <View className="px-4 mb-3">
         <View className="flex-row bg-surface border border-border rounded-xl p-1">
+          <TouchableOpacity
+            onPress={() => setViewMode("bundles")}
+            className={`flex-1 py-2 rounded-lg ${viewMode === "bundles" ? "bg-primary" : ""}`}
+            accessibilityRole="button"
+            accessibilityLabel="Browse trainer bundles"
+            testID="products-tab-bundles"
+          >
+            <Text
+              className={`text-center font-medium ${
+                viewMode === "bundles" ? "text-background" : "text-foreground"
+              }`}
+            >
+              Bundles
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setViewMode("categories")}
             className={`flex-1 py-2 rounded-lg ${viewMode === "categories" ? "bg-primary" : ""}`}
@@ -381,25 +515,28 @@ export default function ProductsScreen() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => setViewMode("az")}
-            className={`flex-1 py-2 rounded-lg ${viewMode === "az" ? "bg-primary" : ""}`}
+            onPress={() => {
+              setSelectedCategory("all");
+              setViewMode("products");
+            }}
+            className={`flex-1 py-2 rounded-lg ${viewMode === "products" ? "bg-primary" : ""}`}
             accessibilityRole="button"
-            accessibilityLabel="Browse products alphabetically"
-            testID="products-tab-az"
+            accessibilityLabel="Browse all products"
+            testID="products-tab-products"
           >
             <Text
               className={`text-center font-medium ${
-                viewMode === "az" ? "text-background" : "text-foreground"
+                viewMode === "products" ? "text-background" : "text-foreground"
               }`}
             >
-              A-Z
+              Products
             </Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Search Bar */}
-      {viewMode === "az" && (
+      {isProductsMode && (
         <View className="px-4 mb-3">
           <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
             <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
@@ -420,105 +557,264 @@ export default function ProductsScreen() {
         </View>
       )}
 
-      {viewMode === "categories" && (
-        <View className="px-4 mb-4">
-          <Text className="text-sm font-semibold text-muted uppercase mb-2">Browse by category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mx-4 px-4">
-            <View className="flex-row gap-3">
-              {[
-                { value: "bundle", label: "Bundles", count: filteredBundles.length },
-                ...categories.map((cat) => ({
-                  value: cat.value,
-                  label: cat.label,
-                  count: categoryCounts[cat.value] ?? 0,
-                })),
-                { value: "all", label: "All Products", count: baseProducts.length },
-              ].map((category) => {
-                const isSelected = selectedCategory === category.value;
-                const featuredProduct =
-                  category.value !== "bundle" && category.value !== "all"
-                    ? featuredProductsByCategory.get(category.value)
-                    : undefined;
-                const imageUrl =
-                  category.value === "bundle"
-                    ? featuredBundle?.imageUrl || null
-                    : featuredProduct?.imageUrl || null;
-                return (
-                  <TouchableOpacity
-                    key={category.value}
-                    onPress={() => setSelectedCategory(category.value)}
-                    className={`rounded-full border px-3 py-2 flex-row items-center gap-2 ${
-                      isSelected ? "border-primary bg-primary/10" : "border-border bg-surface"
+      {viewMode === "bundles" && !isLoading && !error && (
+        <ScrollView
+          className="flex-1 px-4"
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => refetch()}
+              tintColor={colors.primary}
+            />
+          }
+        >
+          <View className="pb-24">
+            {filteredBundles.map((bundle) => (
+              <TouchableOpacity
+                key={bundle.id}
+                onPress={() => router.push(`/bundle/${bundle.id}` as any)}
+                className="mb-6 bg-surface rounded-2xl overflow-hidden border border-border"
+                accessibilityRole="button"
+                accessibilityLabel={`View ${bundle.title} bundle`}
+                testID={`bundle-card-${bundle.id}`}
+              >
+                <View className="bg-background items-center justify-center" style={{ height: 210 }}>
+                  {bundle.imageUrl && !failedImages[`bundle-${bundle.id}`] ? (
+                    <Image
+                      source={{ uri: bundle.imageUrl }}
+                      className="w-full h-full"
+                      resizeMode="cover"
+                      onError={() => markImageFailed(`bundle-${bundle.id}`)}
+                    />
+                  ) : (
+                    <IconSymbol name="cube.box" size={48} color={colors.muted} />
+                  )}
+                </View>
+                <View className="p-4">
+                  <Text className="text-lg font-semibold text-foreground" numberOfLines={2}>
+                    {bundle.title}
+                  </Text>
+                  {bundle.price ? (
+                    <Text className="text-base font-bold text-foreground mt-2">
+                      ${parseFloat(bundle.price).toFixed(2)}
+                    </Text>
+                  ) : null}
+                  {bundle.description ? (
+                    <Text className="text-sm text-muted mt-2" numberOfLines={2}>
+                      {stripHtml(bundle.description)}
+                    </Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            ))}
+
+            {filteredBundles.length === 0 && (
+              <View className="items-center py-16">
+                <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                  <IconSymbol name="cube.box" size={32} color={colors.muted} />
+                </View>
+                <Text className="text-lg font-semibold text-foreground mb-2">No bundles available</Text>
+                <Text className="text-muted text-center">
+                  Trainer bundles will appear here when published.
+                </Text>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      )}
+
+      {isProductsMode && (
+        <View className="px-4 mb-3">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View className="flex-row gap-2">
+              <TouchableOpacity
+                onPress={() => setSelectedCategory("all")}
+                className={`px-3 py-2 rounded-full border ${
+                  selectedCategory === "all" ? "bg-primary border-primary" : "bg-surface border-border"
+                }`}
+                accessibilityRole="button"
+                accessibilityLabel="Show all products"
+                testID="products-filter-all"
+              >
+                <Text className={`text-xs font-medium ${selectedCategory === "all" ? "text-background" : "text-foreground"}`}>
+                  All Products
+                </Text>
+              </TouchableOpacity>
+              {categories.map((category) => (
+                <TouchableOpacity
+                  key={category.value}
+                  onPress={() => setSelectedCategory(category.value)}
+                  className={`px-3 py-2 rounded-full border ${
+                    selectedCategory === category.value ? "bg-primary border-primary" : "bg-surface border-border"
+                  }`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Filter products by ${category.label}`}
+                  testID={`products-filter-${category.value}`}
+                >
+                  <Text
+                    className={`text-xs font-medium ${
+                      selectedCategory === category.value ? "text-background" : "text-foreground"
                     }`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Browse ${category.label}`}
-                    testID={`products-category-${category.value}`}
                   >
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (category.value === "bundle" && featuredBundle) {
-                          router.push(`/bundle/${featuredBundle.id}` as any);
-                          return;
-                        }
-                        if (featuredProduct) {
-                          openProductDetail(featuredProduct);
-                        }
-                      }}
-                      className="bg-background items-center justify-center rounded-full overflow-hidden"
-                      accessibilityRole="button"
-                      accessibilityLabel={`Open featured ${category.label}`}
-                      testID={`products-category-featured-${category.value}`}
-                      disabled={category.value === "all" || (!featuredProduct && !featuredBundle)}
-                      style={{ width: 36, height: 36 }}
-                    >
-                    {imageUrl && !failedImages[`category-${category.value}`] ? (
-                        <Image
-                          source={{ uri: imageUrl }}
-                          className="w-full h-full"
-                          resizeMode="cover"
-                          onError={() => markImageFailed(`category-${category.value}`)}
-                        />
-                      ) : (
-                        <IconSymbol name="cube.box" size={28} color={colors.muted} />
-                      )}
-                    </TouchableOpacity>
-                    <View>
-                      <Text className="text-sm font-semibold text-foreground" numberOfLines={1}>
-                        {category.label}
-                      </Text>
-                      <Text className="text-xs text-muted">{category.count}</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
+                    {category.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </ScrollView>
         </View>
       )}
 
-      {canManage && (
-        <View className="flex-row px-4 mb-4">
-          <TouchableOpacity
-            onPress={() => {
-              if (syncInFlight) return;
-              setIsSyncing(true);
-              shopifySync.mutate();
-            }}
-            className="flex-row items-center bg-surface rounded-lg px-3 py-2 border border-border"
-            accessibilityRole="button"
-            accessibilityLabel="Sync products from Shopify"
-            testID="products-sync-shopify"
-            disabled={syncInFlight}
-            style={{ opacity: syncInFlight ? 0.6 : 1 }}
-          >
-            <Animated.View style={syncInFlight ? { transform: [{ rotate: spinInterpolate }] } : undefined}>
-              <IconSymbol name="arrow.triangle.2.circlepath" size={16} color={syncInFlight ? colors.primary : colors.foreground} />
-            </Animated.View>
-            <Text className={`ml-2 text-sm ${syncInFlight ? "text-primary font-medium" : "text-foreground"}`}>
-              {syncInFlight ? "Syncing..." : "Sync"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+      {viewMode === "categories" && !isLoading && !error && (
+        <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
+          <View className="pb-24">
+            {categorySections.map((section) => {
+              const cardBackgroundKey = `category-card-bg-${section.value}`;
+              const hasCardImage = Boolean(section.imageUrl && !failedImages[cardBackgroundKey]);
+              const featuredProduct = section.previewProducts[0] ?? null;
+              return (
+                <View
+                  key={section.value}
+                  className="mb-6 rounded-2xl overflow-hidden"
+                  style={{
+                    width: "100%",
+                    maxWidth: 600,
+                    alignSelf: "center",
+                    borderWidth: 1,
+                    borderColor: colorScheme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+                  }}
+                >
+                  <ImageBackground
+                    source={hasCardImage && section.imageUrl ? { uri: section.imageUrl } : undefined}
+                    resizeMode="cover"
+                    onError={() => markImageFailed(cardBackgroundKey)}
+                    style={{ backgroundColor: colors.surface }}
+                    imageStyle={{ opacity: 0.55 }}
+                  >
+                    <View
+                      className="absolute inset-0"
+                      style={{
+                        backgroundColor:
+                          colorScheme === "dark" ? "rgba(2, 6, 23, 0.48)" : "rgba(248, 250, 252, 0.55)",
+                      }}
+                    />
+
+                    <View className="px-4 pt-4 pb-3">
+                      <Text
+                        className="text-white font-semibold"
+                        style={{ fontSize: 13, letterSpacing: 3 }}
+                        numberOfLines={1}
+                      >
+                        {section.label.toUpperCase()}
+                      </Text>
+                    </View>
+
+                    {section.previewProducts.length > 0 ? (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}
+                      >
+                        <View className="flex-row gap-3">
+                          {section.previewProducts.slice(0, 6).map((product) => {
+                            const imageKey = `category-preview-${section.value}-${product.id}`;
+                            const fallbackImageKey = `category-hero-${section.value}`;
+                            const previewImageUrl =
+                              product.imageUrl ||
+                              (failedImages[fallbackImageKey] ? null : section.imageUrl);
+                            const hasPreviewImage = Boolean(previewImageUrl && !failedImages[imageKey]);
+                            return (
+                              <TouchableOpacity
+                                key={product.id}
+                                onPress={() => openProductDetail(product)}
+                                style={{ width: 100, height: 100, borderRadius: 14, overflow: "hidden" }}
+                                accessibilityRole="button"
+                                accessibilityLabel={`View ${product.name} in ${section.label}`}
+                                testID={`products-category-preview-${section.value}-${product.id}`}
+                              >
+                                <View
+                                  className="flex-1 items-center justify-center"
+                                  style={{
+                                    backgroundColor:
+                                      colorScheme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.06)",
+                                    borderRadius: 14,
+                                  }}
+                                >
+                                  {hasPreviewImage && previewImageUrl ? (
+                                    <Image
+                                      source={{ uri: previewImageUrl }}
+                                      style={{ width: 100, height: 100, borderRadius: 14 }}
+                                      resizeMode="cover"
+                                      onError={() => {
+                                        markImageFailed(imageKey);
+                                        if (!product.imageUrl) markImageFailed(fallbackImageKey);
+                                      }}
+                                    />
+                                  ) : (
+                                    <IconSymbol name="cube.box" size={28} color={colors.muted} />
+                                  )}
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                    ) : (
+                      <View className="mx-4 mb-3 h-24 rounded-xl items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+                        <Text className="text-sm text-muted">No products yet</Text>
+                      </View>
+                    )}
+
+                    <View className="flex-row items-end justify-between px-4 pb-4">
+                      <View className="flex-1 pr-3">
+                        <Text className="text-white/60 text-xs" numberOfLines={1}>
+                          {section.label}
+                        </Text>
+                        {featuredProduct && (
+                          <Text className="text-white text-base font-bold mt-0.5" numberOfLines={2}>
+                            {featuredProduct.name}
+                          </Text>
+                        )}
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setSelectedCategory(section.value);
+                          setViewMode("products");
+                          setSearchQuery("");
+                        }}
+                        style={{
+                          paddingHorizontal: 18,
+                          paddingVertical: 10,
+                          borderRadius: 24,
+                          borderWidth: 1,
+                          borderColor: "rgba(255,255,255,0.45)",
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`See all products in ${section.label}`}
+                        testID={`products-collection-see-all-${section.value}`}
+                      >
+                        <View className="flex-row items-center">
+                          <Text className="text-white font-semibold mr-1.5">See All</Text>
+                          <IconSymbol name="arrow.right" size={13} color="#fff" />
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  </ImageBackground>
+                </View>
+              );
+            })}
+          </View>
+          {categorySections.length === 0 && (
+            <View className="items-center py-16">
+              <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                <IconSymbol name="cube.box" size={32} color={colors.muted} />
+              </View>
+              <Text className="text-lg font-semibold text-foreground mb-2">No collections found</Text>
+              <Text className="text-muted text-center">Sync Shopify to load collection cards.</Text>
+            </View>
+          )}
+        </ScrollView>
       )}
 
       {/* Loading State */}
@@ -552,18 +848,14 @@ export default function ProductsScreen() {
       )}
 
       {/* Results Count */}
-      {!isLoading && !error && (
+      {!isLoading && !error && isProductsMode && (
         <Text className="px-4 text-sm text-muted mb-3">
-          {showingBundles
-            ? `Showing ${filteredBundles.length} bundle${filteredBundles.length !== 1 ? "s" : ""}`
-            : isAzMode
-              ? `Showing ${azResults.length} result${azResults.length !== 1 ? "s" : ""}`
-              : `Showing ${productsToShow.length} product${productsToShow.length !== 1 ? "s" : ""}`}
+          {`Showing ${filteredProducts.length} product${filteredProducts.length !== 1 ? "s" : ""}`}
         </Text>
       )}
 
       {/* Product Grid */}
-      {!isLoading && !error && (
+      {!isLoading && !error && isProductsMode && (
         <ScrollView
           className="flex-1 px-4"
           showsVerticalScrollIndicator={false}
@@ -575,118 +867,9 @@ export default function ProductsScreen() {
             />
           }
         >
-          {showingBundles ? (
+          <>
             <View className="flex-row flex-wrap justify-between pb-24">
-              {filteredBundles.map((bundle) => (
-                <TouchableOpacity
-                  key={bundle.id}
-                  onPress={() => router.push(`/bundle/${bundle.id}` as any)}
-                  className="mb-4 bg-surface rounded-xl overflow-hidden border border-border"
-                  style={{ width: "46%", maxWidth: 180 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`View ${bundle.title}`}
-                  testID={`bundle-card-${bundle.id}`}
-                >
-                  <View className="bg-background items-center justify-center" style={{ height: 140 }}>
-                    {bundle.imageUrl && !failedImages[`bundle-${bundle.id}`] ? (
-                      <Image
-                        source={{ uri: bundle.imageUrl }}
-                        className="w-full h-full"
-                        resizeMode="cover"
-                        onError={() => markImageFailed(`bundle-${bundle.id}`)}
-                      />
-                    ) : (
-                      <IconSymbol name="cube.box" size={32} color={colors.muted} />
-                    )}
-                  </View>
-
-                  <View className="p-2.5">
-                    <View className="bg-primary/10 self-start px-2 py-0.5 rounded mb-1">
-                      <Text className="text-xs text-primary">Bundle</Text>
-                    </View>
-
-                    {bundle.price && (
-                      <Text className="text-base font-bold text-foreground">
-                        ${parseFloat(bundle.price).toFixed(2)}
-                      </Text>
-                    )}
-
-                    <Text className="text-xs text-foreground mt-1" numberOfLines={2}>
-                      {bundle.title}
-                    </Text>
-
-                    {bundle.description && (
-                      <Text className="text-[11px] text-muted mt-1" numberOfLines={2}>
-                        {stripHtml(bundle.description)}
-                      </Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              {filteredBundles.length === 0 && (
-                <View className="items-center py-16">
-                  <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
-                    <IconSymbol name="cube.box" size={32} color={colors.muted} />
-                  </View>
-                  <Text className="text-lg font-semibold text-foreground mb-2">No bundles found</Text>
-                  <Text className="text-muted text-center mb-4">
-                    New bundles will appear here once published.
-                  </Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <>
-              <View className="flex-row flex-wrap justify-between pb-24">
-                {(isAzMode ? azResults : productsToShow.map((product) => ({ type: "product" as const, product }))).map(
-                  (item) => {
-                    if (item.type === "bundle") {
-                      const bundle = item.bundle;
-                      return (
-                        <TouchableOpacity
-                          key={`bundle-${bundle.id}`}
-                          onPress={() => router.push(`/bundle/${bundle.id}` as any)}
-                          className="mb-4 bg-surface rounded-xl overflow-hidden border border-border"
-                          style={{ width: "46%", maxWidth: 180 }}
-                          accessibilityRole="button"
-                          accessibilityLabel={`View ${bundle.title}`}
-                          testID={`bundle-card-${bundle.id}`}
-                        >
-                          <View className="bg-background items-center justify-center" style={{ height: 140 }}>
-                            {bundle.imageUrl && !failedImages[`bundle-${bundle.id}`] ? (
-                              <Image
-                                source={{ uri: bundle.imageUrl }}
-                                className="w-full h-full"
-                                resizeMode="cover"
-                                onError={() => markImageFailed(`bundle-${bundle.id}`)}
-                              />
-                            ) : (
-                              <IconSymbol name="cube.box" size={40} color={colors.muted} />
-                            )}
-                          </View>
-
-                          <View className="p-2.5">
-                            <View className="bg-primary/10 self-start px-2 py-0.5 rounded mb-1">
-                              <Text className="text-xs text-primary">Bundle</Text>
-                            </View>
-
-                            {bundle.price && (
-                              <Text className="text-base font-bold text-foreground">
-                                ${parseFloat(bundle.price).toFixed(2)}
-                              </Text>
-                            )}
-
-                            <Text className="text-xs text-foreground mt-1" numberOfLines={2}>
-                              {bundle.title}
-                            </Text>
-                          </View>
-
-                        </TouchableOpacity>
-                      );
-                    }
-
-                    const product = item.product;
+              {filteredProducts.map((product) => {
                     const price = parseFloat(product.price);
                     const comparePrice = product.compareAtPrice ? parseFloat(product.compareAtPrice) : null;
                     const inStock =
@@ -789,81 +972,33 @@ export default function ProductsScreen() {
                         </View>
                       </TouchableOpacity>
                     );
-                  },
-                )}
-              </View>
+              })}
+            </View>
 
-              {/* Empty State */}
-              {(isAzMode ? azResults.length === 0 : productsToShow.length === 0) && (
-                <View className="items-center py-16">
-                  <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
-                    <IconSymbol name="magnifyingglass" size={32} color={colors.muted} />
-                  </View>
-                  <Text className="text-lg font-semibold text-foreground mb-2">
-                    No {isAzMode ? "results" : "products"} found
-                  </Text>
-                  <Text className="text-muted text-center mb-4">
-                    Try adjusting your search or filter criteria
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setSearchQuery("");
-                      setSelectedCategory("all");
-                    }}
-                    className="px-4 py-2 border border-border rounded-lg"
-                  >
-                    <Text className="text-foreground">Clear filters</Text>
-                  </TouchableOpacity>
+            {/* Empty State */}
+            {filteredProducts.length === 0 && (
+              <View className="items-center py-16">
+                <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                  <IconSymbol name="magnifyingglass" size={32} color={colors.muted} />
                 </View>
-              )}
-            </>
-          )}
+                <Text className="text-lg font-semibold text-foreground mb-2">No products found</Text>
+                <Text className="text-muted text-center mb-4">
+                  Try adjusting your search or filter criteria
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSearchQuery("");
+                    setSelectedCategory("all");
+                  }}
+                  className="px-4 py-2 border border-border rounded-lg"
+                >
+                  <Text className="text-foreground">Clear filters</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
         </ScrollView>
       )}
-
-      {/* Filter Modal */}
-      <Modal
-        visible={filterModalOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setFilterModalOpen(false)}
-      >
-        <Pressable
-          className="flex-1 justify-end"
-          onPress={() => setFilterModalOpen(false)}
-          style={{ backgroundColor: overlayColor }}
-        >
-          <SwipeDownSheet
-            visible={filterModalOpen}
-            onClose={() => setFilterModalOpen(false)}
-            className="bg-background rounded-t-3xl p-6"
-          >
-            <Text className="text-xl font-bold text-foreground mb-4">Filter by Category</Text>
-            
-            {categories.map((cat) => (
-              <TouchableOpacity
-                key={cat.value}
-                onPress={() => {
-                  setSelectedCategory(cat.value);
-                  setFilterModalOpen(false);
-                }}
-                className={`py-3 px-4 rounded-lg mb-2 ${selectedCategory === cat.value ? "bg-primary" : "bg-surface"}`}
-              >
-                <Text className={selectedCategory === cat.value ? "text-white font-semibold" : "text-foreground"}>
-                  {cat.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-
-            <TouchableOpacity
-              onPress={() => setFilterModalOpen(false)}
-              className="py-3 mt-4"
-            >
-              <Text className="text-center text-muted">Cancel</Text>
-            </TouchableOpacity>
-          </SwipeDownSheet>
-        </Pressable>
-      </Modal>
 
       {/* Product Detail Modal */}
       <Modal
@@ -882,10 +1017,11 @@ export default function ProductsScreen() {
           <SwipeDownSheet
             visible={detailModalOpen}
             onClose={() => setDetailModalOpen(false)}
-            className="bg-background rounded-t-3xl overflow-hidden"
+            className="rounded-t-3xl overflow-hidden"
+            style={{ backgroundColor: colors.background }}
           >
             {selectedProduct && (
-              <ScrollView>
+              <ScrollView style={{ backgroundColor: colors.background }}>
                 {/* Header */}
                 <View className="flex-row items-center justify-between px-6 pt-4 pb-3 border-b border-border">
                   <Text className="text-lg font-semibold text-foreground">Product details</Text>
@@ -895,7 +1031,7 @@ export default function ProductsScreen() {
                 </View>
 
                 {/* Content */}
-                <View>
+                <View style={{ backgroundColor: colors.background }}>
                   {/* Product Image — full width, tap to zoom */}
                   <Pressable
                     onPress={() => openMediaViewer(selectedProduct, selectedProduct.imageUrl)}

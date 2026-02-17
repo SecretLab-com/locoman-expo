@@ -263,9 +263,24 @@ async function broadcastToConversation(
   }
 }
 
-export function notifyNewMessage(conversationId: string, message: any, participantIds: string[]) {
+export function notifyNewMessage(conversationId: string, message: any, participantIds: string[], excludeSenderId?: string) {
   const wsMessage: WSMessage = { type: "new_message", conversationId, message };
-  participantIds.forEach((userId) => sendToUser(userId, wsMessage));
+  participantIds.forEach((userId) => {
+    if (excludeSenderId && userId === excludeSenderId) return;
+    sendToUser(userId, wsMessage);
+  });
+}
+
+/**
+ * Check whether a user has at least one active WebSocket connection.
+ */
+export function isUserOnline(userId: string): boolean {
+  const userClients = clients.get(userId);
+  if (!userClients || userClients.size === 0) return false;
+  for (const client of userClients) {
+    if (client.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
 }
 
 export function notifyMessageRead(conversationId: string, messageId: string, readByUserId: string, notifyUserId: string) {

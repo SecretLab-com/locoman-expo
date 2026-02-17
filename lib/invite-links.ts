@@ -5,7 +5,7 @@ function trimTrailingSlash(value: string): string {
 }
 
 function toInvitePath(token: string): string {
-  return `/invite/${encodeURIComponent(token)}`;
+  return `/register?inviteToken=${encodeURIComponent(token)}`;
 }
 
 export function getInviteBaseUrl(): string {
@@ -28,6 +28,6 @@ export function getInviteLink(token: string): string {
   if (base) {
     return `${base}${toInvitePath(token)}`;
   }
-  return `locomotivate://${toInvitePath(token).replace(/^\//, "")}`;
+  return `locomotivate://register?inviteToken=${encodeURIComponent(token)}`;
 }
 

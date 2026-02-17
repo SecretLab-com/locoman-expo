@@ -49,27 +49,27 @@ function normalizeConfiguredWebOrigin(): string {
 }
 
 function getWebRedirectOrigin(): string {
+  const runtimeOrigin =
+    typeof window !== "undefined" && window.location?.origin
+      ? trimTrailingSlash(window.location.origin)
+      : "";
+  if (runtimeOrigin) {
+    try {
+      const hostname = new URL(runtimeOrigin).hostname;
+      // Local web development must round-trip back to localhost, otherwise
+      // OAuth returns to production and the local PKCE flow fails.
+      if (isLoopbackHostname(hostname)) {
+        return runtimeOrigin;
+      }
+    } catch {
+      // Ignore URL parse failures and continue with configured fallback.
+    }
+  }
+
   const configuredOrigin = normalizeConfiguredWebOrigin();
   if (configuredOrigin) {
-    // Force a stable public callback origin for production web OAuth.
+    // Keep a stable public callback origin for production web OAuth.
     return configuredOrigin;
-  }
-
-  if (typeof window === "undefined" || !window.location?.origin) {
-    return "";
-  }
-
-  const runtimeOrigin = trimTrailingSlash(window.location.origin);
-  try {
-    const hostname = new URL(runtimeOrigin).hostname;
-    const isLocalRuntime = isLoopbackHostname(hostname);
-    // On iOS Safari "Add to Home Screen" sessions we should never attempt
-    // OAuth callback through localhost; prefer the configured public origin.
-    if (isLocalRuntime) {
-      return "";
-    }
-  } catch {
-    // Fall through to runtime origin if URL parsing fails.
   }
   return runtimeOrigin;
 }

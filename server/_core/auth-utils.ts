@@ -2,8 +2,8 @@
  * Shared auth utilities used by both context.ts and oauth.ts.
  */
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
-import { getUserByAuthId, getUserByEmail, getUserByOpenId, updateUser, upsertUser } from "../db";
-import type { User } from "../db";
+import { acceptPendingUserInvitationByToken, autoAcceptPendingUserInvitations, getUserByAuthId, getUserByEmail, getUserByOpenId, logUserActivity, updateUser, updateUserRole, upsertUser } from "../db";
+import type { User, UserRole } from "../db";
 
 /**
  * Generate a stable openId for a Supabase auth user.
@@ -60,6 +60,55 @@ export async function resolveOrCreateAppUser(supabaseUser: SupabaseAuthUser): Pr
       if (user && user.authId !== supabaseUser.id) {
         await updateUser(user.id, { authId: supabaseUser.id });
         user = { ...user, authId: supabaseUser.id };
+      }
+    }
+  }
+
+  // Auto-accept invite by token embedded in user metadata (most reliable).
+  if (user) {
+    const inviteToken =
+      typeof supabaseUser.user_metadata?.invite_token === "string"
+        ? supabaseUser.user_metadata.invite_token.trim()
+        : "";
+    if (inviteToken) {
+      try {
+        const result = await acceptPendingUserInvitationByToken(inviteToken, user.id);
+        if (result) {
+          await updateUserRole(user.id, result.role as UserRole);
+          user = { ...user, role: result.role as UserRole };
+          await logUserActivity({
+            targetUserId: user.id,
+            performedBy: user.id,
+            action: "role_changed",
+            previousValue: "shopper",
+            newValue: result.role,
+            notes: `Auto-accepted invite token during auth for ${supabaseUser.email || "unknown"}`,
+          });
+          console.log(
+            `[Auth] Accepted invite token for ${supabaseUser.email}, role → ${result.role}`,
+          );
+        }
+      } catch (err) {
+        console.error("[Auth] acceptPendingUserInvitationByToken error:", err);
+      }
+    }
+
+    // Fallback: auto-accept any pending invitations matching user email.
+    if (supabaseUser.email && user.role === "shopper") {
+      try {
+        const { acceptedCount, role } = await autoAcceptPendingUserInvitations(
+          user.id,
+          supabaseUser.email,
+        );
+        if (acceptedCount > 0 && role) {
+          await updateUserRole(user.id, role as UserRole);
+          user = { ...user, role: role as UserRole };
+          console.log(
+            `[Auth] Auto-accepted ${acceptedCount} invitation(s) for ${supabaseUser.email}, role → ${role}`,
+          );
+        }
+      } catch (err) {
+        console.error("[Auth] autoAcceptPendingUserInvitations error:", err);
       }
     }
   }

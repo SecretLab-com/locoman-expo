@@ -2109,6 +2109,16 @@ export async function getUserInvitationByToken(token: string): Promise<UserInvit
   return mapFromDb<UserInvitation>(data);
 }
 
+export async function getUserInvitationById(id: string): Promise<UserInvitation | undefined> {
+  const { data, error } = await sb()
+    .from("user_invitations")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { console.error("[Database] getUserInvitationById:", error.message); return undefined; }
+  return mapFromDb<UserInvitation>(data);
+}
+
 export async function getUserInvitations(options: {
   limit?: number;
   offset?: number;
@@ -2137,6 +2147,146 @@ export async function updateUserInvitation(id: string, data: Partial<InsertUserI
 export async function revokeUserInvitation(id: string) {
   const { error } = await sb().from("user_invitations").update({ status: "revoked" }).eq("id", id);
   if (error) { console.error("[Database] revokeUserInvitation:", error.message); throw error; }
+}
+
+/**
+ * Auto-accept all pending user invitations for a given email/user.
+ * Returns the highest-priority role that was granted, or null if none matched.
+ */
+export async function autoAcceptPendingUserInvitations(
+  userId: string,
+  email: string,
+): Promise<{ acceptedCount: number; role: string | null }> {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail) return { acceptedCount: 0, role: null };
+
+  const { data: pending, error } = await sb()
+    .from("user_invitations")
+    .select("*")
+    .eq("status", "pending")
+    .eq("email", normalizedEmail)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("[Database] autoAcceptPendingUserInvitations:", error.message);
+    return { acceptedCount: 0, role: null };
+  }
+  if (!pending || pending.length === 0) return { acceptedCount: 0, role: null };
+
+  const now = Date.now();
+  const rolePriority: Record<string, number> = {
+    coordinator: 4,
+    manager: 3,
+    trainer: 2,
+    client: 1,
+    shopper: 0,
+  };
+  let bestRole: string | null = null;
+  let bestPriority = -1;
+  let acceptedCount = 0;
+
+  for (const row of pending) {
+    const expiresAtMs = new Date(row.expires_at).getTime();
+    if (Number.isFinite(expiresAtMs) && expiresAtMs < now) {
+      await sb().from("user_invitations").update({ status: "expired" }).eq("id", row.id);
+      continue;
+    }
+
+    await sb()
+      .from("user_invitations")
+      .update({
+        status: "accepted",
+        accepted_at: new Date().toISOString(),
+        accepted_by_user_id: userId,
+      })
+      .eq("id", row.id);
+
+    acceptedCount++;
+    const priority = rolePriority[row.role] ?? 0;
+    if (priority > bestPriority) {
+      bestPriority = priority;
+      bestRole = row.role;
+    }
+  }
+
+  return { acceptedCount, role: bestRole };
+}
+
+/**
+ * Accept a pending user invitation by token. Does NOT require email match.
+ * Returns the invitation role if accepted, or null if no valid invite found.
+ * Ensures the invite is only used once.
+ */
+export async function acceptPendingUserInvitationByToken(
+  token: string,
+  userId: string,
+): Promise<{ role: string; invitationId: string } | null> {
+  if (!token) return null;
+
+  const { data, error } = await sb()
+    .from("user_invitations")
+    .select("*")
+    .eq("token", token)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Database] acceptPendingUserInvitationByToken:", error.message);
+    return null;
+  }
+  if (!data) return null;
+
+  if (data.status === "accepted") {
+    if (data.accepted_by_user_id && data.accepted_by_user_id !== userId) {
+      return null;
+    }
+    return { role: data.role, invitationId: data.id };
+  }
+
+  if (data.status !== "pending") return null;
+
+  const expiresAtMs = new Date(data.expires_at).getTime();
+  if (Number.isFinite(expiresAtMs) && expiresAtMs < Date.now()) {
+    await sb().from("user_invitations").update({ status: "expired" }).eq("id", data.id);
+    return null;
+  }
+
+  await sb()
+    .from("user_invitations")
+    .update({
+      status: "accepted",
+      accepted_at: new Date().toISOString(),
+      accepted_by_user_id: userId,
+    })
+    .eq("id", data.id);
+
+  const email = String(data.email || "").trim().toLowerCase();
+  if (email) {
+    await sb()
+      .from("user_invitations")
+      .update({ status: "revoked" })
+      .eq("status", "pending")
+      .eq("email", email)
+      .neq("id", data.id);
+  }
+
+  return { role: data.role, invitationId: data.id };
+}
+
+export async function revokeOtherPendingUserInvitationsByEmail(email: string, excludeId: string) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail) return 0;
+  const { data, error } = await sb()
+    .from("user_invitations")
+    .update({ status: "revoked" })
+    .eq("status", "pending")
+    .eq("email", normalizedEmail)
+    .neq("id", excludeId)
+    .select("id");
+  if (error) {
+    console.error("[Database] revokeOtherPendingUserInvitationsByEmail:", error.message);
+    throw error;
+  }
+  return (data || []).length;
 }
 
 // ============================================================================

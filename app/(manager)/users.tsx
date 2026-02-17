@@ -229,11 +229,24 @@ export default function UsersScreen() {
   const logActionMutation = trpc.admin.logUserAction.useMutation();
   const createInvitationMutation = trpc.admin.createUserInvitation.useMutation();
   const revokeInvitationMutation = trpc.admin.revokeUserInvitation.useMutation();
+  const resendInvitationMutation = trpc.admin.resendUserInvitation.useMutation();
 
   const users = usersQuery.data?.users ?? [];
   const totalCount = usersQuery.data?.total ?? 0;
   const hasMore = offset + PAGE_SIZE < totalCount;
   const pendingInvites = invitationsQuery.data?.invitations ?? [];
+  const filteredPendingInvites = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return pendingInvites.filter((invite) => {
+      const roleMatch = selectedRole === "all" || invite.role === selectedRole;
+      if (!roleMatch) return false;
+      if (!query) return true;
+      const name = String(invite.name || "").toLowerCase();
+      const email = String(invite.email || "").toLowerCase();
+      const role = String(invite.role || "").toLowerCase();
+      return name.includes(query) || email.includes(query) || role.includes(query);
+    });
+  }, [pendingInvites, searchQuery, selectedRole]);
   const displayUsers = useMemo(() => {
     if (!users.length) return [];
     const ordered = [...users];
@@ -601,7 +614,7 @@ export default function UsersScreen() {
       setInviteName("");
       setInviteRole("shopper");
       
-      Alert.alert("Success", `Invitation sent to ${inviteEmail}`);
+      Alert.alert("Success", `Invitation queued to ${inviteEmail}`);
     } catch {
       Alert.alert("Error", "Failed to send invitation");
     } finally {
@@ -611,6 +624,26 @@ export default function UsersScreen() {
 
   // Revoke invitation
   const revokeInvitation = async (inviteId: string) => {
+    const performRevoke = async () => {
+      try {
+        await revokeInvitationMutation.mutateAsync({ id: inviteId });
+        await invitationsQuery.refetch();
+        Alert.alert("Success", "Invitation revoked");
+      } catch {
+        Alert.alert("Error", "Failed to revoke invitation");
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed =
+        typeof window !== "undefined"
+          ? window.confirm("Are you sure you want to revoke this invitation?")
+          : true;
+      if (!confirmed) return;
+      void performRevoke();
+      return;
+    }
+
     Alert.alert(
       "Revoke Invitation",
       "Are you sure you want to revoke this invitation?",
@@ -619,18 +652,23 @@ export default function UsersScreen() {
         {
           text: "Revoke",
           style: "destructive",
-          onPress: async () => {
-            try {
-              await revokeInvitationMutation.mutateAsync({ id: inviteId });
-              invitationsQuery.refetch();
-              Alert.alert("Success", "Invitation revoked");
-            } catch {
-              Alert.alert("Error", "Failed to revoke invitation");
-            }
+          onPress: () => {
+            void performRevoke();
           },
         },
       ]
     );
+  };
+
+  const resendInvitation = async (inviteId: string, email: string) => {
+    try {
+      await resendInvitationMutation.mutateAsync({ id: inviteId });
+      await invitationsQuery.refetch();
+      Alert.alert("Success", `Invitation re-queued to ${email}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to resend invitation";
+      Alert.alert("Error", message);
+    }
   };
 
   // Export to CSV
@@ -763,7 +801,7 @@ export default function UsersScreen() {
   return (
     <ScreenContainer className="flex-1">
       {/* Header with Export Button */}
-      <View className="px-4 pt-2 pb-4 flex-row items-center justify-between" style={{ paddingRight: 56 }}>
+      <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={handleBack}
@@ -781,144 +819,16 @@ export default function UsersScreen() {
             </Text>
           </View>
         </View>
-        <View style={styles.headerButtons}>
-          {selectionMode ? (
-            <>
-              <TouchableOpacity
-                onPress={exitSelectionMode}
-                style={[styles.headerButton, { backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel selection"
-                testID="users-cancel-selection"
-              >
-                <Text style={{ color: colors.foreground }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setBulkActionModalVisible(true)}
-                disabled={selectedUserIds.size === 0}
-                style={[
-                  styles.headerButton,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: selectedUserIds.size === 0 ? 0.5 : 1,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Bulk actions"
-                testID="users-bulk-actions"
-              >
-                <Text style={{ color: "#fff" }}>
-                  Actions ({selectedUserIds.size})
-                </Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                onPress={() => setInviteModalVisible(true)}
-                style={[styles.headerButton, { backgroundColor: colors.primary }]}
-                accessibilityRole="button"
-                accessibilityLabel="Invite user"
-                testID="users-invite"
-              >
-                <IconSymbol name="plus" size={16} color="#fff" />
-                <Text style={{ color: "#fff", marginLeft: 4 }}>Invite</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setSelectedRole("client")}
-                style={[styles.headerButton, { backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Show clients"
-                testID="users-clients-filter"
-              >
-                <IconSymbol name="person.2.fill" size={16} color={colors.foreground} />
-                <Text style={{ color: colors.foreground, marginLeft: 4 }}>Clients</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setSelectionMode(true)}
-                style={[styles.headerButton, { backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Select users"
-                testID="users-select"
-              >
-                <IconSymbol name="checkmark.circle.fill" size={16} color={colors.foreground} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={exportToCSV}
-                disabled={exporting}
-                style={[
-                  styles.headerButton,
-                  { backgroundColor: colors.surface, opacity: exporting ? 0.6 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Export users"
-                testID="users-export"
-              >
-                {exporting ? (
-                  <ActivityIndicator size="small" color={colors.foreground} />
-                ) : (
-                  <IconSymbol name="square.and.arrow.up" size={16} color={colors.foreground} />
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
       </View>
 
-      {/* Pending Invites Toggle */}
-      {pendingInvites.length > 0 && (
-        <TouchableOpacity
-          onPress={() => setShowInvites(!showInvites)}
-          style={[styles.invitesToggle, { backgroundColor: colors.warning + "20", borderColor: colors.warning }]}
-        >
-          <IconSymbol name="envelope.fill" size={16} color={colors.warning} />
-          <Text style={{ color: colors.warning, marginLeft: 8, fontWeight: "600" }}>
-            {pendingInvites.length} Pending Invite{pendingInvites.length > 1 ? "s" : ""}
-          </Text>
-          <IconSymbol
-            name={showInvites ? "chevron.up" : "chevron.down"}
-            size={14}
-            color={colors.warning}
-            style={{ marginLeft: "auto" }}
-          />
-        </TouchableOpacity>
-      )}
-
-      {/* Pending Invites List */}
-      {showInvites && pendingInvites.length > 0 && (
-        <View style={[styles.invitesList, { backgroundColor: colors.surface }]}>
-          {pendingInvites.map((invite) => (
-            <View key={invite.id} style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.foreground, fontWeight: "500" }}>
-                  {invite.name || invite.email}
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {invite.email} • {invite.role}
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 11 }}>
-                  Expires {formatDate(invite.expiresAt)}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => revokeInvitation(invite.id)}
-                style={[styles.revokeButton, { backgroundColor: colors.error + "15" }]}
-              >
-                <Text style={{ color: colors.error, fontSize: 12, fontWeight: "500" }}>Revoke</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Search */}
+      {/* Search + inline actions */}
       <View className="px-4 mb-4">
         <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
           <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search users..."
+            placeholder="Search users and invites..."
             placeholderTextColor={colors.muted}
             className="flex-1 ml-2 text-foreground"
           />
@@ -926,6 +836,64 @@ export default function UsersScreen() {
             <TouchableOpacity onPress={() => setSearchQuery("")}>
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
             </TouchableOpacity>
+          )}
+
+          {selectionMode ? (
+            <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8, gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setBulkActionModalVisible(true)}
+                disabled={selectedUserIds.size === 0}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  backgroundColor: colors.primary,
+                  opacity: selectedUserIds.size === 0 ? 0.5 : 1,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Bulk actions"
+                testID="users-bulk-actions"
+              >
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                  Actions ({selectedUserIds.size})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={exitSelectionMode}
+                style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.surface }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel selection"
+                testID="users-cancel-selection"
+              >
+                <IconSymbol name="xmark" size={14} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8, gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setSelectionMode(true)}
+                style={{ padding: 6, borderRadius: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Select users"
+                testID="users-select"
+              >
+                <IconSymbol name="checkmark.circle.fill" size={18} color={colors.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={exportToCSV}
+                disabled={exporting}
+                style={{ padding: 6, borderRadius: 8, opacity: exporting ? 0.6 : 1 }}
+                accessibilityRole="button"
+                accessibilityLabel="Export users"
+                testID="users-export"
+              >
+                {exporting ? (
+                  <ActivityIndicator size="small" color={colors.muted} />
+                ) : (
+                  <IconSymbol name="square.and.arrow.up" size={18} color={colors.muted} />
+                )}
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -1055,6 +1023,80 @@ export default function UsersScreen() {
           </View>
         )}
       </View>
+
+      {/* Pending Invites Toggle */}
+      {pendingInvites.length > 0 && (
+        <TouchableOpacity
+          onPress={() => setShowInvites(!showInvites)}
+          style={[styles.invitesToggle, { backgroundColor: colors.warning + "20", borderColor: colors.warning }]}
+        >
+          <IconSymbol name="envelope.fill" size={16} color={colors.warning} />
+          <Text style={{ color: colors.warning, marginLeft: 8, fontWeight: "600" }}>
+            {filteredPendingInvites.length}
+            {filteredPendingInvites.length !== pendingInvites.length ? ` of ${pendingInvites.length}` : ""} Pending Invite
+            {filteredPendingInvites.length !== 1 ? "s" : ""}
+          </Text>
+          <IconSymbol
+            name={showInvites ? "chevron.up" : "chevron.down"}
+            size={14}
+            color={colors.warning}
+            style={{ marginLeft: "auto" }}
+          />
+        </TouchableOpacity>
+      )}
+
+      {/* Pending Invites List */}
+      {showInvites && pendingInvites.length > 0 && (
+        <View style={[styles.invitesList, { backgroundColor: colors.surface }]}>
+          {filteredPendingInvites.length === 0 ? (
+            <View style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>
+                No pending invites match the current search/filter.
+              </Text>
+            </View>
+          ) : (
+            filteredPendingInvites.map((invite) => (
+              <View key={invite.id} style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.foreground, fontWeight: "500" }}>
+                    {invite.name || invite.email}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    {invite.email} • {invite.role}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Expires {formatDate(invite.expiresAt)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => resendInvitation(invite.id, invite.email)}
+                    disabled={resendInvitationMutation.isPending}
+                    style={[
+                      styles.revokeButton,
+                      { backgroundColor: colors.primary + "15", opacity: resendInvitationMutation.isPending ? 0.6 : 1 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Resend invitation to ${invite.email}`}
+                    testID={`invite-resend-${invite.id}`}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "500" }}>Resend</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => revokeInvitation(invite.id)}
+                    style={[styles.revokeButton, { backgroundColor: colors.error + "15" }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Revoke invitation for ${invite.email}`}
+                    testID={`invite-revoke-${invite.id}`}
+                  >
+                    <Text style={{ color: colors.error, fontSize: 12, fontWeight: "500" }}>Revoke</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      )}
 
       {/* Selection Mode Header */}
       {selectionMode && (
@@ -1791,6 +1833,20 @@ export default function UsersScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Invite FAB */}
+      {!selectionMode && (
+        <TouchableOpacity
+          onPress={() => setInviteModalVisible(true)}
+          className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+          style={{ right: 16, bottom: 16 }}
+          accessibilityRole="button"
+          accessibilityLabel="Invite user"
+          testID="users-invite-fab"
+        >
+          <IconSymbol name="plus" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
     </ScreenContainer>
   );
 }

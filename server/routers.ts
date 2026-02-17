@@ -8,7 +8,7 @@ import { generateImage } from "./_core/imageGeneration";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
 import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
-import { notifyBadgeCounts, notifyNewMessage } from "./_core/websocket";
+import { isUserOnline, notifyBadgeCounts, notifyNewMessage } from "./_core/websocket";
 import * as adyen from "./adyen";
 import * as db from "./db";
 import {
@@ -634,6 +634,109 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    inviteRegistrationContext: publicProcedure
+      .input(z.object({ token: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const token = String(input.token || "").trim();
+        if (!token) return null;
+
+        const userInvitation = await db.getUserInvitationByToken(token);
+        if (userInvitation) {
+          const expiresAtMs = new Date(userInvitation.expiresAt).getTime();
+          const isExpired = Number.isFinite(expiresAtMs) && expiresAtMs < Date.now();
+          const status = isExpired && userInvitation.status === "pending" ? "expired" : userInvitation.status;
+          return {
+            source: "user_invitation" as const,
+            email: userInvitation.email || null,
+            name: userInvitation.name || null,
+            role: userInvitation.role || null,
+            status,
+            expiresAt: userInvitation.expiresAt || null,
+          };
+        }
+
+        const trainerInvitation = await db.getInvitationByToken(token);
+        if (!trainerInvitation) return null;
+        const expiresAtMs = new Date(trainerInvitation.expiresAt).getTime();
+        const isExpired = Number.isFinite(expiresAtMs) && expiresAtMs < Date.now();
+        const status = isExpired && trainerInvitation.status === "pending" ? "expired" : trainerInvitation.status;
+        return {
+          source: "trainer_invitation" as const,
+          email: trainerInvitation.email || null,
+          name: trainerInvitation.name || null,
+          role: null,
+          status,
+          expiresAt: trainerInvitation.expiresAt || null,
+        };
+      }),
+    acceptUserInvitation: protectedProcedure
+      .input(z.object({ token: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const invitation = await db.getUserInvitationByToken(input.token);
+        if (!invitation) {
+          return { matched: false, applied: false } as const;
+        }
+
+        const now = Date.now();
+        const expiresAtMs = new Date(invitation.expiresAt).getTime();
+        if (Number.isFinite(expiresAtMs) && expiresAtMs < now) {
+          if (invitation.status === "pending") {
+            await db.updateUserInvitation(invitation.id, { status: "expired" });
+          }
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "This invitation has expired. Ask for a new invite.",
+          });
+        }
+
+        if (invitation.status === "revoked" || invitation.status === "expired") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `This invitation is ${invitation.status}.`,
+          });
+        }
+
+        if (invitation.status === "accepted") {
+          if (invitation.acceptedByUserId && invitation.acceptedByUserId !== ctx.user.id) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "This invitation has already been accepted by another user.",
+            });
+          }
+          await db.updateUserRole(ctx.user.id, invitation.role);
+          return {
+            matched: true,
+            applied: true,
+            alreadyAccepted: true,
+            role: invitation.role,
+          } as const;
+        }
+
+        // Token possession is sufficient proof — no strict email match required.
+        // The user arrived through the invite link itself.
+        await db.updateUserRole(ctx.user.id, invitation.role);
+        await db.updateUserInvitation(invitation.id, {
+          status: "accepted",
+          acceptedAt: new Date().toISOString(),
+          acceptedByUserId: ctx.user.id,
+        });
+        await db.revokeOtherPendingUserInvitationsByEmail(invitation.email, invitation.id);
+        await db.logUserActivity({
+          targetUserId: ctx.user.id,
+          performedBy: invitation.invitedBy,
+          action: "role_changed",
+          previousValue: ctx.user.role || "shopper",
+          newValue: invitation.role,
+          notes: `Applied invited role via token for ${ctx.user.email || "unknown email"}`,
+        });
+
+        return {
+          matched: true,
+          applied: true,
+          alreadyAccepted: false,
+          role: invitation.role,
+        } as const;
+      }),
   }),
 
   // ============================================================================
@@ -674,6 +777,28 @@ export const appRouter = router({
     products: publicProcedure.query(async () => {
       // Always serve from local database. Shopify sync happens separately.
       return db.getProducts();
+    }),
+
+    collections: publicProcedure.query(async () => {
+      try {
+        const collections = await shopify.fetchCollections();
+        const shopEnabledCollections = collections.filter((collection) => collection.shopEnabled);
+        const productMap = await shopify.fetchCollectionProductMap(
+          shopEnabledCollections.map((collection) => collection.id),
+        );
+        return shopEnabledCollections.map((collection) => ({
+          id: collection.id,
+          title: collection.title,
+          handle: collection.handle,
+          imageUrl: collection.image?.src || null,
+          channels: collection.channels || [],
+          updatedAt: collection.updated_at || null,
+          productIds: productMap[collection.id] || [],
+        }));
+      } catch (error) {
+        console.warn("[Catalog] Unable to fetch Shopify collections:", error);
+        return [];
+      }
     }),
 
     searchProducts: publicProcedure
@@ -1389,13 +1514,18 @@ export const appRouter = router({
           expiresAt,
         });
         try {
-          await sendInviteEmail({
+          const emailMessageId = await sendInviteEmail({
             to: input.email,
             token,
             recipientName: input.name,
             trainerName: ctx.user.name || ctx.user.email || "Your trainer",
             expiresAtIso: expiresAt,
             personalMessage: input.message,
+          });
+          console.log("[Invite] trainer invite email queued", {
+            trainerId: ctx.user.id,
+            recipient: input.email,
+            emailMessageId,
           });
         } catch (error: any) {
           logError("invite.email_failed", error, {
@@ -1445,13 +1575,18 @@ export const appRouter = router({
             expiresAt,
           });
           try {
-            await sendInviteEmail({
+            const emailMessageId = await sendInviteEmail({
               to: invite.email,
               token,
               recipientName: invite.name,
               trainerName: ctx.user.name || ctx.user.email || "Your trainer",
               expiresAtIso: expiresAt,
               personalMessage: input.message,
+            });
+            console.log("[Invite] trainer bulk invite email queued", {
+              trainerId: ctx.user.id,
+              recipient: invite.email,
+              emailMessageId,
             });
           } catch (error: any) {
             logError("invite.email_failed", error, {
@@ -2220,7 +2355,6 @@ export const appRouter = router({
           content: input.content,
         });
 
-        // Real-time notification
         notifyNewMessage(conversationId, {
           id: messageId,
           senderId: ctx.user.id,
@@ -2228,18 +2362,20 @@ export const appRouter = router({
           receiverId: input.receiverId,
           content: input.content,
           conversationId,
-        }, [input.receiverId, ctx.user.id]);
+        }, [input.receiverId, ctx.user.id], ctx.user.id);
         notifyBadgeCounts([input.receiverId]);
-        await sendPushToUsers([input.receiverId], {
-          title: ctx.user.name ?? "New message",
-          body: toMessagePushBody(input.content, "text"),
-          data: {
-            type: "message",
-            conversationId,
-            senderId: ctx.user.id,
-            senderName: ctx.user.name ?? "Someone",
-          },
-        });
+        if (!isUserOnline(input.receiverId)) {
+          await sendPushToUsers([input.receiverId], {
+            title: ctx.user.name ?? "New message",
+            body: toMessagePushBody(input.content, "text"),
+            data: {
+              type: "message",
+              conversationId,
+              senderId: ctx.user.id,
+              senderName: ctx.user.name ?? "Someone",
+            },
+          });
+        }
 
         return messageId;
       }),
@@ -2259,37 +2395,46 @@ export const appRouter = router({
         }
         const conversationId =
           input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
-        for (const receiverId of input.receiverIds) {
+        const recipients = input.receiverIds.filter((id) => id !== ctx.user.id);
+        const allParticipantIds = [...recipients, ctx.user.id];
+        let firstMessageId: string | null = null;
+        for (const receiverId of recipients) {
           const messageId = await db.createMessage({
             senderId: ctx.user.id,
             receiverId,
             conversationId,
             content: input.content,
           });
+          if (!firstMessageId) firstMessageId = messageId;
+        }
+        if (firstMessageId) {
           notifyNewMessage(
             conversationId,
             {
-              id: messageId,
+              id: firstMessageId,
               senderId: ctx.user.id,
               senderName: ctx.user.name ?? "Someone",
-              receiverId,
               content: input.content,
               conversationId,
             },
-            [receiverId, ctx.user.id]
+            allParticipantIds,
+            ctx.user.id,
           );
-          notifyBadgeCounts([receiverId]);
+          notifyBadgeCounts(recipients);
         }
-        await sendPushToUsers(input.receiverIds, {
-          title: ctx.user.name ?? "New message",
-          body: toMessagePushBody(input.content, "text"),
-          data: {
-            type: "message",
-            conversationId,
-            senderId: ctx.user.id,
-            senderName: ctx.user.name ?? "Someone",
-          },
-        });
+        const pushRecipients = recipients.filter((id) => !isUserOnline(id));
+        if (pushRecipients.length > 0) {
+          await sendPushToUsers(pushRecipients, {
+            title: ctx.user.name ?? "New message",
+            body: toMessagePushBody(input.content, "text"),
+            data: {
+              type: "message",
+              conversationId,
+              senderId: ctx.user.id,
+              senderName: ctx.user.name ?? "Someone",
+            },
+          });
+        }
         return { conversationId };
       }),
 
@@ -2395,18 +2540,20 @@ export const appRouter = router({
           receiverId: input.receiverId,
           content: input.content,
           conversationId,
-        }, [input.receiverId, ctx.user.id]);
+        }, [input.receiverId, ctx.user.id], ctx.user.id);
         notifyBadgeCounts([input.receiverId]);
-        await sendPushToUsers([input.receiverId], {
-          title: ctx.user.name ?? "New message",
-          body: toMessagePushBody(input.content, input.messageType),
-          data: {
-            type: "message",
-            conversationId,
-            senderId: ctx.user.id,
-            senderName: ctx.user.name ?? "Someone",
-          },
-        });
+        if (!isUserOnline(input.receiverId)) {
+          await sendPushToUsers([input.receiverId], {
+            title: ctx.user.name ?? "New message",
+            body: toMessagePushBody(input.content, input.messageType),
+            data: {
+              type: "message",
+              conversationId,
+              senderId: ctx.user.id,
+              senderName: ctx.user.name ?? "Someone",
+            },
+          });
+        }
 
         return messageId;
       }),
@@ -2431,7 +2578,10 @@ export const appRouter = router({
         }
         const conversationId =
           input.conversationId || `group-${ctx.user.id}-${Date.now()}`;
-        for (const receiverId of input.receiverIds) {
+        const recipients = input.receiverIds.filter((id) => id !== ctx.user.id);
+        const allParticipantIds = [...recipients, ctx.user.id];
+        let firstMessageId: string | null = null;
+        for (const receiverId of recipients) {
           const messageId = await db.createMessage({
             senderId: ctx.user.id,
             receiverId,
@@ -2443,30 +2593,36 @@ export const appRouter = router({
             attachmentSize: input.attachmentSize,
             attachmentMimeType: input.attachmentMimeType,
           });
+          if (!firstMessageId) firstMessageId = messageId;
+        }
+        if (firstMessageId) {
           notifyNewMessage(
             conversationId,
             {
-              id: messageId,
+              id: firstMessageId,
               senderId: ctx.user.id,
               senderName: ctx.user.name ?? "Someone",
-              receiverId,
               content: input.content,
               conversationId,
             },
-            [receiverId, ctx.user.id]
+            allParticipantIds,
+            ctx.user.id,
           );
-          notifyBadgeCounts([receiverId]);
+          notifyBadgeCounts(recipients);
         }
-        await sendPushToUsers(input.receiverIds, {
-          title: ctx.user.name ?? "New message",
-          body: toMessagePushBody(input.content, input.messageType),
-          data: {
-            type: "message",
-            conversationId,
-            senderId: ctx.user.id,
-            senderName: ctx.user.name ?? "Someone",
-          },
-        });
+        const pushRecipients = recipients.filter((id) => !isUserOnline(id));
+        if (pushRecipients.length > 0) {
+          await sendPushToUsers(pushRecipients, {
+            title: ctx.user.name ?? "New message",
+            body: toMessagePushBody(input.content, input.messageType),
+            data: {
+              type: "message",
+              conversationId,
+              senderId: ctx.user.id,
+              senderName: ctx.user.name ?? "Someone",
+            },
+          });
+        }
         return { conversationId };
       }),
 
@@ -3540,6 +3696,7 @@ export const appRouter = router({
         const token = crypto.randomUUID().replace(/-/g, "");
         const expiresAtDate = new Date();
         expiresAtDate.setDate(expiresAtDate.getDate() + 7); // Expires in 7 days
+        const expiresAtIso = expiresAtDate.toISOString();
 
         const id = await db.createUserInvitation({
           invitedBy: ctx.user.id,
@@ -3547,8 +3704,38 @@ export const appRouter = router({
           name: input.name,
           role: input.role,
           token,
-          expiresAt: expiresAtDate.toISOString(),
+          expiresAt: expiresAtIso,
         });
+
+        let emailMessageId: string;
+        try {
+          emailMessageId = await sendInviteEmail({
+            to: input.email,
+            token,
+            recipientName: input.name,
+            trainerName: ctx.user.name || ctx.user.email || "Bright Coach",
+            expiresAtIso,
+          });
+        } catch (error) {
+          // Keep manager/coordinator invite flow fail-closed: no "sent" success when email fails.
+          try {
+            await db.revokeUserInvitation(id);
+          } catch (revokeError) {
+            console.error("[Invite] Failed to revoke user invitation after email failure", revokeError);
+          }
+          logError("invite.user.email_failed", error, {
+            inviterId: ctx.user.id,
+            inviterRole: ctx.user.role,
+            recipient: input.email,
+            inviteRole: input.role,
+          });
+          const message = error instanceof Error ? error.message : String(error || "Invite email failed");
+          await notifyInviteFailureByMessage(ctx.user, input.email, message);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: getInviteEmailFailureUserMessage(error),
+          });
+        }
 
         // Log the invitation
         await db.logUserActivity({
@@ -3556,10 +3743,10 @@ export const appRouter = router({
           performedBy: ctx.user.id,
           action: "invited",
           newValue: input.role,
-          notes: `Invited ${input.email} as ${input.role}`,
+          notes: `Invited ${input.email} as ${input.role} (emailMessageId: ${emailMessageId})`,
         });
 
-        return { success: true, id, token };
+        return { success: true, id, token, emailMessageId };
       }),
 
     getUserInvitations: managerProcedure
@@ -3577,6 +3764,51 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await db.revokeUserInvitation(input.id);
         return { success: true };
+      }),
+
+    resendUserInvitation: managerProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const invitation = await db.getUserInvitationById(input.id);
+        if (!invitation) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Invitation not found" });
+        }
+        if (invitation.status === "accepted") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "This invitation has already been accepted." });
+        }
+        if (invitation.status === "revoked") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "This invitation has been revoked." });
+        }
+
+        // Rotate token and extend expiry whenever invite is resent.
+        const refreshedToken = crypto.randomUUID().replace(/-/g, "");
+        const refreshedExpiry = new Date();
+        refreshedExpiry.setDate(refreshedExpiry.getDate() + 7);
+        await db.updateUserInvitation(invitation.id, {
+          token: refreshedToken,
+          expiresAt: refreshedExpiry.toISOString(),
+          status: "pending",
+        });
+
+        let emailMessageId: string;
+        try {
+          emailMessageId = await sendInviteEmail({
+            to: invitation.email,
+            token: refreshedToken,
+            recipientName: invitation.name || undefined,
+            trainerName: ctx.user.name || "Bright Coach",
+            expiresAtIso: refreshedExpiry.toISOString(),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error || "Invite email failed");
+          await notifyInviteFailureByMessage(ctx.user, invitation.email, message);
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: getInviteEmailFailureUserMessage(error),
+          });
+        }
+
+        return { success: true, emailMessageId };
       }),
   }),
 
