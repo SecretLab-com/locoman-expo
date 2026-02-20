@@ -7,9 +7,10 @@ import { haptics } from "@/hooks/use-haptics";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
 import { router, Stack } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -78,7 +79,11 @@ function ConversationItem({
       activeOpacity={0.7}
     >
       {/* Avatar */}
-      {conversation.participantAvatar ? (
+      {conversation.participantRole === "group" ? (
+        <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center">
+          <IconSymbol name="person.2.fill" size={22} color={colors.primary} />
+        </View>
+      ) : conversation.participantAvatar ? (
         <Image
           source={{ uri: conversation.participantAvatar }}
           className="w-12 h-12 rounded-full"
@@ -100,11 +105,15 @@ function ConversationItem({
             >
               {conversation.participantName}
             </Text>
-            {conversation.participantRole === "trainer" && (
+            {conversation.participantRole === "group" ? (
+              <View className="ml-2 px-2 py-0.5 bg-primary/10 rounded-full">
+                <Text className="text-xs text-primary font-medium">Group</Text>
+              </View>
+            ) : conversation.participantRole === "trainer" ? (
               <View className="ml-2 px-2 py-0.5 bg-primary/10 rounded-full">
                 <Text className="text-xs text-primary font-medium">Trainer</Text>
               </View>
-            )}
+            ) : null}
           </View>
           <Text className={`text-xs ml-2 ${conversation.unreadCount > 0 ? "text-primary" : "text-muted"}`}>
             {formatTimestamp(conversation.lastMessageAt)}
@@ -148,7 +157,7 @@ function ConversationItem({
 
 export default function MessagesScreen() {
   const colors = useColors();
-  const { isAuthenticated, isTrainer, effectiveRole } = useAuthContext();
+  const { isAuthenticated, isTrainer, effectiveRole, user } = useAuthContext();
   const bottomNavHeight = useBottomNavHeight();
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets.bottom, 8);
@@ -166,6 +175,27 @@ export default function MessagesScreen() {
 
   const { connect, disconnect, subscribe } = useWebSocket();
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [groupNames, setGroupNames] = useState<Record<string, string>>({});
+
+  // Load group names from AsyncStorage
+  useEffect(() => {
+    if (!user?.id) return;
+    const loadGroupNames = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(`messageGroups:${user.id}`);
+        if (!stored) return;
+        const groups = JSON.parse(stored) as Array<{ id: string; name: string }>;
+        const map: Record<string, string> = {};
+        for (const g of groups) {
+          if (g.id && g.name) map[g.id] = g.name;
+        }
+        setGroupNames(map);
+      } catch {
+        // Ignore parse errors
+      }
+    };
+    void loadGroupNames();
+  }, [user?.id]);
 
   // Fetch conversations from API
   const {
@@ -277,18 +307,31 @@ export default function MessagesScreen() {
 
   // Transform API data to match our component interface, sorted by most recent
   const conversationList: Conversation[] = (conversations || [])
-    .map((conv: any) => ({
-      id: conv.id || conv.conversationId,
-      participantId: conv.participantId || conv.otherUserId,
-      participantName: conv.participantName || conv.otherUserName || "Unknown",
-      participantAvatar: conv.participantAvatar || conv.otherUserAvatar || null,
-      participantRole: conv.participantRole || conv.otherUserRole || "user",
-      lastMessage: conv.lastMessage || conv.lastMessageContent || null,
-      lastMessageAt: conv.lastMessageAt || conv.updatedAt || null,
-      unreadCount: conv.unreadCount || 0,
-      lastMessageIsOwn: conv.lastMessageIsOwn || conv.lastMessageSenderId === conv.currentUserId || false,
-      lastMessageIsRead: conv.lastMessageIsRead || false,
-    }))
+    .map((conv: any) => {
+      const convId = conv.id || conv.conversationId;
+      const isGroup = conv.isGroup || convId.startsWith("group-");
+      const storedGroupName = groupNames[convId];
+      let displayName: string;
+      if (isGroup && storedGroupName) {
+        displayName = storedGroupName;
+      } else if (isGroup && conv.participantNames?.length > 0) {
+        displayName = conv.participantNames.join(", ");
+      } else {
+        displayName = conv.participantName || conv.otherUserName || "Unknown";
+      }
+      return {
+        id: convId,
+        participantId: conv.participantId || conv.otherUserId,
+        participantName: displayName,
+        participantAvatar: isGroup ? null : (conv.participantAvatar || conv.otherUserAvatar || null),
+        participantRole: isGroup ? "group" : (conv.participantRole || conv.otherUserRole || "user"),
+        lastMessage: conv.lastMessage || conv.lastMessageContent || null,
+        lastMessageAt: conv.lastMessageAt || conv.updatedAt || null,
+        unreadCount: conv.unreadCount || 0,
+        lastMessageIsOwn: conv.lastMessageIsOwn || conv.lastMessageSenderId === conv.currentUserId || false,
+        lastMessageIsRead: conv.lastMessageIsRead || false,
+      };
+    })
     .sort((a, b) => {
       const dateA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
       const dateB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;

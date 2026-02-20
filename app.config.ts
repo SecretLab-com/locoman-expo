@@ -201,6 +201,21 @@ const config: ExpoConfig = {
     "expo-font",
     "expo-notifications",
     [
+      "expo-share-intent",
+      {
+        iosActivationRules: {
+          NSExtensionActivationSupportsText: true,
+          NSExtensionActivationSupportsWebURLWithMaxCount: 1,
+          NSExtensionActivationSupportsWebPageWithMaxCount: 1,
+          NSExtensionActivationSupportsImageWithMaxCount: 5,
+          NSExtensionActivationSupportsMovieWithMaxCount: 1,
+          NSExtensionActivationSupportsFileWithMaxCount: 3,
+        },
+        androidIntentFilters: ["text/*", "image/*", "video/*", "*/*"],
+        androidMultiIntentFilters: ["image/*", "video/*", "*/*"],
+      },
+    ],
+    [
       "expo-audio",
       {
         microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone.",

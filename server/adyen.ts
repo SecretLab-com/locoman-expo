@@ -203,3 +203,12 @@ export function getClientKey(): string {
 export function getEnvironment(): string {
   return ADYEN_ENVIRONMENT;
 }
+
+const ADYEN_ONBOARDING_URL = process.env.ADYEN_ONBOARDING_URL || "";
+
+export function getOnboardingUrl(): string {
+  if (ADYEN_ONBOARDING_URL) return ADYEN_ONBOARDING_URL;
+  return ADYEN_ENVIRONMENT === "LIVE"
+    ? "https://ca-live.adyen.com/ca/ca/overview/default.shtml"
+    : "https://ca-test.adyen.com/ca/ca/overview/default.shtml";
+}

@@ -1,6 +1,21 @@
 # Progress
 
 ## What Works
+- **3-mode storefront browsing**: Products screen now cleanly separates `Bundles`, `Categories`, and `Products`
+  - Bundles render as large tiles and route to bundle details
+  - Categories render as horizontal large Shopify collection cards with `See All`
+  - `See All` opens Products mode with that collection filter selected
+  - Products mode renders only individual products with search + `All Products`/collection filters
+- **Storefront categories UI**: Category browsing now uses Shopify Collection artwork in horizontal card carousel
+  - Cards are image-backed with overlay label/count and selection state
+- **Dynamic category source**: Categories are now fetched from Shopify collection sync data (Shop-enabled channel only), not static code lists
+- **User invitation management**: Pending invite lists now support both revoke and resend actions
+  - Resend rotates token, refreshes expiry window, and sends a new invite email
+  - Revoke action now works consistently on web (browser confirm) and native (Alert modal)
+- **Invite-based registration**: Register now pre-fills invited name/email and prevents invite-email edits
+  - Invite token context resolves from backend and supports both manager/coordinator and trainer invite token types
+- **Manager/coordinator invite creation**: Invite creation now dispatches email through Resend (not DB-only)
+  - Create flow is fail-closed: if mail provider send fails, API returns error and the created invite is auto-revoked
 - **Database Migration**: Complete migration to Supabase PostgreSQL
   - All 20 tables created and working
   - RLS policies configured

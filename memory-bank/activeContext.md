@@ -10,6 +10,29 @@
 - **Legacy cleanup**: Old SDK and ORM code removed
 
 ## Recent Changes
+- **Products IA refactor**: Storefront menu now has `Bundles`, `Categories`, and `Products` as separate modes
+  - `Bundles` shows large trainer bundle tiles (client-scoped bundles for active trainer relationships; all bundles for non-client roles)
+  - `Categories` shows side-scrolling large Shopify collection cards with per-card `See All`
+  - `See All` deep-links into `Products` with that collection preselected as the active filter
+  - `Products` shows only individual catalog products with search + horizontal category filters including `All Products`
+- **Categories now driven by Shopify Shop-channel collections**: Product Categories no longer use static hardcoded category list
+  - Added Shopify collection publication/channel sync via GraphQL (with REST fallback)
+  - Added `channels` + `shopEnabled` metadata and filtered category source to Shop-enabled collections only
+  - Category cards now render dynamically from synced Shopify collections data
+- **Shopify collection-backed category cards**: Product Categories view now renders horizontal background-image cards from Shopify Collections
+  - Added `catalog.collections` API route backed by new `shopify.fetchCollections()` (custom + smart collections)
+  - Replaced category chip row with storefront-style image cards and overlay labels/counts
+- **Invite-aware registration UX**: Register screen now preloads invite context and enforces invite email
+  - Added `auth.inviteRegistrationContext` public endpoint for token lookup across user/trainer invite types
+  - `/register` now pre-fills name/email from invite token and locks email editing when invite email exists
+- **Pending invite revoke reliability fix**: Revoke confirm flow now uses `window.confirm` on web and `Alert.alert` on native
+  - Fixes web path where Alert button callbacks can fail to execute, causing revoke to appear non-functional
+- **iOS manager/coordinator invite delivery fix**: `admin.createUserInvitation` now sends Resend email as part of mutation
+  - Previous behavior created invitation records without dispatching email
+  - Mutation now fails if email send fails and auto-revokes the just-created invite to avoid false "sent" state
+- **Pending invite resend flow**: Added `resendUserInvitation` backend mutation and wired "Resend" actions in manager/coordinator pending invite lists
+  - Resend now rotates invite token, extends expiry by 7 days, and re-sends invite email via Resend
+  - Invite failures in resend flow are surfaced with user-friendly errors and a Server message notification
 - **Database**: Complete migration to Supabase PostgreSQL
   - All 20 tables created with proper enum types, indexes, and foreign keys
   - RLS policies enabled on all tables

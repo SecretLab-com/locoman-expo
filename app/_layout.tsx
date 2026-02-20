@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { Stack, usePathname, useRouter } from "expo-router";
+import { ShareIntentProvider } from "expo-share-intent";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +20,7 @@ import {
   initialWindowMetrics,
 } from "react-native-safe-area-context";
 
+import { ShareIntentRouter } from "@/components/share-intent-router";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
 import { MobileAppBanner } from "@/components/mobile-app-banner";
 import { IncomingMessageFAB } from "@/components/incoming-message-fab";
@@ -56,6 +58,7 @@ const HEADER_TITLES: Record<string, string> = {
   "my-trainers/index": "My Trainers",
   "my-trainers/find": "Find Trainers",
   "new-message": "New Message",
+  "share-intent": "Share To",
   "oauth/callback": "Connecting",
   "profile/index": "Profile",
   "register": "Create Account",
@@ -110,7 +113,7 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
   }, [authGateReady, isAuthenticated]);
   const isGuestSafeRoute = useMemo(() => {
     const path = pathname || "";
-    if (path === "/welcome" || path === "/login" || path === "/register" || path.startsWith("/oauth/callback")) {
+    if (path === "/welcome" || path === "/login" || path === "/register" || path === "/share-intent" || path.startsWith("/oauth/callback")) {
       return true;
     }
     // Guests may browse bundles/trainers only.
@@ -357,6 +360,7 @@ export default function RootLayout() {
   }, [initialInsets, initialFrame, isHydrated]);
 
   const content = (
+    <ShareIntentProvider>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
@@ -372,6 +376,7 @@ export default function RootLayout() {
                       <ImpersonationBanner />
                       <MobileAppBanner />
                       <PostAuthOnboardingResolver />
+                      <ShareIntentRouter />
                       <View style={{ flex: 1 }}>
                         <ProfileFAB />
                         <IncomingMessageFAB />
@@ -431,6 +436,10 @@ export default function RootLayout() {
                             />
                             <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="new-message" options={{ presentation: "card" }} />
+                            <Stack.Screen
+                              name="share-intent"
+                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                            />
                             <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen
                               name="(trainer)"
@@ -463,6 +472,7 @@ export default function RootLayout() {
         </QueryClientProvider>
       </trpc.Provider>
     </GestureHandlerRootView>
+    </ShareIntentProvider>
   );
 
   const shouldOverrideSafeArea = Platform.OS === "web";

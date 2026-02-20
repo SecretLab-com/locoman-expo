@@ -2306,6 +2306,8 @@ export const appRouter = router({
       const summaries = await db.getConversationSummaries(ctx.user.id);
       return summaries.map(s => {
         const otherUser = s.participants[0];
+        const isGroup = s.conversationId.startsWith("group-") || s.participants.length > 1;
+        const participantNames = s.participants.map(p => p.name).filter(Boolean);
         return {
           id: s.conversationId,
           conversationId: s.conversationId,
@@ -2318,6 +2320,9 @@ export const appRouter = router({
           unreadCount: s.unreadCount,
           updatedAt: s.lastMessage?.createdAt,
           currentUserId: ctx.user.id,
+          isGroup,
+          participantCount: s.participants.length,
+          participantNames,
         };
       });
     }),
@@ -4026,6 +4031,7 @@ export const appRouter = router({
         clientKey: adyen.getClientKey(),
         environment: adyen.getEnvironment(),
         configured: adyen.isAdyenConfigured(),
+        onboardingUrl: adyen.getOnboardingUrl(),
       };
     }),
 
@@ -4171,6 +4177,19 @@ export const appRouter = router({
         captured: summary.paid,
         totalAmount: summary.totalPaidMinor,
       };
+    }),
+
+    trainerServices: trainerProcedure.query(async ({ ctx }) => {
+      const bundles = await db.getBundleDraftsByTrainer(ctx.user.id);
+      const seen = new Map<string, { id: string; name: string; sessions: number }>();
+      for (const bundle of bundles) {
+        const services = parseBundleServices(bundle.servicesJson);
+        for (const s of services) {
+          const key = s.name.toLowerCase();
+          if (!seen.has(key)) seen.set(key, s);
+        }
+      }
+      return Array.from(seen.values());
     }),
 
     payoutSummary: trainerProcedure.query(async ({ ctx }) => {

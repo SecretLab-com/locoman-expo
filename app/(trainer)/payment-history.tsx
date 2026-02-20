@@ -1,11 +1,13 @@
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
+import { useColors } from "@/hooks/use-colors";
 import { formatGBPFromMinor } from "@/lib/currency";
 import { trpc } from "@/lib/trpc";
 import { router, Stack } from "expo-router";
-import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 const STATUS_LABEL: Record<string, string> = {
   awaiting_payment: "Awaiting payment",
@@ -32,6 +34,7 @@ function formatHistoryTime(value: string | null | undefined): string {
 }
 
 export default function PaymentHistoryScreen() {
+  const colors = useColors();
   const {
     data: history = [],
     isLoading,
@@ -50,7 +53,21 @@ export default function PaymentHistoryScreen() {
             <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor="#60A5FA" />
           }
         >
-          <ScreenHeader title="Payment history" subtitle="Track every payment and payout status in one place." />
+          <ScreenHeader
+            title="Payment history"
+            subtitle="Track every payment and payout status in one place."
+            leftSlot={
+              <TouchableOpacity
+                onPress={() => router.canGoBack() ? router.back() : router.replace("/(trainer)" as any)}
+                className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                testID="payment-history-back"
+              >
+                <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+            }
+          />
 
           <View className="px-4 mb-4">
             <SurfaceCard>

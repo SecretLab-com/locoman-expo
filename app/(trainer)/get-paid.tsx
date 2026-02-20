@@ -1,5 +1,6 @@
 import { AdyenCheckout } from "@/components/adyen-checkout";
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
@@ -10,11 +11,13 @@ import { formatGBP, toMinorUnits } from "@/lib/currency";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
+    Modal,
     Platform,
+    Pressable,
     RefreshControl,
     ScrollView,
     Share,
@@ -26,6 +29,17 @@ import {
 } from "react-native";
 
 type PayMode = "tap" | "link";
+
+const SERVICE_SUGGESTIONS = [
+  "Training Session",
+  "Check-In",
+  "Video Call",
+  "Plan Review",
+  "Meal Planning",
+  "Progress Photos",
+  "Custom Workout",
+  "Nutrition Coaching",
+];
 
 const FUNCTION_BANNER_IMAGE_URLS = {
   tap: "https://images.unsplash.com/photo-1556740738-b6a63e27c4df?auto=format&fit=crop&w=1400&q=80",
@@ -43,9 +57,8 @@ function showAlert(title: string, message: string) {
 export default function GetPaidScreen() {
   const colors = useColors();
   const params = useLocalSearchParams<{ mode?: string }>();
-  const [mode, setMode] = useState<PayMode>("tap");
+  const [mode, setMode] = useState<PayMode>("link");
   const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tapSession, setTapSession] = useState<{
@@ -55,14 +68,38 @@ export default function GetPaidScreen() {
     environment: string;
   } | null>(null);
 
+  const [selectedServiceName, setSelectedServiceName] = useState<string | null>(null);
+  const [isCustom, setIsCustom] = useState(false);
+  const [quantity, setQuantity] = useState("1");
+  const [customName, setCustomName] = useState("");
+  const [customInput, setCustomInput] = useState("");
+  const [showServicePicker, setShowServicePicker] = useState(false);
+
   const { data: payoutSummary } = trpc.payments.payoutSummary.useQuery();
-  const { data: payoutSetup } = trpc.payments.payoutSetup.useQuery();
+  const { data: trainerServices = [] } = trpc.payments.trainerServices.useQuery();
   const utils = trpc.useUtils();
-  const [showBankForm, setShowBankForm] = useState(false);
-  const [bankAccountHolder, setBankAccountHolder] = useState("");
-  const [bankName, setBankName] = useState("");
-  const [bankSortCode, setBankSortCode] = useState("");
-  const [bankAccountNumber, setBankAccountNumber] = useState("");
+
+  const overlayColor = colors.foreground === "#FFFFFF"
+    ? "rgba(0, 0, 0, 0.55)"
+    : "rgba(15, 23, 42, 0.18)";
+
+  const extraBundleServices = useMemo(() => {
+    const suggestionsLower = new Set(SERVICE_SUGGESTIONS.map((s) => s.toLowerCase()));
+    return trainerServices
+      .map((s) => s.name)
+      .filter((name) => !suggestionsLower.has(name.toLowerCase()));
+  }, [trainerServices]);
+
+  const description = useMemo(() => {
+    if (isCustom) {
+      const name = customName.trim() || "Custom item";
+      return quantity && quantity !== "1" ? `${quantity} × ${name}` : name;
+    }
+    if (selectedServiceName) {
+      return quantity && quantity !== "1" ? `${quantity} × ${selectedServiceName}` : selectedServiceName;
+    }
+    return "";
+  }, [isCustom, customName, selectedServiceName, quantity]);
 
   useEffect(() => {
     if (params.mode === "link") {
@@ -97,23 +134,6 @@ export default function GetPaidScreen() {
   });
 
   const isSubmitting = createSession.isPending || createLink.isPending;
-  const connectPayoutBank = trpc.payments.connectPayoutBank.useMutation({
-    onSuccess: async () => {
-      await Promise.all([utils.payments.payoutSetup.invalidate(), utils.payments.payoutSummary.invalidate()]);
-      setShowBankForm(false);
-      setBankAccountNumber("");
-      showAlert("Bank connected", "Your payout bank details are saved.");
-    },
-    onError: (err) => showAlert("Bank setup error", err.message),
-  });
-
-  useEffect(() => {
-    if (!payoutSetup?.connected) return;
-    setBankAccountHolder(payoutSetup.accountHolderName || "");
-    setBankName(payoutSetup.bankName || "");
-    setBankSortCode(payoutSetup.sortCode || "");
-    setBankAccountNumber("");
-  }, [payoutSetup]);
 
   const handleSubmit = async () => {
     await haptics.light();
@@ -123,7 +143,7 @@ export default function GetPaidScreen() {
       return;
     }
     const amountMinor = toMinorUnits(value);
-    const safeDescription = description.trim() || "Training session";
+    const safeDescription = description || "Training session";
 
     if (mode === "tap") {
       createSession.mutate({
@@ -162,48 +182,12 @@ export default function GetPaidScreen() {
     }
   };
 
-  const formatSortCode = (rawValue: string) => {
-    const digits = rawValue.replace(/\D/g, "").slice(0, 6);
-    if (digits.length <= 2) return digits;
-    if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-    return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`;
-  };
-
-  const handleConnectBank = async () => {
-    await haptics.light();
-    if (!bankAccountHolder.trim()) {
-      showAlert("Missing field", "Enter the account holder name.");
-      return;
-    }
-    if (!bankName.trim()) {
-      showAlert("Missing field", "Enter the bank name.");
-      return;
-    }
-    const sortCodeDigits = bankSortCode.replace(/\D/g, "");
-    if (sortCodeDigits.length !== 6) {
-      showAlert("Invalid sort code", "Sort code must be 6 digits.");
-      return;
-    }
-    const accountDigits = bankAccountNumber.replace(/\D/g, "");
-    if (accountDigits.length < 6 || accountDigits.length > 10) {
-      showAlert("Invalid account number", "Account number must be between 6 and 10 digits.");
-      return;
-    }
-
-    connectPayoutBank.mutate({
-      accountHolderName: bankAccountHolder.trim(),
-      bankName: bankName.trim(),
-      sortCode: sortCodeDigits,
-      accountNumber: accountDigits,
-    });
-  };
-
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
       await Promise.all([
         utils.payments.payoutSummary.invalidate(),
-        utils.payments.payoutSetup.invalidate(),
+        utils.payments.config.invalidate(),
       ]);
     } finally {
       setIsRefreshing(false);
@@ -231,16 +215,18 @@ export default function GetPaidScreen() {
                 style={StyleSheet.absoluteFillObject}
                 contentFit="cover"
               />
+              <View className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.55)" }} />
               <View
-                className={`absolute inset-0 ${mode === "tap" ? "bg-primary/60" : "bg-success/60"}`}
+                className="absolute inset-0"
+                style={{ backgroundColor: mode === "tap" ? "rgba(59,130,246,0.45)" : "rgba(34,197,94,0.40)" }}
               />
               <View className="flex-row items-center justify-between">
                 <View className="flex-1 pr-3">
-                  <Text className="text-xs font-semibold uppercase tracking-wide text-background/90">Selected function</Text>
-                  <Text className="text-lg font-bold text-background mt-1">
+                  <Text className="text-xs font-semibold uppercase tracking-wide" style={{ color: "rgba(255,255,255,0.85)" }}>Selected function</Text>
+                  <Text className="text-lg font-bold mt-1" style={{ color: "#fff" }}>
                     {mode === "tap" ? "Tap to Pay" : "Payment Link"}
                   </Text>
-                  <Text className="text-sm text-background/90 mt-1">
+                  <Text className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.85)" }}>
                     {mode === "tap"
                       ? "Present your device for a contactless card or wallet payment."
                       : "Generate and share a secure checkout link for remote payment."}
@@ -267,90 +253,37 @@ export default function GetPaidScreen() {
         </View>
 
         <View className="px-4 mb-4">
-          <SurfaceCard>
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-sm font-semibold text-foreground">Payout destination</Text>
-              <TouchableOpacity
-                onPress={() => setShowBankForm((prev) => !prev)}
-                accessibilityRole="button"
-                accessibilityLabel={showBankForm ? "Hide bank account form" : "Show bank account form"}
-                testID="get-paid-bank-toggle"
-              >
-                <Text className="text-sm font-semibold text-primary">
-                  {showBankForm ? "Done" : payoutSetup?.connected ? "Update" : "Connect"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {payoutSetup?.connected ? (
-              <View className="mb-1">
-                <Text className="text-sm text-foreground">
-                  {payoutSetup.bankName} ••••{payoutSetup.accountNumberLast4}
-                </Text>
-                <Text className="text-xs text-muted mt-1">
-                  {payoutSetup.accountHolderName} · {payoutSetup.sortCode}
-                </Text>
-              </View>
-            ) : (
-              <Text className="text-sm text-warning mb-1">No bank account connected yet.</Text>
-            )}
-
-            {showBankForm ? (
-              <View className="mt-3 pt-3 border-t border-border">
-                <Text className="text-xs text-muted mb-1.5">Account holder name</Text>
-                <TextInput
-                  className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-                  value={bankAccountHolder}
-                  onChangeText={setBankAccountHolder}
-                  placeholder="e.g. Jason Bright"
-                  placeholderTextColor={colors.muted}
-                />
-                <Text className="text-xs text-muted mb-1.5">Bank name</Text>
-                <TextInput
-                  className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-                  value={bankName}
-                  onChangeText={setBankName}
-                  placeholder="e.g. Barclays"
-                  placeholderTextColor={colors.muted}
-                />
-                <Text className="text-xs text-muted mb-1.5">Sort code</Text>
-                <TextInput
-                  className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-                  value={bankSortCode}
-                  onChangeText={(next) => setBankSortCode(formatSortCode(next))}
-                  placeholder="12-34-56"
-                  placeholderTextColor={colors.muted}
-                  keyboardType="number-pad"
-                  maxLength={8}
-                />
-                <Text className="text-xs text-muted mb-1.5">Account number</Text>
-                <TextInput
-                  className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
-                  value={bankAccountNumber}
-                  onChangeText={(next) => setBankAccountNumber(next.replace(/\D/g, "").slice(0, 10))}
-                  placeholder="12345678"
-                  placeholderTextColor={colors.muted}
-                  keyboardType="number-pad"
-                  maxLength={10}
-                />
-                <TouchableOpacity
-                  className="bg-primary rounded-xl py-3.5 items-center"
-                  onPress={handleConnectBank}
-                  disabled={connectPayoutBank.isPending}
-                  accessibilityRole="button"
-                  accessibilityLabel="Save payout bank account"
-                  testID="get-paid-bank-save"
+          <TouchableOpacity
+            onPress={() => router.push("/(trainer)/payment-setup" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Setup payment merchant account"
+            testID="get-paid-setup-payment"
+          >
+            <SurfaceCard>
+              <View className="flex-row items-center">
+                <View
+                  className={`h-9 w-9 rounded-full items-center justify-center mr-3 ${
+                    payoutSummary?.bankConnected ? "bg-success/10" : "bg-warning/10"
+                  }`}
                 >
-                  {connectPayoutBank.isPending ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text className="text-background font-semibold">
-                      {payoutSetup?.connected ? "Update bank details" : "Connect bank account to get paid"}
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                  <IconSymbol
+                    name={payoutSummary?.bankConnected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"}
+                    size={18}
+                    color={payoutSummary?.bankConnected ? colors.success : colors.warning}
+                  />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-foreground">Setup payment</Text>
+                  <Text className="text-xs text-muted mt-0.5">
+                    {payoutSummary?.bankConnected
+                      ? "Merchant account active"
+                      : "Complete merchant onboarding to get paid"}
+                  </Text>
+                </View>
+                <IconSymbol name="chevron.right" size={16} color={colors.muted} />
               </View>
-            ) : null}
-          </SurfaceCard>
+            </SurfaceCard>
+          </TouchableOpacity>
         </View>
 
         <View className="px-4 mb-4">
@@ -375,38 +308,120 @@ export default function GetPaidScreen() {
         </View>
 
         <View className="px-4 mb-4">
-          <SurfaceCard>
-            <Text className="text-sm font-medium text-muted mb-2">Amount (GBP)</Text>
+          <View
+            className="rounded-xl overflow-hidden p-4"
+            style={{
+              backgroundColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.08)" : "rgba(245,158,11,0.06)",
+              borderWidth: 1,
+              borderColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.25)" : "rgba(245,158,11,0.18)",
+            }}
+          >
+            <View className="flex-row items-center mb-3">
+              <IconSymbol name="creditcard.fill" size={16} color={colors.warning} />
+              <Text className="text-xs font-bold uppercase tracking-wider ml-2" style={{ color: colors.warning }}>
+                Payment request
+              </Text>
+            </View>
+
+            <Text className="text-sm font-medium mb-2" style={{ color: colors.warning }}>
+              Amount (GBP)
+            </Text>
             <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground text-lg font-bold mb-4"
+              className="rounded-xl px-4 py-3 text-foreground text-lg font-bold mb-4"
+              style={{
+                backgroundColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.06)" : "rgba(245,158,11,0.04)",
+                borderWidth: 1,
+                borderColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.18)" : "rgba(245,158,11,0.12)",
+              }}
               value={amount}
               onChangeText={setAmount}
               placeholder="0.00"
               placeholderTextColor={colors.muted}
               keyboardType="decimal-pad"
             />
-            <Text className="text-sm font-medium text-muted mb-2">What is this for? (optional)</Text>
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Training session"
-              placeholderTextColor={colors.muted}
-            />
+
+            <Text className="text-sm font-medium mb-2" style={{ color: colors.warning }}>
+              What is this for?
+            </Text>
             <TouchableOpacity
-              className="bg-primary rounded-xl py-3.5 items-center"
+              className="rounded-xl px-4 py-3 flex-row items-center justify-between mb-3"
+              style={{
+                backgroundColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.06)" : "rgba(245,158,11,0.04)",
+                borderWidth: 1,
+                borderColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.18)" : "rgba(245,158,11,0.12)",
+              }}
+              onPress={() => setShowServicePicker(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Select a service"
+              testID="get-paid-service-picker"
+            >
+              <Text
+                className={`text-sm flex-1 ${selectedServiceName || isCustom ? "text-foreground font-medium" : "text-muted"}`}
+                numberOfLines={1}
+              >
+                {isCustom ? "Custom" : selectedServiceName || "Select a service…"}
+              </Text>
+              <IconSymbol name="chevron.down" size={14} color={colors.warning} />
+            </TouchableOpacity>
+
+            {(selectedServiceName || isCustom) && (
+              <View className="flex-row items-center mb-4 gap-2">
+                <TextInput
+                  className="rounded-xl px-4 py-3 text-foreground font-semibold"
+                  style={{
+                    width: 80,
+                    backgroundColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.06)" : "rgba(245,158,11,0.04)",
+                    borderWidth: 1,
+                    borderColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.18)" : "rgba(245,158,11,0.12)",
+                  }}
+                  value={quantity}
+                  onChangeText={setQuantity}
+                  placeholder="1"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="decimal-pad"
+                />
+                {isCustom ? (
+                  <View className="flex-1 flex-row items-center">
+                    <Text className="text-sm mr-2" style={{ color: colors.warning }}>×</Text>
+                    <TextInput
+                      className="flex-1 rounded-xl px-4 py-3 text-foreground"
+                      style={{
+                        backgroundColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.06)" : "rgba(245,158,11,0.04)",
+                        borderWidth: 1,
+                        borderColor: colors.foreground === "#FFFFFF" ? "rgba(251,191,36,0.18)" : "rgba(245,158,11,0.12)",
+                      }}
+                      value={customName}
+                      onChangeText={setCustomName}
+                      placeholder="e.g. Nutrition Bar"
+                      placeholderTextColor={colors.muted}
+                    />
+                  </View>
+                ) : (
+                  <Text className="text-sm flex-1" style={{ color: colors.warning }} numberOfLines={1}>
+                    × {selectedServiceName}
+                  </Text>
+                )}
+              </View>
+            )}
+
+            <TouchableOpacity
+              className="rounded-xl py-3.5 items-center"
+              style={{ backgroundColor: colors.warning }}
               onPress={handleSubmit}
               disabled={isSubmitting}
+              accessibilityRole="button"
+              accessibilityLabel={mode === "tap" ? "Start tap to pay" : "Create payment link"}
+              testID="get-paid-submit"
             >
               {isSubmitting ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text className="text-background font-semibold">
+                <Text className="font-semibold" style={{ color: "#1C1306" }}>
                   {mode === "tap" ? "Start Tap to Pay" : "Create Payment Link"}
                 </Text>
               )}
             </TouchableOpacity>
-          </SurfaceCard>
+          </View>
         </View>
 
         {mode === "tap" && tapSession && (
@@ -491,6 +506,137 @@ export default function GetPaidScreen() {
         </View>
       </ScrollView>
       </ScreenContainer>
+
+      <Modal
+        visible={showServicePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowServicePicker(false)}
+      >
+        <Pressable
+          className="flex-1 justify-end"
+          onPress={() => setShowServicePicker(false)}
+          style={{ backgroundColor: overlayColor }}
+        >
+          <Pressable>
+          <SwipeDownSheet
+            visible={showServicePicker}
+            onClose={() => setShowServicePicker(false)}
+            className="bg-background rounded-t-3xl max-h-[75%]"
+          >
+            <View className="px-5 pb-2 flex-row items-center justify-between">
+              <Text className="text-lg font-bold text-foreground">Select a service</Text>
+              <TouchableOpacity
+                onPress={() => setShowServicePicker(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close service picker"
+                testID="service-picker-close"
+              >
+                <IconSymbol name="xmark" size={22} color={colors.muted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView className="px-5 pb-6" showsVerticalScrollIndicator={false}>
+              <Text className="text-xs text-muted mb-3">Select a service type or add a custom one</Text>
+
+              <View className="gap-2 mb-3">
+                {SERVICE_SUGGESTIONS.map((name) => {
+                  const active = selectedServiceName === name && !isCustom;
+                  return (
+                    <TouchableOpacity
+                      key={name}
+                      className="bg-surface border border-border rounded-xl px-4 py-3.5 flex-row items-center justify-between"
+                      onPress={() => {
+                        setSelectedServiceName(name);
+                        setIsCustom(false);
+                        setQuantity("1");
+                        setShowServicePicker(false);
+                        haptics.light();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select ${name}`}
+                    >
+                      <Text className="text-foreground font-medium text-sm">{name}</Text>
+                      {active ? (
+                        <IconSymbol name="checkmark.circle.fill" size={20} color={colors.primary} />
+                      ) : (
+                        <IconSymbol name="plus" size={18} color={colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {extraBundleServices.length > 0 && (
+                <>
+                  <Text className="text-xs text-muted mb-2 mt-1">From your bundles</Text>
+                  <View className="gap-2 mb-3">
+                    {extraBundleServices.map((name) => {
+                      const active = selectedServiceName === name && !isCustom;
+                      return (
+                        <TouchableOpacity
+                          key={name}
+                          className="bg-surface border border-border rounded-xl px-4 py-3.5 flex-row items-center justify-between"
+                          onPress={() => {
+                            setSelectedServiceName(name);
+                            setIsCustom(false);
+                            setQuantity("1");
+                            setShowServicePicker(false);
+                            haptics.light();
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Select ${name}`}
+                        >
+                          <Text className="text-foreground font-medium text-sm">{name}</Text>
+                          {active ? (
+                            <IconSymbol name="checkmark.circle.fill" size={20} color={colors.primary} />
+                          ) : (
+                            <IconSymbol name="plus" size={18} color={colors.primary} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
+
+              <Text className="text-xs text-muted mb-2 mt-1">Custom service</Text>
+              <View className="flex-row gap-2">
+                <TextInput
+                  className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="Custom service name…"
+                  placeholderTextColor={colors.muted}
+                  value={customInput}
+                  onChangeText={setCustomInput}
+                />
+                <TouchableOpacity
+                  className="bg-primary rounded-xl px-4 items-center justify-center"
+                  onPress={() => {
+                    const trimmed = customInput.trim();
+                    if (!trimmed) return;
+                    setSelectedServiceName(null);
+                    setIsCustom(true);
+                    setCustomName(trimmed);
+                    setQuantity("1");
+                    setCustomInput("");
+                    setShowServicePicker(false);
+                    haptics.light();
+                  }}
+                  disabled={!customInput.trim()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add custom service"
+                  testID="service-picker-custom-add"
+                >
+                  <IconSymbol name="plus" size={20} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              <View className="h-8" />
+            </ScrollView>
+          </SwipeDownSheet>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
