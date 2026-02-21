@@ -91,7 +91,7 @@ function getHeaderTitle(routeName: string): string {
 }
 
 function RootAccessGate({ children }: { children: React.ReactNode }) {
-  const { loading, hasSession, profileHydrated, isAuthenticated, effectiveRole, isImpersonating } =
+  const { loading, hasSession, profileHydrated, isAuthenticated, effectiveRole, isImpersonating, navigationFrozen } =
     useAuthContext();
   const pathname = usePathname();
   const router = useRouter();
@@ -181,19 +181,21 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
       router.replace("/welcome");
       return;
     }
-    const rolePathChecks: Array<{ prefix: string; role: string }> = [
-      { prefix: "/(coordinator)", role: "coordinator" },
-      { prefix: "/(manager)", role: "manager" },
-      { prefix: "/(trainer)", role: "trainer" },
-      { prefix: "/(client)", role: "client" },
-    ];
-    const mismatchedRolePath = rolePathChecks.find(
-      ({ prefix, role }) => pathname.startsWith(prefix) && effectiveRole !== role
-    );
-    if (mismatchedRolePath) {
-      setRedirecting(true);
-      router.replace(getHomeRoute(effectiveRole) as any);
-      return;
+    if (!isImpersonating && !navigationFrozen) {
+      const rolePathChecks: Array<{ prefix: string; role: string }> = [
+        { prefix: "/(coordinator)", role: "coordinator" },
+        { prefix: "/(manager)", role: "manager" },
+        { prefix: "/(trainer)", role: "trainer" },
+        { prefix: "/(client)", role: "client" },
+      ];
+      const mismatchedRolePath = rolePathChecks.find(
+        ({ prefix, role }) => pathname.startsWith(prefix) && effectiveRole !== role
+      );
+      if (mismatchedRolePath) {
+        setRedirecting(true);
+        router.replace(getHomeRoute(effectiveRole) as any);
+        return;
+      }
     }
     if (pathname.startsWith("/(tabs)") && effectiveRole && effectiveRole !== "shopper") {
       setRedirecting(true);
@@ -207,6 +209,8 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
     authGraceActive,
     isAuthenticated,
     isGuestSafeRoute,
+    isImpersonating,
+    navigationFrozen,
     pathname,
     effectiveRole,
     router,

@@ -49,6 +49,8 @@ export function getHomeRoute(roleOrFlags?: RoleFlags | string | null): string {
 
 function tryDismissAll(): void {
   try {
+    // dismissAll / POP_TO_TOP is not supported on web and throws
+    if (typeof window !== "undefined" && (window as any).document) return;
     const dismissAll = (router as any).dismissAll;
     if (typeof dismissAll === "function") {
       dismissAll();

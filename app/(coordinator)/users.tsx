@@ -498,18 +498,40 @@ export default function UsersScreen() {
 
   // Impersonate user
   const impersonateUser = async () => {
-    if (!selectedUser || !isCoordinator) return;
+    if (!selectedUser || !isCoordinator) {
+      console.warn("[Impersonate] Blocked: selectedUser=", !!selectedUser, "isCoordinator=", isCoordinator);
+      return;
+    }
+
+    console.log("[Impersonate] Starting for:", selectedUser.name, "role:", selectedUser.role, "id:", selectedUser.id);
 
     try {
-      // Log the impersonation
-      await logActionMutation.mutateAsync({
+      // Best-effort log -- don't block impersonation if logging fails
+      logActionMutation.mutate({
         targetUserId: selectedUser.id,
         action: "impersonation_started",
         notes: `Impersonated by ${currentUser?.name || "Manager"}`,
       });
 
-      // Start impersonation
-      await startImpersonation(selectedUser as any);
+      // Build user object with all required fields for Auth.User
+      const impersonateAs = {
+        id: selectedUser.id,
+        openId: (selectedUser as any).openId || selectedUser.id,
+        name: selectedUser.name || null,
+        email: selectedUser.email || null,
+        phone: (selectedUser as any).phone || null,
+        photoUrl: (selectedUser as any).photoUrl || (selectedUser as any).avatar || null,
+        loginMethod: (selectedUser as any).loginMethod || null,
+        role: selectedUser.role as any,
+        username: (selectedUser as any).username || null,
+        bio: (selectedUser as any).bio || null,
+      };
+
+      console.log("[Impersonate] User object:", JSON.stringify(impersonateAs));
+
+      await startImpersonation(impersonateAs as any);
+
+      console.log("[Impersonate] startImpersonation completed");
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -517,18 +539,25 @@ export default function UsersScreen() {
 
       closeModal();
 
-      // Navigate to appropriate dashboard based on impersonated user's role
-      // Uses role-aware navigation helper for consistency
-      navigateToHome({
-        isCoordinator: selectedUser.role === "coordinator",
-        isManager: selectedUser.role === "manager",
-        isTrainer: selectedUser.role === "trainer",
-        isClient: selectedUser.role === "client",
-      });
+      const targetRoute = selectedUser.role === "coordinator" ? "/(coordinator)/dashboard"
+        : selectedUser.role === "manager" ? "/(manager)/dashboard"
+        : selectedUser.role === "trainer" ? "/(trainer)/dashboard"
+        : selectedUser.role === "client" ? "/(client)/dashboard"
+        : "/(tabs)";
 
-      Alert.alert("Impersonation Started", `You are now viewing as ${selectedUser.name}`);
-    } catch {
-      Alert.alert("Error", "Failed to start impersonation");
+      console.log("[Impersonate] Navigating to:", targetRoute);
+
+      // Delay navigation to let auth state propagate
+      setTimeout(() => {
+        router.replace(targetRoute as any);
+      }, 500);
+    } catch (error) {
+      console.error("[Impersonate] Failed:", error);
+      if (Platform.OS === "web") {
+        window.alert(`Error\n\nFailed to start impersonation: ${error instanceof Error ? error.message : "Unknown error"}`);
+      } else {
+        Alert.alert("Error", "Failed to start impersonation");
+      }
     }
   };
 
