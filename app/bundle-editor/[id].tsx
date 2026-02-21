@@ -40,15 +40,15 @@ type ProductItem = {
   id: number;
   title: string;
   description: string | null;
-  vendor: string;
-  productType: string;
+  vendor: string | null;
+  productType: string | null;
   status: string;
   price: string;
   variantId?: number;
   sku: string;
   inventory: number;
   imageUrl: string | null;
-  quantity?: number; // Quantity of this product in the bundle (optional, defaults to 1)
+  quantity?: number;
 };
 
 // Product item with quantity (for bundle products)
@@ -77,17 +77,8 @@ const CADENCE_OPTIONS = [
   { value: "monthly" as const, label: "Monthly" },
 ];
 
-// Service type suggestions - matching original locoman
-const SERVICE_SUGGESTIONS = [
-  "Training Session",
-  "Check-In",
-  "Video Call",
-  "Plan Review",
-  "Meal Planning",
-  "Progress Photos",
-  "Custom Workout",
-  "Nutrition Coaching",
-];
+import { ServicePickerModal } from "@/components/service-picker-modal";
+import { SERVICE_SUGGESTIONS } from "@/shared/service-suggestions";
 
 // Goal suggestions - matching original locoman
 const GOAL_SUGGESTIONS = [
@@ -107,8 +98,9 @@ const GOAL_SUGGESTIONS = [
 
 export default function BundleEditorScreen() {
   const colors = useColors();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, admin: adminParam } = useLocalSearchParams<{ id: string; admin?: string }>();
   const isNewBundle = id === "new";
+  const isAdminMode = adminParam === "1";
   
   // Parse id safely
   const bundleIdParam = (id && id !== "new") ? id : "";
@@ -131,7 +123,6 @@ export default function BundleEditorScreen() {
   
   // Service modal
   const [showServiceModal, setShowServiceModal] = useState(false);
-  const [newServiceType, setNewServiceType] = useState("");
   
   const [customGoal, setCustomGoal] = useState("");
 
@@ -166,8 +157,14 @@ export default function BundleEditorScreen() {
   // Fetch existing bundle if editing
   const { data: existingBundle, refetch: refetchBundle } = trpc.bundles.get.useQuery(
     { id: bundleIdParam },
-    { enabled: !isNewBundle && isValidBundleId }
+    { enabled: !isNewBundle && isValidBundleId && !isAdminMode }
   );
+  const { data: existingAdminBundle, refetch: refetchAdminBundle } = trpc.admin.getBundle.useQuery(
+    { id: bundleIdParam },
+    { enabled: !isNewBundle && isValidBundleId && isAdminMode }
+  );
+  const effectiveBundle = isAdminMode ? existingAdminBundle : existingBundle;
+  const effectiveRefetch = isAdminMode ? refetchAdminBundle : refetchBundle;
 
   // Cross-platform alert helper (defined early for mutations)
   const platformAlert = (title: string, message: string, buttons?: { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void }[]) => {
@@ -184,8 +181,8 @@ export default function BundleEditorScreen() {
     }
   };
 
-  // Create bundle mutation
-  const createBundleMutation = trpc.bundles.create.useMutation({
+  // Create bundle mutation (trainer)
+  const trainerCreateMutation = trpc.bundles.create.useMutation({
     onSuccess: () => {
       haptics.success();
       platformAlert("Success", "Bundle saved as draft", [
@@ -198,12 +195,32 @@ export default function BundleEditorScreen() {
     },
   });
 
-  // Update bundle mutation
-  const updateBundleMutation = trpc.bundles.update.useMutation({
+  // Create bundle mutation (admin)
+  const adminCreateMutation = trpc.admin.createBundle.useMutation({
+    onSuccess: (newBundleId) => {
+      haptics.success();
+      if (isAdminMode) {
+        promptTemplatePromotion(typeof newBundleId === "string" ? newBundleId : "");
+      } else {
+        platformAlert("Success", "Bundle saved as draft", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+      }
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message);
+    },
+  });
+
+  const createBundleMutation = isAdminMode ? adminCreateMutation : trainerCreateMutation;
+
+  // Update bundle mutation (trainer)
+  const trainerUpdateMutation = trpc.bundles.update.useMutation({
     onSuccess: () => {
       haptics.success();
       platformAlert("Success", "Bundle updated", [
-        { text: "OK", onPress: () => refetchBundle() },
+        { text: "OK", onPress: () => effectiveRefetch() },
       ]);
     },
     onError: (error) => {
@@ -211,6 +228,47 @@ export default function BundleEditorScreen() {
       platformAlert("Error", error.message);
     },
   });
+
+  // Update bundle mutation (admin)
+  const adminUpdateMutation = trpc.admin.updateBundle.useMutation({
+    onSuccess: () => {
+      haptics.success();
+      platformAlert("Success", "Bundle updated", [
+        { text: "OK", onPress: () => effectiveRefetch() },
+      ]);
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message);
+    },
+  });
+
+  const updateBundleMutation = isAdminMode ? adminUpdateMutation : trainerUpdateMutation;
+
+  const promptTemplatePromotion = (bundleId: string) => {
+    if (Platform.OS === "web") {
+      const yes = window.confirm("Bundle saved!\n\nWould you like to make this a template?");
+      if (yes && bundleId) {
+        router.replace({ pathname: "/(coordinator)/template-settings", params: { bundleId } } as any);
+      } else {
+        router.back();
+      }
+    } else {
+      Alert.alert("Bundle Saved", "Would you like to make this a template?", [
+        { text: "Not Now", style: "cancel", onPress: () => router.back() },
+        {
+          text: "Yes, Make Template",
+          onPress: () => {
+            if (bundleId) {
+              router.replace({ pathname: "/(coordinator)/template-settings", params: { bundleId } } as any);
+            } else {
+              router.back();
+            }
+          },
+        },
+      ]);
+    }
+  };
 
   // Submit for review mutation
   const submitForReviewMutation = trpc.bundles.submitForReview.useMutation({
@@ -242,33 +300,29 @@ export default function BundleEditorScreen() {
 
   // Populate form when editing
   useEffect(() => {
-    if (existingBundle) {
+    if (effectiveBundle) {
       setForm({
-        title: existingBundle.title || "",
-        description: existingBundle.description || "",
-        price: existingBundle.price || "0.00",
-        cadence: (existingBundle.cadence as "one_time" | "weekly" | "monthly") || "monthly",
-        imageUrl: existingBundle.imageUrl || "",
-        imageSource: (existingBundle.imageSource as "ai" | "custom") || "ai",
-        services: (existingBundle.servicesJson as ServiceItem[]) || [],
-        products: [], // Will be populated from productsJson
-        goals: (existingBundle.goalsJson as string[]) || [],
-        suggestedGoal: (existingBundle.suggestedGoal as string) || "",
-        status: (existingBundle.status as BundleFormState["status"]) || "draft",
-        rejectionReason: existingBundle.rejectionReason || undefined,
-        reviewComments: (existingBundle as any).reviewComments || undefined,
+        title: effectiveBundle.title || "",
+        description: effectiveBundle.description || "",
+        price: effectiveBundle.price || "0.00",
+        cadence: (effectiveBundle.cadence as "one_time" | "weekly" | "monthly") || "monthly",
+        imageUrl: effectiveBundle.imageUrl || "",
+        imageSource: (effectiveBundle.imageSource as "ai" | "custom") || "ai",
+        services: (effectiveBundle.servicesJson as ServiceItem[]) || [],
+        products: [],
+        goals: (effectiveBundle.goalsJson as string[]) || [],
+        suggestedGoal: (effectiveBundle.suggestedGoal as string) || "",
+        status: (effectiveBundle.status as BundleFormState["status"]) || "draft",
+        rejectionReason: effectiveBundle.rejectionReason || undefined,
+        reviewComments: (effectiveBundle as any).reviewComments || undefined,
       });
 
-      // Match products from productsJson with Shopify products
-      if (existingBundle.productsJson && shopifyProducts) {
-        const parsedProducts = existingBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number }[];
+      if (effectiveBundle.productsJson && shopifyProducts) {
+        const parsedProducts = effectiveBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number }[];
         const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
           const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === p.id);
           if (shopifyProduct) {
-            return {
-              ...shopifyProduct,
-              quantity: p.quantity || 1,
-            };
+            return { ...shopifyProduct, quantity: p.quantity || 1 };
           }
           return {
             id: p.id,
@@ -292,7 +346,7 @@ export default function BundleEditorScreen() {
     } else {
       setLoading(false);
     }
-  }, [existingBundle, shopifyProducts, isNewBundle]);
+  }, [effectiveBundle, shopifyProducts, isNewBundle]);
 
   const updateForm = useCallback(<K extends keyof BundleFormState>(key: K, value: BundleFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -352,7 +406,6 @@ export default function BundleEditorScreen() {
     updateForm("services", [...form.services, newService]);
     haptics.light();
     setShowServiceModal(false);
-    setNewServiceType("");
   };
 
   // Update service
@@ -605,7 +658,7 @@ export default function BundleEditorScreen() {
     }
   };
 
-  // Submit for review
+  // Submit for review (trainers) / Save & optionally promote (admins)
   const handleSubmitForReview = async () => {
     if (!validateForm()) return;
 
@@ -617,7 +670,6 @@ export default function BundleEditorScreen() {
     const doSubmit = async () => {
       setSaving(true);
       try {
-        // First save the bundle
         const bundleData = {
           title: form.title,
           description: form.description,
@@ -639,7 +691,9 @@ export default function BundleEditorScreen() {
         let bundleId = bundleIdParam;
         if (isNewBundle) {
           const result = await createBundleMutation.mutateAsync(bundleData);
-          if (result && typeof result === 'object' && 'id' in result) {
+          if (typeof result === "string") {
+            bundleId = result;
+          } else if (result && typeof result === "object" && "id" in result) {
             bundleId = (result as { id: string }).id;
           }
         } else {
@@ -649,27 +703,37 @@ export default function BundleEditorScreen() {
           });
         }
 
-        // Then submit for review
-        await submitForReviewMutation.mutateAsync({ id: bundleId });
+        if (isAdminMode) {
+          promptTemplatePromotion(bundleId);
+        } else {
+          await submitForReviewMutation.mutateAsync({ id: bundleId });
+        }
       } catch (error) {
-        // onError handlers already surface a user alert; keep rejection handled.
         console.error("[bundle-editor] submitForReview failed:", error);
       } finally {
         setSaving(false);
       }
     };
 
-    showAlert(
-      "Submit for Review",
-      "Your bundle will be reviewed by the admin team. You'll be notified once it's approved.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Submit",
-          onPress: doSubmit,
-        },
-      ]
-    );
+    if (isAdminMode) {
+      showAlert(
+        "Save Bundle",
+        "Save this bundle and optionally promote it to a template?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Save", onPress: doSubmit },
+        ],
+      );
+    } else {
+      showAlert(
+        "Submit for Review",
+        "Your bundle will be reviewed by the admin team. You'll be notified once it's approved.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Submit", onPress: doSubmit },
+        ],
+      );
+    }
   };
 
   // Generate AI image
@@ -934,6 +998,9 @@ export default function BundleEditorScreen() {
               <TouchableOpacity
                 className="bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center mb-4"
                 onPress={() => setShowServiceModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Add Service"
+                testID="add-service-button"
               >
                 <IconSymbol name="plus" size={20} color={colors.primary} />
                 <Text className="text-primary font-medium ml-2">Add Service</Text>
@@ -1355,62 +1422,12 @@ export default function BundleEditorScreen() {
           </View>
         </View>
 
-        {/* Service Selection Modal */}
-        <Modal
+        <ServicePickerModal
           visible={showServiceModal}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setShowServiceModal(false)}
-        >
-          <View className="flex-1 bg-background">
-            <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-              <Text className="text-lg font-semibold text-foreground">Add Service</Text>
-              <TouchableOpacity onPress={() => setShowServiceModal(false)}>
-                <IconSymbol name="xmark" size={24} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView className="flex-1 p-4">
-              <Text className="text-sm text-muted mb-4">Select a service type or create a custom one</Text>
-
-              {/* Suggested Services */}
-              <View className="gap-2 mb-4">
-                {SERVICE_SUGGESTIONS.map((service) => (
-                  <TouchableOpacity
-                    key={service}
-                    className="bg-surface border border-border rounded-xl p-4 flex-row items-center justify-between"
-                    onPress={() => addService(service)}
-                  >
-                    <Text className="text-foreground font-medium">{service}</Text>
-                    <IconSymbol name="plus" size={20} color={colors.primary} />
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Custom Service Input */}
-              <View className="flex-row gap-2">
-                <TextInput
-                  className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Custom service name..."
-                  placeholderTextColor={colors.muted}
-                  value={newServiceType}
-                  onChangeText={setNewServiceType}
-                />
-                <TouchableOpacity
-                  className="bg-primary rounded-xl px-4 items-center justify-center"
-                  onPress={() => {
-                    if (newServiceType.trim()) {
-                      addService(newServiceType.trim());
-                    }
-                  }}
-                  disabled={!newServiceType.trim()}
-                >
-                  <IconSymbol name="plus" size={20} color={colors.background} />
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </Modal>
+          onClose={() => setShowServiceModal(false)}
+          onSelect={addService}
+          presentation="pageSheet"
+        />
 
         {/* Product Selection Modal */}
         <Modal

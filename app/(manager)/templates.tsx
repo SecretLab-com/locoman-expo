@@ -181,15 +181,6 @@ export default function TemplatesScreen() {
             </Text>
           </View>
         </View>
-        <TouchableOpacity
-          className="bg-primary px-4 py-2 rounded-xl flex-row items-center"
-          onPress={() => router.push("/template-editor/new")}
-          accessibilityRole="button"
-          accessibilityLabel="Create new template"
-        >
-          <IconSymbol name="plus" size={18} color="#fff" />
-          <Text className="text-white font-semibold ml-1">New</Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -200,12 +191,24 @@ export default function TemplatesScreen() {
         }
       >
         {mappedTemplates.length === 0 ? (
-          <View className="bg-surface rounded-xl p-6 items-center">
-            <IconSymbol name="doc.text.fill" size={32} color={colors.muted} />
-            <Text className="text-muted mt-2">No templates yet</Text>
-            <Text className="text-muted text-sm text-center mt-1">
-              Create templates for trainers to use
+          <View className="bg-surface rounded-xl border border-border p-6 items-center">
+            <IconSymbol name="doc.text.fill" size={36} color={colors.muted} />
+            <Text className="text-foreground font-semibold text-base mt-3">No templates yet</Text>
+            <Text className="text-sm text-muted mt-1 text-center">
+              Create templates for trainers to use when building offers.
             </Text>
+            <TouchableOpacity
+              className="flex-row items-center mt-4"
+              onPress={() => router.push("/template-editor/new")}
+              accessibilityRole="button"
+              accessibilityLabel="Create new template"
+            >
+              <Text className="text-sm text-muted mr-2">Tap the</Text>
+              <View className="w-8 h-8 rounded-full bg-primary items-center justify-center">
+                <IconSymbol name="plus" size={16} color="#fff" />
+              </View>
+              <Text className="text-sm text-muted ml-2">to get started</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           mappedTemplates.map((template) => (
@@ -307,6 +310,17 @@ export default function TemplatesScreen() {
         {/* Bottom padding */}
         <View className="h-24" />
       </ScrollView>
+
+      <TouchableOpacity
+        onPress={() => router.push("/template-editor/new")}
+        className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+        style={{ right: 16, bottom: 16 }}
+        accessibilityRole="button"
+        accessibilityLabel="Create new template"
+        testID="templates-add-fab"
+      >
+        <IconSymbol name="plus" size={24} color="#fff" />
+      </TouchableOpacity>
     </ScreenContainer>
   );
 }

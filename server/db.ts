@@ -179,12 +179,28 @@ export type BundleDraft = {
   rejectionReason: string | null;
   reviewComments: string | null;
   version: number | null;
+  isTemplate: boolean;
+  templateVisibility: string[];
+  discountType: string | null;
+  discountValue: string | null;
+  availabilityStart: string | null;
+  availabilityEnd: string | null;
+  templateActive: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
 export type InsertBundleDraft = Partial<Omit<BundleDraft, "id" | "createdAt" | "updatedAt">> & {
   title: string;
+};
+
+export type TemplateSettings = {
+  templateVisibility?: string[];
+  discountType?: string | null;
+  discountValue?: string | null;
+  availabilityStart?: string | null;
+  availabilityEnd?: string | null;
+  templateActive?: boolean;
 };
 
 export type Product = {
@@ -207,6 +223,26 @@ export type Product = {
   syncedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type Collection = {
+  id: string;
+  shopifyCollectionId: number;
+  title: string;
+  handle: string;
+  imageUrl: string | null;
+  channels: string[];
+  shopEnabled: boolean;
+  productIds: number[];
+  syncedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertCollection = Partial<Omit<Collection, "id" | "createdAt" | "updatedAt">> & {
+  shopifyCollectionId: number;
+  title: string;
+  handle: string;
 };
 
 export type InsertProduct = Partial<Omit<Product, "id" | "createdAt" | "updatedAt">> & {
@@ -1063,6 +1099,102 @@ export async function getPublishedBundles(): Promise<BundleDraft[]> {
   return mapRowsFromDb<BundleDraft>(data || []);
 }
 
+// ============================================================================
+// PROMOTED TEMPLATES (bundles promoted to templates)
+// ============================================================================
+
+export async function getBundleDraftsByCreator(userId: string): Promise<BundleDraft[]> {
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .eq("trainer_id", userId)
+    .order("updated_at", { ascending: false });
+  if (error) { console.error("[Database] getBundleDraftsByCreator:", error.message); return []; }
+  return mapRowsFromDb<BundleDraft>(data || []);
+}
+
+export async function getAdminBundles(): Promise<BundleDraft[]> {
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .is("trainer_id", null)
+    .order("updated_at", { ascending: false });
+  if (error) { console.error("[Database] getAdminBundles:", error.message); return []; }
+  return mapRowsFromDb<BundleDraft>(data || []);
+}
+
+export async function getNonTemplateBundles(): Promise<BundleDraft[]> {
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .or("is_template.is.null,is_template.eq.false")
+    .is("trainer_id", null)
+    .order("updated_at", { ascending: false });
+  if (error) { console.error("[Database] getNonTemplateBundles:", error.message); return []; }
+  return mapRowsFromDb<BundleDraft>(data || []);
+}
+
+export async function getPromotedTemplates(): Promise<BundleDraft[]> {
+  const now = new Date().toISOString();
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .eq("is_template", true)
+    .eq("template_active", true)
+    .or(`availability_start.is.null,availability_start.lte.${now}`)
+    .or(`availability_end.is.null,availability_end.gte.${now}`)
+    .order("updated_at", { ascending: false });
+  if (error) { console.error("[Database] getPromotedTemplates:", error.message); return []; }
+  return mapRowsFromDb<BundleDraft>(data || []);
+}
+
+export async function getAllPromotedTemplates(): Promise<BundleDraft[]> {
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .eq("is_template", true)
+    .order("updated_at", { ascending: false });
+  if (error) { console.error("[Database] getAllPromotedTemplates:", error.message); return []; }
+  return mapRowsFromDb<BundleDraft>(data || []);
+}
+
+export async function promoteBundleToTemplate(bundleId: string, settings: TemplateSettings) {
+  const { error } = await sb()
+    .from("bundle_drafts")
+    .update(mapToDb({
+      isTemplate: true,
+      templateActive: true,
+      ...settings,
+    }))
+    .eq("id", bundleId);
+  if (error) { console.error("[Database] promoteBundleToTemplate:", error.message); throw error; }
+}
+
+export async function updateTemplateSettings(bundleId: string, settings: TemplateSettings) {
+  const { error } = await sb()
+    .from("bundle_drafts")
+    .update(mapToDb(settings))
+    .eq("id", bundleId)
+    .eq("is_template", true);
+  if (error) { console.error("[Database] updateTemplateSettings:", error.message); throw error; }
+}
+
+export async function demoteTemplate(bundleId: string) {
+  const { error } = await sb()
+    .from("bundle_drafts")
+    .update({
+      is_template: false,
+      template_active: false,
+      template_visibility: [],
+      discount_type: null,
+      discount_value: null,
+      availability_start: null,
+      availability_end: null,
+    })
+    .eq("id", bundleId);
+  if (error) { console.error("[Database] demoteTemplate:", error.message); throw error; }
+}
+
 export async function getPublishedBundlesByTrainerIds(trainerIds: string[]): Promise<BundleDraft[]> {
   if (!Array.isArray(trainerIds) || trainerIds.length === 0) return [];
   const { data, error } = await sb()
@@ -1145,6 +1277,35 @@ export async function upsertProduct(data: InsertProduct) {
     const { error } = await sb().from("products").insert(dbData);
     if (error) { console.error("[Database] upsertProduct:", error.message); throw error; }
   }
+}
+
+// ============================================================================
+// COLLECTIONS (synced from Shopify)
+// ============================================================================
+
+export async function getCollections(shopEnabledOnly = true): Promise<Collection[]> {
+  let query = sb().from("collections").select("*").order("title", { ascending: true });
+  if (shopEnabledOnly) query = query.eq("shop_enabled", true);
+  const { data, error } = await query;
+  if (error) { console.error("[Database] getCollections:", error.message); return []; }
+  return mapRowsFromDb<Collection>(data || []);
+}
+
+export async function upsertCollection(data: InsertCollection) {
+  const dbData = mapToDb(data);
+  const { error } = await sb()
+    .from("collections")
+    .upsert(dbData, { onConflict: "shopify_collection_id" });
+  if (error) { console.error("[Database] upsertCollection:", error.message); throw error; }
+}
+
+export async function deleteStaleCollections(activeShopifyIds: number[]) {
+  if (activeShopifyIds.length === 0) return;
+  const { error } = await sb()
+    .from("collections")
+    .delete()
+    .not("shopify_collection_id", "in", `(${activeShopifyIds.join(",")})`);
+  if (error) { console.error("[Database] deleteStaleCollections:", error.message); }
 }
 
 // ============================================================================

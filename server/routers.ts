@@ -780,25 +780,16 @@ export const appRouter = router({
     }),
 
     collections: publicProcedure.query(async () => {
-      try {
-        const collections = await shopify.fetchCollections();
-        const shopEnabledCollections = collections.filter((collection) => collection.shopEnabled);
-        const productMap = await shopify.fetchCollectionProductMap(
-          shopEnabledCollections.map((collection) => collection.id),
-        );
-        return shopEnabledCollections.map((collection) => ({
-          id: collection.id,
-          title: collection.title,
-          handle: collection.handle,
-          imageUrl: collection.image?.src || null,
-          channels: collection.channels || [],
-          updatedAt: collection.updated_at || null,
-          productIds: productMap[collection.id] || [],
-        }));
-      } catch (error) {
-        console.warn("[Catalog] Unable to fetch Shopify collections:", error);
-        return [];
-      }
+      const collections = await db.getCollections(true);
+      return collections.map((c) => ({
+        id: c.shopifyCollectionId,
+        title: c.title,
+        handle: c.handle,
+        imageUrl: c.imageUrl,
+        channels: c.channels || [],
+        updatedAt: c.syncedAt || null,
+        productIds: c.productIds || [],
+      }));
     }),
 
     searchProducts: publicProcedure
@@ -1119,7 +1110,38 @@ export const appRouter = router({
       }),
 
     templates: trainerProcedure.query(async () => {
-      return db.getBundleTemplates();
+      const [legacyTemplates, promotedBundles] = await Promise.all([
+        db.getBundleTemplates(),
+        db.getPromotedTemplates(),
+      ]);
+
+      const promotedAsTpl = promotedBundles.map((b) => ({
+        id: b.id,
+        title: b.title,
+        description: b.description,
+        goalType: null as string | null,
+        goalsJson: b.goalsJson,
+        imageUrl: b.imageUrl,
+        basePrice: b.price,
+        minPrice: null as string | null,
+        maxPrice: null as string | null,
+        rulesJson: null,
+        defaultServices: b.servicesJson,
+        defaultProducts: b.productsJson,
+        active: b.templateActive,
+        usageCount: 0,
+        createdBy: b.trainerId,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
+        discountType: b.discountType,
+        discountValue: b.discountValue,
+        availabilityStart: b.availabilityStart,
+        availabilityEnd: b.availabilityEnd,
+        templateVisibility: b.templateVisibility,
+        isPromoted: true,
+      }));
+
+      return [...legacyTemplates.map((t) => ({ ...t, isPromoted: false })), ...promotedAsTpl];
     }),
 
     delete: trainerProcedure
@@ -3513,6 +3535,128 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    // Bundle management (coordinator/manager-created bundles)
+    myBundles: managerProcedure.query(async () => {
+      return db.getAdminBundles();
+    }),
+
+    nonTemplateBundles: managerProcedure.query(async () => {
+      return db.getNonTemplateBundles();
+    }),
+
+    createBundle: managerProcedure
+      .input(z.object({
+        title: z.string().min(1).max(255),
+        description: z.string().optional(),
+        price: z.string().optional(),
+        cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
+        goalsJson: z.any().optional(),
+        servicesJson: z.any().optional(),
+        productsJson: z.any().optional(),
+        imageUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        return db.createBundleDraft({
+          trainerId: null,
+          title: input.title,
+          description: input.description,
+          price: input.price,
+          cadence: input.cadence,
+          goalsJson: input.goalsJson,
+          servicesJson: input.servicesJson,
+          productsJson: input.productsJson,
+          imageUrl: input.imageUrl,
+          status: "draft",
+        });
+      }),
+
+    updateBundle: managerProcedure
+      .input(z.object({
+        id: z.string(),
+        title: z.string().min(1).max(255).optional(),
+        description: z.string().optional(),
+        price: z.string().optional(),
+        cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
+        goalsJson: z.any().optional(),
+        servicesJson: z.any().optional(),
+        productsJson: z.any().optional(),
+        imageUrl: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Bundle");
+        const { id, ...data } = input;
+        await db.updateBundleDraft(id, data);
+        return { success: true };
+      }),
+
+    getBundle: managerProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) return undefined;
+        return bundle;
+      }),
+
+    promotedTemplates: managerProcedure.query(async () => {
+      return db.getAllPromotedTemplates();
+    }),
+
+    promoteBundleToTemplate: managerProcedure
+      .input(z.object({
+        bundleId: z.string(),
+        templateVisibility: z.array(z.string()).optional(),
+        discountType: z.enum(["percentage", "fixed"]).nullable().optional(),
+        discountValue: z.string().nullable().optional(),
+        availabilityStart: z.string().nullable().optional(),
+        availabilityEnd: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.bundleId);
+        if (!bundle) notFound("Bundle");
+        await db.promoteBundleToTemplate(input.bundleId, {
+          templateVisibility: input.templateVisibility,
+          discountType: input.discountType,
+          discountValue: input.discountValue,
+          availabilityStart: input.availabilityStart,
+          availabilityEnd: input.availabilityEnd,
+        });
+        return { success: true };
+      }),
+
+    updateTemplateSettings: managerProcedure
+      .input(z.object({
+        bundleId: z.string(),
+        templateVisibility: z.array(z.string()).optional(),
+        discountType: z.enum(["percentage", "fixed"]).nullable().optional(),
+        discountValue: z.string().nullable().optional(),
+        availabilityStart: z.string().nullable().optional(),
+        availabilityEnd: z.string().nullable().optional(),
+        templateActive: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.bundleId);
+        if (!bundle) notFound("Bundle");
+        if (!bundle.isTemplate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This bundle is not a template." });
+        }
+        const { bundleId, ...settings } = input;
+        await db.updateTemplateSettings(bundleId, settings);
+        return { success: true };
+      }),
+
+    demoteTemplate: managerProcedure
+      .input(z.object({ bundleId: z.string() }))
+      .mutation(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.bundleId);
+        if (!bundle) notFound("Bundle");
+        if (!bundle.isTemplate) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This bundle is not a template." });
+        }
+        await db.demoteTemplate(input.bundleId);
+        return { success: true };
+      }),
+
     // User Activity Logs
     getUserActivityLogs: managerProcedure
       .input(z.object({ userId: z.string(), limit: z.number().default(50) }))
@@ -4302,37 +4446,37 @@ export const appRouter = router({
   // ============================================================================
   shopify: router({
     products: trainerProcedure.query(async () => {
-      const products = await shopify.fetchProducts();
+      const products = await db.getProducts();
       return products.map((p) => ({
-        id: p.id,
-        title: p.title,
-        description: p.body_html,
-        vendor: p.vendor,
-        productType: p.product_type,
-        status: p.status,
-        price: p.variants[0]?.price || "0.00",
-        inventory: p.variants[0]?.inventory_quantity || 0,
-        sku: p.variants[0]?.sku || "",
-        imageUrl: p.images[0]?.src || null,
+        id: p.shopifyProductId || 0,
+        title: p.name,
+        description: p.description,
+        vendor: p.brand,
+        productType: p.category,
+        status: p.availability === "available" ? "active" : "draft",
+        price: p.price || "0.00",
+        inventory: p.inventoryQuantity || 0,
+        sku: "",
+        imageUrl: p.imageUrl,
       }));
     }),
 
     product: managerProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
-        const product = await shopify.fetchProduct(input.id);
+        const product = await db.getProductByShopifyProductId(input.id);
         if (!product) return null;
         return {
-          id: product.id,
-          title: product.title,
-          description: product.body_html,
-          vendor: product.vendor,
-          productType: product.product_type,
-          status: product.status,
-          price: product.variants[0]?.price || "0.00",
-          inventory: product.variants[0]?.inventory_quantity || 0,
-          sku: product.variants[0]?.sku || "",
-          imageUrl: product.images[0]?.src || null,
+          id: product.shopifyProductId || input.id,
+          title: product.name,
+          description: product.description,
+          vendor: product.brand,
+          productType: product.category,
+          status: product.availability === "available" ? "active" : "draft",
+          price: product.price || "0.00",
+          inventory: product.inventoryQuantity || 0,
+          sku: "",
+          imageUrl: product.imageUrl,
         };
       }),
 

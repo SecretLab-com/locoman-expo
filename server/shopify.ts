@@ -655,7 +655,43 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
     }
   }
 
-  console.log(`[Shopify] Sync complete: ${synced} synced, ${errors} errors`);
+  // Sync collections
+  let collectionsSynced = 0;
+  try {
+    const collections = await fetchCollections();
+    const shopEnabledCollections = collections.filter((c) => c.shopEnabled);
+    const productMap = await fetchCollectionProductMap(
+      shopEnabledCollections.map((c) => c.id),
+    );
+
+    for (const collection of shopEnabledCollections) {
+      try {
+        await db.upsertCollection({
+          shopifyCollectionId: collection.id,
+          title: collection.title,
+          handle: collection.handle,
+          imageUrl: collection.image?.src || null,
+          channels: collection.channels,
+          shopEnabled: collection.shopEnabled,
+          productIds: productMap[collection.id] || [],
+          syncedAt: new Date().toISOString(),
+        });
+        collectionsSynced++;
+      } catch (collectionError) {
+        console.error(`[Shopify] Failed to sync collection ${collection.id}:`, collectionError);
+      }
+    }
+
+    const activeIds = shopEnabledCollections.map((c) => c.id);
+    if (activeIds.length > 0) {
+      await db.deleteStaleCollections(activeIds);
+    }
+    console.log(`[Shopify] Collections synced: ${collectionsSynced}`);
+  } catch (collectionError) {
+    console.warn("[Shopify] Collection sync failed:", collectionError);
+  }
+
+  console.log(`[Shopify] Sync complete: ${synced} products, ${collectionsSynced} collections, ${errors} errors`);
   return { synced, errors };
 }
 

@@ -100,11 +100,22 @@ export default function CoordinatorBundlesScreen() {
             <View className="items-center py-12">
               <IconSymbol name="shippingbox.fill" size={48} color={colors.muted} />
               <Text className="text-foreground font-semibold mt-4">No bundles yet</Text>
-              <Text className="text-muted mt-2">Published bundles will appear here.</Text>
+              <Text className="text-muted mt-2 text-center">Tap the + to create a bundle.</Text>
             </View>
           }
         />
       )}
+
+      <TouchableOpacity
+        onPress={() => router.push("/bundle-editor/new?admin=1" as any)}
+        className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+        style={{ right: 16, bottom: 16 }}
+        accessibilityRole="button"
+        accessibilityLabel="Create new bundle"
+        testID="bundles-add-fab"
+      >
+        <IconSymbol name="plus" size={24} color="#fff" />
+      </TouchableOpacity>
     </ScreenContainer>
   );
 }

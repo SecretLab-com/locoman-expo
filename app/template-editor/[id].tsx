@@ -13,6 +13,9 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import type { CatalogProduct } from "@/components/product-catalog-browser";
+import { ProductPickerModal } from "@/components/product-picker-modal";
+import { ServicePickerModal } from "@/components/service-picker-modal";
 import { useColors } from "@/hooks/use-colors";
 import { NavigationHeader } from "@/components/navigation-header";
 import { trpc } from "@/lib/trpc";
@@ -159,6 +162,8 @@ export default function TemplateEditorScreen() {
 
   const [activeTab, setActiveTab] = useState<"details" | "services" | "products">("details");
   const [form, setForm] = useState<TemplateFormState>(EMPTY_FORM);
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [showProductModal, setShowProductModal] = useState(false);
 
   const templateQuery = trpc.admin.template.useQuery(
     { id: templateId },
@@ -268,7 +273,7 @@ export default function TemplateEditorScreen() {
     setForm((prev) => ({ ...prev, products: prev.products.filter((product) => product.id !== itemId) }));
   };
 
-  const addService = () => {
+  const addService = (name: string) => {
     const newId = `${Date.now()}-service`;
     setForm((prev) => ({
       ...prev,
@@ -276,30 +281,40 @@ export default function TemplateEditorScreen() {
         ...prev.services,
         {
           id: newId,
-          name: "New Service",
+          name,
           description: "",
           quantity: 1,
           unitPrice: 50,
         },
       ],
     }));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowServiceModal(false);
   };
 
-  const addProduct = () => {
-    const newId = `${Date.now()}-product`;
-    setForm((prev) => ({
-      ...prev,
-      products: [
-        ...prev.products,
-        {
-          id: newId,
-          name: "New Product",
-          sku: "",
-          quantity: 1,
-          unitPrice: 29.99,
-        },
-      ],
-    }));
+  const toggleCatalogProduct = (product: CatalogProduct | any) => {
+    const productId = String(product.id);
+    const isSelected = form.products.some((p) => p.id === productId);
+    if (isSelected) {
+      setForm((prev) => ({ ...prev, products: prev.products.filter((p) => p.id !== productId) }));
+    } else {
+      const name = product.name || product.title || "Product";
+      const price = parseNumber(product.price, 0);
+      setForm((prev) => ({
+        ...prev,
+        products: [
+          ...prev.products,
+          {
+            id: productId,
+            name,
+            sku: product.sku || "",
+            quantity: 1,
+            unitPrice: price,
+          },
+        ],
+      }));
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   if (!isNew && templateQuery.isLoading) {
@@ -490,27 +505,35 @@ export default function TemplateEditorScreen() {
 
           {activeTab === "services" && (
             <View className="gap-4 pb-8">
-              <View className="flex-row items-center justify-between">
-                <Text className="text-lg font-semibold text-foreground">Services (${serviceTotal.toFixed(2)})</Text>
-                <TouchableOpacity
-                  onPress={addService}
-                  style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}
-                >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>+ Add</Text>
-                </TouchableOpacity>
-              </View>
+              <Text className="text-sm text-muted">
+                Add services included in this template. Set the price per service and quantity.
+              </Text>
+
+              <TouchableOpacity
+                className="bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center"
+                onPress={() => setShowServiceModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Add service"
+                testID="template-add-service"
+              >
+                <IconSymbol name="plus" size={20} color={colors.primary} />
+                <Text className="text-primary font-medium ml-2">Add Service</Text>
+              </TouchableOpacity>
+
+              {form.services.length === 0 ? (
+                <View className="items-center py-8 bg-surface rounded-xl">
+                  <IconSymbol name="calendar" size={40} color={colors.muted} />
+                  <Text className="text-muted mt-2">No services added yet</Text>
+                  <Text className="text-muted text-sm">Tap the button above to add services</Text>
+                </View>
+              ) : null}
+
               {form.services.map((service) => (
                 <View key={service.id} className="bg-surface border border-border rounded-xl p-4">
-                  <View className="flex-row items-start justify-between mb-2">
-                    <TextInput
-                      value={service.name}
-                      onChangeText={(text) => updateService(service.id, { name: text })}
-                      placeholder="Service name"
-                      placeholderTextColor={colors.muted}
-                      className="flex-1 text-foreground font-medium"
-                    />
+                  <View className="flex-row items-center justify-between mb-3">
+                    <Text className="text-foreground font-medium">{service.name}</Text>
                     <TouchableOpacity onPress={() => removeService(service.id)}>
-                      <IconSymbol name="xmark.circle.fill" size={24} color={colors.error} />
+                      <IconSymbol name="xmark.circle.fill" size={22} color={colors.error} />
                     </TouchableOpacity>
                   </View>
                   <View className="flex-row items-center gap-4">
@@ -553,27 +576,35 @@ export default function TemplateEditorScreen() {
 
           {activeTab === "products" && (
             <View className="gap-4 pb-8">
-              <View className="flex-row items-center justify-between">
-                <Text className="text-lg font-semibold text-foreground">Products (${productTotal.toFixed(2)})</Text>
-                <TouchableOpacity
-                  onPress={addProduct}
-                  style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}
-                >
-                  <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>+ Add</Text>
-                </TouchableOpacity>
-              </View>
+              <Text className="text-sm text-muted">
+                Add products from your catalog. Bundles are excluded.
+              </Text>
+
+              <TouchableOpacity
+                className="bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center"
+                onPress={() => setShowProductModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Add product"
+                testID="template-add-product"
+              >
+                <IconSymbol name="plus" size={20} color={colors.primary} />
+                <Text className="text-primary font-medium ml-2">Add Product</Text>
+              </TouchableOpacity>
+
+              {form.products.length === 0 ? (
+                <View className="items-center py-8 bg-surface rounded-xl">
+                  <IconSymbol name="bag.fill" size={40} color={colors.muted} />
+                  <Text className="text-muted mt-2">No products added yet</Text>
+                  <Text className="text-muted text-sm">Tap the button above to browse products</Text>
+                </View>
+              ) : null}
+
               {form.products.map((product) => (
                 <View key={product.id} className="bg-surface border border-border rounded-xl p-4">
-                  <View className="flex-row items-start justify-between mb-2">
-                    <TextInput
-                      value={product.name}
-                      onChangeText={(text) => updateProduct(product.id, { name: text })}
-                      placeholder="Product name"
-                      placeholderTextColor={colors.muted}
-                      className="flex-1 text-foreground font-medium"
-                    />
+                  <View className="flex-row items-center justify-between mb-3">
+                    <Text className="text-foreground font-medium flex-1 pr-2">{product.name}</Text>
                     <TouchableOpacity onPress={() => removeProduct(product.id)}>
-                      <IconSymbol name="xmark.circle.fill" size={24} color={colors.error} />
+                      <IconSymbol name="xmark.circle.fill" size={22} color={colors.error} />
                     </TouchableOpacity>
                   </View>
                   <View className="flex-row items-center gap-4">
@@ -595,14 +626,9 @@ export default function TemplateEditorScreen() {
                         </TouchableOpacity>
                       </View>
                     </View>
-                    <View className="flex-1">
+                    <View>
                       <Text className="text-xs text-muted">Price</Text>
-                      <TextInput
-                        value={product.unitPrice.toString()}
-                        onChangeText={(text) => updateProduct(product.id, { unitPrice: parseNumber(text, 0) })}
-                        keyboardType="decimal-pad"
-                        className="bg-background rounded-lg px-3 py-2 text-foreground mt-1"
-                      />
+                      <Text className="text-foreground mt-1">${product.unitPrice.toFixed(2)}</Text>
                     </View>
                     <View>
                       <Text className="text-xs text-muted">Total</Text>
@@ -625,6 +651,20 @@ export default function TemplateEditorScreen() {
           </View>
         </View>
       </SafeAreaView>
+
+      <ServicePickerModal
+        visible={showServiceModal}
+        onClose={() => setShowServiceModal(false)}
+        onSelect={addService}
+        presentation="pageSheet"
+      />
+
+      <ProductPickerModal
+        visible={showProductModal}
+        onClose={() => setShowProductModal(false)}
+        selectedIds={form.products.map((p) => p.id)}
+        onToggle={toggleCatalogProduct}
+      />
     </KeyboardAvoidingView>
   );
 }

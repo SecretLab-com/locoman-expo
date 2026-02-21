@@ -97,9 +97,10 @@ function resolveTemplateSessionCount(template: TemplateCandidate): number | null
 
 export default function OfferWizardScreen() {
   const colors = useColors();
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, templateId: templateIdParam } = useLocalSearchParams<{ id?: string; templateId?: string }>();
   const isEditMode = Boolean(id);
-  const [step, setStep] = useState(() => (isEditMode ? 1 : 1));
+  const hasTemplateDeepLink = Boolean(templateIdParam) && !isEditMode;
+  const [step, setStep] = useState(() => hasTemplateDeepLink ? 2 : 1);
   const [type, setType] = useState<OfferType>("one_off_session");
   const [priceInput, setPriceInput] = useState("");
   const [includedInput, setIncludedInput] = useState("");
@@ -207,6 +208,16 @@ export default function OfferWizardScreen() {
     const templateSessionCount = resolveTemplateSessionCount(template);
     setSessionCountInput(templateSessionCount ? String(templateSessionCount) : "");
   };
+
+  useEffect(() => {
+    if (!hasTemplateDeepLink || !templateIdParam || templatesLoading) return;
+    if (selectedTemplateId) return;
+    const match = templateCandidates.find((t) => t.id === templateIdParam);
+    if (match) {
+      void applyTemplate(match);
+      setStep(2);
+    }
+  }, [hasTemplateDeepLink, templateIdParam, templatesLoading, templateCandidates, selectedTemplateId]);
 
   const nextStep = async () => {
     await haptics.light();

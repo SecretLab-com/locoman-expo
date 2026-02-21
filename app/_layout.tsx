@@ -33,6 +33,7 @@ import { BadgeProvider } from "@/contexts/badge-context";
 import { CartProvider } from "@/contexts/cart-context";
 import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
+import { RealtimeProvider } from "@/contexts/realtime-context";
 import { useDeepLink } from "@/hooks/use-deep-link";
 import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
 import { getHomeRoute } from "@/lib/navigation";
@@ -103,6 +104,50 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
     const timer = setTimeout(() => setAuthGateReady(true), 0);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const APP_NAME = "Locomotivate";
+    const path = pathname || "/";
+    const segment = path.split("/").filter(Boolean).pop() || "";
+    const PAGE_TITLES: Record<string, string> = {
+      "": APP_NAME,
+      "dashboard": "Dashboard",
+      "clients": "Clients",
+      "get-paid": "Get Paid",
+      "request-payment": "Request Payment",
+      "payment-setup": "Payment Setup",
+      "payment-history": "Payment History",
+      "rewards": "Rewards",
+      "more": "More",
+      "offers": "Offers",
+      "templates": "Templates",
+      "analytics": "Analytics",
+      "messages": "Messages",
+      "alerts": "Alerts",
+      "invite": "Invite",
+      "deliveries": "Deliveries",
+      "calendar": "Calendar",
+      "settings": "Settings",
+      "products": "Products",
+      "trainers": "Trainers",
+      "cart": "Cart",
+      "profile": "Profile",
+      "login": "Sign In",
+      "register": "Create Account",
+      "welcome": "Welcome",
+      "checkout": "Checkout",
+      "approvals": "Approvals",
+      "users": "Users",
+      "bundles": "Bundles",
+      "logs": "Logs",
+      "orders": "Orders",
+      "subscriptions": "Subscriptions",
+      "spending": "Account",
+    };
+    const pageTitle = PAGE_TITLES[segment];
+    document.title = pageTitle ? `${pageTitle} — ${APP_NAME}` : APP_NAME;
+  }, [pathname]);
 
   useEffect(() => {
     if (!authGateReady) return;
@@ -369,6 +414,7 @@ export default function RootLayout() {
               <CartProvider>
                 <BadgeProvider>
                   <OfflineProvider>
+                  <RealtimeProvider>
                     <View
                       style={{ flex: 1 }}
                       {...(Platform.OS === 'web' ? { suppressHydrationWarning: true } : {})}
@@ -464,6 +510,7 @@ export default function RootLayout() {
                         <StatusBar style="auto" />
                       </View>
                     </View>
+                  </RealtimeProvider>
                   </OfflineProvider>
                 </BadgeProvider>
               </CartProvider>

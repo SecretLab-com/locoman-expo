@@ -15,58 +15,58 @@ type MoreItem = {
 
 const MORE_ITEMS: MoreItem[] = [
   {
-    icon: "tag.fill",
-    title: "Offers",
-    subtitle: "Create and manage your offers",
-    href: "/(trainer)/offers",
+    icon: "message.fill",
+    title: "Messages",
+    subtitle: "Conversations and announcements",
+    href: "/(coordinator)/messages",
   },
   {
     icon: "rectangle.grid.2x2.fill",
     title: "Templates",
-    subtitle: "Browse ready-made offer templates",
-    href: "/(trainer)/templates",
+    subtitle: "Create and manage offer templates",
+    href: "/(coordinator)/templates",
   },
   {
-    icon: "chart.bar.fill",
-    title: "Analytics",
-    subtitle: "Earnings over time and top offers",
-    href: "/(trainer)/analytics",
+    icon: "shippingbox.fill",
+    title: "Bundles",
+    subtitle: "Review trainer bundles",
+    href: "/(coordinator)/bundles",
   },
   {
-    icon: "message.fill",
-    title: "Messages",
-    subtitle: "Conversations with clients",
-    href: "/(trainer)/messages",
+    icon: "checkmark.circle.fill",
+    title: "Approvals",
+    subtitle: "Review pending approvals",
+    href: "/(coordinator)/approvals",
   },
   {
     icon: "bell.fill",
     title: "Alerts",
-    subtitle: "Orders, deliveries, and activity",
-    href: "/(trainer)/alerts",
+    subtitle: "Notifications and activity",
+    href: "/(coordinator)/alerts",
+  },
+  {
+    icon: "cube.box.fill",
+    title: "Deliveries",
+    subtitle: "Track delivery status",
+    href: "/(coordinator)/deliveries",
+  },
+  {
+    icon: "doc.text.fill",
+    title: "Logs",
+    subtitle: "System activity log",
+    href: "/(coordinator)/logs",
   },
   {
     icon: "person.badge.plus",
-    title: "Invite Clients",
-    subtitle: "Invite by email or link",
-    href: "/(trainer)/invite",
-  },
-  {
-    icon: "shippingbox.fill",
-    title: "Deliveries",
-    subtitle: "Track delivery status",
-    href: "/(trainer)/deliveries",
-  },
-  {
-    icon: "calendar",
-    title: "Calendar",
-    subtitle: "Manage your training sessions",
-    href: "/(trainer)/calendar",
+    title: "Invite",
+    subtitle: "Invite trainers and staff",
+    href: "/(coordinator)/invite",
   },
   {
     icon: "gearshape.fill",
     title: "Settings",
     subtitle: "Profile and account settings",
-    href: "/(trainer)/settings",
+    href: "/(coordinator)/settings",
   },
 ];
 
@@ -83,6 +83,9 @@ function MoreRow({
     <TouchableOpacity
       className="rounded-xl"
       onPress={() => router.push(item.href as any)}
+      accessibilityRole="button"
+      accessibilityLabel={item.title}
+      testID={`coordinator-more-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
     >
       <SurfaceCard className="px-4 py-4 mb-3">
         <View className="flex-row items-center">
@@ -100,27 +103,27 @@ function MoreRow({
   );
 }
 
-export default function TrainerMoreScreen() {
+export default function CoordinatorMoreScreen() {
   const colors = useColors();
 
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
       <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <ScreenHeader title="More" subtitle="Advanced tools live here." />
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <ScreenHeader title="More" subtitle="Additional tools and settings." />
 
-        <View className="px-4 pb-8">
-          {MORE_ITEMS.map((item) => (
-            <MoreRow
-              key={item.title}
-              item={item}
-              iconColor={colors.primary}
-              chevronColor={colors.muted}
-            />
-          ))}
-        </View>
-      </ScrollView>
+          <View className="px-4 pb-8">
+            {MORE_ITEMS.map((item) => (
+              <MoreRow
+                key={item.title}
+                item={item}
+                iconColor={colors.primary}
+                chevronColor={colors.muted}
+              />
+            ))}
+          </View>
+        </ScrollView>
       </ScreenContainer>
     </>
   );

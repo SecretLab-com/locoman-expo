@@ -78,7 +78,7 @@ const HERO_STYLE = { backgroundColor: "#312E81", borderColor: "rgba(167,139,250,
 const SECTION_SPACING_CLASS = "px-6 mb-7";
 const ACTION_ICON_WRAP_STYLE = { backgroundColor: "rgba(96,165,250,0.2)" };
 const ACTION_TILE_STYLE = { backgroundColor: "rgba(21,21,32,0.94)", borderColor: "rgba(148,163,184,0.22)" };
-const ACTION_TILE_FIXED_HEIGHT = 126;
+const ACTION_TILE_FIXED_HEIGHT = 140;
 const HERO_GLOW_MAIN_STYLE = { backgroundColor: "rgba(168,85,247,0.5)" };
 const HERO_GLOW_SECOND_STYLE = { backgroundColor: "rgba(59,130,246,0.38)" };
 const CHIP_STYLE = { backgroundColor: "rgba(167,139,250,0.22)", borderColor: "rgba(196,181,253,0.44)" };
@@ -1397,12 +1397,18 @@ export default function TrainerHomeScreen() {
         onRequestClose={() => setPendingPaymentsVisible(false)}
       >
         <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(2,6,23,0.66)" }}>
+          <TouchableOpacity
+            className="flex-1"
+            activeOpacity={1}
+            onPress={() => setPendingPaymentsVisible(false)}
+          />
           <SwipeDownSheet
             visible={pendingPaymentsVisible}
             onClose={() => setPendingPaymentsVisible(false)}
-            className="rounded-t-3xl px-6 pt-5 pb-8"
+            className="rounded-t-3xl"
             style={{ backgroundColor: "#0F172A", borderTopColor: DASH.border, borderTopWidth: 1 }}
           >
+            <View className="px-6 pt-4 pb-6">
             <View className="flex-row items-start justify-between">
               <View className="flex-1 pr-3">
                 <Text className="text-xl font-bold" style={{ color: DASH.text }}>
@@ -1492,6 +1498,7 @@ export default function TrainerHomeScreen() {
                 ))}
               </ScrollView>
             )}
+            </View>
           </SwipeDownSheet>
         </View>
       </Modal>

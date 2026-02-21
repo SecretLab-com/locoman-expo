@@ -2,12 +2,13 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -119,6 +120,7 @@ function LogEntry({ item, colors }: { item: LogItem; colors: ReturnType<typeof u
 export default function LogsScreen() {
   const colors = useColors();
   const [category, setCategory] = useState<Category>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const {
     data: logs,
@@ -130,6 +132,18 @@ export default function LogsScreen() {
     { staleTime: 10000 },
   );
 
+  const filteredLogs = useMemo(() => {
+    if (!logs) return [];
+    if (!searchQuery.trim()) return logs;
+    const term = searchQuery.toLowerCase();
+    return logs.filter((log: LogItem) =>
+      log.description.toLowerCase().includes(term) ||
+      (log.userName && log.userName.toLowerCase().includes(term)) ||
+      log.action.toLowerCase().includes(term) ||
+      log.category.toLowerCase().includes(term),
+    );
+  }, [logs, searchQuery]);
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header */}
@@ -138,6 +152,26 @@ export default function LogsScreen() {
         <Text className="text-sm text-muted mt-1">
           System events, admin actions, and payment activity
         </Text>
+      </View>
+
+      {/* Search bar */}
+      <View className="px-4 pb-3">
+        <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-2.5">
+          <IconSymbol name="magnifyingglass" size={18} color={colors.muted} />
+          <TextInput
+            className="flex-1 ml-2.5 text-foreground text-sm"
+            placeholder="Search logs..."
+            placeholderTextColor={colors.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <IconSymbol name="xmark.circle.fill" size={18} color={colors.muted} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Category filters */}
@@ -184,7 +218,7 @@ export default function LogsScreen() {
         </View>
       ) : (
         <FlatList
-          data={logs || []}
+          data={filteredLogs}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <LogEntry item={item} colors={colors} />}
           refreshControl={

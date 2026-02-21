@@ -429,6 +429,18 @@ export default function TrainerClientsScreen() {
         }}
       />
 
+      {/* Add Client FAB */}
+      <TouchableOpacity
+        onPress={() => router.push("/(trainer)/invite" as any)}
+        className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+        style={{ right: 16, bottom: 16 }}
+        accessibilityRole="button"
+        accessibilityLabel="Invite client"
+        testID="clients-invite-fab"
+      >
+        <IconSymbol name="plus" size={24} color="#fff" />
+      </TouchableOpacity>
+
       {/* Request Payment Modal */}
       <Modal
         visible={payModalOpen}

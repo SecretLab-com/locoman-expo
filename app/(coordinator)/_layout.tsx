@@ -22,7 +22,7 @@ export default function CoordinatorTabLayout() {
     { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
     { label: "Products", icon: "storefront.fill", href: "/(coordinator)/products", testID: "tab-products" },
     { label: "Analytics", icon: "chart.bar.fill", href: "/(coordinator)/analytics", testID: "tab-analytics" },
-    { label: "Messaging", icon: "message.fill", href: "/(coordinator)/messages", testID: "tab-messaging" },
+    { label: "More", icon: "ellipsis.circle.fill", href: "/(coordinator)/more", testID: "tab-more" },
   ];
   const hideBottomNav = pathname.includes("/conversation/") || pathname.endsWith("/messages/new");
 

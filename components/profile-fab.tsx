@@ -129,7 +129,7 @@ export function ProfileFAB() {
   const avatarVersion = latestProfile?.updatedAt || effectiveUser?.updatedAt || user?.updatedAt || "";
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const isDark = colorScheme === "dark";
-  const overlayColor = isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(15, 23, 42, 0.12)";
+  const overlayColor = isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(15, 23, 42, 0.25)";
   const shadowColor = isDark ? "#000" : colors.border;
   const fabBackgroundColor = isDark ? "rgba(21, 21, 32, 0.96)" : colors.surface;
   const fabBorderColor = isDark ? "rgba(96, 165, 250, 0.55)" : colors.border;
@@ -319,7 +319,7 @@ export function ProfileFAB() {
               {
                 top: insets.top + 56,
                 right: profileFabRightOffset,
-                backgroundColor: colors.surface,
+                backgroundColor: isDark ? "#1E1E2E" : "#FFFFFF",
                 borderColor: colors.border,
                 shadowColor,
               },

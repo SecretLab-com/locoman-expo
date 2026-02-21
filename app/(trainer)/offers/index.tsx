@@ -1,4 +1,3 @@
-import { EmptyStateCard } from "@/components/empty-state-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -35,34 +34,53 @@ export default function OffersListScreen() {
           subtitle="Sessions, packages, and bundles in one place."
         />
 
+        <View className="px-4 mb-4">
+          <TouchableOpacity
+            onPress={() => router.push("/(trainer)/templates" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Browse offer templates"
+            testID="offers-browse-templates"
+          >
+            <SurfaceCard>
+              <View className="flex-row items-center">
+                <View className="w-10 h-10 rounded-full items-center justify-center mr-3" style={{ backgroundColor: `${colors.primary}18` }}>
+                  <IconSymbol name="rectangle.grid.2x2.fill" size={18} color={colors.primary} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-foreground">Browse Templates</Text>
+                  <Text className="text-xs text-muted mt-0.5">Find a ready-made starting point</Text>
+                </View>
+                <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+              </View>
+            </SurfaceCard>
+          </TouchableOpacity>
+        </View>
+
         <View className="px-4 pb-8">
-          <View className="flex-row justify-end mb-3">
-            <TouchableOpacity
-              className="flex-row items-center px-3.5 py-2 rounded-full border"
-              style={{ borderColor: colors.primary, backgroundColor: `${colors.primary}22` }}
-              onPress={() => router.push("/(trainer)/offers/new" as any)}
-              accessibilityRole="button"
-              accessibilityLabel="Create new offer"
-              testID="offers-add-button"
-            >
-              <IconSymbol name="plus" size={16} color={colors.primary} />
-              <Text className="font-semibold ml-1.5" style={{ color: colors.primary }}>
-                Create
-              </Text>
-            </TouchableOpacity>
-          </View>
           {isLoading ? (
             <View className="items-center py-16">
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
           ) : offers.length === 0 ? (
-            <EmptyStateCard
-              icon="tag.fill"
-              title="No offers yet"
-              description="Offers are how you get paid. Create one to start earning."
-              ctaLabel="Create Offer"
-              onCtaPress={() => router.push("/(trainer)/offers/new" as any)}
-            />
+            <View className="bg-surface rounded-xl border border-border p-6 items-center">
+              <IconSymbol name="tag.fill" size={36} color={colors.muted} />
+              <Text className="text-foreground font-semibold text-base mt-3">No offers yet</Text>
+              <Text className="text-sm text-muted mt-1 text-center">
+                Offers are how you get paid. Create one to start earning.
+              </Text>
+              <TouchableOpacity
+                className="flex-row items-center mt-4"
+                onPress={() => router.push("/(trainer)/offers/new" as any)}
+                accessibilityRole="button"
+                accessibilityLabel="Create new offer"
+              >
+                <Text className="text-sm text-muted mr-2">Tap the</Text>
+                <View className="w-8 h-8 rounded-full bg-primary items-center justify-center">
+                  <IconSymbol name="plus" size={16} color="#fff" />
+                </View>
+                <Text className="text-sm text-muted ml-2">to get started</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             offers.map((offer: any) => (
               <TouchableOpacity
@@ -121,6 +139,17 @@ export default function OffersListScreen() {
           )}
         </View>
       </ScrollView>
+
+      <TouchableOpacity
+        onPress={() => router.push("/(trainer)/offers/new" as any)}
+        className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+        style={{ right: 16, bottom: 16 }}
+        accessibilityRole="button"
+        accessibilityLabel="Create new offer"
+        testID="offers-add-fab"
+      >
+        <IconSymbol name="plus" size={24} color="#fff" />
+      </TouchableOpacity>
     </ScreenContainer>
   );
 }

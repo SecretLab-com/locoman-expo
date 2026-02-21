@@ -201,7 +201,7 @@ export function NavigationHeader({
             <Pressable
               onPress={rightAction.onPress}
               style={({ pressed }) => [
-                styles.iconButton,
+                styles.actionButton,
                 pressed && { opacity: 0.6 },
               ]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -209,7 +209,10 @@ export function NavigationHeader({
               accessibilityLabel={rightAction.label || "Action"}
               testID={rightAction.testID || "nav-action"}
             >
-              <IconSymbol name={rightAction.icon} size={18} color={iconColor} />
+              <IconSymbol name={rightAction.icon} size={16} color={iconColor} />
+              {rightAction.label ? (
+                <Text style={[styles.actionLabel, { color: iconColor }]}>{rightAction.label}</Text>
+              ) : null}
             </Pressable>
           )}
         </View>
@@ -237,7 +240,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   leftSection: {
-    width: 36,
+    minWidth: 36,
     alignItems: "flex-start",
   },
   centerSection: {
@@ -245,7 +248,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   rightSection: {
-    width: 36,
+    minWidth: 36,
     alignItems: "flex-end",
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -256,6 +259,17 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: "center",
     justifyContent: "center",
+  },
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 32,
+    paddingHorizontal: 4,
+    gap: 4,
+  },
+  actionLabel: {
+    fontSize: 13,
+    fontWeight: "600",
   },
   title: {
     fontSize: 15,
