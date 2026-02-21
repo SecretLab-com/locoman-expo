@@ -460,39 +460,55 @@ export default function UsersScreen() {
     }
   };
 
-  // Toggle user status
-  const toggleUserStatus = async () => {
+  // Toggle user status with confirmation
+  const toggleUserStatus = () => {
     if (!selectedUser) return;
 
     const newActive = !selectedUser.active;
+    const action = newActive ? "activate" : "deactivate";
+    const title = newActive ? "Activate User" : "Deactivate User";
+    const message = newActive
+      ? `Are you sure you want to activate ${selectedUser.name}? They will regain access to the app.`
+      : `Are you sure you want to deactivate ${selectedUser.name}? They will lose access to the app until reactivated.`;
 
-    try {
-      await updateStatusMutation.mutateAsync({
-        userId: selectedUser.id,
-        active: newActive,
-      });
+    const doToggle = async () => {
+      try {
+        await updateStatusMutation.mutateAsync({
+          userId: selectedUser.id,
+          active: newActive,
+        });
 
-      // Log the action
-      await logActionMutation.mutateAsync({
-        targetUserId: selectedUser.id,
-        action: "status_changed",
-        previousValue: selectedUser.active ? "active" : "inactive",
-        newValue: newActive ? "active" : "inactive",
-      });
+        logActionMutation.mutate({
+          targetUserId: selectedUser.id,
+          action: "status_changed",
+          previousValue: selectedUser.active ? "active" : "inactive",
+          newValue: newActive ? "active" : "inactive",
+        });
 
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+        setSelectedUser((prev) => (prev ? { ...prev, active: newActive } : null));
+        usersQuery.refetch();
+      } catch {
+        if (Platform.OS === "web") {
+          window.alert(`Error\n\nFailed to ${action} user`);
+        } else {
+          Alert.alert("Error", `Failed to ${action} user`);
+        }
       }
+    };
 
-      setSelectedUser((prev) => (prev ? { ...prev, active: newActive } : null));
-      usersQuery.refetch();
-
-      Alert.alert(
-        "Success",
-        `${selectedUser.name} has been ${newActive ? "activated" : "deactivated"}`
-      );
-    } catch {
-      Alert.alert("Error", "Failed to update user status");
+    if (Platform.OS === "web") {
+      if (window.confirm(`${title}\n\n${message}`)) {
+        doToggle();
+      }
+    } else {
+      Alert.alert(title, message, [
+        { text: "Cancel", style: "cancel" },
+        { text: newActive ? "Activate" : "Deactivate", style: newActive ? "default" : "destructive", onPress: doToggle },
+      ]);
     }
   };
 
@@ -1374,139 +1390,148 @@ export default function UsersScreen() {
               <ScrollView showsVerticalScrollIndicator={false}>
               {selectedUser && !activityLogVisible && (
                 <>
-                  {/* Modal Header */}
-                  <View style={styles.modalHeader}>
-                    <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                      User Details
-                    </Text>
-                    <TouchableOpacity onPress={closeModal}>
-                      <IconSymbol name="xmark" size={24} color={colors.muted} />
+                  {/* Compact header with avatar + name + close */}
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+                    <View
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 24,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: `${ROLE_COLORS[selectedUser.role]}20`,
+                        marginRight: 12,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {selectedUser.photoUrl ? (
+                        <Image
+                          source={{ uri: selectedUser.photoUrl }}
+                          style={{ width: 48, height: 48 }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <Text style={{ fontSize: 18, fontWeight: "700", color: ROLE_COLORS[selectedUser.role] }}>
+                          {getInitials(selectedUser.name)}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground }}>
+                        {selectedUser.name || "Unknown"}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` }}>
+                          <Text style={{ color: ROLE_COLORS[selectedUser.role], fontWeight: "600", fontSize: 11 }}>
+                            {selectedUser.role.charAt(0).toUpperCase() + selectedUser.role.slice(1)}
+                          </Text>
+                        </View>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: `${STATUS_COLORS[selectedUser.active ? "active" : "inactive"]}20` }}>
+                          <Text style={{ color: STATUS_COLORS[selectedUser.active ? "active" : "inactive"], fontWeight: "600", fontSize: 11 }}>
+                            {selectedUser.active ? "Active" : "Inactive"}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={closeModal} style={{ padding: 4 }}>
+                      <IconSymbol name="xmark" size={20} color={colors.muted} />
                     </TouchableOpacity>
                   </View>
 
-                  {/* User Profile */}
-                  <View style={styles.profileSection}>
-                    <View
-                      style={[
-                        styles.largeAvatar,
-                        { backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.largeAvatarText, { color: ROLE_COLORS[selectedUser.role] }]}
-                      >
-                        {getInitials(selectedUser.name)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.userName, { color: colors.foreground }]}>
-                      {selectedUser.name || "Unknown"}
-                    </Text>
-                    <View style={styles.statusRow}>
-                      <View
-                        style={[
-                          styles.roleBadge,
-                          { backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` },
-                        ]}
-                      >
-                        <Text style={{ color: ROLE_COLORS[selectedUser.role], fontWeight: "600" }}>
-                          {selectedUser.role.charAt(0).toUpperCase() + selectedUser.role.slice(1)}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.statusBadge,
-                          { backgroundColor: `${STATUS_COLORS[selectedUser.active ? "active" : "inactive"]}20` },
-                        ]}
-                      >
-                        <Text style={{ color: STATUS_COLORS[selectedUser.active ? "active" : "inactive"], fontWeight: "600" }}>
-                          {selectedUser.active ? "Active" : "Inactive"}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* User Info */}
-                  <View style={[styles.infoSection, { borderColor: colors.border }]}>
-                    <View style={styles.infoRow}>
-                      <IconSymbol name="envelope.fill" size={18} color={colors.muted} />
-                      <Text style={[styles.infoText, { color: colors.foreground }]}>
+                  {/* Contact info - compact row */}
+                  <View style={{ backgroundColor: colors.surface, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                      <IconSymbol name="envelope.fill" size={14} color={colors.muted} />
+                      <Text style={{ fontSize: 13, color: colors.foreground, marginLeft: 8 }}>
                         {selectedUser.email || "No email"}
                       </Text>
                     </View>
-                    {selectedUser.phone && (
-                      <View style={styles.infoRow}>
-                        <IconSymbol name="phone.fill" size={18} color={colors.muted} />
-                        <Text style={[styles.infoText, { color: colors.foreground }]}>
-                          {selectedUser.phone}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <IconSymbol name="calendar" size={14} color={colors.muted} />
+                        <Text style={{ fontSize: 12, color: colors.muted, marginLeft: 6 }}>
+                          Joined {formatDate(selectedUser.createdAt)}
                         </Text>
                       </View>
-                    )}
-                    <View style={styles.infoRow}>
-                      <IconSymbol name="calendar" size={18} color={colors.muted} />
-                      <Text style={[styles.infoText, { color: colors.foreground }]}>
-                        Joined {formatDate(selectedUser.createdAt)}
-                      </Text>
+                      {selectedUser.lastSignedIn && (
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          <IconSymbol name="clock.fill" size={14} color={colors.muted} />
+                          <Text style={{ fontSize: 12, color: colors.muted, marginLeft: 6 }}>
+                            {formatRelativeTime(selectedUser.lastSignedIn)}
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                    {selectedUser.lastSignedIn && (
-                      <View style={styles.infoRow}>
-                        <IconSymbol name="clock.fill" size={18} color={colors.muted} />
-                        <Text style={[styles.infoText, { color: colors.foreground }]}>
-                          Last active {formatRelativeTime(selectedUser.lastSignedIn)}
-                        </Text>
-                      </View>
+                  </View>
+
+                  {/* Quick actions row */}
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                    <TouchableOpacity
+                      onPress={() => loadActivityLogs(selectedUser.id)}
+                      disabled={loadingLogs}
+                      style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}
+                    >
+                      {loadingLogs ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <>
+                          <IconSymbol name="clock.arrow.circlepath" size={14} color={colors.primary} />
+                          <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 12, marginLeft: 6 }}>Activity</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    {currentUser?.id && currentUser.id !== selectedUser.id && (
+                      <TouchableOpacity
+                        onPress={() => openDirectMessage(selectedUser, true)}
+                        style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: `${colors.primary}12` }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Message ${selectedUser.name || "user"}`}
+                        testID="user-detail-message-btn"
+                      >
+                        <IconSymbol name="message.fill" size={14} color={colors.primary} />
+                        <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 12, marginLeft: 6 }}>Message</Text>
+                      </TouchableOpacity>
+                    )}
+                    {isCoordinator && (
+                      <TouchableOpacity
+                        onPress={impersonateUser}
+                        style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: `${ROLE_COLORS.coordinator}12` }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Impersonate this user"
+                        testID="impersonate-user-btn"
+                      >
+                        <IconSymbol name="person.crop.circle.badge.checkmark" size={14} color={ROLE_COLORS.coordinator} />
+                        <Text style={{ color: ROLE_COLORS.coordinator, fontWeight: "600", fontSize: 12, marginLeft: 6 }}>Impersonate</Text>
+                      </TouchableOpacity>
                     )}
                   </View>
 
-                  {/* Activity Log Button */}
-                  <TouchableOpacity
-                    onPress={() => loadActivityLogs(selectedUser.id)}
-                    disabled={loadingLogs}
-                    style={[styles.activityLogButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                  >
-                    {loadingLogs ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <>
-                        <IconSymbol name="clock.arrow.circlepath" size={18} color={colors.primary} />
-                        <Text style={{ color: colors.primary, fontWeight: "600", marginLeft: 8 }}>
-                          View Activity Log
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Change Role Section */}
-                  <View style={[styles.actionSection, { borderColor: colors.border }]}>
-                    <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-                      Change Role
+                  {/* Role selector - compact inline */}
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: colors.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      Role
                     </Text>
-                    <View style={styles.roleGrid}>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                       {allRoles.map((role) => (
                         <TouchableOpacity
                           key={role}
                           onPress={() => changeUserRole(role)}
                           disabled={updateRoleMutation.isPending}
-                          style={[
-                            styles.roleOption,
-                            {
-                              backgroundColor:
-                                selectedUser.role === role
-                                  ? `${ROLE_COLORS[role]}20`
-                                  : colors.surface,
-                              borderColor:
-                                selectedUser.role === role ? ROLE_COLORS[role] : colors.border,
-                              opacity: updateRoleMutation.isPending ? 0.5 : 1,
-                            },
-                          ]}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            backgroundColor: selectedUser.role === role ? `${ROLE_COLORS[role]}20` : colors.surface,
+                            borderColor: selectedUser.role === role ? ROLE_COLORS[role] : colors.border,
+                            opacity: updateRoleMutation.isPending ? 0.5 : 1,
+                          }}
                         >
-                          <Text
-                            style={{
-                              color:
-                                selectedUser.role === role ? ROLE_COLORS[role] : colors.foreground,
-                              fontWeight: selectedUser.role === role ? "600" : "400",
-                              fontSize: 13,
-                            }}
-                          >
+                          <Text style={{
+                            color: selectedUser.role === role ? ROLE_COLORS[role] : colors.foreground,
+                            fontWeight: selectedUser.role === role ? "600" : "400",
+                            fontSize: 12,
+                          }}>
                             {role.charAt(0).toUpperCase() + role.slice(1)}
                           </Text>
                         </TouchableOpacity>
@@ -1514,85 +1539,38 @@ export default function UsersScreen() {
                     </View>
                   </View>
 
-                  {/* Action Buttons */}
-                  <View style={styles.buttonSection}>
-                    {currentUser?.id && currentUser.id !== selectedUser.id && (
-                      <TouchableOpacity
-                        onPress={() => openDirectMessage(selectedUser, true)}
-                        style={[
-                          styles.actionButton,
-                          { backgroundColor: `${colors.primary}15`, marginBottom: 12 },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Message ${selectedUser.name || "user"}`}
-                        testID="user-detail-message-btn"
-                      >
-                        <IconSymbol name="message.fill" size={20} color={colors.primary} />
-                        <Text style={{ color: colors.primary, fontWeight: "600", marginLeft: 8 }}>
-                          Message User
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-
-                    {/* Impersonate Button (Coordinator only) */}
-                    {isCoordinator && (
-                      <TouchableOpacity
-                        onPress={impersonateUser}
-                        style={[
-                          styles.actionButton,
-                          { backgroundColor: `${ROLE_COLORS.coordinator}15`, marginBottom: 12 },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Impersonate this user"
-                        testID="impersonate-user-btn"
-                      >
-                        <IconSymbol name="person.crop.circle.badge.checkmark" size={20} color={ROLE_COLORS.coordinator} />
-                        <Text style={{ color: ROLE_COLORS.coordinator, fontWeight: "600", marginLeft: 8 }}>
-                          Impersonate User
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-
+                  {/* Status toggle - prominent with separator */}
+                  <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, marginTop: 4 }}>
                     <TouchableOpacity
                       onPress={toggleUserStatus}
                       disabled={updateStatusMutation.isPending}
-                      style={[
-                        styles.actionButton,
-                        {
-                          backgroundColor:
-                            selectedUser.active
-                              ? `${STATUS_COLORS.inactive}15`
-                              : `${STATUS_COLORS.active}15`,
-                          opacity: updateStatusMutation.isPending ? 0.5 : 1,
-                        },
-                      ]}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingVertical: 12,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active,
+                        backgroundColor: selectedUser.active ? `${STATUS_COLORS.inactive}10` : `${STATUS_COLORS.active}10`,
+                        opacity: updateStatusMutation.isPending ? 0.5 : 1,
+                      }}
                     >
                       {updateStatusMutation.isPending ? (
-                        <ActivityIndicator
-                          size="small"
-                          color={selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active}
-                        />
+                        <ActivityIndicator size="small" color={selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active} />
                       ) : (
                         <>
                           <IconSymbol
                             name={selectedUser.active ? "xmark.circle.fill" : "checkmark.circle.fill"}
-                            size={20}
-                            color={
-                              selectedUser.active
-                                ? STATUS_COLORS.inactive
-                                : STATUS_COLORS.active
-                            }
+                            size={16}
+                            color={selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active}
                           />
-                          <Text
-                            style={{
-                              color:
-                                selectedUser.active
-                                  ? STATUS_COLORS.inactive
-                                  : STATUS_COLORS.active,
-                              fontWeight: "600",
-                              marginLeft: 8,
-                            }}
-                          >
+                          <Text style={{
+                            color: selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active,
+                            fontWeight: "600",
+                            fontSize: 13,
+                            marginLeft: 8,
+                          }}>
                             {selectedUser.active ? "Deactivate User" : "Activate User"}
                           </Text>
                         </>

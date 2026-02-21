@@ -2,6 +2,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
+import { useBadgeContext } from "@/contexts/badge-context";
 import { useColors } from "@/hooks/use-colors";
 import { router, Stack } from "expo-router";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
@@ -11,64 +12,8 @@ type MoreItem = {
   title: string;
   subtitle: string;
   href: string;
+  badge?: number;
 };
-
-const MORE_ITEMS: MoreItem[] = [
-  {
-    icon: "tag.fill",
-    title: "Offers",
-    subtitle: "Create and manage your offers",
-    href: "/(trainer)/offers",
-  },
-  {
-    icon: "rectangle.grid.2x2.fill",
-    title: "Templates",
-    subtitle: "Browse ready-made offer templates",
-    href: "/(trainer)/templates",
-  },
-  {
-    icon: "chart.bar.fill",
-    title: "Analytics",
-    subtitle: "Earnings over time and top offers",
-    href: "/(trainer)/analytics",
-  },
-  {
-    icon: "message.fill",
-    title: "Messages",
-    subtitle: "Conversations with clients",
-    href: "/(trainer)/messages",
-  },
-  {
-    icon: "bell.fill",
-    title: "Alerts",
-    subtitle: "Orders, deliveries, and activity",
-    href: "/(trainer)/alerts",
-  },
-  {
-    icon: "person.badge.plus",
-    title: "Invite Clients",
-    subtitle: "Invite by email or link",
-    href: "/(trainer)/invite",
-  },
-  {
-    icon: "shippingbox.fill",
-    title: "Deliveries",
-    subtitle: "Track delivery status",
-    href: "/(trainer)/deliveries",
-  },
-  {
-    icon: "calendar",
-    title: "Calendar",
-    subtitle: "Manage your training sessions",
-    href: "/(trainer)/calendar",
-  },
-  {
-    icon: "gearshape.fill",
-    title: "Settings",
-    subtitle: "Profile and account settings",
-    href: "/(trainer)/settings",
-  },
-];
 
 function MoreRow({
   item,
@@ -93,6 +38,11 @@ function MoreRow({
             <Text className="text-foreground font-semibold">{item.title}</Text>
             <Text className="text-sm text-muted mt-0.5">{item.subtitle}</Text>
           </View>
+          {item.badge && item.badge > 0 ? (
+            <View className="bg-error rounded-full min-w-[22px] h-[22px] items-center justify-center mr-2 px-1.5">
+              <Text className="text-white text-xs font-bold">{item.badge > 99 ? "99+" : item.badge}</Text>
+            </View>
+          ) : null}
           <IconSymbol name="chevron.right" size={16} color={chevronColor} />
         </View>
       </SurfaceCard>
@@ -102,25 +52,86 @@ function MoreRow({
 
 export default function TrainerMoreScreen() {
   const colors = useColors();
+  const { counts } = useBadgeContext();
+
+  const items: MoreItem[] = [
+    {
+      icon: "tag.fill",
+      title: "Offers",
+      subtitle: "Create and manage your offers",
+      href: "/(trainer)/offers",
+    },
+    {
+      icon: "rectangle.grid.2x2.fill",
+      title: "Templates",
+      subtitle: "Browse ready-made offer templates",
+      href: "/(trainer)/templates",
+    },
+    {
+      icon: "chart.bar.fill",
+      title: "Analytics",
+      subtitle: "Earnings over time and top offers",
+      href: "/(trainer)/analytics",
+    },
+    {
+      icon: "message.fill",
+      title: "Messages",
+      subtitle: "Conversations with clients",
+      href: "/(trainer)/messages",
+      badge: counts.unreadMessages,
+    },
+    {
+      icon: "bell.fill",
+      title: "Alerts",
+      subtitle: "Orders, deliveries, and activity",
+      href: "/(trainer)/alerts",
+      badge: counts.pendingJoinRequests,
+    },
+    {
+      icon: "person.badge.plus",
+      title: "Invite Clients",
+      subtitle: "Invite by email or link",
+      href: "/(trainer)/invite",
+    },
+    {
+      icon: "shippingbox.fill",
+      title: "Deliveries",
+      subtitle: "Track delivery status",
+      href: "/(trainer)/deliveries",
+      badge: counts.pendingDeliveries,
+    },
+    {
+      icon: "calendar",
+      title: "Calendar",
+      subtitle: "Manage your training sessions",
+      href: "/(trainer)/calendar",
+    },
+    {
+      icon: "gearshape.fill",
+      title: "Settings",
+      subtitle: "Profile and account settings",
+      href: "/(trainer)/settings",
+    },
+  ];
 
   return (
     <>
       <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
       <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <ScreenHeader title="More" subtitle="Advanced tools live here." />
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <ScreenHeader title="More" subtitle="Advanced tools live here." />
 
-        <View className="px-4 pb-8">
-          {MORE_ITEMS.map((item) => (
-            <MoreRow
-              key={item.title}
-              item={item}
-              iconColor={colors.primary}
-              chevronColor={colors.muted}
-            />
-          ))}
-        </View>
-      </ScrollView>
+          <View className="px-4 pb-8">
+            {items.map((item) => (
+              <MoreRow
+                key={item.title}
+                item={item}
+                iconColor={colors.primary}
+                chevronColor={colors.muted}
+              />
+            ))}
+          </View>
+        </ScrollView>
       </ScreenContainer>
     </>
   );

@@ -2,11 +2,15 @@ import { Slot, usePathname } from "expo-router";
 import { View } from "react-native";
 
 import { RoleBottomNav, type RoleNavItem } from "@/components/role-bottom-nav";
+import { useBadgeContext } from "@/contexts/badge-context";
 import { useRoleGuard } from "@/hooks/use-role-guard";
 
 export default function TrainerTabLayout() {
   useRoleGuard("trainer");
+  const { counts } = useBadgeContext();
   const pathname = usePathname();
+
+  const moreBadge = counts.unreadMessages + counts.pendingDeliveries + counts.pendingJoinRequests;
 
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(trainer)/dashboard", testID: "tab-home" },
@@ -18,7 +22,7 @@ export default function TrainerTabLayout() {
     },
     { label: "Get Paid", icon: "creditcard.fill", href: "/(trainer)/get-paid", testID: "tab-get-paid" },
     { label: "Rewards", icon: "star.fill", href: "/(trainer)/rewards", testID: "tab-rewards" },
-    { label: "More", icon: "ellipsis.circle.fill", href: "/(trainer)/more", testID: "tab-more" },
+    { label: "More", icon: "ellipsis.circle.fill", href: "/(trainer)/more", testID: "tab-more", badge: moreBadge || undefined },
   ];
   const hideBottomNav = pathname.includes("/conversation/") || pathname.endsWith("/messages/new");
 

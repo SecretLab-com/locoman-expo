@@ -171,11 +171,6 @@ export function ProfileFAB() {
         onPress: navigateToProfile,
       },
       {
-        icon: "gear",
-        label: "Settings",
-        onPress: navigateToSettings,
-      },
-      {
         icon: "message.fill",
         label: "Messages",
         onPress: () => router.push(`${roleBase}/messages` as any),

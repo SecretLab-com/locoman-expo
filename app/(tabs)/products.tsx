@@ -85,6 +85,7 @@ export default function ProductsScreen() {
   const { addItem } = useCart();
   const [viewMode, setViewMode] = useState<"bundles" | "categories" | "products">("categories");
   const [searchQuery, setSearchQuery] = useState("");
+  const [bundleSearchQuery, setBundleSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -336,8 +337,15 @@ export default function ProductsScreen() {
   }, [categories, selectedCategory, viewMode]);
 
   const filteredBundles = useMemo(() => {
-    return (bundles as Bundle[] | undefined) ?? [];
-  }, [bundles]);
+    const all = (bundles as Bundle[] | undefined) ?? [];
+    if (!bundleSearchQuery.trim()) return all;
+    const term = bundleSearchQuery.toLowerCase();
+    return all.filter(
+      (b) =>
+        b.title.toLowerCase().includes(term) ||
+        (b.description || "").toLowerCase().includes(term),
+    );
+  }, [bundles, bundleSearchQuery]);
 
   const filteredProducts = useMemo(() => {
     if (!baseProducts.length) return [];
@@ -535,7 +543,29 @@ export default function ProductsScreen() {
         </View>
       </View>
 
-      {/* Search Bar */}
+      {/* Search Bar - Bundles mode */}
+      {viewMode === "bundles" && (
+        <View className="px-4 mb-3">
+          <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
+            <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
+            <TextInput
+              placeholder="Search bundles..."
+              placeholderTextColor={colors.muted}
+              value={bundleSearchQuery}
+              onChangeText={setBundleSearchQuery}
+              className="flex-1 ml-3 text-foreground text-base"
+              returnKeyType="search"
+            />
+            {bundleSearchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setBundleSearchQuery("")}>
+                <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Search Bar - Products mode */}
       {isProductsMode && (
         <View className="px-4 mb-3">
           <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
@@ -612,12 +642,24 @@ export default function ProductsScreen() {
             {filteredBundles.length === 0 && (
               <View className="items-center py-16">
                 <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
-                  <IconSymbol name="cube.box" size={32} color={colors.muted} />
+                  <IconSymbol name={bundleSearchQuery ? "magnifyingglass" : "cube.box"} size={32} color={colors.muted} />
                 </View>
-                <Text className="text-lg font-semibold text-foreground mb-2">No bundles available</Text>
-                <Text className="text-muted text-center">
-                  Trainer bundles will appear here when published.
+                <Text className="text-lg font-semibold text-foreground mb-2">
+                  {bundleSearchQuery ? "No matching bundles" : "No bundles available"}
                 </Text>
+                <Text className="text-muted text-center">
+                  {bundleSearchQuery
+                    ? "Try a different search term."
+                    : "Trainer bundles will appear here when published."}
+                </Text>
+                {bundleSearchQuery ? (
+                  <TouchableOpacity
+                    onPress={() => setBundleSearchQuery("")}
+                    className="mt-3 px-4 py-2 border border-border rounded-lg"
+                  >
+                    <Text className="text-foreground text-sm">Clear search</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             )}
           </View>

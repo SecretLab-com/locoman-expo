@@ -333,23 +333,7 @@ export default function SharedProfileScreen() {
 
         {/* Menu Sections */}
         <View className="px-4">
-          {/* Role-Based Dashboard Access */}
-          {dashboardInfo && (
-            <>
-              <Text className={`text-sm font-semibold ${colorScheme === "dark" ? "text-white/80" : "text-foreground/70"} uppercase tracking-wider mb-2 mt-4`}>
-                Your Home
-              </Text>
-              <View className="bg-surface rounded-xl px-4">
-                <MenuItem
-                  icon={isCoordinator ? "person.badge.key.fill" : isManager ? "chart.bar.fill" : isTrainer ? "dumbbell.fill" : "person.fill"}
-                  title={dashboardInfo.title}
-                  subtitle={dashboardInfo.subtitle}
-                  onPress={handleDashboardPress}
-                  highlight
-                />
-              </View>
-            </>
-          )}
+          {/* Role-Based Dashboard Access removed -- redundant with Home tab in bottom nav */}
 
           {/* My Trainers Section - Only for clients */}
           {isClient && (
