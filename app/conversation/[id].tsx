@@ -136,15 +136,77 @@ function meterToHeight(metering: number | undefined): number {
   return WAVEFORM_MIN_H + normalized * (WAVEFORM_MAX_H - WAVEFORM_MIN_H);
 }
 
-function LiveWaveform({ metering, colors }: { metering: number | undefined; colors: any }) {
+function useWebMicMeter(isRecording: boolean, intervalMs = 100): number | undefined {
+  const [db, setDb] = useState<number | undefined>(undefined);
+  const ctxRef = useRef<any>(null);
+  const analyserRef = useRef<any>(null);
+  const streamRef = useRef<any>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!isRecording) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      streamRef.current?.getTracks().forEach((t: any) => t.stop());
+      ctxRef.current?.close().catch(() => {});
+      ctxRef.current = null;
+      analyserRef.current = null;
+      streamRef.current = null;
+      setDb(undefined);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        const ctx = new AudioContext();
+        ctxRef.current = ctx;
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        analyserRef.current = analyser;
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        timerRef.current = setInterval(() => {
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+          const avg = sum / dataArray.length;
+          const dbValue = avg > 0 ? -60 + (avg / 255) * 60 : -60;
+          setDb(dbValue);
+        }, intervalMs);
+      } catch {
+        setDb(undefined);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timerRef.current) clearInterval(timerRef.current);
+      streamRef.current?.getTracks().forEach((t: any) => t.stop());
+      ctxRef.current?.close().catch(() => {});
+    };
+  }, [isRecording, intervalMs]);
+
+  return db;
+}
+
+function LiveWaveform({ metering, isRecording, colors }: { metering: number | undefined; isRecording: boolean; colors: any }) {
+  const webMeter = useWebMicMeter(Platform.OS === "web" && isRecording, 100);
+  const activeMeter = Platform.OS === "web" ? webMeter : metering;
+
   const [bars, setBars] = useState<number[]>(() => new Array(WAVEFORM_BAR_COUNT).fill(WAVEFORM_MIN_H));
 
   useEffect(() => {
     setBars((prev) => {
-      const next = [...prev.slice(1), meterToHeight(metering)];
+      const next = [...prev.slice(1), meterToHeight(activeMeter)];
       return next;
     });
-  }, [metering]);
+  }, [activeMeter]);
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 1.5, height: WAVEFORM_MAX_H }}>
@@ -1358,7 +1420,7 @@ export default function ConversationScreen() {
               </TouchableOpacity>
 
               <View className="flex-1 flex-row items-center bg-background rounded-2xl border border-border px-3 py-2 mr-2">
-                <LiveWaveform metering={recorderState.metering} colors={colors} />
+                <LiveWaveform metering={recorderState.metering} isRecording={recorderState.isRecording} colors={colors} />
               </View>
 
               <TouchableOpacity
