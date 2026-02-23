@@ -349,17 +349,21 @@ export default function TrainerAssistantScreen() {
         throw new Error("No recording file was produced.");
       }
 
-      const fileInfo = await FileSystem.getInfoAsync(audioUri);
-      if (!fileInfo.exists) {
-        throw new Error("Recorded file does not exist.");
-      }
-      const size = fileInfo.size;
-      if (size && size > 8 * 1024 * 1024) {
+      const response = await fetch(audioUri);
+      const blob = await response.blob();
+      if (blob.size > 8 * 1024 * 1024) {
         throw new Error("Voice note exceeds 8 MB upload limit.");
       }
 
-      const base64 = await FileSystem.readAsStringAsync(audioUri, {
-        encoding: "base64",
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          const idx = result.indexOf(",");
+          resolve(idx >= 0 ? result.slice(idx + 1) : result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
       });
       if (!base64) {
         throw new Error("Recorded file could not be read.");
@@ -367,7 +371,7 @@ export default function TrainerAssistantScreen() {
 
       const extension = extractAudioExtension(audioUri);
       const fileName = `voice-note-${Date.now()}.${extension}`;
-      const mimeType = guessAudioMimeType(audioUri);
+      const mimeType = blob.type || guessAudioMimeType(audioUri);
 
       const upload = await uploadAttachment.mutateAsync({
         fileName,

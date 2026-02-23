@@ -794,33 +794,26 @@ export default function ConversationScreen() {
         const audioUri = status.url || recorder.uri || recorderState.url;
         if (!audioUri) throw new Error("No recording file was produced.");
 
-        let base64: string;
-        let ext: string;
-        let mimeType: string;
+        const response = await fetch(audioUri);
+        const blob = await response.blob();
+        const detectedMime = blob.type || "";
+        const ext = detectedMime.includes("webm") ? "webm"
+          : detectedMime.includes("mp4") || detectedMime.includes("m4a") ? "m4a"
+          : detectedMime.includes("caf") ? "caf"
+          : (audioUri.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1] || "m4a").toLowerCase();
+        const mimeMap: Record<string, string> = { webm: "audio/webm", wav: "audio/wav", ogg: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4", mp4: "audio/mp4", caf: "audio/x-caf" };
+        const mimeType = detectedMime || mimeMap[ext] || "audio/mp4";
 
-        if (Platform.OS === "web") {
-          const response = await fetch(audioUri);
-          const blob = await response.blob();
-          mimeType = blob.type || "audio/webm";
-          ext = mimeType.includes("webm") ? "webm" : mimeType.includes("mp4") ? "m4a" : "webm";
-          base64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const result = reader.result as string;
-              resolve(result.split(",")[1] || "");
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } else {
-          const fileInfo = await FileSystem.getInfoAsync(audioUri);
-          if (!fileInfo.exists) throw new Error("Recorded file does not exist.");
-          base64 = await FileSystem.readAsStringAsync(audioUri, { encoding: "base64" });
-          ext = (audioUri.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1] || "m4a").toLowerCase();
-          const mimeMap: Record<string, string> = { webm: "audio/webm", wav: "audio/wav", ogg: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4", mp4: "audio/mp4", caf: "audio/x-caf" };
-          mimeType = mimeMap[ext] || "audio/mp4";
-        }
-
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            const idx = result.indexOf(",");
+            resolve(idx >= 0 ? result.slice(idx + 1) : result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
         if (!base64) throw new Error("Recorded file could not be read.");
 
         const upload = await uploadAttachment.mutateAsync({
