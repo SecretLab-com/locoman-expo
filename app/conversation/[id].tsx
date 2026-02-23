@@ -126,8 +126,8 @@ function TypingIndicator({ name, colors }: { name: string; colors: any }) {
 }
 
 const WAVEFORM_BAR_COUNT = 48;
-const WAVEFORM_MIN_H = 2;
-const WAVEFORM_MAX_H = 34;
+const WAVEFORM_MIN_H = 3;
+const WAVEFORM_MAX_H = 36;
 
 function meterToHeight(metering: number | undefined): number {
   if (metering === undefined || metering === null) return WAVEFORM_MIN_H;
@@ -1453,7 +1453,7 @@ export default function ConversationScreen() {
           {/* Input area: fixed height, shows text input / waveform / transcribing */}
           <View
             className="flex-1 flex-row items-center bg-background rounded-2xl border border-border mr-2"
-            style={{ height: 44, paddingHorizontal: 16 }}
+            style={{ minHeight: 44, paddingHorizontal: 16 }}
           >
             {recorderState.isRecording ? (
               <LiveWaveform metering={recorderState.metering} isRecording={recorderState.isRecording} colors={colors} />
