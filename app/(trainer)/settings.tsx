@@ -359,7 +359,7 @@ export default function SettingsScreen() {
           <View className="mb-4">
             <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Instagram</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-foreground/60 dark:text-white/50 font-medium">instagram.com/</Text>
+              <Text className="text-muted font-medium">instagram.com/</Text>
               <TextInput
                 value={instagram}
                 onChangeText={setInstagram}
@@ -373,7 +373,7 @@ export default function SettingsScreen() {
           <View className="mb-4">
             <Text className="text-sm font-medium text-foreground dark:text-white mb-2">Twitter</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-foreground/60 dark:text-white/50 font-medium">twitter.com/</Text>
+              <Text className="text-muted font-medium">twitter.com/</Text>
               <TextInput
                 value={twitter}
                 onChangeText={setTwitter}
@@ -387,7 +387,7 @@ export default function SettingsScreen() {
           <View className="mb-4">
             <Text className="text-sm font-medium text-foreground dark:text-white mb-2">LinkedIn</Text>
             <View className="flex-row items-center bg-surface border border-border rounded-xl px-4">
-              <Text className="text-foreground/60 dark:text-white/50 font-medium">linkedin.com/in/</Text>
+              <Text className="text-muted font-medium">linkedin.com/in/</Text>
               <TextInput
                 value={linkedin}
                 onChangeText={setLinkedin}
@@ -417,7 +417,7 @@ export default function SettingsScreen() {
               <View className="flex-row items-center justify-between">
                 <View className="flex-1">
                   <Text className="text-base font-semibold text-foreground">Accepting New Clients</Text>
-                  <Text className="text-sm text-foreground/60 mt-0.5">Show profile in directory</Text>
+                  <Text className="text-sm text-muted mt-0.5">Show profile in directory</Text>
                 </View>
                 <Switch
                   value={isAvailable}
@@ -443,7 +443,7 @@ export default function SettingsScreen() {
                     className={`flex-1 items-center py-4 rounded-xl border ${isSelected ? "bg-primary/10 border-primary" : "bg-background border-border"}`}
                   >
                     <IconSymbol name={option === 'system' ? 'gearshape.fill' : option === 'light' ? 'sun.max.fill' : 'moon.fill'} size={24} color={isSelected ? colors.primary : colors.muted} />
-                    <Text className={`text-sm mt-2 font-semibold ${isSelected ? "text-primary" : "text-foreground/60"}`}>{option.charAt(0).toUpperCase() + option.slice(1)}</Text>
+                    <Text className={`text-sm mt-2 font-semibold ${isSelected ? "text-primary" : "text-muted"}`}>{option.charAt(0).toUpperCase() + option.slice(1)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -486,10 +486,10 @@ export default function SettingsScreen() {
         </View>
 
         <View className="mb-6">
-          <Text className="text-center text-xs text-foreground/60">
+          <Text className="text-center text-xs text-muted">
             App version: {appVersion} ({buildNumber})
           </Text>
-          <Text className="mt-1 text-center text-xs text-foreground/60">
+          <Text className="mt-1 text-center text-xs text-muted">
             OTA: {otaShortId} · Channel: {otaChannel}
           </Text>
         </View>
