@@ -484,7 +484,7 @@ export default function RootLayout() {
                               name="invite/[token]"
                               options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
                             />
-                            <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false }} />
+                            <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false, gestureEnabled: true, fullScreenGestureEnabled: true }} />
                             <Stack.Screen name="new-message" options={{ presentation: "card" }} />
                             <Stack.Screen
                               name="share-intent"
