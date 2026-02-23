@@ -184,29 +184,57 @@ function isImageMime(mime: string | null | undefined): boolean {
   return mime.startsWith("image/");
 }
 
-function toHistoryMessages(conversationMessages: DbMessage[] | undefined, trainerId: string): Message[] {
+const LLM_SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+async function toImageDataUrl(url: string, mime: string | null | undefined): Promise<string> {
+  const needsConvert = !mime || !LLM_SUPPORTED_IMAGE_TYPES.has(mime);
+  try {
+    const res = await fetch(url);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!needsConvert && mime) {
+      return `data:${mime};base64,${buffer.toString("base64")}`;
+    }
+    // For HEIC and other unsupported formats, re-encode as JPEG via sharp if available,
+    // otherwise send as JPEG data URL (the raw bytes are often still decodable)
+    try {
+      const sharp = (await import("sharp")).default;
+      const jpegBuffer = await sharp(buffer).jpeg({ quality: 85 }).toBuffer();
+      return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+    } catch {
+      return `data:image/jpeg;base64,${buffer.toString("base64")}`;
+    }
+  } catch {
+    return url;
+  }
+}
+
+async function toHistoryMessages(conversationMessages: DbMessage[] | undefined, trainerId: string): Promise<Message[]> {
   if (!conversationMessages?.length) return [];
-  return conversationMessages
+  const filtered = conversationMessages
     .slice(-24)
     .filter((message) => {
       const hasText = typeof message.content === "string" && message.content.trim().length > 0;
       const hasImage = message.messageType === "image" && !!message.attachmentUrl;
       return hasText || hasImage;
-    })
-    .map((message) => {
+    });
+
+  return Promise.all(
+    filtered.map(async (message) => {
       const role = message.senderId === trainerId ? ("user" as const) : ("assistant" as const);
       const hasImage = message.messageType === "image" && !!message.attachmentUrl && isImageMime(message.attachmentMimeType);
       const text = (message.content || "").trim();
 
       if (hasImage) {
+        const imageUrl = await toImageDataUrl(message.attachmentUrl!, message.attachmentMimeType);
         const content: MessageContent[] = [];
         if (text) content.push({ type: "text", text });
-        content.push({ type: "image_url", image_url: { url: message.attachmentUrl! } });
+        content.push({ type: "image_url", image_url: { url: imageUrl } });
         return { role, content };
       }
 
       return { role, content: text };
-    });
+    }),
+  );
 }
 
 function resolveTrainerId(runtime: ToolRuntime, overrideTrainerId?: string | null): string {
@@ -543,7 +571,7 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
   const actions: AssistantActionSummary[] = [];
   let graphData: AssistantGraphPoint[] = [];
 
-  const historyMessages = toHistoryMessages(input.conversationMessages, input.trainer.id);
+  const historyMessages = await toHistoryMessages(input.conversationMessages, input.trainer.id);
   const trimmedPrompt = input.prompt.trim();
   const lastHistory = historyMessages[historyMessages.length - 1];
   const lastHistoryText = (() => {
