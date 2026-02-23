@@ -210,14 +210,16 @@ function LiveWaveform({ metering, isRecording, colors }: { metering: number | un
   }, [activeMeter]);
 
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 1.5, height: WAVEFORM_MAX_H }}>
+    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: WAVEFORM_MAX_H }}>
       {bars.map((h, i) => (
         <View
           key={i}
           style={{
-            width: 2.5,
+            flex: 1,
+            maxWidth: 4,
+            marginHorizontal: 0.5,
             height: h,
-            borderRadius: 1.5,
+            borderRadius: 2,
             backgroundColor: colors.primary,
             opacity: 0.4 + (i / WAVEFORM_BAR_COUNT) * 0.6,
           }}
