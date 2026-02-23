@@ -752,13 +752,17 @@ export default function ConversationScreen() {
           return;
         }
 
-        const ids = participantIds
-          ? participantIds.split(",").map((v) => v.trim()).filter(Boolean)
-          : participantId ? [participantId] : [];
-        if (ids.length === 1) {
-          sendMessage.mutate({ receiverId: ids[0], content: text, conversationId: id });
-        } else if (ids.length > 1) {
-          sendGroupMessage.mutate({ receiverIds: ids, content: text, conversationId: id });
+        if (isAssistantChat) {
+          const ids = participantIds
+            ? participantIds.split(",").map((v) => v.trim()).filter(Boolean)
+            : participantId ? [participantId] : [];
+          if (ids.length === 1) {
+            sendMessage.mutate({ receiverId: ids[0], content: text, conversationId: id });
+          } else if (ids.length > 1) {
+            sendGroupMessage.mutate({ receiverIds: ids, content: text, conversationId: id });
+          }
+        } else {
+          setMessageText((prev) => (prev.trim() ? `${prev} ${text}` : text));
         }
         await haptics.light();
       } catch (error: any) {
@@ -1425,38 +1429,38 @@ export default function ConversationScreen() {
                     }
                   }}
                 />
+                {!messageText.trim() && (
+                  <TouchableOpacity
+                    className="ml-2 w-8 h-8 rounded-full items-center justify-center"
+                    onPress={handleVoicePress}
+                    disabled={voiceBusy || uploadAttachment.isPending || transcribeVoice.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Record voice message"
+                    testID="conversation-voice-btn"
+                  >
+                    <IconSymbol name="mic" size={18} color={colors.muted} />
+                  </TouchableOpacity>
+                )}
               </View>
 
-              {isAssistantChat && !messageText.trim() ? (
-                <TouchableOpacity
-                  className="w-11 h-11 rounded-full items-center justify-center bg-primary/10"
-                  onPress={handleVoicePress}
-                  accessibilityRole="button"
-                  accessibilityLabel="Record voice message"
-                  testID="conversation-voice-btn"
-                >
-                  <IconSymbol name="mic" size={20} color={colors.primary} />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  className={`w-11 h-11 rounded-full items-center justify-center ${messageText.trim() ? "bg-primary" : "bg-surface border border-border"}`}
-                  onPress={handleSend}
-                  disabled={!messageText.trim() || sendMessage.isPending || editMessage.isPending}
-                  accessibilityRole="button"
-                  accessibilityLabel={editingMessageId ? "Save edited message" : "Send message"}
-                  testID="send-message-btn"
-                >
-                  {sendMessage.isPending || editMessage.isPending ? (
-                    <ActivityIndicator size="small" color={messageText.trim() ? "#fff" : colors.muted} />
-                  ) : (
-                    <IconSymbol
-                      name="paperplane.fill"
-                      size={20}
-                      color={messageText.trim() ? "#fff" : colors.muted}
-                    />
-                  )}
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity
+                className={`w-11 h-11 rounded-full items-center justify-center ${messageText.trim() ? "bg-primary" : "bg-surface border border-border"}`}
+                onPress={handleSend}
+                disabled={!messageText.trim() || sendMessage.isPending || editMessage.isPending}
+                accessibilityRole="button"
+                accessibilityLabel={editingMessageId ? "Save edited message" : "Send message"}
+                testID="send-message-btn"
+              >
+                {sendMessage.isPending || editMessage.isPending ? (
+                  <ActivityIndicator size="small" color={messageText.trim() ? "#fff" : colors.muted} />
+                ) : (
+                  <IconSymbol
+                    name="paperplane.fill"
+                    size={20}
+                    color={messageText.trim() ? "#fff" : colors.muted}
+                  />
+                )}
+              </TouchableOpacity>
             </>
           )}
         </View>
