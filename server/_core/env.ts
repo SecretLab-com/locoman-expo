@@ -3,6 +3,8 @@ export const ENV = {
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
+  whisperApiUrl: process.env.WHISPER_API_URL ?? "https://api.groq.com/openai/v1/audio/transcriptions",
+  whisperApiKey: process.env.WHISPER_API_KEY ?? process.env.GROQ_API_KEY ?? "",
   llmDefaultProvider: process.env.LLM_DEFAULT_PROVIDER ?? "",
   llmDefaultModel: process.env.LLM_DEFAULT_MODEL ?? "",
   llmChatgptModel: process.env.LLM_CHATGPT_MODEL ?? "",
