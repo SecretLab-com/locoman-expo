@@ -538,6 +538,60 @@ const server = new McpServer({
 });
 
 server.registerTool(
+  "list_trainers",
+  {
+    title: "List All Trainers",
+    description: "List all trainers on the platform. Coordinator/manager only.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const trainers = await trpcClient.trainers.query();
+      const rows = (trainers as any[]).map((t) => ({
+        id: t.id,
+        name: t.name || null,
+        email: t.email || null,
+        username: t.username || null,
+        active: t.active ?? true,
+        bio: t.bio || null,
+      }));
+      return toTextResult(`Returned ${rows.length} trainers.`, { trainers: rows });
+    } catch (error) {
+      return toErrorResult(`List trainers failed: ${toErrorMessage(error)}`);
+    }
+  },
+);
+
+server.registerTool(
+  "list_all_users",
+  {
+    title: "List All Users",
+    description: "List all users on the platform (any role). Coordinator/manager only.",
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      limit: z.number().int().min(1).max(200).default(100),
+    },
+  },
+  async ({ limit }) => {
+    try {
+      const users = await trpcClient.admin.users.query();
+      const rows = (users as any[]).slice(0, limit).map((u) => ({
+        id: u.id,
+        name: u.name || null,
+        email: u.email || null,
+        role: u.role || null,
+        active: u.active ?? true,
+        username: u.username || null,
+      }));
+      return toTextResult(`Returned ${rows.length} users.`, { users: rows });
+    } catch (error) {
+      return toErrorResult(`List users failed: ${toErrorMessage(error)}`);
+    }
+  },
+);
+
+server.registerTool(
   "trainer_get_context_snapshot",
   {
     title: "Trainer Context Snapshot",

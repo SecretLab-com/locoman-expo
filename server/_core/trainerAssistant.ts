@@ -40,6 +40,7 @@ type RuntimeCache = {
 type ToolRuntime = {
   trainer: User;
   allowMutations: boolean;
+  isElevated: boolean;
   cache: RuntimeCache;
 };
 
@@ -189,25 +190,33 @@ function toHistoryMessages(conversationMessages: DbMessage[] | undefined, traine
     }));
 }
 
-async function getTrainerClients(runtime: ToolRuntime): Promise<Client[]> {
-  if (!runtime.cache.clients) {
-    runtime.cache.clients = await db.getClientsByTrainer(runtime.trainer.id);
-  }
-  return runtime.cache.clients;
+function resolveTrainerId(runtime: ToolRuntime, overrideTrainerId?: string | null): string {
+  if (overrideTrainerId && runtime.isElevated) return overrideTrainerId;
+  return runtime.trainer.id;
 }
 
-async function getTrainerBundles(runtime: ToolRuntime): Promise<BundleDraft[]> {
-  if (!runtime.cache.bundles) {
-    runtime.cache.bundles = await db.getBundleDraftsByTrainer(runtime.trainer.id);
-  }
-  return runtime.cache.bundles;
+async function getTrainerClients(runtime: ToolRuntime, trainerId?: string): Promise<Client[]> {
+  const tid = resolveTrainerId(runtime, trainerId);
+  if (tid === runtime.trainer.id && runtime.cache.clients) return runtime.cache.clients;
+  const clients = await db.getClientsByTrainer(tid);
+  if (tid === runtime.trainer.id) runtime.cache.clients = clients;
+  return clients;
 }
 
-async function getTrainerOrders(runtime: ToolRuntime): Promise<Order[]> {
-  if (!runtime.cache.orders) {
-    runtime.cache.orders = await db.getOrdersByTrainer(runtime.trainer.id);
-  }
-  return runtime.cache.orders;
+async function getTrainerBundles(runtime: ToolRuntime, trainerId?: string): Promise<BundleDraft[]> {
+  const tid = resolveTrainerId(runtime, trainerId);
+  if (tid === runtime.trainer.id && runtime.cache.bundles) return runtime.cache.bundles;
+  const bundles = await db.getBundleDraftsByTrainer(tid);
+  if (tid === runtime.trainer.id) runtime.cache.bundles = bundles;
+  return bundles;
+}
+
+async function getTrainerOrders(runtime: ToolRuntime, trainerId?: string): Promise<Order[]> {
+  const tid = resolveTrainerId(runtime, trainerId);
+  if (tid === runtime.trainer.id && runtime.cache.orders) return runtime.cache.orders;
+  const orders = await db.getOrdersByTrainer(tid);
+  if (tid === runtime.trainer.id) runtime.cache.orders = orders;
+  return orders;
 }
 
 async function getMessageCountsByClientUserId(runtime: ToolRuntime): Promise<Map<string, number>> {
@@ -314,16 +323,51 @@ async function buildClientValueReport(
   };
 }
 
-function buildToolSpec(): Tool[] {
-  return [
+function buildToolSpec(isElevated: boolean): Tool[] {
+  const tools: Tool[] = [];
+
+  if (isElevated) {
+    tools.push(
+      {
+        type: "function",
+        function: {
+          name: "list_trainers",
+          description: "List all trainers on the platform with their profile info. Coordinator/manager only.",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "list_all_users",
+          description: "List all users on the platform (trainers, clients, shoppers, managers, coordinators).",
+          parameters: {
+            type: "object",
+            properties: {
+              limit: { type: "integer", minimum: 1, maximum: 200, default: 100 },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+    );
+  }
+
+  tools.push(
     {
       type: "function",
       function: {
         name: "get_context_snapshot",
         description:
-          "Get an overview of the trainer's profile and aggregate counts (clients, bundles, orders, conversations). " +
-          "Call this first when you need a quick summary of the trainer's account.",
-        parameters: { type: "object", properties: {}, additionalProperties: false },
+          "Get an overview of a trainer's profile and aggregate counts (clients, bundles, orders, conversations). " +
+          (isElevated ? "Pass trainerId to view any trainer's data." : "Call this first when you need a quick summary."),
+        parameters: {
+          type: "object",
+          properties: {
+            ...(isElevated ? { trainerId: { type: "string", description: "Optional. View a specific trainer's data." } } : {}),
+          },
+          additionalProperties: false,
+        },
       },
     },
     {
@@ -331,10 +375,12 @@ function buildToolSpec(): Tool[] {
       function: {
         name: "list_clients",
         description:
-          "List the trainer's clients with optional search filtering, message counts, and revenue data.",
+          "List clients with optional search filtering, message counts, and revenue data." +
+          (isElevated ? " Pass trainerId to view a specific trainer's clients." : ""),
         parameters: {
           type: "object",
           properties: {
+            ...(isElevated ? { trainerId: { type: "string", description: "View a specific trainer's clients." } } : {}),
             search: { type: "string", description: "Filter clients by name, email, or notes." },
             includeMessageCounts: { type: "boolean", default: true },
             includeRevenue: { type: "boolean", default: true },
@@ -347,10 +393,12 @@ function buildToolSpec(): Tool[] {
       type: "function",
       function: {
         name: "list_bundles",
-        description: "List this trainer's bundles/offers with optional status filtering.",
+        description: "List bundles/offers with optional status filtering." +
+          (isElevated ? " Pass trainerId to view a specific trainer's bundles." : ""),
         parameters: {
           type: "object",
           properties: {
+            ...(isElevated ? { trainerId: { type: "string", description: "View a specific trainer's bundles." } } : {}),
             status: { type: "string", description: "Filter by status: published, draft, pending_review." },
           },
           additionalProperties: false,
@@ -362,16 +410,13 @@ function buildToolSpec(): Tool[] {
       function: {
         name: "list_conversations",
         description:
-          "List the trainer's conversation summaries showing who they've been chatting with, " +
-          "unread counts, and last message preview. Use to find conversation IDs for get_conversation_messages.",
+          "List conversation summaries showing participants, unread counts, and last message." +
+          (isElevated ? " Pass userId to view any user's conversations." : ""),
         parameters: {
           type: "object",
           properties: {
-            includeAssistant: {
-              type: "boolean",
-              default: false,
-              description: "Include the bot/assistant conversation in results.",
-            },
+            ...(isElevated ? { userId: { type: "string", description: "View a specific user's conversations." } } : {}),
+            includeAssistant: { type: "boolean", default: false },
           },
           additionalProperties: false,
         },
@@ -383,12 +428,14 @@ function buildToolSpec(): Tool[] {
         name: "get_conversation_messages",
         description:
           "Fetch the message history for a specific conversation. " +
-          "Provide either a conversationId (from list_conversations) or a clientId (from list_clients) to resolve it.",
+          "Provide either a conversationId or a clientId to resolve it." +
+          (isElevated ? " Pass trainerId when using clientId to resolve conversations for a specific trainer." : ""),
         parameters: {
           type: "object",
           properties: {
             conversationId: { type: "string" },
-            clientId: { type: "string", description: "Client ID — the conversation with this client's linked user will be resolved." },
+            clientId: { type: "string", description: "Client ID — resolves to the conversation with this client's linked user." },
+            ...(isElevated ? { trainerId: { type: "string", description: "Trainer ID for resolving client conversations." } } : {}),
             limit: { type: "integer", minimum: 1, maximum: 400, default: 60 },
           },
           additionalProperties: false,
@@ -451,7 +498,9 @@ function buildToolSpec(): Tool[] {
         },
       },
     },
-  ];
+  );
+
+  return tools;
 }
 
 type AssistantRunInput = {
@@ -463,12 +512,14 @@ type AssistantRunInput = {
 };
 
 export async function runTrainerAssistant(input: AssistantRunInput): Promise<TrainerAssistantResponse> {
+  const isElevated = input.trainer.role === "manager" || input.trainer.role === "coordinator";
   const runtime: ToolRuntime = {
     trainer: input.trainer,
     allowMutations: input.allowMutations !== false,
+    isElevated,
     cache: {},
   };
-  const tools = buildToolSpec();
+  const tools = buildToolSpec(isElevated);
   const usedTools = new Set<string>();
   const actions: AssistantActionSummary[] = [];
   let graphData: AssistantGraphPoint[] = [];
@@ -486,8 +537,11 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
     {
       role: "system",
       content: [
-        "You are Loco Assistant, an AI automation assistant for fitness trainers on the Locomotivate platform.",
-        "You have tools to read and act on the trainer's data. Keep responses concise and actionable.",
+        "You are Loco Assistant, an AI automation assistant on the Locomotivate platform.",
+        isElevated
+          ? `The current user is a ${runtime.trainer.role} (${runtime.trainer.name || runtime.trainer.email}). As a ${runtime.trainer.role}, you have FULL access to all trainers, clients, users, conversations, and bundles on the platform. Use trainerId/userId params to view any trainer's or user's data. You can list all trainers with list_trainers and all users with list_all_users.`
+          : "You have tools to read and act on the trainer's data.",
+        "Keep responses concise and actionable.",
         "",
         "CRITICAL BEHAVIOR — YOU MUST FOLLOW THIS:",
         "NEVER ask the user for information you can look up with your tools.",
@@ -499,13 +553,17 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
         "Always gather context with tools BEFORE asking the user anything.",
         "",
         "AVAILABLE TOOLS:",
-        "- get_context_snapshot: Quick overview of trainer profile + counts (clients, bundles, orders, conversations).",
-        "- list_clients: List clients with message counts and revenue. Supports search filtering.",
-        "- list_bundles: List the trainer's bundles/offers. Filter by status (published, draft).",
-        "- list_conversations: List chat summaries with other users. Shows unread counts and last message.",
-        "- get_conversation_messages: Read message history for a conversation (by conversationId or clientId).",
-        "- recommend_bundles_from_chats: Score and match clients to bundles based on chat context and notes.",
-        "- invite_clients_to_bundle: Send invitation emails for a bundle. ALWAYS preview first (confirm=false), only execute with confirm=true after explicit trainer approval.",
+        ...(isElevated ? [
+          "- list_trainers: List ALL trainers on the platform.",
+          "- list_all_users: List ALL users on the platform (any role).",
+        ] : []),
+        "- get_context_snapshot: Overview of trainer profile + counts." + (isElevated ? " Pass trainerId to view any trainer." : ""),
+        "- list_clients: List clients with message counts and revenue." + (isElevated ? " Pass trainerId for any trainer's clients." : ""),
+        "- list_bundles: List bundles/offers." + (isElevated ? " Pass trainerId for any trainer's bundles." : ""),
+        "- list_conversations: List conversation summaries." + (isElevated ? " Pass userId for any user's conversations." : ""),
+        "- get_conversation_messages: Read message history (by conversationId or clientId)." + (isElevated ? " Pass trainerId when using clientId." : ""),
+        "- recommend_bundles_from_chats: Score and match clients to bundles based on chat context.",
+        "- invite_clients_to_bundle: Send invitation emails. ALWAYS preview first (confirm=false), execute only after confirmation.",
         "- build_client_value_report: Generate engagement vs revenue data per client for analytics/graphs.",
         "",
         "WORKFLOW GUIDELINES:",
@@ -535,10 +593,11 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
   let finalModel = "";
 
   const handleListClients = async (args: Record<string, unknown>) => {
+    const trainerId = asString(args.trainerId);
     const search = asString(args.search)?.toLowerCase();
     const includeMessageCounts = asBoolean(args.includeMessageCounts, true);
     const includeRevenue = asBoolean(args.includeRevenue, true);
-    const clients = await getTrainerClients(runtime);
+    const clients = await getTrainerClients(runtime, trainerId || undefined);
     const filtered = search
       ? clients.filter((client) =>
           [client.name, client.email, client.notes]
@@ -571,8 +630,9 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
   };
 
   const handleListBundles = async (args: Record<string, unknown>) => {
+    const trainerId = asString(args.trainerId);
     const statusFilter = asString(args.status)?.toLowerCase();
-    const bundles = await getTrainerBundles(runtime);
+    const bundles = await getTrainerBundles(runtime, trainerId || undefined);
     const rows = statusFilter
       ? bundles.filter((bundle) => String(bundle.status || "").toLowerCase() === statusFilter)
       : bundles;
@@ -841,18 +901,21 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
     return buildClientValueReport(runtime, topN);
   };
 
-  const handleGetContextSnapshot = async () => {
+  const handleGetContextSnapshot = async (args: Record<string, unknown>) => {
+    const trainerId = asString(args.trainerId);
+    const tid = resolveTrainerId(runtime, trainerId);
     const [clients, bundles, orders] = await Promise.all([
-      getTrainerClients(runtime),
-      getTrainerBundles(runtime),
-      getTrainerOrders(runtime),
+      getTrainerClients(runtime, trainerId || undefined),
+      getTrainerBundles(runtime, trainerId || undefined),
+      getTrainerOrders(runtime, trainerId || undefined),
     ]);
-    const conversations = await db.getConversationSummaries(runtime.trainer.id);
+    const targetUser = trainerId && runtime.isElevated ? await db.getUserById(tid) : runtime.trainer;
+    const conversations = await db.getConversationSummaries(tid);
     return {
-      trainerId: runtime.trainer.id,
-      trainerName: runtime.trainer.name,
-      trainerEmail: runtime.trainer.email,
-      role: runtime.trainer.role,
+      trainerId: tid,
+      trainerName: targetUser?.name || null,
+      trainerEmail: targetUser?.email || null,
+      role: targetUser?.role || null,
       counts: {
         clients: clients.length,
         bundles: bundles.length,
@@ -864,8 +927,10 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
   };
 
   const handleListConversations = async (args: Record<string, unknown>) => {
+    const userId = asString(args.userId);
     const includeAssistant = asBoolean(args.includeAssistant, false);
-    const summaries = await db.getConversationSummaries(runtime.trainer.id);
+    const targetUserId = (userId && runtime.isElevated) ? userId : runtime.trainer.id;
+    const summaries = await db.getConversationSummaries(targetUserId);
     const filtered = summaries.filter((s) => {
       if (includeAssistant) return true;
       return !s.conversationId.startsWith("bot-");
@@ -889,14 +954,16 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
   const handleGetConversationMessages = async (args: Record<string, unknown>) => {
     let resolvedConversationId = asString(args.conversationId);
     const clientId = asString(args.clientId);
+    const trainerId = asString(args.trainerId);
     const limit = asPositiveInt(args.limit, 60);
 
     if (!resolvedConversationId && clientId) {
-      const clients = await getTrainerClients(runtime);
+      const tid = resolveTrainerId(runtime, trainerId);
+      const clients = await getTrainerClients(runtime, trainerId || undefined);
       const target = clients.find((c) => c.id === clientId);
       if (!target) return { error: `Client not found: ${clientId}` };
       if (!target.userId) return { error: `Client ${clientId} has no linked userId for chat lookup.` };
-      resolvedConversationId = getDirectConversationId(runtime.trainer.id, target.userId);
+      resolvedConversationId = getDirectConversationId(tid, target.userId);
     }
 
     if (!resolvedConversationId) {
@@ -919,6 +986,37 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
     };
   };
 
+  const handleListTrainers = async () => {
+    const trainers = await db.getTrainers();
+    return {
+      total: trainers.length,
+      trainers: trainers.map((t) => ({
+        id: t.id,
+        name: t.name,
+        email: t.email,
+        username: t.username,
+        active: t.active,
+        bio: t.bio,
+      })),
+    };
+  };
+
+  const handleListAllUsers = async (args: Record<string, unknown>) => {
+    const limit = asPositiveInt(args.limit, 100);
+    const users = await db.getAllUsers(limit);
+    return {
+      total: users.length,
+      users: users.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        active: u.active,
+        username: u.username,
+      })),
+    };
+  };
+
   const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
     get_context_snapshot: handleGetContextSnapshot,
     list_clients: handleListClients,
@@ -928,6 +1026,10 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
     recommend_bundles_from_chats: handleRecommendBundlesFromChats,
     invite_clients_to_bundle: handleInviteClientsToBundle,
     build_client_value_report: handleBuildClientValueReport,
+    ...(isElevated ? {
+      list_trainers: handleListTrainers,
+      list_all_users: handleListAllUsers,
+    } : {}),
   };
 
   for (let step = 0; step < 10; step += 1) {
