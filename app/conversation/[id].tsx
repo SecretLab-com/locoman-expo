@@ -439,6 +439,7 @@ function MessageBubble({
   userId,
   onLongPress,
   onToggleReaction,
+  onImagePress,
 }: {
   message: Message;
   isOwn: boolean;
@@ -447,6 +448,7 @@ function MessageBubble({
   userId: string;
   onLongPress: (messageId: string) => void;
   onToggleReaction: (messageId: string, reaction: string) => void;
+  onImagePress?: (url: string) => void;
 }) {
   const formatTime = (date: string) => {
     const d = new Date(date);
@@ -460,7 +462,12 @@ function MessageBubble({
   const renderContent = () => {
     if (message.messageType === "image" && message.attachmentUrl) {
       return (
-        <View>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => onImagePress?.(message.attachmentUrl!)}
+          accessibilityRole="button"
+          accessibilityLabel="View image fullscreen"
+        >
           <Image
             source={{ uri: message.attachmentUrl }}
             className="w-48 h-48 rounded-lg"
@@ -471,7 +478,7 @@ function MessageBubble({
               {message.content}
             </Text>
           )}
-        </View>
+        </TouchableOpacity>
       );
     }
 
@@ -568,6 +575,7 @@ export default function ConversationScreen() {
   const [typingUserName, setTypingUserName] = useState<string | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
+  const [fullscreenImageUrl, setFullscreenImageUrl] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markingReadIdsRef = useRef<Set<string>>(new Set());
@@ -1269,6 +1277,7 @@ export default function ConversationScreen() {
                 userId={user?.id || ""}
                 onLongPress={handleLongPress}
                 onToggleReaction={handleToggleReaction}
+                onImagePress={setFullscreenImageUrl}
               />
             )}
             contentContainerStyle={{
@@ -1573,6 +1582,36 @@ export default function ConversationScreen() {
               <Text className="text-background font-semibold">Done</Text>
             </TouchableOpacity>
           </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Fullscreen Image Viewer */}
+      <Modal
+        visible={!!fullscreenImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFullscreenImageUrl(null)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center", alignItems: "center" }}
+          onPress={() => setFullscreenImageUrl(null)}
+        >
+          <TouchableOpacity
+            style={{ position: "absolute", top: insets.top + 12, right: 16, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
+            onPress={() => setFullscreenImageUrl(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Close image"
+            testID="fullscreen-image-close"
+          >
+            <IconSymbol name="xmark" size={20} color="#fff" />
+          </TouchableOpacity>
+          {fullscreenImageUrl ? (
+            <Image
+              source={{ uri: fullscreenImageUrl }}
+              style={{ width: "92%", height: "75%", borderRadius: 8 }}
+              resizeMode="contain"
+            />
+          ) : null}
         </Pressable>
       </Modal>
     </View>
