@@ -369,9 +369,11 @@ export default function TrainerAssistantScreen() {
         throw new Error("Recorded file could not be read.");
       }
 
-      const extension = extractAudioExtension(audioUri);
+      const detectedMime = blob.type || "";
+      const isWebm = detectedMime.includes("webm") || audioUri.includes(".webm");
+      const extension = isWebm ? "webm" : "m4a";
       const fileName = `voice-note-${Date.now()}.${extension}`;
-      const mimeType = blob.type || guessAudioMimeType(audioUri);
+      const mimeType = isWebm ? "audio/webm" : "audio/mp4";
 
       const upload = await uploadAttachment.mutateAsync({
         fileName,

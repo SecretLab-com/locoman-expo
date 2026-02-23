@@ -797,12 +797,9 @@ export default function ConversationScreen() {
         const response = await fetch(audioUri);
         const blob = await response.blob();
         const detectedMime = blob.type || "";
-        const ext = detectedMime.includes("webm") ? "webm"
-          : detectedMime.includes("mp4") || detectedMime.includes("m4a") ? "m4a"
-          : detectedMime.includes("caf") ? "caf"
-          : (audioUri.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1] || "m4a").toLowerCase();
-        const mimeMap: Record<string, string> = { webm: "audio/webm", wav: "audio/wav", ogg: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4", mp4: "audio/mp4", caf: "audio/x-caf" };
-        const mimeType = detectedMime || mimeMap[ext] || "audio/mp4";
+        const isWebm = detectedMime.includes("webm") || audioUri.includes(".webm");
+        const ext = isWebm ? "webm" : "m4a";
+        const mimeType = isWebm ? "audio/webm" : "audio/mp4";
 
         const base64 = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
