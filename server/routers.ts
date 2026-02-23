@@ -4312,8 +4312,7 @@ export const appRouter = router({
 
           throw new TRPCError({
             code,
-            message: result.error,
-            cause: result.details || result.code,
+            message: result.details ? `${result.error}: ${result.details}` : result.error,
           });
         }
 
