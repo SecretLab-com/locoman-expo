@@ -144,9 +144,6 @@ export function ServicePickerModal({
   );
 
   if (presentation === "bottomSheet") {
-    const isDark = colors.foreground === "#FFFFFF";
-    const overlayColor = isDark ? "rgba(0, 0, 0, 0.55)" : "rgba(15, 23, 42, 0.18)";
-
     return (
       <Modal
         visible={visible}
@@ -154,7 +151,7 @@ export function ServicePickerModal({
         animationType="slide"
         onRequestClose={onClose}
       >
-        <View className="flex-1 justify-end" style={{ backgroundColor: overlayColor }}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
           <TouchableOpacity className="flex-1" activeOpacity={1} onPress={onClose} />
           <View className="bg-background rounded-t-3xl" style={{ maxHeight: "75%" }}>
             <View className="items-center py-2">

@@ -61,9 +61,7 @@ export default function ManagerApprovalsScreen() {
   const colors = useColors();
   const { isAuthenticated, effectiveUser } = useAuthContext();
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<BundleStatus | "all">("pending_review");
   const [commentModalVisible, setCommentModalVisible] = useState(false);
@@ -458,7 +456,7 @@ export default function ManagerApprovalsScreen() {
         animationType="fade"
         onRequestClose={() => setCommentModalVisible(false)}
       >
-        <View className="flex-1 items-center justify-center p-4" style={{ backgroundColor: overlayColor }}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, backgroundColor: overlayColor }}>
           <View className="bg-surface rounded-2xl p-6 w-full max-w-md">
             <Text className="text-xl font-bold text-foreground mb-2">Request Changes</Text>
             <Text className="text-muted mb-4">

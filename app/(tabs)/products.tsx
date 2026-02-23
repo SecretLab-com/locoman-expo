@@ -79,9 +79,7 @@ export default function ProductsScreen() {
   // const bottomNavHeight = useBottomNavHeight();
   const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
   const { width, height: windowHeight } = useWindowDimensions();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const { addItem } = useCart();
   const [viewMode, setViewMode] = useState<"bundles" | "categories" | "products">("categories");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1243,9 +1241,8 @@ export default function ProductsScreen() {
         onRequestClose={() => setMediaModalOpen(false)}
       >
         <Pressable
-          className="flex-1 items-center justify-center"
           onPress={() => setMediaModalOpen(false)}
-          style={{ backgroundColor: overlayColor }}
+          style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: overlayColor }}
           accessibilityRole="button"
           accessibilityLabel="Close media viewer"
           testID="product-media-close"

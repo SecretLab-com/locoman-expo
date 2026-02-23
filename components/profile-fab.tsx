@@ -129,7 +129,6 @@ export function ProfileFAB() {
   const avatarVersion = latestProfile?.updatedAt || effectiveUser?.updatedAt || user?.updatedAt || "";
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const isDark = colorScheme === "dark";
-  const overlayColor = isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(15, 23, 42, 0.25)";
   const shadowColor = isDark ? "#000" : colors.border;
   const fabBackgroundColor = isDark ? "rgba(21, 21, 32, 0.96)" : colors.surface;
   const fabBorderColor = isDark ? "rgba(96, 165, 250, 0.55)" : colors.border;
@@ -307,7 +306,7 @@ export function ProfileFAB() {
         animationType="fade"
         onRequestClose={closeMenu}
       >
-        <Pressable style={[styles.overlay, { backgroundColor: overlayColor }]} onPress={closeMenu}>
+        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)" }} onPress={closeMenu}>
           <View
             style={[
               styles.menu,
@@ -434,10 +433,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   menu: {
     position: "absolute",

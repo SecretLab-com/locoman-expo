@@ -53,9 +53,7 @@ const STATUS_TABS: { value: OrderStatus | "all"; label: string }[] = [
 export default function OrdersScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -375,9 +373,8 @@ export default function OrdersScreen() {
         onRequestClose={() => setShowDetailModal(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
           onPress={() => setShowDetailModal(false)}
-          style={{ backgroundColor: overlayColor }}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
         >
           <SwipeDownSheet
             visible={showDetailModal}

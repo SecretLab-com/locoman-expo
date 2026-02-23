@@ -1396,7 +1396,7 @@ export default function TrainerHomeScreen() {
         animationType="slide"
         onRequestClose={() => setPendingPaymentsVisible(false)}
       >
-        <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(2,6,23,0.66)" }}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
           <TouchableOpacity
             className="flex-1"
             activeOpacity={1}

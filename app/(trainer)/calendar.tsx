@@ -60,9 +60,7 @@ export default function CalendarScreen() {
     ? params.scheduleClientId[0]
     : params.scheduleClientId;
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showAddModal, setShowAddModal] = useState(false);
@@ -810,9 +808,8 @@ export default function CalendarScreen() {
         onRequestClose={() => setShowSessionModal(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
           onPress={() => setShowSessionModal(false)}
-          style={{ backgroundColor: overlayColor }}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
         >
           <SwipeDownSheet
             visible={showSessionModal}
@@ -887,7 +884,7 @@ export default function CalendarScreen() {
         animationType="slide"
         onRequestClose={() => setShowRescheduleModal(false)}
       >
-        <Pressable className="flex-1 justify-end" onPress={() => setShowRescheduleModal(false)} style={{ backgroundColor: overlayColor }}>
+        <Pressable onPress={() => setShowRescheduleModal(false)} style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
           <SwipeDownSheet
             visible={showRescheduleModal}
             onClose={() => setShowRescheduleModal(false)}
@@ -951,9 +948,8 @@ export default function CalendarScreen() {
         onRequestClose={() => setShowAddModal(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
           onPress={() => setShowAddModal(false)}
-          style={{ backgroundColor: overlayColor }}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
         >
           <SwipeDownSheet
             visible={showAddModal}

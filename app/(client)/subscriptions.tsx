@@ -39,9 +39,7 @@ type Subscription = {
 export default function SubscriptionsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
@@ -339,9 +337,8 @@ export default function SubscriptionsScreen() {
         onRequestClose={() => setShowDetailModal(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
           onPress={() => setShowDetailModal(false)}
-          style={{ backgroundColor: overlayColor }}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
         >
           <SwipeDownSheet
             visible={showDetailModal}

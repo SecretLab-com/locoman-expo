@@ -448,7 +448,7 @@ export default function TrainerClientsScreen() {
         animationType="slide"
         onRequestClose={() => { setPayModalOpen(false); setPayLinkResult(null); }}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
           <Pressable style={{ flex: 1 }} onPress={() => { setPayModalOpen(false); setPayLinkResult(null); }} />
           <SwipeDownSheet
             visible={payModalOpen}

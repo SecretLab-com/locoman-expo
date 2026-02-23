@@ -289,7 +289,7 @@ export default function CoordinatorBundlesScreen() {
         animationType="slide"
         onRequestClose={() => setShowFilters(false)}
       >
-        <View className="flex-1 justify-end" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
           <TouchableOpacity className="flex-1" activeOpacity={1} onPress={() => setShowFilters(false)} />
           <View className="bg-background rounded-t-3xl" style={{ maxHeight: "70%" }}>
             <View className="items-center py-2">

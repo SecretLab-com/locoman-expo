@@ -1459,8 +1459,7 @@ export default function ConversationScreen() {
         onRequestClose={() => setShowConversationDetails(false)}
       >
         <Pressable
-          className="flex-1 justify-center items-center px-6"
-          style={{ backgroundColor: "rgba(2, 6, 23, 0.7)" }}
+          style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 24, backgroundColor: "rgba(0,0,0,0.85)" }}
           onPress={() => setShowConversationDetails(false)}
         >
           <Pressable

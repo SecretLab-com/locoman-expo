@@ -48,8 +48,6 @@ export function MediaPicker({
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const overlaySoft = isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(15, 23, 42, 0.12)";
-  const overlayStrong = isDark ? "rgba(0, 0, 0, 0.65)" : "rgba(15, 23, 42, 0.2)";
-  const overlayFull = isDark ? "rgba(0, 0, 0, 0.9)" : "rgba(15, 23, 42, 0.35)";
   const overlayTextColor = isDark ? "#fff" : colors.foreground;
   const [showOptions, setShowOptions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -211,9 +209,8 @@ export function MediaPicker({
         onRequestClose={() => setShowOptions(false)}
       >
           <Pressable
-            className="flex-1 justify-end"
             onPress={() => setShowOptions(false)}
-            style={{ backgroundColor: overlayStrong }}
+            style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}
           >
           <SwipeDownSheet
             visible={showOptions}
@@ -266,9 +263,8 @@ export function MediaPicker({
         onRequestClose={() => setSelectedIndex(null)}
       >
           <Pressable
-            className="flex-1 justify-center items-center"
             onPress={() => setSelectedIndex(null)}
-            style={{ backgroundColor: overlayFull }}
+            style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.85)" }}
           >
           {selectedIndex !== null && images[selectedIndex] && (
             <View className="w-full">
@@ -418,9 +414,8 @@ export function SingleImagePicker({
         onRequestClose={() => setShowOptions(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
           onPress={() => setShowOptions(false)}
-          style={{ backgroundColor: overlayStrong }}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}
         >
           <SwipeDownSheet
             visible={showOptions}

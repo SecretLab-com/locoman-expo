@@ -572,7 +572,7 @@ export default function InviteScreen() {
         animationType="slide"
         onRequestClose={() => setDetailsOffer(null)}
       >
-        <Pressable className="flex-1 bg-black/60 justify-end" onPress={() => setDetailsOffer(null)}>
+        <Pressable style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }} onPress={() => setDetailsOffer(null)}>
           <View>
             <SwipeDownSheet
               visible={Boolean(detailsOffer)}
