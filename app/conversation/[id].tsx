@@ -648,7 +648,11 @@ export default function ConversationScreen() {
   const markingReadIdsRef = useRef<Set<string>>(new Set());
 
   const isAssistantChat = participantId === LOCO_ASSISTANT_USER_ID || id?.startsWith("bot-");
-  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  const recordingOptions = useMemo(() => ({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true }), []);
+  const [nativeMetering, setNativeMetering] = useState<number | undefined>(undefined);
+  const recorder = useAudioRecorder(recordingOptions, (status) => {
+    if (status.metering !== undefined) setNativeMetering(status.metering);
+  });
   const recorderState = useAudioRecorderState(recorder, 100);
 
   const allParticipantIds = useMemo(() => {
@@ -857,7 +861,7 @@ export default function ConversationScreen() {
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
+      await recorder.prepareToRecordAsync(recordingOptions);
       recorder.record();
       await haptics.light();
     } catch (error: any) {
@@ -1450,7 +1454,7 @@ export default function ConversationScreen() {
             style={{ minHeight: 44, paddingHorizontal: 16 }}
           >
             {recorderState.isRecording ? (
-              <LiveWaveform metering={recorderState.metering} isRecording={recorderState.isRecording} colors={colors} />
+              <LiveWaveform metering={recorderState.metering ?? nativeMetering} isRecording={recorderState.isRecording} colors={colors} />
             ) : voiceBusy || transcribeVoice.isPending ? (
               <>
                 <ActivityIndicator size="small" color={colors.primary} />
