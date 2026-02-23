@@ -864,9 +864,7 @@ export default function ConversationScreen() {
         Alert.alert("Permission required", "Allow microphone access to record voice.");
         return;
       }
-      if (Platform.OS === "ios") {
-        await setAudioModeAsync({ playsInSilentMode: true });
-      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
       await haptics.light();
