@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import type { BundleDraft, Client, Message as DbMessage, Order, User } from "../db";
 import * as db from "../db";
 import { getInviteEmailFailureUserMessage, sendInviteEmail } from "./email";
-import { invokeLLM, type LLMProvider, type Message, type Tool } from "./llm";
+import { invokeLLM, type ImageContent, type LLMProvider, type Message, type MessageContent, type TextContent, type Tool } from "./llm";
 import { logError } from "./logger";
 
 type AssistantActionStatus = "success" | "partial" | "preview" | "blocked" | "error";
@@ -179,15 +179,34 @@ function getDirectConversationId(userA: string, userB: string): string {
   return [userA, userB].sort().join("-");
 }
 
+function isImageMime(mime: string | null | undefined): boolean {
+  if (!mime) return false;
+  return mime.startsWith("image/");
+}
+
 function toHistoryMessages(conversationMessages: DbMessage[] | undefined, trainerId: string): Message[] {
   if (!conversationMessages?.length) return [];
   return conversationMessages
     .slice(-24)
-    .filter((message) => typeof message.content === "string" && message.content.trim().length > 0)
-    .map((message) => ({
-      role: message.senderId === trainerId ? ("user" as const) : ("assistant" as const),
-      content: message.content,
-    }));
+    .filter((message) => {
+      const hasText = typeof message.content === "string" && message.content.trim().length > 0;
+      const hasImage = message.messageType === "image" && !!message.attachmentUrl;
+      return hasText || hasImage;
+    })
+    .map((message) => {
+      const role = message.senderId === trainerId ? ("user" as const) : ("assistant" as const);
+      const hasImage = message.messageType === "image" && !!message.attachmentUrl && isImageMime(message.attachmentMimeType);
+      const text = (message.content || "").trim();
+
+      if (hasImage) {
+        const content: MessageContent[] = [];
+        if (text) content.push({ type: "text", text });
+        content.push({ type: "image_url", image_url: { url: message.attachmentUrl! } });
+        return { role, content };
+      }
+
+      return { role, content: text };
+    });
 }
 
 function resolveTrainerId(runtime: ToolRuntime, overrideTrainerId?: string | null): string {
@@ -527,11 +546,21 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
   const historyMessages = toHistoryMessages(input.conversationMessages, input.trainer.id);
   const trimmedPrompt = input.prompt.trim();
   const lastHistory = historyMessages[historyMessages.length - 1];
+  const lastHistoryText = (() => {
+    if (!lastHistory) return "";
+    if (typeof lastHistory.content === "string") return lastHistory.content.trim();
+    if (Array.isArray(lastHistory.content)) {
+      const textPart = lastHistory.content.find((p): p is TextContent => typeof p !== "string" && p.type === "text");
+      return textPart?.text?.trim() || "";
+    }
+    return "";
+  })();
+  const lastHistoryHasImage = Array.isArray(lastHistory?.content) &&
+    lastHistory.content.some((p): p is ImageContent => typeof p !== "string" && p.type === "image_url");
   const promptAlreadyInHistory =
     Boolean(lastHistory) &&
     lastHistory.role === "user" &&
-    typeof lastHistory.content === "string" &&
-    String(lastHistory.content).trim() === trimmedPrompt;
+    (lastHistoryText === trimmedPrompt || (lastHistoryHasImage && !trimmedPrompt));
 
   const messages: Message[] = [
     {
@@ -565,6 +594,8 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
         "- recommend_bundles_from_chats: Score and match clients to bundles based on chat context.",
         "- invite_clients_to_bundle: Send invitation emails. ALWAYS preview first (confirm=false), execute only after confirmation.",
         "- build_client_value_report: Generate engagement vs revenue data per client for analytics/graphs.",
+        "",
+        "VISION: You can see images that users send. Describe what you see, answer questions about images, and use visual context to help with tasks.",
         "",
         "WORKFLOW GUIDELINES:",
         "1. For broad questions ('how are things going?', 'give me an overview'), start with get_context_snapshot.",
