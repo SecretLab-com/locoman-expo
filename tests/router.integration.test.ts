@@ -1,7 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LOCO_ASSISTANT_NAME } from "../shared/const";
 import { appRouter } from "../server/routers";
 import type { TrpcContext } from "../server/_core/context";
+import * as trainerAssistant from "../server/_core/trainerAssistant";
 import type { User } from "../server/db";
 import * as db from "../server/db";
 
@@ -390,5 +392,77 @@ describe("router integration", () => {
       status: "submitted",
       submittedBy: "00000000-0000-0000-0000-000000000001",
     }));
+  });
+
+  it("maps assistant conversations even when participant profile is missing", async () => {
+    const caller = createCaller("trainer");
+
+    vi.spyOn(db, "getConversationSummaries").mockResolvedValue([
+      {
+        conversationId: "bot-00000000-0000-0000-0000-000000000001",
+        participants: [],
+        unreadCount: 0,
+        lastMessage: {
+          id: "msg-1",
+          content: "Ready when you are.",
+          senderId: "00000000-0000-0000-0000-000000000000",
+          createdAt: "2026-02-10T10:00:00.000Z",
+        },
+      },
+    ] as any);
+
+    const rows = await caller.messages.conversations();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      otherUserName: LOCO_ASSISTANT_NAME,
+      otherUserRole: "assistant",
+      isGroup: false,
+    });
+  });
+
+  it("routes ai.trainerAssistant requests through the assistant core", async () => {
+    const caller = createCaller("trainer");
+
+    const historyRows = [
+      {
+        id: "msg-1",
+        senderId: "00000000-0000-0000-0000-000000000001",
+        receiverId: "00000000-0000-0000-0000-000000000000",
+        conversationId: "bot-00000000-0000-0000-0000-000000000001",
+        content: "Who should I invite?",
+        createdAt: "2026-02-20T10:00:00.000Z",
+      },
+    ];
+    vi.spyOn(db, "isConversationParticipant").mockResolvedValue(true);
+    vi.spyOn(db, "getMessagesByConversation").mockResolvedValue(historyRows as any);
+    const assistantSpy = vi
+      .spyOn(trainerAssistant, "runTrainerAssistant")
+      .mockResolvedValue({
+        reply: "Invite Jane to Strength Sprint.",
+        provider: "claude",
+        model: "claude-3-7-sonnet-latest",
+        usedTools: ["recommend_bundles_from_chats"],
+        actions: [],
+        graphData: [],
+      });
+
+    const result = await caller.ai.trainerAssistant({
+      message: "Who should I invite?",
+      provider: "claude",
+      conversationId: "bot-00000000-0000-0000-0000-000000000001",
+      allowMutations: false,
+    });
+
+    expect(assistantSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trainer: expect.objectContaining({ role: "trainer" }),
+        prompt: "Who should I invite?",
+        provider: "claude",
+        allowMutations: false,
+        conversationMessages: historyRows,
+      }),
+    );
+    expect(result.reply).toBe("Invite Jane to Strength Sprint.");
   });
 });

@@ -1,14 +1,16 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { COOKIE_NAME } from "../shared/const.js";
+import { COOKIE_NAME, LOCO_ASSISTANT_NAME, LOCO_ASSISTANT_USER_ID } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { getInviteEmailFailureUserMessage, sendInviteEmail } from "./_core/email";
 import { logError } from "./_core/logger";
 import { generateImage } from "./_core/imageGeneration";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
+import { runTrainerAssistant } from "./_core/trainerAssistant";
+import { transcribeAudio } from "./_core/voiceTranscription";
 import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
-import { isUserOnline, notifyBadgeCounts, notifyNewMessage } from "./_core/websocket";
+import { isUserOnline, notifyBadgeCounts, notifyNewMessage, sendToUser } from "./_core/websocket";
 import * as adyen from "./adyen";
 import * as db from "./db";
 import {
@@ -22,26 +24,7 @@ import * as googleCalendar from "./google-calendar";
 import * as shopify from "./shopify";
 import { storagePut } from "./storage";
 
-const SERVER_USER_ID = "00000000-0000-0000-0000-000000000000";
-
-const BOT_REPLIES = [
-  "Thanks for your message! How can I help you today?",
-  "That's a great question! Let me think about it...",
-  "I appreciate you reaching out. Is there anything specific you need?",
-  "Got it! I'll make a note of that.",
-  "Sounds good! Anything else I can help with?",
-  "Interesting! Tell me more about that.",
-  "I'm here to help. What would you like to know?",
-  "Thanks for the update! I'll keep that in mind.",
-];
-
-function getBotReply(userMessage: string): string {
-  if (/hello|hi|hey/i.test(userMessage)) return "Hey there! How can I help you today?";
-  if (/bye|goodbye|later/i.test(userMessage)) return "Goodbye! Chat again anytime.";
-  if (/help/i.test(userMessage)) return "I'm the test bot. Send me any message and I'll reply to help you test the messaging system!";
-  if (/thanks|thank you/i.test(userMessage)) return "You're welcome! Let me know if you need anything else.";
-  return BOT_REPLIES[Math.floor(Math.random() * BOT_REPLIES.length)];
-}
+const SERVER_USER_ID = LOCO_ASSISTANT_USER_ID;
 
 function toMessagePushBody(content: string, messageType: "text" | "image" | "file" = "text"): string {
   const trimmed = content.trim();
@@ -55,6 +38,20 @@ function toMessagePushBody(content: string, messageType: "text" | "image" | "fil
 
 function isManagerLikeRole(role: string): boolean {
   return role === "manager" || role === "coordinator";
+}
+
+function toAbsoluteRequestUrl(req: { protocol?: string; get?: (name: string) => string | undefined; headers?: Record<string, unknown> }, value: string): string {
+  if (/^https?:\/\//i.test(value)) return value;
+  if (!value.startsWith("/")) return value;
+
+  const forwardedProtoRaw = String(req.headers?.["x-forwarded-proto"] || "");
+  const forwardedProto = forwardedProtoRaw.split(",")[0]?.trim();
+  const protocol = forwardedProto || req.protocol || "https";
+  const host = req.get?.("host") || String(req.headers?.host || "");
+  if (!host) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot resolve absolute URL for transcription" });
+  }
+  return `${protocol}://${host}${value}`;
 }
 
 async function notifyInviteFailureByMessage(user: { id: string; name?: string | null }, email: string, errorMessage: string) {
@@ -91,6 +88,133 @@ async function notifyInviteFailureByMessage(user: { id: string; name?: string | 
   } catch (notifyError) {
     console.error("[Invite] Failed to send server failure message", notifyError);
   }
+}
+
+function queueTrainerAssistantReply(params: {
+  user: db.User;
+  conversationId: string;
+  prompt: string;
+}) {
+  const { user, conversationId, prompt } = params;
+  const userId = user.id;
+
+  setTimeout(async () => {
+    const startTyping = () => {
+      sendToUser(userId, {
+        type: "typing_start",
+        conversationId,
+        userId: LOCO_ASSISTANT_USER_ID,
+        userName: LOCO_ASSISTANT_NAME,
+      });
+    };
+    const stopTyping = () => {
+      sendToUser(userId, {
+        type: "typing_stop",
+        conversationId,
+        userId: LOCO_ASSISTANT_USER_ID,
+      });
+    };
+
+    startTyping();
+    const keepAlive = setInterval(startTyping, 2500);
+
+    try {
+      if (!["trainer", "manager", "coordinator"].includes(user.role)) {
+        const unsupportedMessage =
+          "I can automate trainer workflows right now. Switch to a trainer account to use invite and analytics tools.";
+        const botMsgId = await db.createMessage({
+          senderId: LOCO_ASSISTANT_USER_ID,
+          receiverId: userId,
+          conversationId,
+          content: unsupportedMessage,
+          messageType: "system",
+        });
+        notifyNewMessage(conversationId, {
+          id: botMsgId,
+          senderId: LOCO_ASSISTANT_USER_ID,
+          senderName: LOCO_ASSISTANT_NAME,
+          receiverId: userId,
+          content: unsupportedMessage,
+          conversationId,
+        }, [userId]);
+        notifyBadgeCounts([userId]);
+        return;
+      }
+
+      const history = await db.getMessagesByConversation(conversationId);
+      const assistant = await runTrainerAssistant({
+        trainer: user,
+        prompt,
+        allowMutations: true,
+        conversationMessages: history,
+      });
+
+      const assistantContent = assistant.reply.trim() || "I’m ready to help with trainer workflows.";
+      const botMsgId = await db.createMessage({
+        senderId: LOCO_ASSISTANT_USER_ID,
+        receiverId: userId,
+        conversationId,
+        content: assistantContent,
+        messageType: "system",
+      });
+
+      notifyNewMessage(conversationId, {
+        id: botMsgId,
+        senderId: LOCO_ASSISTANT_USER_ID,
+        senderName: LOCO_ASSISTANT_NAME,
+        receiverId: userId,
+        content: assistantContent,
+        conversationId,
+      }, [userId]);
+      notifyBadgeCounts([userId]);
+
+      if (!isUserOnline(userId)) {
+        await sendPushToUsers([userId], {
+          title: LOCO_ASSISTANT_NAME,
+          body: toMessagePushBody(assistantContent, "text"),
+          data: {
+            type: "message",
+            conversationId,
+            senderId: LOCO_ASSISTANT_USER_ID,
+            senderName: LOCO_ASSISTANT_NAME,
+          },
+        });
+      }
+    } catch (error) {
+      logError("assistant.reply_failed", error, {
+        userId,
+        conversationId,
+      });
+
+      const errorContent =
+        "Sorry, I wasn't able to process that request. " +
+        (error instanceof Error ? error.message : "An unexpected error occurred.") +
+        " Please try again.";
+      try {
+        const errorMsgId = await db.createMessage({
+          senderId: LOCO_ASSISTANT_USER_ID,
+          receiverId: userId,
+          conversationId,
+          content: errorContent,
+          messageType: "system",
+        });
+        notifyNewMessage(conversationId, {
+          id: errorMsgId,
+          senderId: LOCO_ASSISTANT_USER_ID,
+          senderName: LOCO_ASSISTANT_NAME,
+          receiverId: userId,
+          content: errorContent,
+          conversationId,
+        }, [userId]);
+        notifyBadgeCounts([userId]);
+      } catch (notifyError) {
+        logError("assistant.error_reply_failed", notifyError, { userId, conversationId });
+      }
+    } finally {
+      clearInterval(keepAlive);
+      stopTyping();
+    }
+  }, 200);
 }
 
 function notFound(resource: string): never {
@@ -2327,9 +2451,21 @@ export const appRouter = router({
     conversations: protectedProcedure.query(async ({ ctx }) => {
       const summaries = await db.getConversationSummaries(ctx.user.id);
       return summaries.map(s => {
-        const otherUser = s.participants[0];
-        const isGroup = s.conversationId.startsWith("group-") || s.participants.length > 1;
-        const participantNames = s.participants.map(p => p.name).filter(Boolean);
+        const isAssistantConversation = s.conversationId === `bot-${ctx.user.id}`;
+        const participants =
+          isAssistantConversation && s.participants.length === 0
+            ? [
+                {
+                  id: LOCO_ASSISTANT_USER_ID,
+                  name: LOCO_ASSISTANT_NAME,
+                  photoUrl: null,
+                  role: "assistant",
+                },
+              ]
+            : s.participants;
+        const otherUser = participants[0];
+        const isGroup = !isAssistantConversation && (s.conversationId.startsWith("group-") || participants.length > 1);
+        const participantNames = participants.map(p => p.name).filter(Boolean);
         return {
           id: s.conversationId,
           conversationId: s.conversationId,
@@ -2382,6 +2518,8 @@ export const appRouter = router({
           content: input.content,
         });
 
+        const isAssistantReceiver = input.receiverId === LOCO_ASSISTANT_USER_ID;
+
         notifyNewMessage(conversationId, {
           id: messageId,
           senderId: ctx.user.id,
@@ -2389,7 +2527,17 @@ export const appRouter = router({
           receiverId: input.receiverId,
           content: input.content,
           conversationId,
-        }, [input.receiverId, ctx.user.id], ctx.user.id);
+        }, isAssistantReceiver ? [ctx.user.id] : [input.receiverId, ctx.user.id], ctx.user.id);
+
+        if (isAssistantReceiver) {
+          queueTrainerAssistantReply({
+            user: ctx.user,
+            conversationId,
+            prompt: input.content,
+          });
+          return messageId;
+        }
+
         notifyBadgeCounts([input.receiverId]);
         if (!isUserOnline(input.receiverId)) {
           await sendPushToUsers([input.receiverId], {
@@ -2560,6 +2708,8 @@ export const appRouter = router({
           attachmentMimeType: input.attachmentMimeType,
         });
 
+        const isAssistantReceiver = input.receiverId === LOCO_ASSISTANT_USER_ID;
+
         notifyNewMessage(conversationId, {
           id: messageId,
           senderId: ctx.user.id,
@@ -2567,7 +2717,17 @@ export const appRouter = router({
           receiverId: input.receiverId,
           content: input.content,
           conversationId,
-        }, [input.receiverId, ctx.user.id], ctx.user.id);
+        }, isAssistantReceiver ? [ctx.user.id] : [input.receiverId, ctx.user.id], ctx.user.id);
+
+        if (isAssistantReceiver) {
+          queueTrainerAssistantReply({
+            user: ctx.user,
+            conversationId,
+            prompt: input.content,
+          });
+          return messageId;
+        }
+
         notifyBadgeCounts([input.receiverId]);
         if (!isUserOnline(input.receiverId)) {
           await sendPushToUsers([input.receiverId], {
@@ -2762,19 +2922,18 @@ export const appRouter = router({
         return { url, key };
       }),
 
-    // Send a message to the test bot — bot replies after 1s
+    // Send a message to Loco Assistant
     sendToBot: protectedProcedure
       .input(z.object({
         content: z.string().min(1),
       }))
       .mutation(async ({ ctx, input }) => {
-        const BOT_USER_ID = "00000000-0000-0000-0000-000000000000"; // System bot
         const conversationId = `bot-${ctx.user.id}`;
 
         // Save user's message
         const userMsgId = await db.createMessage({
           senderId: ctx.user.id,
-          receiverId: BOT_USER_ID,
+          receiverId: LOCO_ASSISTANT_USER_ID,
           conversationId,
           content: input.content,
         });
@@ -2783,46 +2942,16 @@ export const appRouter = router({
           id: userMsgId,
           senderId: ctx.user.id,
           senderName: ctx.user.name ?? "You",
-          receiverId: BOT_USER_ID,
+          receiverId: LOCO_ASSISTANT_USER_ID,
           content: input.content,
           conversationId,
         }, [ctx.user.id]);
 
-        // Bot replies after 1 second
-        const userId = ctx.user.id;
-        setTimeout(async () => {
-          try {
-            const botReply = getBotReply(input.content);
-            const botMsgId = await db.createMessage({
-              senderId: BOT_USER_ID,
-              receiverId: userId,
-              conversationId,
-              content: botReply,
-            });
-
-            notifyNewMessage(conversationId, {
-              id: botMsgId,
-              senderId: BOT_USER_ID,
-              senderName: "Loco Assistant",
-              receiverId: userId,
-              content: botReply,
-              conversationId,
-            }, [userId]);
-            notifyBadgeCounts([userId]);
-            await sendPushToUsers([userId], {
-              title: "Loco Assistant",
-              body: toMessagePushBody(botReply, "text"),
-              data: {
-                type: "message",
-                conversationId,
-                senderId: BOT_USER_ID,
-                senderName: "Loco Assistant",
-              },
-            });
-          } catch (err) {
-            console.error("[Bot] Failed to reply:", err);
-          }
-        }, 1000);
+        queueTrainerAssistantReply({
+          user: ctx.user,
+          conversationId,
+          prompt: input.content,
+        });
 
         return { conversationId, messageId: userMsgId };
       }),
@@ -4093,6 +4222,32 @@ export const appRouter = router({
   // AI (Image generation and LLM features)
   // ============================================================================
   ai: router({
+    trainerAssistant: trainerProcedure
+      .input(z.object({
+        message: z.string().min(1).max(4000),
+        provider: z.enum(["auto", "chatgpt", "claude", "gemini"]).optional(),
+        allowMutations: z.boolean().optional(),
+        conversationId: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        let conversationMessages: db.Message[] | undefined;
+        if (input.conversationId) {
+          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
+            forbidden("You do not have access to this conversation");
+          }
+          conversationMessages = await db.getMessagesByConversation(input.conversationId);
+        }
+
+        return runTrainerAssistant({
+          trainer: ctx.user,
+          prompt: input.message,
+          provider: input.provider || "auto",
+          allowMutations: input.allowMutations !== false,
+          conversationMessages,
+        });
+      }),
+
     generateImage: protectedProcedure
       .input(z.object({
         prompt: z.string().min(1).max(1000),
@@ -4126,6 +4281,43 @@ export const appRouter = router({
 
         const result = await generateImage({ prompt });
         return { url: result.url };
+      }),
+  }),
+
+  // ============================================================================
+  // VOICE (Speech-to-text)
+  // ============================================================================
+  voice: router({
+    transcribe: protectedProcedure
+      .input(z.object({
+        audioUrl: z.string().min(1).max(2048),
+        language: z.string().min(2).max(16).optional(),
+        prompt: z.string().min(1).max(500).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const audioUrl = toAbsoluteRequestUrl(ctx.req, input.audioUrl.trim());
+        const result = await transcribeAudio({
+          audioUrl,
+          language: input.language?.trim(),
+          prompt: input.prompt?.trim(),
+        });
+
+        if ("error" in result) {
+          const code =
+            result.code === "FILE_TOO_LARGE"
+              ? "PAYLOAD_TOO_LARGE"
+              : result.code === "INVALID_FORMAT" || result.code === "TRANSCRIPTION_FAILED"
+                ? "BAD_REQUEST"
+                : "INTERNAL_SERVER_ERROR";
+
+          throw new TRPCError({
+            code,
+            message: result.error,
+            cause: result.details || result.code,
+          });
+        }
+
+        return result;
       }),
   }),
 

@@ -24,7 +24,10 @@ export default function TrainerTabLayout() {
     { label: "Rewards", icon: "star.fill", href: "/(trainer)/rewards", testID: "tab-rewards" },
     { label: "More", icon: "ellipsis.circle.fill", href: "/(trainer)/more", testID: "tab-more", badge: moreBadge || undefined },
   ];
-  const hideBottomNav = pathname.includes("/conversation/") || pathname.endsWith("/messages/new");
+  const hideBottomNav =
+    pathname.includes("/conversation/") ||
+    pathname.endsWith("/messages/new") ||
+    pathname.endsWith("/assistant");
 
   return (
     <View className="flex-1 bg-background">

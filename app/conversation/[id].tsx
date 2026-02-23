@@ -6,6 +6,13 @@ import { haptics } from "@/hooks/use-haptics";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
+import { LOCO_ASSISTANT_USER_ID } from "@/shared/const";
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
@@ -157,7 +164,7 @@ function EmojiPicker({
       onRequestClose={onClose}
     >
       <Pressable
-        className="flex-1 justify-center items-center bg-black/50"
+        style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.85)" }}
         onPress={onClose}
       >
         <View className="bg-surface rounded-2xl p-4 mx-4">
@@ -206,13 +213,13 @@ function AttachmentPicker({
       onRequestClose={onClose}
     >
       <Pressable
-        className="flex-1 justify-end bg-black/50"
+        style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}
         onPress={onClose}
       >
         <SwipeDownSheet
           visible={visible}
           onClose={onClose}
-          className="bg-surface rounded-t-2xl p-4 pb-8"
+          style={{ backgroundColor: colors.surface, padding: 16, paddingBottom: 32, borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
         >
           <Text className="text-foreground font-semibold text-lg mb-4">
             Send Attachment
@@ -270,7 +277,7 @@ function MessageActionsModal({
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 justify-end bg-black/50" onPress={onClose}>
+      <Pressable style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }} onPress={onClose}>
         <Pressable className="bg-surface rounded-t-2xl p-4 border-t border-border">
           <TouchableOpacity
             className="rounded-xl bg-background border border-border px-4 py-3 mb-2"
@@ -523,9 +530,14 @@ export default function ConversationScreen() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [typingUserName, setTypingUserName] = useState<string | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markingReadIdsRef = useRef<Set<string>>(new Set());
+
+  const isAssistantChat = participantId === LOCO_ASSISTANT_USER_ID || id?.startsWith("bot-");
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 250);
 
   const utils = trpc.useUtils();
 
@@ -617,6 +629,75 @@ export default function ConversationScreen() {
       Alert.alert("Upload failed", error?.message || "Unable to upload attachment.");
     },
   });
+  const transcribeVoice = trpc.voice.transcribe.useMutation();
+
+  const handleVoicePress = async () => {
+    if (voiceBusy) return;
+
+    if (recorderState.isRecording) {
+      setVoiceBusy(true);
+      try {
+        await recorder.stop();
+        const status = recorder.getStatus();
+        const audioUri = status.url || recorder.uri || recorderState.url;
+        if (!audioUri) throw new Error("No recording file was produced.");
+
+        const fileInfo = await FileSystem.getInfoAsync(audioUri);
+        if (!fileInfo.exists) throw new Error("Recorded file does not exist.");
+
+        const base64 = await FileSystem.readAsStringAsync(audioUri, { encoding: "base64" });
+        if (!base64) throw new Error("Recorded file could not be read.");
+
+        const ext = (audioUri.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1] || "m4a").toLowerCase();
+        const mimeMap: Record<string, string> = { webm: "audio/webm", wav: "audio/wav", ogg: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4", mp4: "audio/mp4", caf: "audio/x-caf" };
+        const mimeType = mimeMap[ext] || "audio/mp4";
+
+        const upload = await uploadAttachment.mutateAsync({
+          fileName: `voice-${Date.now()}.${ext}`,
+          fileData: base64,
+          mimeType,
+        });
+
+        const transcript = await transcribeVoice.mutateAsync({ audioUrl: upload.url });
+        const text = transcript.text?.trim();
+        if (!text) {
+          Alert.alert("No speech detected", "Try recording again with clearer audio.");
+          return;
+        }
+
+        const ids = participantIds
+          ? participantIds.split(",").map((v) => v.trim()).filter(Boolean)
+          : participantId ? [participantId] : [];
+        if (ids.length === 1) {
+          sendMessage.mutate({ receiverId: ids[0], content: text, conversationId: id });
+        } else if (ids.length > 1) {
+          sendGroupMessage.mutate({ receiverIds: ids, content: text, conversationId: id });
+        }
+        await haptics.light();
+      } catch (error: any) {
+        Alert.alert("Voice failed", error?.message || "Unable to process recording.");
+      } finally {
+        setVoiceBusy(false);
+      }
+      return;
+    }
+
+    setVoiceBusy(true);
+    try {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission required", "Allow microphone access to record voice.");
+        return;
+      }
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      await haptics.light();
+    } catch (error: any) {
+      Alert.alert("Recording failed", error?.message || "Could not start recording.");
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
 
   // Add reaction mutation
   const addReaction = trpc.messages.addReaction.useMutation({
@@ -1170,6 +1251,24 @@ export default function ConversationScreen() {
             </View>
           ) : null}
 
+          {isAssistantChat && (recorderState.isRecording || voiceBusy || transcribeVoice.isPending) ? (
+            <View className="flex-row items-center mb-2 px-1">
+              {recorderState.isRecording ? (
+                <>
+                  <View className="w-2.5 h-2.5 rounded-full bg-error mr-2" />
+                  <Text className="text-xs text-muted">
+                    Recording... tap mic to stop & send
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text className="text-xs text-muted ml-2">Transcribing voice...</Text>
+                </>
+              )}
+            </View>
+          ) : null}
+
           {/* Attachment button */}
           <TouchableOpacity
             className="w-10 h-10 rounded-full items-center justify-center mr-2"
@@ -1218,6 +1317,30 @@ export default function ConversationScreen() {
               }}
             />
           </View>
+
+          {isAssistantChat && (
+            <TouchableOpacity
+              className={`w-11 h-11 rounded-full items-center justify-center mr-2 ${
+                recorderState.isRecording ? "bg-error" : "bg-primary/10"
+              }`}
+              onPress={handleVoicePress}
+              disabled={voiceBusy || uploadAttachment.isPending || transcribeVoice.isPending}
+              accessibilityRole="button"
+              accessibilityLabel={recorderState.isRecording ? "Stop recording and send" : "Record voice message"}
+              testID="conversation-voice-btn"
+            >
+              {voiceBusy || uploadAttachment.isPending || transcribeVoice.isPending ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <IconSymbol
+                  name={recorderState.isRecording ? "stop.fill" : "mic"}
+                  size={20}
+                  color={recorderState.isRecording ? "#fff" : colors.primary}
+                />
+              )}
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             className={`w-11 h-11 rounded-full items-center justify-center ${messageText.trim() ? "bg-primary" : "bg-surface border border-border"
               }`}

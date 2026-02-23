@@ -1,6 +1,7 @@
 import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LOCO_ASSISTANT_NAME, LOCO_ASSISTANT_USER_ID } from "@/shared/const";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
@@ -274,6 +275,23 @@ export default function MessagesScreen() {
     router.push(`${roleBase}/messages/new` as any);
   };
 
+  const handleAssistantChat = async () => {
+    if (!user?.id) return;
+    await haptics.light();
+    if (effectiveRole === "trainer") {
+      router.push("/(trainer)/assistant" as any);
+      return;
+    }
+    router.push({
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
+      params: {
+        id: `bot-${user.id}`,
+        participantId: LOCO_ASSISTANT_USER_ID,
+        name: LOCO_ASSISTANT_NAME,
+      },
+    });
+  };
+
   if (!isAuthenticated) {
     return (
       <ScreenContainer className="items-center justify-center px-6">
@@ -349,6 +367,18 @@ export default function MessagesScreen() {
             {isTrainer ? "Chat with your clients" : "Chat with your trainers"}
           </Text>
         </View>
+        {isTrainer && (
+          <TouchableOpacity
+            onPress={handleAssistantChat}
+            className="px-3 py-2 rounded-full bg-primary/10 border border-primary/20 flex-row items-center"
+            accessibilityRole="button"
+            accessibilityLabel="Open Loco Assistant chat"
+            testID="messages-open-assistant"
+          >
+            <IconSymbol name="sparkles" size={14} color={colors.primary} />
+            <Text className="text-xs font-semibold text-primary ml-1.5">Assistant</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View className="flex-1">

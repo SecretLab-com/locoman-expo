@@ -81,6 +81,12 @@ export default function TrainerMoreScreen() {
       badge: counts.unreadMessages,
     },
     {
+      icon: "sparkles",
+      title: "AI Assistant",
+      subtitle: "Chat, automate tasks, and use voice instructions",
+      href: "/(trainer)/assistant",
+    },
+    {
       icon: "bell.fill",
       title: "Alerts",
       subtitle: "Orders, deliveries, and activity",
