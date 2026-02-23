@@ -125,6 +125,43 @@ function TypingIndicator({ name, colors }: { name: string; colors: any }) {
   );
 }
 
+function WaveformBars({ colors }: { colors: any }) {
+  const bars = Array.from({ length: 24 }, (_, i) => {
+    const bar = useSharedValue(3);
+    useEffect(() => {
+      const minH = 3 + Math.random() * 4;
+      const maxH = 10 + Math.random() * 14;
+      bar.value = withDelay(
+        i * 40,
+        withRepeat(
+          withSequence(
+            withTiming(maxH, { duration: 300 + Math.random() * 200 }),
+            withTiming(minH, { duration: 300 + Math.random() * 200 }),
+          ),
+          -1,
+          true,
+        ),
+      );
+    }, []);
+    return bar;
+  });
+
+  return (
+    <View className="flex-row items-center gap-[2px]">
+      {bars.map((bar, i) => {
+        const style = useAnimatedStyle(() => ({
+          height: bar.value,
+          width: 2.5,
+          borderRadius: 1.5,
+          backgroundColor: colors.primary,
+          opacity: 0.7,
+        }));
+        return <Animated.View key={i} style={style} />;
+      })}
+    </View>
+  );
+}
+
 // Read receipt component (double checkmarks)
 function ReadReceipt({ isRead, colors }: { isRead: boolean; colors: any }) {
   return (
@@ -1251,115 +1288,126 @@ export default function ConversationScreen() {
             </View>
           ) : null}
 
-          {isAssistantChat && (recorderState.isRecording || voiceBusy || transcribeVoice.isPending) ? (
-            <View className="flex-row items-center mb-2 px-1">
-              {recorderState.isRecording ? (
-                <>
-                  <View className="w-2.5 h-2.5 rounded-full bg-error mr-2" />
-                  <Text className="text-xs text-muted">
-                    Recording... tap mic to stop & send
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text className="text-xs text-muted ml-2">Transcribing voice...</Text>
-                </>
-              )}
-            </View>
-          ) : null}
+          {recorderState.isRecording ? (
+            <>
+              <TouchableOpacity
+                className="w-10 h-10 rounded-full items-center justify-center mr-2 bg-surface border border-border"
+                onPress={() => { recorder.stop(); setVoiceBusy(false); }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel recording"
+                testID="conversation-voice-cancel"
+              >
+                <IconSymbol name="xmark" size={16} color={colors.muted} />
+              </TouchableOpacity>
 
-          {/* Attachment button */}
-          <TouchableOpacity
-            className="w-10 h-10 rounded-full items-center justify-center mr-2"
-            onPress={() => setShowAttachmentPicker(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Open attachment options"
-            testID="conversation-open-attachments"
-          >
-            <IconSymbol name="plus.circle.fill" size={28} color={colors.primary} />
-          </TouchableOpacity>
+              <View className="flex-1 flex-row items-center bg-background rounded-2xl border border-border px-4 py-3 mr-2">
+                <WaveformBars colors={colors} />
+                <Text className="text-sm text-muted ml-2">Listening</Text>
+              </View>
 
-          <View className="flex-1 flex-row items-end bg-background rounded-2xl border border-border px-4 py-2 mr-3">
-            <TextInput
-              className="flex-1 text-foreground text-base max-h-24 py-1"
-              placeholder="Type a message..."
-              placeholderTextColor={colors.muted}
-              selectionColor={colors.muted}
-              style={
-                Platform.OS === "web"
-                  ? ({
-                    outlineWidth: 0,
-                    outlineStyle: "solid",
-                    outlineColor: "transparent",
-                    boxShadow: "none",
-                    WebkitBoxShadow: "none",
-                    borderWidth: 0,
-                    WebkitTapHighlightColor: "transparent",
-                  } as any)
-                  : undefined
-              }
-              value={messageText}
-              onChangeText={handleTextChange}
-              multiline
-              returnKeyType="default"
-              blurOnSubmit={false}
-              onKeyPress={(e) => {
-                if (e.nativeEvent.key === "Enter" && !(e as any).shiftKey) {
-                  e.preventDefault?.();
-                  handleSend();
-                }
-              }}
-              onSubmitEditing={() => {
-                if (Platform.OS !== "web") {
-                  handleSend();
-                }
-              }}
-            />
-          </View>
-
-          {isAssistantChat && (
-            <TouchableOpacity
-              className={`w-11 h-11 rounded-full items-center justify-center mr-2 ${
-                recorderState.isRecording ? "bg-error" : "bg-primary/10"
-              }`}
-              onPress={handleVoicePress}
-              disabled={voiceBusy || uploadAttachment.isPending || transcribeVoice.isPending}
-              accessibilityRole="button"
-              accessibilityLabel={recorderState.isRecording ? "Stop recording and send" : "Record voice message"}
-              testID="conversation-voice-btn"
-            >
-              {voiceBusy || uploadAttachment.isPending || transcribeVoice.isPending ? (
+              <TouchableOpacity
+                className="w-11 h-11 rounded-full items-center justify-center bg-primary"
+                onPress={handleVoicePress}
+                accessibilityRole="button"
+                accessibilityLabel="Stop recording and send"
+                testID="conversation-voice-stop"
+              >
+                <IconSymbol name="arrow.up" size={18} color="#fff" />
+              </TouchableOpacity>
+            </>
+          ) : voiceBusy || transcribeVoice.isPending ? (
+            <>
+              <View className="flex-1 flex-row items-center bg-background rounded-2xl border border-border px-4 py-3 mr-2">
                 <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <IconSymbol
-                  name={recorderState.isRecording ? "stop.fill" : "mic"}
-                  size={20}
-                  color={recorderState.isRecording ? "#fff" : colors.primary}
-                />
-              )}
-            </TouchableOpacity>
-          )}
+                <Text className="text-sm text-muted ml-2">Transcribing...</Text>
+              </View>
+              <View className="w-11 h-11 rounded-full items-center justify-center bg-surface border border-border">
+                <ActivityIndicator size="small" color={colors.muted} />
+              </View>
+            </>
+          ) : (
+            <>
+              {/* Attachment button */}
+              <TouchableOpacity
+                className="w-10 h-10 rounded-full items-center justify-center mr-2"
+                onPress={() => setShowAttachmentPicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Open attachment options"
+                testID="conversation-open-attachments"
+              >
+                <IconSymbol name="plus.circle.fill" size={28} color={colors.primary} />
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            className={`w-11 h-11 rounded-full items-center justify-center ${messageText.trim() ? "bg-primary" : "bg-surface border border-border"
-              }`}
-            onPress={handleSend}
-            disabled={!messageText.trim() || sendMessage.isPending || editMessage.isPending}
-            accessibilityRole="button"
-            accessibilityLabel={editingMessageId ? "Save edited message" : "Send message"}
-            testID="send-message-btn"
-          >
-            {sendMessage.isPending || editMessage.isPending ? (
-              <ActivityIndicator size="small" color={messageText.trim() ? "#fff" : colors.muted} />
-            ) : (
-              <IconSymbol
-                name="paperplane.fill"
-                size={20}
-                color={messageText.trim() ? "#fff" : colors.muted}
-              />
-            )}
-          </TouchableOpacity>
+              <View className="flex-1 flex-row items-end bg-background rounded-2xl border border-border px-4 py-2 mr-2">
+                <TextInput
+                  className="flex-1 text-foreground text-base max-h-24 py-1"
+                  placeholder="Type a message..."
+                  placeholderTextColor={colors.muted}
+                  selectionColor={colors.muted}
+                  style={
+                    Platform.OS === "web"
+                      ? ({
+                        outlineWidth: 0,
+                        outlineStyle: "solid",
+                        outlineColor: "transparent",
+                        boxShadow: "none",
+                        WebkitBoxShadow: "none",
+                        borderWidth: 0,
+                        WebkitTapHighlightColor: "transparent",
+                      } as any)
+                      : undefined
+                  }
+                  value={messageText}
+                  onChangeText={handleTextChange}
+                  multiline
+                  returnKeyType="default"
+                  blurOnSubmit={false}
+                  onKeyPress={(e) => {
+                    if (e.nativeEvent.key === "Enter" && !(e as any).shiftKey) {
+                      e.preventDefault?.();
+                      handleSend();
+                    }
+                  }}
+                  onSubmitEditing={() => {
+                    if (Platform.OS !== "web") {
+                      handleSend();
+                    }
+                  }}
+                />
+              </View>
+
+              {isAssistantChat && !messageText.trim() ? (
+                <TouchableOpacity
+                  className="w-11 h-11 rounded-full items-center justify-center bg-primary/10"
+                  onPress={handleVoicePress}
+                  accessibilityRole="button"
+                  accessibilityLabel="Record voice message"
+                  testID="conversation-voice-btn"
+                >
+                  <IconSymbol name="mic" size={20} color={colors.primary} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  className={`w-11 h-11 rounded-full items-center justify-center ${messageText.trim() ? "bg-primary" : "bg-surface border border-border"}`}
+                  onPress={handleSend}
+                  disabled={!messageText.trim() || sendMessage.isPending || editMessage.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel={editingMessageId ? "Save edited message" : "Send message"}
+                  testID="send-message-btn"
+                >
+                  {sendMessage.isPending || editMessage.isPending ? (
+                    <ActivityIndicator size="small" color={messageText.trim() ? "#fff" : colors.muted} />
+                  ) : (
+                    <IconSymbol
+                      name="paperplane.fill"
+                      size={20}
+                      color={messageText.trim() ? "#fff" : colors.muted}
+                    />
+                  )}
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
       </KeyboardAvoidingView>
 
