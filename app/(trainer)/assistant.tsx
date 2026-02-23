@@ -11,6 +11,7 @@ import { Stack } from "expo-router";
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
+  setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
@@ -325,6 +326,9 @@ export default function TrainerAssistantScreen() {
       if (!permission.granted) {
         Alert.alert("Permission required", "Allow microphone access to record voice instructions.");
         return;
+      }
+      if (Platform.OS === "ios") {
+        await setAudioModeAsync({ playsInSilentMode: true });
       }
       await recorder.prepareToRecordAsync();
       recorder.record();
