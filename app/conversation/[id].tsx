@@ -126,13 +126,13 @@ function TypingIndicator({ name, colors }: { name: string; colors: any }) {
 }
 
 const WAVEFORM_BAR_COUNT = 48;
-const WAVEFORM_MIN_H = 3;
-const WAVEFORM_MAX_H = 24;
+const WAVEFORM_MIN_H = 2;
+const WAVEFORM_MAX_H = 34;
 
 function meterToHeight(metering: number | undefined): number {
   if (metering === undefined || metering === null) return WAVEFORM_MIN_H;
-  const clamped = Math.max(-60, Math.min(0, metering));
-  const normalized = (clamped + 60) / 60;
+  const clamped = Math.max(-50, Math.min(0, metering));
+  const normalized = Math.pow((clamped + 50) / 50, 0.7);
   return WAVEFORM_MIN_H + normalized * (WAVEFORM_MAX_H - WAVEFORM_MIN_H);
 }
 
