@@ -17,7 +17,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -576,6 +576,16 @@ export default function ConversationScreen() {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 250);
 
+  const allParticipantIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (user?.id) ids.add(user.id);
+    if (participantId) ids.add(participantId);
+    if (participantIds) {
+      participantIds.split(",").map((v) => v.trim()).filter(Boolean).forEach((v) => ids.add(v));
+    }
+    return Array.from(ids);
+  }, [user?.id, participantId, participantIds]);
+
   const utils = trpc.useUtils();
 
   const { connect, disconnect, subscribe, sendTypingStart, sendTypingStop } = useWebSocket();
@@ -591,6 +601,38 @@ export default function ConversationScreen() {
       enabled: !!id,
     }
   );
+
+  const [participantList, setParticipantList] = useState<Array<{
+    id: string; name: string; photoUrl: string | null; role: string | null;
+  }>>([]);
+
+  useEffect(() => {
+    if (!allParticipantIds.length) return;
+    let cancelled = false;
+    Promise.all(
+      allParticipantIds.map(async (pid) => {
+        try {
+          const profile = await utils.catalog.trainerProfile.fetch({ id: pid });
+          return {
+            id: pid,
+            name: (profile as any)?.name || "Unknown",
+            photoUrl: (profile as any)?.photoUrl || null,
+            role: (profile as any)?.role || null,
+          };
+        } catch {
+          return {
+            id: pid,
+            name: pid === user?.id ? (user?.name || "You") : "Unknown",
+            photoUrl: null,
+            role: null,
+          };
+        }
+      }),
+    ).then((profiles) => {
+      if (!cancelled) setParticipantList(profiles);
+    });
+    return () => { cancelled = true; };
+  }, [allParticipantIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Real-time message updates via WebSocket
   useEffect(() => {
@@ -1477,18 +1519,40 @@ export default function ConversationScreen() {
               Conversation details
             </Text>
             <Text className="text-muted text-sm mb-4">
-              {name || "Conversation"}
+              {name || "Conversation"} · {groupParticipantCount > 1 ? "Group" : "Direct"} · {participantList.length} members
             </Text>
-            <View className="gap-2">
-              <Text className="text-foreground text-sm">
-                Conversation ID: {id || "Unavailable"}
-              </Text>
-              <Text className="text-foreground text-sm">
-                Type: {groupParticipantCount > 1 ? "Group chat" : "Direct chat"}
-              </Text>
-              <Text className="text-foreground text-sm">
-                Participants: {groupParticipantCount > 1 ? groupParticipantCount : 2}
-              </Text>
+
+            <Text className="text-muted text-xs font-semibold uppercase tracking-wider mb-2">
+              Members
+            </Text>
+            <View className="gap-1 mb-2">
+              {participantList.map((p) => (
+                <View key={p.id} className="flex-row items-center py-2">
+                  {p.photoUrl ? (
+                    <Image
+                      source={{ uri: p.photoUrl }}
+                      className="w-9 h-9 rounded-full mr-3"
+                    />
+                  ) : (
+                    <View
+                      className="w-9 h-9 rounded-full mr-3 items-center justify-center"
+                      style={{ backgroundColor: colors.primary + "20" }}
+                    >
+                      <Text className="text-primary font-semibold text-sm">
+                        {(p.name || "?").charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <View className="flex-1">
+                    <Text className="text-foreground text-sm font-medium">
+                      {p.name}{p.id === user?.id ? " (you)" : ""}
+                    </Text>
+                    {p.role ? (
+                      <Text className="text-muted text-xs capitalize">{p.role}</Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
             </View>
             <TouchableOpacity
               className="mt-4 rounded-xl bg-error/10 px-4 py-3 items-center"
