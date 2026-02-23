@@ -125,39 +125,41 @@ function TypingIndicator({ name, colors }: { name: string; colors: any }) {
   );
 }
 
-function WaveformBars({ colors }: { colors: any }) {
-  const bars = Array.from({ length: 24 }, (_, i) => {
-    const bar = useSharedValue(3);
-    useEffect(() => {
-      const minH = 3 + Math.random() * 4;
-      const maxH = 10 + Math.random() * 14;
-      bar.value = withDelay(
-        i * 40,
-        withRepeat(
-          withSequence(
-            withTiming(maxH, { duration: 300 + Math.random() * 200 }),
-            withTiming(minH, { duration: 300 + Math.random() * 200 }),
-          ),
-          -1,
-          true,
-        ),
-      );
-    }, []);
-    return bar;
-  });
+const WAVEFORM_BAR_COUNT = 40;
+const WAVEFORM_MIN_H = 3;
+const WAVEFORM_MAX_H = 28;
+
+function meterToHeight(metering: number | undefined): number {
+  if (metering === undefined || metering === null) return WAVEFORM_MIN_H;
+  const clamped = Math.max(-60, Math.min(0, metering));
+  const normalized = (clamped + 60) / 60;
+  return WAVEFORM_MIN_H + normalized * (WAVEFORM_MAX_H - WAVEFORM_MIN_H);
+}
+
+function LiveWaveform({ metering, colors }: { metering: number | undefined; colors: any }) {
+  const [bars, setBars] = useState<number[]>(() => new Array(WAVEFORM_BAR_COUNT).fill(WAVEFORM_MIN_H));
+
+  useEffect(() => {
+    setBars((prev) => {
+      const next = [...prev.slice(1), meterToHeight(metering)];
+      return next;
+    });
+  }, [metering]);
 
   return (
-    <View className="flex-row items-center gap-[2px]">
-      {bars.map((bar, i) => {
-        const style = useAnimatedStyle(() => ({
-          height: bar.value,
-          width: 2.5,
-          borderRadius: 1.5,
-          backgroundColor: colors.primary,
-          opacity: 0.7,
-        }));
-        return <Animated.View key={i} style={style} />;
-      })}
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 1.5, height: WAVEFORM_MAX_H }}>
+      {bars.map((h, i) => (
+        <View
+          key={i}
+          style={{
+            width: 2.5,
+            height: h,
+            borderRadius: 1.5,
+            backgroundColor: colors.primary,
+            opacity: 0.4 + (i / WAVEFORM_BAR_COUNT) * 0.6,
+          }}
+        />
+      ))}
     </View>
   );
 }
@@ -581,8 +583,8 @@ export default function ConversationScreen() {
   const markingReadIdsRef = useRef<Set<string>>(new Set());
 
   const isAssistantChat = participantId === LOCO_ASSISTANT_USER_ID || id?.startsWith("bot-");
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recorderState = useAudioRecorderState(recorder, 250);
+  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  const recorderState = useAudioRecorderState(recorder, 100);
 
   const allParticipantIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1355,9 +1357,8 @@ export default function ConversationScreen() {
                 <IconSymbol name="xmark" size={16} color={colors.muted} />
               </TouchableOpacity>
 
-              <View className="flex-1 flex-row items-center bg-background rounded-2xl border border-border px-4 py-3 mr-2">
-                <WaveformBars colors={colors} />
-                <Text className="text-sm text-muted ml-2">Listening</Text>
+              <View className="flex-1 flex-row items-center bg-background rounded-2xl border border-border px-3 py-2 mr-2">
+                <LiveWaveform metering={recorderState.metering} colors={colors} />
               </View>
 
               <TouchableOpacity
