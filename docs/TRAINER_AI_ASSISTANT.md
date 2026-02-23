@@ -124,19 +124,21 @@ Optional env vars:
 
 Exposed MCP tools:
 
-- `trainer_get_context_snapshot` (profile + core counts)
-- `trainer_list_clients`
-- `trainer_list_bundles`
-- `trainer_list_conversations`
-- `trainer_get_conversation_messages`
-- `trainer_recommend_bundles_from_chats` (deterministic recommendation scoring)
-- `trainer_client_value_report` (graph-ready messages vs revenue report)
-- `trainer_invite_client` (confirm-gated mutation)
-- `trainer_bulk_invite_clients_to_bundle` (confirm-gated mutation)
-- `trainer_invite_from_chat_recs` (confirm-gated end-to-end automation)
-- `trainer_assistant_preview` (read-only, no mutations)
-- `trainer_assistant_execute` (mutation-capable, requires `confirm=true`)
-- `trainer_voice_transcribe` (speech-to-text from audio URL)
+- `get_context_snapshot` (profile + core counts)
+- `list_trainers` (all trainers — coordinator/manager only)
+- `list_all_users` (all users — coordinator/manager only)
+- `list_clients`
+- `list_bundles`
+- `list_conversations`
+- `get_conversation_messages`
+- `recommend_bundles_from_chats` (deterministic recommendation scoring)
+- `client_value_report` (graph-ready messages vs revenue report)
+- `invite_client` (confirm-gated mutation)
+- `bulk_invite_clients_to_bundle` (confirm-gated mutation)
+- `invite_from_chat_recs` (confirm-gated end-to-end automation)
+- `assistant_preview` (read-only, no mutations)
+- `assistant_execute` (mutation-capable, requires `confirm=true`)
+- `voice_transcribe` (speech-to-text from audio URL)
 
 Example MCP config block (JSON):
 

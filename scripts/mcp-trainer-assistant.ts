@@ -592,7 +592,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_get_context_snapshot",
+  "get_context_snapshot",
   {
     title: "Trainer Context Snapshot",
     description: "Fetch a snapshot of trainer profile and core counts (clients, bundles, orders, conversations).",
@@ -626,7 +626,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_list_clients",
+  "list_clients",
   {
     title: "List Clients",
     description: "List trainer clients with optional filtering.",
@@ -665,7 +665,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_list_bundles",
+  "list_bundles",
   {
     title: "List Bundles",
     description: "List trainer bundles/offers with optional status filtering.",
@@ -700,7 +700,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_list_conversations",
+  "list_conversations",
   {
     title: "List Conversations",
     description: "List trainer conversation summaries for client chat context.",
@@ -736,7 +736,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_get_conversation_messages",
+  "get_conversation_messages",
   {
     title: "Get Conversation Messages",
     description: "Fetch messages for a conversation ID or client ID.",
@@ -808,7 +808,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_recommend_bundles_from_chats",
+  "recommend_bundles_from_chats",
   {
     title: "Recommend Bundles From Chats",
     description: "Deterministically score and recommend best-fit bundles per client based on notes + chat text.",
@@ -854,7 +854,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_invite_client",
+  "invite_client",
   {
     title: "Invite One Client",
     description: "Send an invitation email to one client. Requires confirm=true.",
@@ -893,7 +893,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_bulk_invite_clients_to_bundle",
+  "bulk_invite_clients_to_bundle",
   {
     title: "Bulk Invite Clients To Bundle",
     description: "Bulk send invites to multiple clients for one bundle. Requires confirm=true.",
@@ -943,7 +943,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_invite_from_chat_recs",
+  "invite_from_chat_recs",
   {
     title: "Invite Clients From Chat Recommendations",
     description:
@@ -1065,7 +1065,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_client_value_report",
+  "client_value_report",
   {
     title: "Client Value Report",
     description: "Build graph-ready client engagement (message count) vs revenue data.",
@@ -1101,7 +1101,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_assistant_preview",
+  "assistant_preview",
   {
     title: "Trainer Assistant Preview",
     description: "Preview trainer automation output through the LLM assistant (no mutations).",
@@ -1130,7 +1130,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_assistant_execute",
+  "assistant_execute",
   {
     title: "Trainer Assistant Execute",
     description:
@@ -1165,7 +1165,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "trainer_voice_transcribe",
+  "voice_transcribe",
   {
     title: "Trainer Voice Transcribe",
     description:
