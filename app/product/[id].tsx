@@ -51,10 +51,10 @@ export default function ProductDetailScreen() {
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }}>
             {p.imageUrl ? (
-              <View style={{ width: "100%", height: 280, backgroundColor: colors.surface }}>
+              <View style={{ width: "100%", height: 300, backgroundColor: "#fff", padding: 16 }}>
                 <Image
                   source={{ uri: p.imageUrl }}
-                  style={{ width: "100%", height: 280 }}
+                  style={{ width: "100%", height: "100%" }}
                   resizeMode="contain"
                 />
               </View>
