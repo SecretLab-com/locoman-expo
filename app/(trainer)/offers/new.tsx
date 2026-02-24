@@ -120,6 +120,7 @@ export default function OfferWizardScreen() {
   const { data: templatesData = [], isLoading: templatesLoading } = trpc.bundles.templates.useQuery(undefined, {
     enabled: !isEditMode,
   });
+  const { data: catalogProducts } = trpc.catalog.products.useQuery();
 
   const { data: offerData, isLoading: loadingOffer } = trpc.offers.get.useQuery(
     { id: id || "" },
