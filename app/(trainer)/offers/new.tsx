@@ -7,7 +7,7 @@ import { formatGBPFromMinor, toMinorUnits } from "@/lib/currency";
 import { trpc } from "@/lib/trpc";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Image } from "expo-image";
 
 type OfferType = "one_off_session" | "multi_session_package" | "product_bundle";
@@ -113,11 +113,15 @@ export default function OfferWizardScreen() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedProducts, setSelectedProducts] = useState<Array<{ id: string; name: string; price: string; imageUrl?: string | null; quantity: number }>>([]);
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [productSearchQuery, setProductSearchQuery] = useState("");
 
   const { data: profileData } = trpc.profile.get.useQuery();
   const { data: templatesData = [], isLoading: templatesLoading } = trpc.bundles.templates.useQuery(undefined, {
     enabled: !isEditMode,
   });
+  const { data: catalogProducts } = trpc.catalog.products.useQuery();
 
   const { data: offerData, isLoading: loadingOffer } = trpc.offers.get.useQuery(
     { id: id || "" },
@@ -211,6 +215,17 @@ export default function OfferWizardScreen() {
     setIncludedInput(dedupedIncluded.join("\n"));
     const templateSessionCount = resolveTemplateSessionCount(template);
     setSessionCountInput(templateSessionCount ? String(templateSessionCount) : "");
+
+    const templateProducts = parseArrayValue(template.defaultProducts);
+    if (templateProducts.length > 0) {
+      setSelectedProducts(templateProducts.map((p: any) => ({
+        id: String(p.productId || p.id || ""),
+        name: String(p.name || p.title || "Product"),
+        price: String(p.price || "0"),
+        imageUrl: p.imageUrl || null,
+        quantity: Number(p.quantity) || 1,
+      })));
+    }
   };
 
   useEffect(() => {
@@ -272,12 +287,22 @@ export default function OfferWizardScreen() {
       return;
     }
 
+    const productsForPayload = selectedProducts.map((p) => ({
+      id: p.id,
+      productId: p.id,
+      name: p.name,
+      price: p.price,
+      imageUrl: p.imageUrl,
+      quantity: p.quantity,
+    }));
+
     const payload = {
       title: title.trim(),
       description: description.trim() || undefined,
       type,
       priceMinor: toMinorUnits(amount),
       included,
+      productsJson: productsForPayload.length > 0 ? productsForPayload : undefined,
       sessionCount: resolvedSessionCount || undefined,
       paymentType,
       publish: false,
@@ -506,8 +531,52 @@ export default function OfferWizardScreen() {
           {((isEditMode && step === 3) || (!isEditMode && step === 4)) && (
             <View className="mb-4">
               <Text className="text-base font-semibold text-foreground mb-3">{isEditMode ? "3. What’s included" : "4. What’s included"}</Text>
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-sm font-medium text-muted">Products</Text>
+                <TouchableOpacity onPress={() => setShowProductPicker(true)} accessibilityRole="button" accessibilityLabel="Browse products" testID="offer-browse-products">
+                  <Text className="text-primary text-sm font-medium">+ Add products</Text>
+                </TouchableOpacity>
+              </View>
+
+              {selectedProducts.length > 0 ? (
+                <View className="gap-2 mb-3">
+                  {selectedProducts.map((product, index) => (
+                    <View key={`${product.id}-${index}`} className="bg-surface border border-border rounded-xl p-3 flex-row items-center">
+                      {product.imageUrl ? (
+                        <Image source={{ uri: product.imageUrl }} style={{ width: 44, height: 44, borderRadius: 8 }} contentFit="cover" />
+                      ) : (
+                        <View style={{ width: 44, height: 44, borderRadius: 8, backgroundColor: `${colors.primary}12` }} className="items-center justify-center">
+                          <IconSymbol name="bag.fill" size={18} color={colors.muted} />
+                        </View>
+                      )}
+                      <View className="flex-1 ml-3">
+                        <Text className="text-foreground font-medium text-sm" numberOfLines={1}>{product.name}</Text>
+                        <Text className="text-muted text-xs">{product.price} GBP × {product.quantity}</Text>
+                      </View>
+                      <View className="flex-row items-center mr-2">
+                        <TouchableOpacity className="w-7 h-7 rounded-full bg-background border border-border items-center justify-center" onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p))}>
+                          <Text className="text-foreground font-bold">−</Text>
+                        </TouchableOpacity>
+                        <Text className="text-foreground font-semibold mx-2 min-w-[20px] text-center">{product.quantity}</Text>
+                        <TouchableOpacity className="w-7 h-7 rounded-full bg-background border border-border items-center justify-center" onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: p.quantity + 1 } : p))}>
+                          <Text className="text-foreground font-bold">+</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelectedProducts((prev) => prev.filter((_, i) => i !== index))}>
+                        <IconSymbol name="xmark" size={14} color={colors.muted} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View className="bg-surface border border-border rounded-xl p-4 mb-3 items-center">
+                  <Text className="text-muted text-sm">No products added. Tap &quot;+ Add products&quot; to browse.</Text>
+                </View>
+              )}
+
+              <Text className="text-sm font-medium text-muted mb-2 mt-2">Services &amp; other items</Text>
               <TextInput
-                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground min-h-[130px]"
+                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground min-h-[100px]"
                 value={includedInput}
                 onChangeText={setIncludedInput}
                 placeholder={"One item per line\nWarm-up session\nNutrition guide"}
@@ -644,6 +713,69 @@ export default function OfferWizardScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Product picker modal */}
+      <Modal visible={showProductPicker} transparent animationType="slide" onRequestClose={() => setShowProductPicker(false)}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: "80%", paddingBottom: 32 }}>
+            <View className="flex-row items-center justify-between px-4 py-3 border-b border-border">
+              <Text className="text-foreground font-semibold text-lg">Add Products</Text>
+              <TouchableOpacity onPress={() => setShowProductPicker(false)}>
+                <Text className="text-primary font-semibold">Done</Text>
+              </TouchableOpacity>
+            </View>
+            <View className="px-4 py-2">
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-2.5 text-foreground"
+                value={productSearchQuery}
+                onChangeText={setProductSearchQuery}
+                placeholder="Search products..."
+                placeholderTextColor={colors.muted}
+              />
+            </View>
+            <ScrollView className="px-4" style={{ maxHeight: 400 }}>
+              {(catalogProducts || [])
+                .filter((p: any) => {
+                  if (!productSearchQuery.trim()) return true;
+                  const q = productSearchQuery.toLowerCase();
+                  return (p.name || "").toLowerCase().includes(q) || (p.brand || "").toLowerCase().includes(q);
+                })
+                .map((product: any) => {
+                  const isAdded = selectedProducts.some((sp) => sp.id === product.id);
+                  return (
+                    <TouchableOpacity
+                      key={product.id}
+                      className={`flex-row items-center p-3 mb-2 rounded-xl border ${isAdded ? "border-primary bg-primary/5" : "border-border bg-background"}`}
+                      onPress={() => {
+                        if (isAdded) {
+                          setSelectedProducts((prev) => prev.filter((sp) => sp.id !== product.id));
+                        } else {
+                          setSelectedProducts((prev) => [...prev, { id: product.id, name: product.name, price: product.price || "0", imageUrl: product.imageUrl, quantity: 1 }]);
+                        }
+                      }}
+                    >
+                      {product.imageUrl ? (
+                        <Image source={{ uri: product.imageUrl }} style={{ width: 48, height: 48, borderRadius: 8 }} contentFit="cover" />
+                      ) : (
+                        <View style={{ width: 48, height: 48, borderRadius: 8, backgroundColor: `${colors.primary}12` }} className="items-center justify-center">
+                          <IconSymbol name="bag.fill" size={20} color={colors.muted} />
+                        </View>
+                      )}
+                      <View className="flex-1 ml-3">
+                        <Text className="text-foreground font-medium text-sm" numberOfLines={1}>{product.name}</Text>
+                        <Text className="text-muted text-xs">{product.price} GBP{product.brand ? ` · ${product.brand}` : ""}</Text>
+                        {product.isSponsored && product.trainerBonus && (
+                          <Text className="text-xs font-semibold mt-0.5" style={{ color: colors.success }}>+${product.trainerBonus} bonus</Text>
+                        )}
+                      </View>
+                      {isAdded && <IconSymbol name="checkmark" size={16} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
