@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Image } from "expo-image";
 
 type OfferType = "one_off_session" | "multi_session_package" | "product_bundle";
 type PaymentType = "one_off" | "recurring";
@@ -18,9 +19,12 @@ type TemplateCandidate = {
   description?: string | null;
   goalType?: string | null;
   basePrice?: string | null;
+  imageUrl?: string | null;
   defaultServices?: unknown;
   defaultProducts?: unknown;
   goalsJson?: unknown;
+  totalTrainerBonus?: number;
+  isPromoted?: boolean;
 };
 
 const OFFER_TYPES: Array<{ value: OfferType; label: string; subtitle: string }> = [
@@ -384,28 +388,84 @@ export default function OfferWizardScreen() {
               ) : (
                 recommendedTemplates.map((template) => {
                   const isSelected = selectedTemplateId === template.id;
-                  const goalLabel = template.goalType ? template.goalType.replaceAll("_", " ") : "general";
+                  const goalLabel = template.goalType ? template.goalType.replaceAll("_", " ") : null;
+                  const serviceCount = parseArrayValue(template.defaultServices).length;
+                  const productCount = parseArrayValue(template.defaultProducts).length;
+                  const bonus = (template as any).totalTrainerBonus as number | undefined;
+
                   return (
                     <TouchableOpacity
                       key={template.id}
-                      className={`bg-surface border rounded-xl p-4 mb-2 ${isSelected ? "border-primary" : "border-border"}`}
+                      className={`bg-surface border rounded-2xl mb-3 overflow-hidden ${isSelected ? "border-primary border-2" : "border-border"}`}
                       onPress={() => {
                         void applyTemplate(template);
                       }}
+                      activeOpacity={0.8}
                       accessibilityRole="button"
                       accessibilityLabel={`Use ${template.title} template`}
                       testID={`offer-template-${template.id}`}
                     >
-                      <View className="flex-row items-center justify-between">
-                        <Text className="text-foreground font-semibold flex-1 pr-3">{template.title}</Text>
-                        <Text className="text-xs text-primary capitalize">{goalLabel}</Text>
+                      {template.imageUrl ? (
+                        <Image
+                          source={{ uri: template.imageUrl }}
+                          style={{ width: "100%", height: 140 }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View
+                          style={{ width: "100%", height: 80, backgroundColor: `${colors.primary}12` }}
+                          className="items-center justify-center"
+                        >
+                          <IconSymbol name="bag.fill" size={32} color={`${colors.primary}40`} />
+                        </View>
+                      )}
+                      <View className="p-4">
+                        <View className="flex-row items-start justify-between mb-1">
+                          <Text className="text-foreground font-semibold text-base flex-1 pr-3">{template.title}</Text>
+                          {goalLabel && (
+                            <View className="rounded-full px-2.5 py-0.5" style={{ backgroundColor: `${colors.primary}18`, borderWidth: 1, borderColor: `${colors.primary}40` }}>
+                              <Text className="text-[11px] font-semibold capitalize" style={{ color: colors.primary }}>{goalLabel}</Text>
+                            </View>
+                          )}
+                        </View>
+                        {template.description ? (
+                          <Text className="text-sm text-muted mt-1" numberOfLines={2}>{template.description}</Text>
+                        ) : null}
+                        <View className="flex-row items-center flex-wrap gap-x-4 gap-y-1 mt-3">
+                          {template.basePrice ? (
+                            <View className="flex-row items-center">
+                              <IconSymbol name="dollarsign.circle.fill" size={13} color={colors.success} />
+                              <Text className="text-xs text-muted ml-1">From {template.basePrice} GBP</Text>
+                            </View>
+                          ) : null}
+                          {serviceCount > 0 && (
+                            <View className="flex-row items-center">
+                              <IconSymbol name="calendar" size={13} color={colors.muted} />
+                              <Text className="text-xs text-muted ml-1">{serviceCount} {serviceCount === 1 ? "service" : "services"}</Text>
+                            </View>
+                          )}
+                          {productCount > 0 && (
+                            <View className="flex-row items-center">
+                              <IconSymbol name="bag.fill" size={13} color={colors.muted} />
+                              <Text className="text-xs text-muted ml-1">{productCount} {productCount === 1 ? "product" : "products"}</Text>
+                            </View>
+                          )}
+                        </View>
+                        {bonus && bonus > 0 ? (
+                          <View className="mt-2 bg-success/10 rounded-lg px-3 py-2 flex-row items-center">
+                            <IconSymbol name="star.fill" size={14} color={colors.success} />
+                            <Text className="text-xs font-semibold ml-1.5" style={{ color: colors.success }}>
+                              +${bonus.toFixed(2)} trainer bonus per sale
+                            </Text>
+                          </View>
+                        ) : null}
+                        {isSelected && (
+                          <View className="mt-2 flex-row items-center">
+                            <IconSymbol name="checkmark" size={14} color={colors.primary} />
+                            <Text className="text-xs font-semibold ml-1" style={{ color: colors.primary }}>Selected</Text>
+                          </View>
+                        )}
                       </View>
-                      {template.description ? (
-                        <Text className="text-sm text-muted mt-1">{template.description}</Text>
-                      ) : null}
-                      {template.basePrice ? (
-                        <Text className="text-xs text-muted mt-2">From {template.basePrice} GBP</Text>
-                      ) : null}
                     </TouchableOpacity>
                   );
                 })
