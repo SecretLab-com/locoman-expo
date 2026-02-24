@@ -114,6 +114,7 @@ export default function OfferWizardScreen() {
   const [description, setDescription] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Array<{ id: string; name: string; price: string; imageUrl?: string | null; quantity: number }>>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const { data: profileData } = trpc.profile.get.useQuery();
   const { data: templatesData = [], isLoading: templatesLoading } = trpc.bundles.templates.useQuery(undefined, {
@@ -241,25 +242,46 @@ export default function OfferWizardScreen() {
 
   const nextStep = async () => {
     await haptics.light();
-    if (step === 1 && !isEditMode && !selectedTemplateId) {
-      // Allow continuing with a blank template, but keep an explicit user action.
-      setSelectedTemplateId("scratch");
-    }
-    if ((isEditMode && step === 2) || (!isEditMode && step === 3)) {
-      const value = parseFloat(priceInput);
-      if (!value || value <= 0) {
-        showAlert("Price required", "Enter a valid GBP price.");
-        return;
+    const errors: Record<string, string> = {};
+
+    if (step === 1 && !isEditMode) {
+      if (!selectedTemplateId) {
+        setSelectedTemplateId("scratch");
+      }
+      if (!title.trim()) {
+        errors.title = "Enter an offer title";
       }
     }
+
+    if ((isEditMode && step === 1) || (!isEditMode && step === 1)) {
+      if (!title.trim()) {
+        errors.title = "Enter an offer title";
+      }
+    }
+
+    const isPriceStep = (isEditMode && step === 2) || (!isEditMode && step === 3);
+    if (isPriceStep) {
+      const value = parseFloat(priceInput);
+      if (!value || value <= 0) {
+        errors.price = "Enter a valid price greater than 0";
+      }
+    }
+
     const isPaymentStep = (isEditMode && step === 4) || (!isEditMode && step === 5);
     const needsSessionCount = type === "multi_session_package" || paymentType === "recurring";
     if (isPaymentStep && needsSessionCount && !toPositiveInt(sessionCountInput)) {
-      showAlert("Session count required", "Add how many sessions are included per package/cycle.");
+      errors.sessionCount = "Enter the number of sessions included";
+    }
+
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      await haptics.error();
       return;
     }
+
     if (step === totalSteps) return;
     setStep((s) => s + 1);
+    setFieldErrors({});
   };
 
   const previousStep = async () => {
@@ -359,12 +381,13 @@ export default function OfferWizardScreen() {
           <View className="bg-surface border border-border rounded-xl p-4 mb-4">
             <Text className="text-sm font-medium text-muted mb-2">Offer title</Text>
             <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+              className={`bg-background border rounded-xl px-4 py-3 text-foreground ${fieldErrors.title ? "border-error" : "border-border"}`}
               value={title}
-              onChangeText={setTitle}
+              onChangeText={(v) => { setTitle(v); setFieldErrors((prev) => { const { title: _, ...rest } = prev; return rest; }); }}
               placeholder="e.g. 10 Session Strength Package"
               placeholderTextColor={colors.muted}
             />
+            {fieldErrors.title && <Text className="text-error text-xs mt-1">{fieldErrors.title}</Text>}
             <Text className="text-sm font-medium text-muted mb-2">Description (optional)</Text>
             <TextInput
               className="bg-background border border-border rounded-xl px-4 py-3 text-foreground"
@@ -519,13 +542,14 @@ export default function OfferWizardScreen() {
             <View className="mb-4">
               <Text className="text-base font-semibold text-foreground mb-3">{isEditMode ? "2. Price" : "3. Price"}</Text>
               <TextInput
-                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground text-lg font-bold"
+                className={`bg-surface border rounded-xl px-4 py-3 text-foreground text-lg font-bold ${fieldErrors.price ? "border-error" : "border-border"}`}
                 value={priceInput}
-                onChangeText={setPriceInput}
+                onChangeText={(v) => { setPriceInput(v); setFieldErrors((prev) => { const { price: _, ...rest } = prev; return rest; }); }}
                 placeholder="0.00"
                 placeholderTextColor={colors.muted}
                 keyboardType="decimal-pad"
               />
+              {fieldErrors.price && <Text className="text-error text-xs mt-1">{fieldErrors.price}</Text>}
             </View>
           )}
 
@@ -620,13 +644,14 @@ export default function OfferWizardScreen() {
                     {paymentType === "recurring" ? "Sessions per billing cycle" : "Total sessions in package"}
                   </Text>
                   <TextInput
-                    className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                    className={`bg-surface border rounded-xl px-4 py-3 text-foreground ${fieldErrors.sessionCount ? "border-error" : "border-border"}`}
                     value={sessionCountInput}
-                    onChangeText={setSessionCountInput}
+                    onChangeText={(v) => { setSessionCountInput(v); setFieldErrors((prev) => { const { sessionCount: _, ...rest } = prev; return rest; }); }}
                     placeholder="e.g. 8"
                     placeholderTextColor={colors.muted}
                     keyboardType="number-pad"
                   />
+                  {fieldErrors.sessionCount && <Text className="text-error text-xs mt-1">{fieldErrors.sessionCount}</Text>}
                 </View>
               ) : null}
             </View>
