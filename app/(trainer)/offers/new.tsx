@@ -528,6 +528,39 @@ export default function OfferWizardScreen() {
           {((isEditMode && step === 3) || (!isEditMode && step === 4)) && (
             <View className="mb-4">
               <Text className="text-base font-semibold text-foreground mb-3">{isEditMode ? "3. What’s included" : "4. What’s included"}</Text>
+              {selectedProducts.length > 0 && (
+                <View className="mb-3">
+                  <Text className="text-sm font-medium text-muted mb-2">Products ({selectedProducts.length})</Text>
+                  {selectedProducts.map((product, index) => (
+                    <View key={`${product.id}-${index}`} className="bg-surface border border-border rounded-xl p-3 mb-2 flex-row items-center">
+                      {product.imageUrl ? (
+                        <Image source={{ uri: product.imageUrl }} style={{ width: 40, height: 40, borderRadius: 8 }} contentFit="cover" />
+                      ) : (
+                        <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: `${colors.primary}12` }} className="items-center justify-center">
+                          <IconSymbol name="bag.fill" size={16} color={colors.muted} />
+                        </View>
+                      )}
+                      <View className="flex-1 ml-3">
+                        <Text className="text-foreground font-medium text-sm" numberOfLines={1}>{product.name}</Text>
+                        <Text className="text-muted text-xs">{product.price} GBP × {product.quantity}</Text>
+                      </View>
+                      <View className="flex-row items-center mr-2">
+                        <TouchableOpacity className="w-7 h-7 rounded-full bg-background border border-border items-center justify-center" onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p))}>
+                          <Text className="text-foreground font-bold text-xs">−</Text>
+                        </TouchableOpacity>
+                        <Text className="text-foreground font-semibold mx-1.5 text-sm">{product.quantity}</Text>
+                        <TouchableOpacity className="w-7 h-7 rounded-full bg-background border border-border items-center justify-center" onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: p.quantity + 1 } : p))}>
+                          <Text className="text-foreground font-bold text-xs">+</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelectedProducts((prev) => prev.filter((_, i) => i !== index))}>
+                        <IconSymbol name="xmark" size={14} color={colors.muted} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
               <TouchableOpacity
                 className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-4 flex-row items-center"
                 onPress={() => router.push({ pathname: "/bundle-editor/new", params: { templateId: selectedTemplateId || undefined } } as any)}
