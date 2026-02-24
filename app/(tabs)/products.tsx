@@ -92,7 +92,7 @@ export default function ProductsScreen() {
   const [mediaIndex, setMediaIndex] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
-  const { q } = useLocalSearchParams();
+  const { q, productId: productIdParam } = useLocalSearchParams();
 
   useEffect(() => {
     const searchParam = Array.isArray(q) ? q[0] : q;
@@ -141,6 +141,17 @@ export default function ProductsScreen() {
     },
   });
   const syncInFlight = isSyncing || shopifySync.isPending;
+
+  useEffect(() => {
+    if (productIdParam && products) {
+      const pid = Array.isArray(productIdParam) ? productIdParam[0] : productIdParam;
+      const match = products.find((p) => p.id === pid);
+      if (match) {
+        setSelectedProduct(match);
+        setDetailModalOpen(true);
+      }
+    }
+  }, [productIdParam, products]);
 
   // Spinning animation for sync icon
   const spinAnim = useRef(new Animated.Value(0)).current;
