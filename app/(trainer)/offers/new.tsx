@@ -217,13 +217,31 @@ export default function OfferWizardScreen() {
 
     const templateProducts = parseArrayValue(template.defaultProducts);
     if (templateProducts.length > 0) {
+      const catalog = (catalogProducts || []) as Array<{ id: string; name: string; price: string; imageUrl?: string | null }>;
       setSelectedProducts(templateProducts.map((p: any) => {
         const pid = String(p.productId || p.id || "");
         const pName = String(p.name || p.title || "").toLowerCase();
-        const catalogMatch = (catalogProducts || []).find((cp: any) =>
-          String(cp.id) === pid ||
-          (pName && String(cp.name || "").toLowerCase() === pName)
-        );
+        const pWords = pName.split(/\s+/).filter((w: string) => w.length > 2);
+
+        // Try exact ID match, then exact name, then fuzzy (most words match)
+        let catalogMatch = catalog.find((cp) => String(cp.id) === pid);
+        if (!catalogMatch && pName) {
+          catalogMatch = catalog.find((cp) => (cp.name || "").toLowerCase() === pName);
+        }
+        if (!catalogMatch && pWords.length > 0) {
+          let bestScore = 0;
+          let bestMatch: typeof catalogMatch = undefined;
+          for (const cp of catalog) {
+            const cpName = (cp.name || "").toLowerCase();
+            const score = pWords.filter((w: string) => cpName.includes(w)).length;
+            if (score > bestScore && score >= Math.ceil(pWords.length * 0.5)) {
+              bestScore = score;
+              bestMatch = cp;
+            }
+          }
+          catalogMatch = bestMatch;
+        }
+
         return {
           id: catalogMatch?.id ? String(catalogMatch.id) : pid,
           name: String(catalogMatch?.name || p.name || p.title || "Product"),
