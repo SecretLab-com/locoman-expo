@@ -219,9 +219,13 @@ export default function OfferWizardScreen() {
     if (templateProducts.length > 0) {
       setSelectedProducts(templateProducts.map((p: any) => {
         const pid = String(p.productId || p.id || "");
-        const catalogMatch = (catalogProducts || []).find((cp: any) => String(cp.id) === pid);
+        const pName = String(p.name || p.title || "").toLowerCase();
+        const catalogMatch = (catalogProducts || []).find((cp: any) =>
+          String(cp.id) === pid ||
+          (pName && String(cp.name || "").toLowerCase() === pName)
+        );
         return {
-          id: pid,
+          id: catalogMatch?.id ? String(catalogMatch.id) : pid,
           name: String(catalogMatch?.name || p.name || p.title || "Product"),
           price: String(catalogMatch?.price || p.price || "0"),
           imageUrl: catalogMatch?.imageUrl || p.imageUrl || null,
