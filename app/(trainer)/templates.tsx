@@ -112,7 +112,7 @@ export default function TemplateGalleryScreen() {
                     className="mb-3"
                     onPress={() =>
                       router.push({
-                        pathname: "/(trainer)/offers/new",
+                        pathname: "/bundle-editor/new",
                         params: { templateId: template.id },
                       } as any)
                     }
@@ -210,6 +210,14 @@ export default function TemplateGalleryScreen() {
                           </View>
                         )}
                       </View>
+                      {(template as any).totalTrainerBonus > 0 && (
+                        <View className="mt-2 bg-success/10 rounded-lg px-3 py-2 flex-row items-center">
+                          <IconSymbol name="star.fill" size={14} color={colors.success} />
+                          <Text className="text-xs font-semibold ml-1.5" style={{ color: colors.success }}>
+                            +${((template as any).totalTrainerBonus as number).toFixed(2)} trainer bonus per sale
+                          </Text>
+                        </View>
+                      )}
 
                       <View className="flex-row items-center justify-between mt-3 pt-3 border-t border-border">
                         <Text className="text-sm font-semibold text-primary">Use Template</Text>

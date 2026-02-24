@@ -1231,20 +1231,36 @@ export const appRouter = router({
         productsJson: z.any().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        // Increment template usage count if creating from template
+        let productsJson = input.productsJson;
+        let servicesJson = input.servicesJson;
+        let goalsJson = input.goalsJson;
+        let price = input.price;
+        let description = input.description;
+
         if (input.templateId) {
           await db.incrementTemplateUsage(input.templateId);
+
+          // Copy template data if trainer didn't provide their own
+          const template = await db.getBundleDraftById(input.templateId);
+          if (template) {
+            if (!productsJson) productsJson = template.productsJson;
+            if (!servicesJson) servicesJson = template.servicesJson;
+            if (!goalsJson) goalsJson = template.goalsJson;
+            if (!price) price = template.price;
+            if (!description) description = template.description;
+          }
         }
+
         return db.createBundleDraft({
           trainerId: ctx.user.id,
           title: input.title,
-          description: input.description,
+          description,
           templateId: input.templateId,
-          price: input.price,
+          price,
           cadence: input.cadence,
-          goalsJson: input.goalsJson,
-          servicesJson: input.servicesJson,
-          productsJson: input.productsJson,
+          goalsJson,
+          servicesJson,
+          productsJson,
         });
       }),
 

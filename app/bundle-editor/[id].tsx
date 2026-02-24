@@ -52,7 +52,7 @@ type ProductItem = {
 };
 
 // Product item with quantity (for bundle products)
-type BundleProductItem = ProductItem & { quantity: number };
+type BundleProductItem = ProductItem & { quantity: number; productId?: string | number };
 
 // Bundle form state - matching original locoman
 type BundleFormState = {
@@ -98,7 +98,7 @@ const GOAL_SUGGESTIONS = [
 
 export default function BundleEditorScreen() {
   const colors = useColors();
-  const { id, admin: adminParam } = useLocalSearchParams<{ id: string; admin?: string }>();
+  const { id, admin: adminParam, templateId } = useLocalSearchParams<{ id: string; admin?: string; templateId?: string }>();
   const isNewBundle = id === "new";
   const isAdminMode = adminParam === "1";
   
@@ -297,6 +297,55 @@ export default function BundleEditorScreen() {
       platformAlert("Error", error.message || "Failed to delete bundle.");
     },
   });
+
+  // Fetch template data when creating from template
+  const { data: templateBundle } = trpc.bundles.get.useQuery(
+    { id: templateId || "" },
+    { enabled: isNewBundle && !!templateId },
+  );
+
+  // Populate form from template when creating a new bundle
+  useEffect(() => {
+    if (isNewBundle && templateBundle && templateId) {
+      setForm((prev) => ({
+        ...prev,
+        title: templateBundle.title || prev.title,
+        description: templateBundle.description || prev.description,
+        price: templateBundle.price || prev.price,
+        cadence: (templateBundle.cadence as "one_time" | "weekly" | "monthly") || prev.cadence,
+        imageUrl: templateBundle.imageUrl || prev.imageUrl,
+        services: (templateBundle.servicesJson as ServiceItem[]) || prev.services,
+        goals: (templateBundle.goalsJson as string[]) || prev.goals,
+        suggestedGoal: (templateBundle.suggestedGoal as string) || prev.suggestedGoal,
+      }));
+
+      if (templateBundle.productsJson && shopifyProducts) {
+        const parsedProducts = templateBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number; productId?: string }[];
+        const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
+          const matchId = p.productId || p.id;
+          const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === matchId);
+          if (shopifyProduct) {
+            return { ...shopifyProduct, quantity: p.quantity || 1 };
+          }
+          return {
+            id: p.id,
+            title: p.name,
+            description: null,
+            vendor: "",
+            productType: "",
+            status: "active",
+            price: p.price,
+            sku: "",
+            inventory: 0,
+            imageUrl: p.imageUrl || null,
+            quantity: p.quantity || 1,
+          };
+        });
+        setForm((prev) => ({ ...prev, products: matchedProducts }));
+      }
+      setLoading(false);
+    }
+  }, [isNewBundle, templateBundle, templateId, shopifyProducts]);
 
   // Populate form when editing
   useEffect(() => {
@@ -633,9 +682,11 @@ export default function BundleEditorScreen() {
         imageSource: form.imageSource,
         productsJson: form.products.map((p) => ({
           id: p.id,
+          productId: p.productId || p.id,
           name: p.title,
           price: p.price,
           imageUrl: p.imageUrl,
+          quantity: p.quantity || 1,
         })),
         servicesJson: form.services,
         goalsJson: form.goals,
@@ -643,7 +694,7 @@ export default function BundleEditorScreen() {
       };
 
       if (isNewBundle) {
-        await createBundleMutation.mutateAsync(bundleData);
+        await createBundleMutation.mutateAsync({ ...bundleData, ...(templateId ? { templateId } : {}) });
       } else {
         await updateBundleMutation.mutateAsync({
           id: bundleIdParam,
