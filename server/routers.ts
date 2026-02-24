@@ -90,6 +90,50 @@ async function notifyInviteFailureByMessage(user: { id: string; name?: string | 
   }
 }
 
+async function createSponsoredProductBonuses(params: {
+  trainerId: string;
+  orderId: string;
+  bundleDraftId: string | null;
+  productsJson: unknown;
+}) {
+  try {
+    const items = parseBundleProducts(params.productsJson);
+    if (!items.length) return;
+    const productIds = items.map((i) => i.productId).filter(Boolean) as string[];
+    if (!productIds.length) return;
+
+    const allProducts = await db.getProducts();
+    const productMap = new Map(allProducts.map((p) => [p.id, p]));
+
+    for (const item of items) {
+      if (!item.productId) continue;
+      const product = productMap.get(item.productId);
+      if (!product?.isSponsored || !product.trainerBonus) continue;
+
+      const bonus = Number.parseFloat(product.trainerBonus);
+      if (!Number.isFinite(bonus) || bonus <= 0) continue;
+
+      if (product.bonusExpiresAt && new Date(product.bonusExpiresAt).getTime() < Date.now()) continue;
+
+      const totalBonus = bonus * (item.quantity || 1);
+      await db.createEarning({
+        trainerId: params.trainerId,
+        orderId: params.orderId,
+        bundleDraftId: params.bundleDraftId,
+        earningType: "bonus",
+        amount: totalBonus.toFixed(2),
+        status: "pending",
+        notes: `Sponsored product bonus: ${product.name} (${product.sponsoredBy || "brand"}) x${item.quantity || 1}`,
+      });
+    }
+  } catch (error) {
+    logError("sponsored_bonus.creation_failed", error, {
+      trainerId: params.trainerId,
+      orderId: params.orderId,
+    });
+  }
+}
+
 function queueTrainerAssistantReply(params: {
   user: db.User;
   conversationId: string;
@@ -1127,6 +1171,13 @@ export const appRouter = router({
           description: `Invitation order ${orderId}`,
         });
 
+        await createSponsoredProductBonuses({
+          trainerId,
+          orderId,
+          bundleDraftId: bundle.id,
+          productsJson: bundle.productsJson,
+        });
+
         notifyBadgeCounts([ctx.user.id, trainerId]);
         return { success: true, orderId, deliveryIds, subscriptionId, payment };
       }),
@@ -1239,6 +1290,31 @@ export const appRouter = router({
         db.getPromotedTemplates(),
       ]);
 
+      const allProducts = await db.getProducts();
+      const productBonusMap = new Map<string, { bonus: number; sponsoredBy: string | null; expiresAt: string | null }>();
+      for (const p of allProducts) {
+        if (p.isSponsored && p.trainerBonus) {
+          const bonus = Number.parseFloat(p.trainerBonus);
+          if (bonus > 0) {
+            const expired = p.bonusExpiresAt && new Date(p.bonusExpiresAt).getTime() < Date.now();
+            if (!expired) {
+              productBonusMap.set(p.id, { bonus, sponsoredBy: p.sponsoredBy, expiresAt: p.bonusExpiresAt });
+            }
+          }
+        }
+      }
+
+      function calcTotalBonus(productsJson: unknown): number {
+        const items = parseBundleProducts(productsJson);
+        let total = 0;
+        for (const item of items) {
+          if (item.productId && productBonusMap.has(item.productId)) {
+            total += productBonusMap.get(item.productId)!.bonus * (item.quantity || 1);
+          }
+        }
+        return total;
+      }
+
       const promotedAsTpl = promotedBundles.map((b) => ({
         id: b.id,
         title: b.title,
@@ -1263,6 +1339,7 @@ export const appRouter = router({
         availabilityEnd: b.availabilityEnd,
         templateVisibility: b.templateVisibility,
         isPromoted: true,
+        totalTrainerBonus: calcTotalBonus(b.productsJson),
       }));
 
       return [...legacyTemplates.map((t) => ({ ...t, isPromoted: false })), ...promotedAsTpl];

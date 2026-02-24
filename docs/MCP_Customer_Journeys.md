@@ -156,6 +156,36 @@ Gather Context → Analyze → Act
 
 The LLM orchestrates tool calls based on natural language. The trainer never needs to know which tools exist — they just describe what they want.
 
+---
+
+## 11. Sponsored Bundle Discovery
+
+**Trigger:** "Show me templates with the best trainer bonuses"
+
+| Step | Tool | Purpose |
+|------|------|---------|
+| 1 | `list_bundles` (templates) | Browse available templates with `totalTrainerBonus` |
+| 2 | LLM ranking | Sort by bonus value, highlight sponsored products |
+| 3 | Trainer selects one | Create bundle from template |
+
+**Output:** "The 'Starter Fitness Bundle' has a $12.00 trainer bonus per sale (sponsored by Optimum Nutrition). Want to create a bundle from this template?"
+
+---
+
+## 12. Sponsored Product Revenue Tracker
+
+**Trigger:** "How much have I earned from sponsored product bonuses?"
+
+| Step | Tool | Purpose |
+|------|------|---------|
+| 1 | `client_value_report` | Get revenue breakdown per client |
+| 2 | `list_bundles` | Identify which bundles have sponsored products |
+| 3 | LLM analysis | Calculate total bonus earnings, compare to commission |
+
+**Output:** "You've earned $240 in sponsored bonuses this month from Optimum Nutrition products across 20 bundle sales. That's on top of your $1,200 in regular commission."
+
+---
+
 ### Highest-Value Journeys
 
 | Journey | Impact |
@@ -164,6 +194,7 @@ The LLM orchestrates tool calls based on natural language. The trainer never nee
 | **#5 Needs Analysis** | Surfaces sales opportunities from conversations |
 | **#6 Bulk Launch** | Maximizes reach for new offers |
 | **#9 Smart Upsell** | Increases revenue per client |
+| **#11 Sponsored Discovery** | Maximizes trainer bonus income |
 
 ### Safety
 

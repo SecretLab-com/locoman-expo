@@ -186,6 +186,7 @@ export type BundleDraft = {
   availabilityStart: string | null;
   availabilityEnd: string | null;
   templateActive: boolean;
+  totalTrainerBonus: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -220,6 +221,10 @@ export type Product = {
   inventoryQuantity: number | null;
   availability: string | null;
   isApproved: boolean | null;
+  trainerBonus: string | null;
+  sponsoredBy: string | null;
+  bonusExpiresAt: string | null;
+  isSponsored: boolean;
   syncedAt: string | null;
   createdAt: string;
   updatedAt: string;
