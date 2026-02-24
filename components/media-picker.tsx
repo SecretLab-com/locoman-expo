@@ -215,41 +215,38 @@ export function MediaPicker({
           <SwipeDownSheet
             visible={showOptions}
             onClose={() => setShowOptions(false)}
-            className="bg-background rounded-t-3xl p-6"
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
           >
-            <Text className="text-xl font-bold text-foreground mb-4">Add Photo</Text>
+            <Text style={{ fontSize: 20, fontWeight: "700", color: colors.foreground, marginBottom: 16 }}>Add Photo</Text>
 
             <TouchableOpacity
               onPress={takePhoto}
-              className="flex-row items-center py-4 border-b border-border"
+              style={{ flexDirection: "row", alignItems: "center", paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}
             >
-              <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center mr-4">
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: `${colors.primary}18`, alignItems: "center", justifyContent: "center", marginRight: 16 }}>
                 <IconSymbol name="camera.fill" size={20} color={colors.primary} />
               </View>
               <View>
-                <Text className="text-foreground font-semibold">Take Photo</Text>
-                <Text className="text-sm text-muted">Use your camera</Text>
+                <Text style={{ color: colors.foreground, fontWeight: "600" }}>Take Photo</Text>
+                <Text style={{ fontSize: 13, color: colors.muted }}>Use your camera</Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={pickFromLibrary}
-              className="flex-row items-center py-4"
+              style={{ flexDirection: "row", alignItems: "center", paddingVertical: 16 }}
             >
-              <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center mr-4">
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: `${colors.primary}18`, alignItems: "center", justifyContent: "center", marginRight: 16 }}>
                 <IconSymbol name="photo" size={20} color={colors.primary} />
               </View>
               <View>
-                <Text className="text-foreground font-semibold">Choose from Library</Text>
-                <Text className="text-sm text-muted">Select from your photos</Text>
+                <Text style={{ color: colors.foreground, fontWeight: "600" }}>Choose from Library</Text>
+                <Text style={{ fontSize: 13, color: colors.muted }}>Select from your photos</Text>
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => setShowOptions(false)}
-              className="py-4 mt-4"
-            >
-              <Text className="text-center text-muted">Cancel</Text>
+            <TouchableOpacity onPress={() => setShowOptions(false)} style={{ paddingVertical: 16, marginTop: 16 }}>
+              <Text style={{ textAlign: "center", color: colors.muted, fontSize: 16 }}>Cancel</Text>
             </TouchableOpacity>
           </SwipeDownSheet>
         </Pressable>
@@ -420,24 +417,24 @@ export function SingleImagePicker({
           <SwipeDownSheet
             visible={showOptions}
             onClose={() => setShowOptions(false)}
-            className="bg-background rounded-t-3xl p-6"
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
           >
             <TouchableOpacity
               onPress={takePhoto}
-              className="flex-row items-center py-4 border-b border-border"
+              style={{ flexDirection: "row", alignItems: "center", paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}
             >
               <IconSymbol name="camera.fill" size={24} color={colors.primary} />
-              <Text className="text-foreground font-semibold ml-4">Take Photo</Text>
+              <Text style={{ color: colors.foreground, fontWeight: "600", marginLeft: 16, fontSize: 16 }}>Take Photo</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={pickFromLibrary}
-              className="flex-row items-center py-4"
+              style={{ flexDirection: "row", alignItems: "center", paddingVertical: 16 }}
             >
               <IconSymbol name="photo" size={24} color={colors.primary} />
-              <Text className="text-foreground font-semibold ml-4">Choose from Library</Text>
+              <Text style={{ color: colors.foreground, fontWeight: "600", marginLeft: 16, fontSize: 16 }}>Choose from Library</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowOptions(false)} className="py-4 mt-2">
-              <Text className="text-center text-muted">Cancel</Text>
+            <TouchableOpacity onPress={() => setShowOptions(false)} style={{ paddingVertical: 16, marginTop: 8 }}>
+              <Text style={{ textAlign: "center", color: colors.muted, fontSize: 16 }}>Cancel</Text>
             </TouchableOpacity>
           </SwipeDownSheet>
         </Pressable>
