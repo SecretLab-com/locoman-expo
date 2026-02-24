@@ -7,7 +7,7 @@ import { formatGBPFromMinor, toMinorUnits } from "@/lib/currency";
 import { trpc } from "@/lib/trpc";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Image } from "expo-image";
 
 type OfferType = "one_off_session" | "multi_session_package" | "product_bundle";
@@ -115,6 +115,7 @@ export default function OfferWizardScreen() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Array<{ id: string; name: string; price: string; imageUrl?: string | null; quantity: number }>>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [inspectProduct, setInspectProduct] = useState<{ id: string; name: string; price: string; imageUrl?: string | null } | null>(null);
 
   const { data: profileData } = trpc.profile.get.useQuery();
   const { data: templatesData = [], isLoading: templatesLoading } = trpc.bundles.templates.useQuery(undefined, {
@@ -230,7 +231,7 @@ export default function OfferWizardScreen() {
         }
         if (!catalogMatch && pWords.length > 0) {
           let bestScore = 0;
-          let bestMatch: typeof catalogMatch = undefined;
+          let bestMatch: (typeof catalog)[number] | undefined = undefined;
           for (const cp of catalog) {
             const cpName = (cp.name || "").toLowerCase();
             const score = pWords.filter((w: string) => cpName.includes(w)).length;
@@ -585,18 +586,25 @@ export default function OfferWizardScreen() {
                   {selectedProducts.map((product, index) => (
                     <View key={`${product.id}-${index}`} className="bg-surface border border-border rounded-xl p-3 mb-2">
                       <View className="flex-row items-center">
-                        {product.imageUrl ? (
-                          <Image source={{ uri: product.imageUrl }} style={{ width: 52, height: 52, borderRadius: 10 }} contentFit="cover" />
-                        ) : (
-                          <View style={{ width: 52, height: 52, borderRadius: 10, backgroundColor: `${colors.primary}12` }} className="items-center justify-center">
-                            <IconSymbol name="bag.fill" size={22} color={colors.muted} />
+                        <TouchableOpacity
+                          className="flex-row items-center flex-1"
+                          activeOpacity={0.7}
+                          onPress={() => setInspectProduct(product)}
+                        >
+                          {product.imageUrl ? (
+                            <Image source={{ uri: product.imageUrl }} style={{ width: 52, height: 52, borderRadius: 10 }} contentFit="cover" />
+                          ) : (
+                            <View style={{ width: 52, height: 52, borderRadius: 10, backgroundColor: `${colors.primary}12` }} className="items-center justify-center">
+                              <IconSymbol name="bag.fill" size={22} color={colors.muted} />
+                            </View>
+                          )}
+                          <View className="flex-1 ml-3">
+                            <Text className="text-foreground font-medium" numberOfLines={1}>{product.name}</Text>
+                            <Text className="text-muted text-sm mt-0.5">{product.price} GBP</Text>
                           </View>
-                        )}
-                        <View className="flex-1 ml-3">
-                          <Text className="text-foreground font-medium" numberOfLines={1}>{product.name}</Text>
-                          <Text className="text-muted text-sm mt-0.5">{product.price} GBP</Text>
-                        </View>
-                        <TouchableOpacity className="p-1.5" onPress={() => setSelectedProducts((prev) => prev.filter((_, i) => i !== index))}>
+                          <IconSymbol name="chevron.right" size={14} color={colors.muted} />
+                        </TouchableOpacity>
+                        <TouchableOpacity className="p-1.5 ml-2" onPress={() => setSelectedProducts((prev) => prev.filter((_, i) => i !== index))}>
                           <IconSymbol name="xmark" size={14} color={colors.muted} />
                         </TouchableOpacity>
                       </View>
@@ -776,6 +784,62 @@ export default function OfferWizardScreen() {
         </View>
       </ScrollView>
 
+      {/* Product detail modal */}
+      {inspectProduct && (() => {
+        const fullProduct = (catalogProducts || []).find((cp: any) => String(cp.id) === inspectProduct.id);
+        return (
+          <Modal visible={!!inspectProduct} transparent animationType="fade" onRequestClose={() => setInspectProduct(null)}>
+            <Pressable
+              style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 24, backgroundColor: "rgba(0,0,0,0.85)" }}
+              onPress={() => setInspectProduct(null)}
+            >
+              <Pressable
+                style={{ backgroundColor: colors.surface, borderRadius: 16, width: "100%", maxWidth: 420, overflow: "hidden" }}
+                onPress={() => {}}
+              >
+                {(fullProduct?.imageUrl || inspectProduct.imageUrl) ? (
+                  <Image
+                    source={{ uri: fullProduct?.imageUrl || inspectProduct.imageUrl! }}
+                    style={{ width: "100%", height: 220 }}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={{ width: "100%", height: 140, backgroundColor: `${colors.primary}12`, alignItems: "center", justifyContent: "center" }}>
+                    <IconSymbol name="bag.fill" size={40} color={colors.muted} />
+                  </View>
+                )}
+                <View style={{ padding: 20 }}>
+                  <Text style={{ color: colors.foreground, fontSize: 18, fontWeight: "700" }}>{fullProduct?.name || inspectProduct.name}</Text>
+                  <Text style={{ color: colors.primary, fontSize: 16, fontWeight: "600", marginTop: 4 }}>{fullProduct?.price || inspectProduct.price} GBP</Text>
+                  {fullProduct?.brand && (
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>Brand: {fullProduct.brand}</Text>
+                  )}
+                  {fullProduct?.category && (
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>Category: {fullProduct.category}</Text>
+                  )}
+                  {fullProduct?.description && (
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: 8, lineHeight: 18 }} numberOfLines={4}>{fullProduct.description}</Text>
+                  )}
+                  {fullProduct?.isSponsored && fullProduct?.trainerBonus && (
+                    <View style={{ backgroundColor: `${colors.success}18`, borderRadius: 8, padding: 10, marginTop: 12, flexDirection: "row", alignItems: "center" }}>
+                      <IconSymbol name="star.fill" size={14} color={colors.success} />
+                      <Text style={{ color: colors.success, fontSize: 13, fontWeight: "600", marginLeft: 6 }}>
+                        +${fullProduct.trainerBonus} trainer bonus per sale{fullProduct.sponsoredBy ? ` · ${fullProduct.sponsoredBy}` : ""}
+                      </Text>
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    onPress={() => setInspectProduct(null)}
+                    style={{ backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 16 }}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "600", fontSize: 16 }}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        );
+      })()}
     </ScreenContainer>
   );
 }
