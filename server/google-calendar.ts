@@ -173,3 +173,146 @@ export async function createGoogleCalendarEvent(input: {
     htmlLink: typeof data.htmlLink === "string" ? data.htmlLink : null,
   };
 }
+
+export async function deleteGoogleCalendarEvent(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+}): Promise<void> {
+  const response = await fetch(
+    `${GOOGLE_CALENDAR_EVENT_URL}/${encodeURIComponent(input.calendarId)}/events/${encodeURIComponent(input.eventId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+    },
+  );
+  if (!response.ok && response.status !== 404 && response.status !== 410) {
+    const data = await response.json().catch(() => ({}));
+    const message = typeof data?.error?.message === "string" ? data.error.message : "Failed to delete calendar event";
+    throw new Error(message);
+  }
+}
+
+export async function updateGoogleCalendarEvent(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+  startTimeIso?: string;
+  endTimeIso?: string;
+  status?: "confirmed" | "tentative" | "cancelled";
+}): Promise<{ id: string }> {
+  const body: Record<string, unknown> = {};
+  if (input.summary !== undefined) body.summary = input.summary;
+  if (input.description !== undefined) body.description = input.description;
+  if (input.location !== undefined) body.location = input.location;
+  if (input.startTimeIso) body.start = { dateTime: input.startTimeIso };
+  if (input.endTimeIso) body.end = { dateTime: input.endTimeIso };
+  if (input.status) body.status = input.status;
+
+  const response = await fetch(
+    `${GOOGLE_CALENDAR_EVENT_URL}/${encodeURIComponent(input.calendarId)}/events/${encodeURIComponent(input.eventId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof data?.error?.message === "string" ? data.error.message : "Failed to update calendar event";
+    throw new Error(message);
+  }
+  return { id: String(data.id || input.eventId) };
+}
+
+export async function getGoogleCalendarEvent(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+}): Promise<{
+  id: string;
+  summary: string;
+  description: string | null;
+  location: string | null;
+  start: string | null;
+  end: string | null;
+  status: string;
+} | null> {
+  const response = await fetch(
+    `${GOOGLE_CALENDAR_EVENT_URL}/${encodeURIComponent(input.calendarId)}/events/${encodeURIComponent(input.eventId)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        Accept: "application/json",
+      },
+    },
+  );
+  if (response.status === 404 || response.status === 410) return null;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return null;
+  return {
+    id: String(data.id || ""),
+    summary: String(data.summary || ""),
+    description: data.description || null,
+    location: data.location || null,
+    start: data.start?.dateTime || null,
+    end: data.end?.dateTime || null,
+    status: String(data.status || "confirmed"),
+  };
+}
+
+export type GoogleCalendarEventSummary = {
+  id: string;
+  summary: string;
+  description: string | null;
+  location: string | null;
+  start: string | null;
+  end: string | null;
+  status: string;
+  updated: string | null;
+};
+
+export async function listGoogleCalendarEvents(input: {
+  accessToken: string;
+  calendarId: string;
+  timeMin: string;
+  timeMax: string;
+  maxResults?: number;
+}): Promise<GoogleCalendarEventSummary[]> {
+  const url = new URL(
+    `${GOOGLE_CALENDAR_EVENT_URL}/${encodeURIComponent(input.calendarId)}/events`,
+  );
+  url.searchParams.set("timeMin", input.timeMin);
+  url.searchParams.set("timeMax", input.timeMax);
+  url.searchParams.set("maxResults", String(input.maxResults || 250));
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+      Accept: "application/json",
+    },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return [];
+
+  return (Array.isArray(data?.items) ? data.items : []).map((item: any) => ({
+    id: String(item.id || ""),
+    summary: String(item.summary || ""),
+    description: item.description || null,
+    location: item.location || null,
+    start: item.start?.dateTime || item.start?.date || null,
+    end: item.end?.dateTime || item.end?.date || null,
+    status: String(item.status || "confirmed"),
+    updated: item.updated || null,
+  }));
+}

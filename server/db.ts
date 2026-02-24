@@ -315,6 +315,7 @@ export type Session = {
   status: string | null;
   notes: string | null;
   completedAt: string | null;
+  googleCalendarEventId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -449,6 +450,7 @@ export type CalendarEvent = {
   relatedClientId: string | null;
   relatedOrderId: string | null;
   reminderSent: boolean | null;
+  googleCalendarEventId: string | null;
   createdAt: string;
   updatedAt: string;
 };

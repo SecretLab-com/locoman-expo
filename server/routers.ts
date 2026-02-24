@@ -2003,7 +2003,7 @@ export const appRouter = router({
             const ensured = await ensureGoogleCalendarAccessToken(trainer);
             const calendarId = ensured.integration.selectedCalendarId || "primary";
             const eventEnd = new Date(input.sessionDate.getTime() + input.durationMinutes * 60_000).toISOString();
-            await googleCalendar.createGoogleCalendarEvent({
+            const gcEvent = await googleCalendar.createGoogleCalendarEvent({
               accessToken: ensured.token,
               calendarId,
               summary: `${input.sessionType || "Training"} with ${client.name || "Client"}`,
@@ -2013,6 +2013,9 @@ export const appRouter = router({
               endTimeIso: eventEnd,
               attendeeEmails: client.email ? [client.email] : [],
             });
+            if (gcEvent.id) {
+              await db.updateSession(sessionId, { googleCalendarEventId: gcEvent.id });
+            }
           }
         } catch (error) {
           console.warn("[GoogleCalendar] Session sync failed:", error);
@@ -2039,6 +2042,24 @@ export const appRouter = router({
         if (!session) notFound("Session");
         assertTrainerOwned(ctx.user, session.trainerId, "session");
         await db.updateSession(input.id, { status: "cancelled" });
+
+        if (session.googleCalendarEventId) {
+          try {
+            const trainer = await db.getUserById(session.trainerId);
+            if (trainer) {
+              const ensured = await ensureGoogleCalendarAccessToken(trainer);
+              const calendarId = ensured.integration.selectedCalendarId || "primary";
+              await googleCalendar.deleteGoogleCalendarEvent({
+                accessToken: ensured.token,
+                calendarId,
+                eventId: session.googleCalendarEventId,
+              });
+            }
+          } catch (error) {
+            console.warn("[GoogleCalendar] Failed to delete event on cancel:", error);
+          }
+        }
+
         return { success: true };
       }),
 
@@ -3213,6 +3234,80 @@ export const appRouter = router({
       delete (nextMetadata as any).googleCalendar;
       await db.updateUser(ctx.user.id, { metadata: nextMetadata });
       return { success: true };
+    }),
+
+    syncFromGoogle: trainerProcedure.mutation(async ({ ctx }) => {
+      const user = await db.getUserById(ctx.user.id);
+      if (!user) notFound("Trainer");
+      const ensured = await ensureGoogleCalendarAccessToken(user);
+      const calendarId = ensured.integration.selectedCalendarId || "primary";
+
+      const now = new Date();
+      const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const twoWeeksAhead = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+      const gcEvents = await googleCalendar.listGoogleCalendarEvents({
+        accessToken: ensured.token,
+        calendarId,
+        timeMin: twoWeeksAgo.toISOString(),
+        timeMax: twoWeeksAhead.toISOString(),
+      });
+
+      const sessions = await db.getSessionsByTrainer(ctx.user.id);
+      const sessionsByGcId = new Map<string, db.Session>();
+      for (const s of sessions) {
+        if (s.googleCalendarEventId) sessionsByGcId.set(s.googleCalendarEventId, s);
+      }
+
+      let updated = 0;
+      let cancelled = 0;
+
+      for (const gcEvent of gcEvents) {
+        if (!gcEvent.id) continue;
+        const session = sessionsByGcId.get(gcEvent.id);
+        if (!session) continue;
+
+        if (gcEvent.status === "cancelled" && session.status !== "cancelled") {
+          await db.updateSession(session.id, { status: "cancelled" });
+          cancelled++;
+          continue;
+        }
+
+        const changes: Partial<db.InsertSession> = {};
+        if (gcEvent.start && gcEvent.start !== session.sessionDate) {
+          changes.sessionDate = gcEvent.start;
+        }
+        if (gcEvent.location && gcEvent.location !== session.location) {
+          changes.location = gcEvent.location;
+        }
+        if (gcEvent.summary && gcEvent.summary !== session.sessionType) {
+          changes.notes = `[Updated from Google Calendar] ${gcEvent.summary}`;
+        }
+
+        if (Object.keys(changes).length > 0) {
+          await db.updateSession(session.id, changes);
+          updated++;
+        }
+      }
+
+      // Check for sessions whose Google Calendar events were deleted
+      for (const [gcId, session] of sessionsByGcId) {
+        if (session.status === "cancelled") continue;
+        const stillExists = gcEvents.some((e) => e.id === gcId);
+        if (!stillExists) {
+          const gcEvent = await googleCalendar.getGoogleCalendarEvent({
+            accessToken: ensured.token,
+            calendarId,
+            eventId: gcId,
+          });
+          if (!gcEvent || gcEvent.status === "cancelled") {
+            await db.updateSession(session.id, { status: "cancelled" });
+            cancelled++;
+          }
+        }
+      }
+
+      return { synced: true, updated, cancelled, checked: gcEvents.length };
     }),
   }),
 
