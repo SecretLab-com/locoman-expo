@@ -588,7 +588,7 @@ export default function OfferWizardScreen() {
                         <TouchableOpacity
                           className="flex-row items-center flex-1"
                           activeOpacity={0.7}
-                          onPress={() => router.push({ pathname: "/(tabs)/products", params: { productId: product.id } } as any)}
+                          onPress={() => router.push({ pathname: "/product/[id]", params: { id: product.id } } as any)}
                         >
                           {product.imageUrl ? (
                             <Image source={{ uri: product.imageUrl }} style={{ width: 52, height: 52, borderRadius: 10 }} contentFit="cover" />
