@@ -215,13 +215,17 @@ export default function OfferWizardScreen() {
 
     const templateProducts = parseArrayValue(template.defaultProducts);
     if (templateProducts.length > 0) {
-      setSelectedProducts(templateProducts.map((p: any) => ({
-        id: String(p.productId || p.id || ""),
-        name: String(p.name || p.title || "Product"),
-        price: String(p.price || "0"),
-        imageUrl: p.imageUrl || null,
-        quantity: Number(p.quantity) || 1,
-      })));
+      setSelectedProducts(templateProducts.map((p: any) => {
+        const pid = String(p.productId || p.id || "");
+        const catalogMatch = (catalogProducts || []).find((cp: any) => String(cp.id) === pid);
+        return {
+          id: pid,
+          name: String(catalogMatch?.name || p.name || p.title || "Product"),
+          price: String(catalogMatch?.price || p.price || "0"),
+          imageUrl: catalogMatch?.imageUrl || p.imageUrl || null,
+          quantity: Number(p.quantity) || 1,
+        };
+      }));
     }
   };
 
@@ -532,30 +536,38 @@ export default function OfferWizardScreen() {
                 <View className="mb-3">
                   <Text className="text-sm font-medium text-muted mb-2">Products ({selectedProducts.length})</Text>
                   {selectedProducts.map((product, index) => (
-                    <View key={`${product.id}-${index}`} className="bg-surface border border-border rounded-xl p-3 mb-2 flex-row items-center">
-                      {product.imageUrl ? (
-                        <Image source={{ uri: product.imageUrl }} style={{ width: 40, height: 40, borderRadius: 8 }} contentFit="cover" />
-                      ) : (
-                        <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: `${colors.primary}12` }} className="items-center justify-center">
-                          <IconSymbol name="bag.fill" size={16} color={colors.muted} />
+                    <View key={`${product.id}-${index}`} className="bg-surface border border-border rounded-xl p-3 mb-2">
+                      <View className="flex-row items-center">
+                        {product.imageUrl ? (
+                          <Image source={{ uri: product.imageUrl }} style={{ width: 52, height: 52, borderRadius: 10 }} contentFit="cover" />
+                        ) : (
+                          <View style={{ width: 52, height: 52, borderRadius: 10, backgroundColor: `${colors.primary}12` }} className="items-center justify-center">
+                            <IconSymbol name="bag.fill" size={22} color={colors.muted} />
+                          </View>
+                        )}
+                        <View className="flex-1 ml-3">
+                          <Text className="text-foreground font-medium" numberOfLines={1}>{product.name}</Text>
+                          <Text className="text-muted text-sm mt-0.5">{product.price} GBP</Text>
                         </View>
-                      )}
-                      <View className="flex-1 ml-3">
-                        <Text className="text-foreground font-medium text-sm" numberOfLines={1}>{product.name}</Text>
-                        <Text className="text-muted text-xs">{product.price} GBP × {product.quantity}</Text>
-                      </View>
-                      <View className="flex-row items-center mr-2">
-                        <TouchableOpacity className="w-7 h-7 rounded-full bg-background border border-border items-center justify-center" onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p))}>
-                          <Text className="text-foreground font-bold text-xs">−</Text>
-                        </TouchableOpacity>
-                        <Text className="text-foreground font-semibold mx-1.5 text-sm">{product.quantity}</Text>
-                        <TouchableOpacity className="w-7 h-7 rounded-full bg-background border border-border items-center justify-center" onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: p.quantity + 1 } : p))}>
-                          <Text className="text-foreground font-bold text-xs">+</Text>
+                        <TouchableOpacity className="p-1.5" onPress={() => setSelectedProducts((prev) => prev.filter((_, i) => i !== index))}>
+                          <IconSymbol name="xmark" size={14} color={colors.muted} />
                         </TouchableOpacity>
                       </View>
-                      <TouchableOpacity onPress={() => setSelectedProducts((prev) => prev.filter((_, i) => i !== index))}>
-                        <IconSymbol name="xmark" size={14} color={colors.muted} />
-                      </TouchableOpacity>
+                      <View className="flex-row items-center justify-end mt-2 pt-2 border-t border-border">
+                        <TouchableOpacity
+                          className="w-9 h-9 rounded-full bg-background border border-border items-center justify-center"
+                          onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p))}
+                        >
+                          <IconSymbol name="minus" size={14} color={colors.foreground} />
+                        </TouchableOpacity>
+                        <Text className="text-foreground font-semibold text-base mx-4 min-w-[24px] text-center">{product.quantity}</Text>
+                        <TouchableOpacity
+                          className="w-9 h-9 rounded-full bg-background border border-border items-center justify-center"
+                          onPress={() => setSelectedProducts((prev) => prev.map((p, i) => i === index ? { ...p, quantity: p.quantity + 1 } : p))}
+                        >
+                          <IconSymbol name="plus" size={14} color={colors.foreground} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   ))}
                 </View>
