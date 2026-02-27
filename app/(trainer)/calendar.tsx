@@ -75,6 +75,7 @@ export default function CalendarScreen() {
   const [searchClient, setSearchClient] = useState("");
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [showCalendarSettings, setShowCalendarSettings] = useState(false);
+  const [scheduleErrors, setScheduleErrors] = useState<Record<string, string>>({});
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("09:00");
   const [rescheduleDuration, setRescheduleDuration] = useState("60");
@@ -369,6 +370,7 @@ export default function CalendarScreen() {
     if (scheduleClientId) {
       setNewSessionClientId(scheduleClientId);
     }
+    setScheduleErrors({});
     setShowAddModal(true);
   };
 
@@ -464,19 +466,27 @@ export default function CalendarScreen() {
   };
 
   const handleScheduleSession = async () => {
+    const errors: Record<string, string> = {};
+
     if (!newSessionClientId) {
-      Alert.alert("Client Required", "Please select a client.");
-      return;
+      errors.client = "Please select a client";
     }
 
     const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(newSessionTime.trim());
     if (!timeMatch) {
-      Alert.alert("Invalid Time", "Use 24-hour format HH:MM (e.g. 09:00).");
-      return;
+      errors.time = "Use 24-hour format HH:MM (e.g. 09:00)";
     }
 
-    const durationMinutes = Math.max(15, Math.min(480, Number.parseInt(newSessionDuration, 10) || 60));
-    const [hours, minutes] = [Number.parseInt(timeMatch[1], 10), Number.parseInt(timeMatch[2], 10)];
+    const parsedDuration = Number.parseInt(newSessionDuration, 10);
+    if (!parsedDuration || parsedDuration < 15) {
+      errors.duration = "Duration must be at least 15 minutes";
+    }
+
+    setScheduleErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    const durationMinutes = Math.max(15, Math.min(480, parsedDuration || 60));
+    const [hours, minutes] = [Number.parseInt(timeMatch![1], 10), Number.parseInt(timeMatch![2], 10)];
     const sessionDate = new Date(selectedDate);
     sessionDate.setHours(hours, minutes, 0, 0);
 
@@ -1041,8 +1051,11 @@ export default function CalendarScreen() {
                     <Text className="text-primary font-medium">Selected: {selectedClientName}</Text>
                   </View>
                 )}
+                {scheduleErrors.client && !newSessionClientId && (
+                  <Text className="text-error text-xs mb-1">{scheduleErrors.client}</Text>
+                )}
                 <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-2"
+                  className={`bg-surface border rounded-xl px-4 py-3 text-foreground mb-2 ${scheduleErrors.client && !newSessionClientId ? "border-error" : "border-border"}`}
                   placeholder="Search clients..."
                   placeholderTextColor={colors.muted}
                   value={searchClient}
@@ -1063,7 +1076,7 @@ export default function CalendarScreen() {
                       clientOptions.map((client) => (
                         <TouchableOpacity
                           key={client.id}
-                          onPress={() => setNewSessionClientId(client.id)}
+                          onPress={() => { setNewSessionClientId(client.id); setScheduleErrors((prev) => { const { client: _, ...rest } = prev; return rest; }); }}
                           className={`rounded-xl px-4 py-3 border ${
                             newSessionClientId === client.id
                               ? "border-primary bg-primary/10"
@@ -1083,25 +1096,27 @@ export default function CalendarScreen() {
               <View className="mb-4">
                 <Text className="text-sm font-medium text-foreground mb-2">Time (HH:MM)</Text>
                 <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  className={`bg-surface border rounded-xl px-4 py-3 text-foreground ${scheduleErrors.time ? "border-error" : "border-border"}`}
                   placeholder="09:00"
                   placeholderTextColor={colors.muted}
                   value={newSessionTime}
-                  onChangeText={setNewSessionTime}
+                  onChangeText={(v) => { setNewSessionTime(v); setScheduleErrors((prev) => { const { time: _, ...rest } = prev; return rest; }); }}
                   keyboardType="numbers-and-punctuation"
                 />
+                {scheduleErrors.time && <Text className="text-error text-xs mt-1">{scheduleErrors.time}</Text>}
               </View>
 
               <View className="mb-4">
                 <Text className="text-sm font-medium text-foreground mb-2">Duration (minutes)</Text>
                 <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  className={`bg-surface border rounded-xl px-4 py-3 text-foreground ${scheduleErrors.duration ? "border-error" : "border-border"}`}
                   placeholder="60"
                   placeholderTextColor={colors.muted}
                   value={newSessionDuration}
-                  onChangeText={setNewSessionDuration}
+                  onChangeText={(v) => { setNewSessionDuration(v); setScheduleErrors((prev) => { const { duration: _, ...rest } = prev; return rest; }); }}
                   keyboardType="number-pad"
                 />
+                {scheduleErrors.duration && <Text className="text-error text-xs mt-1">{scheduleErrors.duration}</Text>}
               </View>
 
               <View className="mb-4">
