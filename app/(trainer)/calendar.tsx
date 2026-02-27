@@ -143,17 +143,27 @@ export default function CalendarScreen() {
   }, [scheduleClientId]);
 
   useEffect(() => {
-    const code = Array.isArray(params.code) ? params.code[0] : params.code;
+    let code = Array.isArray(params.code) ? params.code[0] : params.code;
+    if (!code && Platform.OS === "web" && typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      code = urlParams.get("code") || undefined;
+    }
     if (!code || Platform.OS !== "web" || connectGoogleCalendar.isPending) return;
     const redirectUri = `${window.location.origin}/calendar`;
     connectGoogleCalendar
       .mutateAsync({ code, redirectUri })
+      .then(() => {
+        Alert.alert("Connected", "Google Calendar connected. A 'Locomotivate' calendar has been created.");
+      })
+      .catch((err) => {
+        Alert.alert("Connection failed", err?.message || "Could not connect Google Calendar.");
+      })
       .finally(() => {
         if (typeof window !== "undefined") {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
       });
-  }, [params.code, connectGoogleCalendar]);
+  }, [params.code]);
 
   // Map API data to Session type
   const sessions: Session[] = useMemo(() => {
