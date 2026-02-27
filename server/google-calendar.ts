@@ -130,6 +130,35 @@ export async function listGoogleCalendars(accessToken: string): Promise<GoogleCa
   }));
 }
 
+export async function createGoogleCalendar(input: {
+  accessToken: string;
+  summary: string;
+  description?: string;
+  timeZone?: string;
+}): Promise<{ id: string; summary: string }> {
+  const response = await fetch("https://www.googleapis.com/calendar/v3/calendars", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      summary: input.summary,
+      description: input.description,
+      timeZone: input.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof data?.error?.message === "string" ? data.error.message : "Failed to create calendar";
+    throw new Error(message);
+  }
+  return {
+    id: String(data.id || ""),
+    summary: String(data.summary || input.summary),
+  };
+}
+
 export async function createGoogleCalendarEvent(input: {
   accessToken: string;
   calendarId: string;

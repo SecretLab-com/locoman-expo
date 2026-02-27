@@ -3174,11 +3174,29 @@ export const appRouter = router({
           redirectUri: input.redirectUri,
         });
         const calendars = await googleCalendar.listGoogleCalendars(token.accessToken);
-        const trainingCalendar = calendars.find((calendar) =>
-          String(calendar.summary || "").trim().toLowerCase() === "training",
+
+        const locoCalendar = calendars.find((calendar) =>
+          String(calendar.summary || "").trim().toLowerCase() === "locomotivate",
         );
-        const primaryCalendar = calendars.find((calendar) => calendar.primary);
-        const selected = trainingCalendar || primaryCalendar || calendars[0] || null;
+
+        let selected: { id: string; summary: string } | null = locoCalendar
+          ? { id: locoCalendar.id, summary: locoCalendar.summary }
+          : null;
+
+        if (!selected) {
+          try {
+            const created = await googleCalendar.createGoogleCalendar({
+              accessToken: token.accessToken,
+              summary: "Locomotivate",
+              description: "Training sessions and client appointments from Locomotivate",
+            });
+            selected = { id: created.id, summary: created.summary };
+          } catch {
+            const primaryCalendar = calendars.find((calendar) => calendar.primary);
+            const fallback = primaryCalendar || calendars[0] || null;
+            selected = fallback ? { id: fallback.id, summary: fallback.summary } : null;
+          }
+        }
 
         const metadata = toObjectRecord(user.metadata);
         const nextMetadata = {
