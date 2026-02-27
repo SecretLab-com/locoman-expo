@@ -212,9 +212,26 @@ export default function CalendarScreen() {
     },
   });
 
+  const syncFromGoogle = trpc.googleCalendar.syncFromGoogle.useMutation({
+    onSuccess: (result) => {
+      if (result.updated > 0 || result.cancelled > 0) {
+        refetch();
+      }
+    },
+  });
+
   const onRefresh = async () => {
     await refetch();
+    if (googleStatus.data?.connected) {
+      syncFromGoogle.mutate();
+    }
   };
+
+  useEffect(() => {
+    if (googleStatus.data?.connected && !syncFromGoogle.isPending) {
+      syncFromGoogle.mutate();
+    }
+  }, [googleStatus.data?.connected]);
 
   // Get calendar data for current month
   const calendarData = useMemo(() => {

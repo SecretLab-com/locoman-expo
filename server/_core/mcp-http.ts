@@ -2,7 +2,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Express, Request, Response } from "express";
 import {
   createTrainerAssistantMcpServer,
-  hasTrainerAssistantMcpAuthToken,
+  runWithTrainerAssistantMcpAuthContext,
 } from "../../scripts/mcp-trainer-assistant";
 import { logError, logEvent } from "./logger";
 
@@ -24,11 +24,10 @@ function getBearerToken(req: Request): string {
   return token.trim();
 }
 
-function isAuthorized(req: Request, requiredToken: string): boolean {
+function hasValidMcpKey(req: Request, requiredToken: string): boolean {
   if (!requiredToken) return true;
   const headerToken = String(req.headers[MCP_KEY_HEADER] || "").trim();
-  const bearerToken = getBearerToken(req);
-  return headerToken === requiredToken || bearerToken === requiredToken;
+  return headerToken === requiredToken;
 }
 
 function sendJsonRpcError(
@@ -53,20 +52,24 @@ export function registerTrainerAssistantMcpHttpRoutes(app: Express) {
   const requiredToken = String(process.env.LOCO_MCP_AUTH_TOKEN || "").trim();
 
   app.post(MCP_PATH, async (req, res) => {
-    if (!isAuthorized(req, requiredToken)) {
+    if (!hasValidMcpKey(req, requiredToken)) {
       sendJsonRpcError(res, 401, -32001, "Unauthorized MCP request");
       return;
     }
 
-    if (!hasTrainerAssistantMcpAuthToken()) {
+    const userToken = getBearerToken(req);
+    if (!userToken) {
       sendJsonRpcError(
         res,
-        503,
+        401,
         -32002,
-        "MCP backend token missing. Set LOCO_API_TOKEN (or SUPABASE_ACCESS_TOKEN).",
+        "Missing user bearer token in Authorization header.",
       );
       return;
     }
+    const impersonateUserId = String(
+      req.headers["x-impersonate-user-id"] || "",
+    ).trim();
 
     const server = createTrainerAssistantMcpServer();
     const transport = new StreamableHTTPServerTransport({
@@ -84,8 +87,13 @@ export function registerTrainerAssistantMcpHttpRoutes(app: Express) {
     });
 
     try {
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      await runWithTrainerAssistantMcpAuthContext(
+        { authToken: userToken, impersonateUserId },
+        async () => {
+          await server.connect(transport);
+          await transport.handleRequest(req, res, req.body);
+        },
+      );
     } catch (error) {
       logError("mcp.http.request_failed", error);
       if (!res.headersSent) {

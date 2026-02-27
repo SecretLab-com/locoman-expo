@@ -183,15 +183,17 @@ Environment variables:
 
 - `LOCO_MCP_HTTP_ENABLED` (optional, default `true`) — set to `false` to disable `/mcp`
 - `LOCO_MCP_AUTH_TOKEN` (optional but recommended) — shared secret required for `/mcp` access
-- `LOCO_API_TOKEN` or `SUPABASE_ACCESS_TOKEN` (required for tool execution) — trainer auth token used by MCP -> tRPC calls
+- `LOCO_API_TOKEN` or `SUPABASE_ACCESS_TOKEN` (optional fallback for local stdio mode) — not used by `/mcp` when a user bearer token is provided
 - `LOCO_API_BASE_URL` (optional) — defaults from `EXPO_PUBLIC_API_BASE_URL` or `http://localhost:3000`
 - `LOCO_IMPERSONATE_USER_ID` (optional) — impersonation header for coordinator flows
 
 Auth behavior for `/mcp`:
 
-- If `LOCO_MCP_AUTH_TOKEN` is set, requests must provide either:
-  - `X-LOCO-MCP-KEY: <token>`, or
-  - `Authorization: Bearer <token>`
+- If `LOCO_MCP_AUTH_TOKEN` is set, requests must provide:
+  - `X-LOCO-MCP-KEY: <token>` (endpoint protection key)
+- Every `/mcp` request must also provide:
+  - `Authorization: Bearer <USER_SUPABASE_ACCESS_TOKEN>`
+- Tool execution uses the user token from `Authorization`, not a global backend token.
 
 OpenClaw + mcporter example:
 
@@ -199,6 +201,7 @@ OpenClaw + mcporter example:
 mcporter config add locomotivate-trainer https://services.bright.coach/mcp \
   --scope home \
   --header X-LOCO-MCP-KEY='${LOCO_MCP_AUTH_TOKEN}' \
+  --header Authorization='Bearer ${LOCO_USER_ACCESS_TOKEN}' \
   --description "Locomotivate trainer MCP"
 ```
 
