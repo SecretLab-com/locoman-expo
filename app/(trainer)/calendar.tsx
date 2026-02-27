@@ -821,7 +821,7 @@ export default function CalendarScreen() {
           <SwipeDownSheet
             visible={showSessionModal}
             onClose={() => setShowSessionModal(false)}
-            className="bg-background rounded-t-3xl p-6"
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
           >
             {selectedSession && (
               <>
@@ -895,7 +895,7 @@ export default function CalendarScreen() {
           <SwipeDownSheet
             visible={showRescheduleModal}
             onClose={() => setShowRescheduleModal(false)}
-            className="bg-background rounded-t-3xl p-6"
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
           >
             <Text className="text-xl font-bold text-foreground mb-4">Suggest Appointment Move</Text>
             <Text className="text-sm text-muted mb-2">Date (YYYY-MM-DD)</Text>
@@ -961,7 +961,7 @@ export default function CalendarScreen() {
           <SwipeDownSheet
             visible={showAddModal}
             onClose={() => setShowAddModal(false)}
-            className="bg-background rounded-t-3xl p-6"
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
           >
             <View className="flex-row items-center justify-between mb-4">
               <Text className="text-xl font-bold text-foreground">Schedule Session</Text>
