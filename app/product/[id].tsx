@@ -29,6 +29,15 @@ export default function ProductDetailScreen() {
 
         {/* Header */}
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{ flexDirection: "row", alignItems: "center" }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <IconSymbol name="chevron.left" size={20} color={colors.primary} />
+            <Text style={{ fontSize: 16, color: colors.primary, marginLeft: 4 }}>Back</Text>
+          </TouchableOpacity>
           <Text style={{ fontSize: 18, fontWeight: "600", color: colors.foreground }}>Product details</Text>
           <TouchableOpacity
             onPress={() => router.back()}
