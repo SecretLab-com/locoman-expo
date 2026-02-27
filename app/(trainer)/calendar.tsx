@@ -82,9 +82,10 @@ export default function CalendarScreen() {
   const [rescheduleNote, setRescheduleNote] = useState("");
   const isWideScreen = windowWidth >= 1100;
 
-  // Fetch sessions from tRPC
+  // Fetch sessions and reschedule requests from tRPC
   const { data: clientsData = [], isLoading: clientsLoading } = trpc.clients.list.useQuery();
   const { data: sessionsData, isLoading, refetch, isRefetching } = trpc.sessions.list.useQuery();
+  const { data: pendingReschedules = [], refetch: refetchReschedules } = trpc.reschedule.pending.useQuery();
   const createSessionMutation = trpc.sessions.create.useMutation({
     onSuccess: async () => {
       await refetch();
@@ -216,12 +217,22 @@ export default function CalendarScreen() {
     onSuccess: (result) => {
       if (result.updated > 0 || result.cancelled > 0) {
         refetch();
+        refetchReschedules();
       }
     },
   });
 
+  const approveReschedule = trpc.reschedule.approve.useMutation({
+    onSuccess: () => { refetch(); refetchReschedules(); Alert.alert("Approved", "Session rescheduled."); },
+    onError: (err) => Alert.alert("Error", err.message),
+  });
+  const rejectReschedule = trpc.reschedule.reject.useMutation({
+    onSuccess: () => { refetchReschedules(); Alert.alert("Rejected", "Reschedule declined, original time kept."); },
+    onError: (err) => Alert.alert("Error", err.message),
+  });
+
   const onRefresh = async () => {
-    await refetch();
+    await Promise.all([refetch(), refetchReschedules()]);
     if (googleStatus.data?.connected) {
       syncFromGoogle.mutate();
     }
@@ -632,6 +643,41 @@ export default function CalendarScreen() {
               </Text>
             ) : null}
           </View>
+        </View>
+      )}
+
+      {/* Pending reschedule alerts */}
+      {(pendingReschedules as any[]).length > 0 && (
+        <View className="px-4 mb-2">
+          {(pendingReschedules as any[]).map((req: any) => {
+            const oldTime = new Date(req.originalDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            const newTime = new Date(req.proposedDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            return (
+              <View key={req.id} className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-2">
+                <Text className="text-foreground text-sm font-semibold mb-1">📅 Reschedule Request</Text>
+                <Text className="text-muted text-xs mb-2">
+                  {oldTime} → {newTime}
+                  {req.source === "google_calendar" ? " (from Google Calendar)" : ""}
+                </Text>
+                <View className="flex-row gap-2">
+                  <TouchableOpacity
+                    className="flex-1 bg-success py-2 rounded-lg items-center"
+                    onPress={() => approveReschedule.mutate({ id: req.id })}
+                    disabled={approveReschedule.isPending}
+                  >
+                    <Text className="text-white text-xs font-semibold">Approve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    className="flex-1 bg-error py-2 rounded-lg items-center"
+                    onPress={() => rejectReschedule.mutate({ id: req.id })}
+                    disabled={rejectReschedule.isPending}
+                  >
+                    <Text className="text-white text-xs font-semibold">Reject</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
         </View>
       )}
 

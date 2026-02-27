@@ -455,6 +455,33 @@ export type CalendarEvent = {
   updatedAt: string;
 };
 
+export type RescheduleRequest = {
+  id: string;
+  sessionId: string;
+  trainerId: string;
+  clientId: string;
+  originalDate: string;
+  proposedDate: string;
+  proposedDuration: number | null;
+  proposedLocation: string | null;
+  source: string | null;
+  status: string;
+  counterDate: string | null;
+  note: string | null;
+  responseNote: string | null;
+  respondedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertRescheduleRequest = Partial<Omit<RescheduleRequest, "id" | "createdAt" | "updatedAt">> & {
+  sessionId: string;
+  trainerId: string;
+  clientId: string;
+  originalDate: string;
+  proposedDate: string;
+};
+
 export type InsertCalendarEvent = Partial<Omit<CalendarEvent, "id" | "createdAt" | "updatedAt">> & {
   userId: string;
   title: string;
@@ -3102,4 +3129,54 @@ export async function getPaymentLogsByReference(merchantReference: string): Prom
     .order("created_at", { ascending: false });
   if (error) { console.error("[Database] getPaymentLogsByReference:", error.message); return []; }
   return mapRowsFromDb<PaymentLog>(data || []);
+}
+
+// ============================================================================
+// RESCHEDULE REQUESTS
+// ============================================================================
+
+export async function createRescheduleRequest(data: InsertRescheduleRequest): Promise<string> {
+  const { data: row, error } = await sb()
+    .from("reschedule_requests")
+    .insert(mapToDb(data))
+    .select("id")
+    .single();
+  if (error) throw error;
+  return row.id;
+}
+
+export async function getRescheduleRequestsByTrainer(trainerId: string): Promise<RescheduleRequest[]> {
+  const { data, error } = await sb()
+    .from("reschedule_requests")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("created_at", { ascending: false });
+  if (error) { console.error("[Database] getRescheduleRequestsByTrainer:", error.message); return []; }
+  return mapRowsFromDb<RescheduleRequest>(data || []);
+}
+
+export async function getPendingRescheduleRequests(trainerId: string): Promise<RescheduleRequest[]> {
+  const { data, error } = await sb()
+    .from("reschedule_requests")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (error) { console.error("[Database] getPendingRescheduleRequests:", error.message); return []; }
+  return mapRowsFromDb<RescheduleRequest>(data || []);
+}
+
+export async function updateRescheduleRequest(id: string, data: Partial<RescheduleRequest>) {
+  const { error } = await sb().from("reschedule_requests").update(mapToDb(data)).eq("id", id);
+  if (error) { console.error("[Database] updateRescheduleRequest:", error.message); throw error; }
+}
+
+export async function getRescheduleRequestById(id: string): Promise<RescheduleRequest | undefined> {
+  const { data, error } = await sb()
+    .from("reschedule_requests")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) { console.error("[Database] getRescheduleRequestById:", error.message); return undefined; }
+  return mapFromDb<RescheduleRequest>(data);
 }

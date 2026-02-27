@@ -2139,6 +2139,104 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // RESCHEDULE REQUESTS
+  // ============================================================================
+  reschedule: router({
+    pending: trainerProcedure.query(async ({ ctx }) => {
+      return db.getPendingRescheduleRequests(ctx.user.id);
+    }),
+
+    list: trainerProcedure.query(async ({ ctx }) => {
+      return db.getRescheduleRequestsByTrainer(ctx.user.id);
+    }),
+
+    approve: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const request = await db.getRescheduleRequestById(input.id);
+        if (!request) notFound("Reschedule request");
+        if (request.trainerId !== ctx.user.id && !isManagerLikeRole(ctx.user.role)) {
+          forbidden("You do not have access to this request");
+        }
+
+        await db.updateSession(request.sessionId, { sessionDate: request.proposedDate, location: request.proposedLocation || undefined });
+        await db.updateRescheduleRequest(input.id, { status: "approved", respondedAt: new Date().toISOString() } as any);
+
+        const conversationId = [request.trainerId, request.clientId].sort().join("-");
+        const newTime = new Date(request.proposedDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        const msgContent = `✅ Reschedule approved! Your session has been moved to ${newTime}.`;
+        await db.createMessage({ senderId: request.trainerId, receiverId: request.clientId, conversationId, content: msgContent, messageType: "system" });
+        notifyNewMessage(conversationId, { id: "reschedule-approved-" + input.id, senderId: request.trainerId, senderName: "Calendar", receiverId: request.clientId, content: msgContent, conversationId }, [request.clientId]);
+        notifyBadgeCounts([request.clientId]);
+
+        return { success: true };
+      }),
+
+    reject: trainerProcedure
+      .input(z.object({ id: z.string(), note: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const request = await db.getRescheduleRequestById(input.id);
+        if (!request) notFound("Reschedule request");
+        if (request.trainerId !== ctx.user.id && !isManagerLikeRole(ctx.user.role)) {
+          forbidden("You do not have access to this request");
+        }
+
+        await db.updateRescheduleRequest(input.id, { status: "rejected", responseNote: input.note || null, respondedAt: new Date().toISOString() } as any);
+
+        // Revert Google Calendar event to original time
+        try {
+          const trainer = await db.getUserById(request.trainerId);
+          if (trainer) {
+            const session = await db.getSessionById(request.sessionId);
+            if (session?.googleCalendarEventId) {
+              const ensured = await ensureGoogleCalendarAccessToken(trainer);
+              const calendarId = ensured.integration.selectedCalendarId || "primary";
+              const endTime = new Date(new Date(request.originalDate).getTime() + (session.durationMinutes || 60) * 60_000).toISOString();
+              await googleCalendar.updateGoogleCalendarEvent({
+                accessToken: ensured.token,
+                calendarId,
+                eventId: session.googleCalendarEventId,
+                startTimeIso: request.originalDate,
+                endTimeIso: endTime,
+              });
+            }
+          }
+        } catch {
+          // Best effort revert
+        }
+
+        const conversationId = [request.trainerId, request.clientId].sort().join("-");
+        const msgContent = `❌ Reschedule declined. Your session stays at the original time.${input.note ? ` Note: ${input.note}` : ""}`;
+        await db.createMessage({ senderId: request.trainerId, receiverId: request.clientId, conversationId, content: msgContent, messageType: "system" });
+        notifyNewMessage(conversationId, { id: "reschedule-rejected-" + input.id, senderId: request.trainerId, senderName: "Calendar", receiverId: request.clientId, content: msgContent, conversationId }, [request.clientId]);
+        notifyBadgeCounts([request.clientId]);
+
+        return { success: true };
+      }),
+
+    counterPropose: trainerProcedure
+      .input(z.object({ id: z.string(), counterDate: z.date(), note: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const request = await db.getRescheduleRequestById(input.id);
+        if (!request) notFound("Reschedule request");
+        if (request.trainerId !== ctx.user.id && !isManagerLikeRole(ctx.user.role)) {
+          forbidden("You do not have access to this request");
+        }
+
+        await db.updateRescheduleRequest(input.id, { status: "counter_proposed", counterDate: input.counterDate.toISOString(), responseNote: input.note || null, respondedAt: new Date().toISOString() } as any);
+
+        const conversationId = [request.trainerId, request.clientId].sort().join("-");
+        const counterTime = input.counterDate.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        const msgContent = `🔄 Counter-proposal: How about ${counterTime} instead?${input.note ? ` ${input.note}` : ""}`;
+        await db.createMessage({ senderId: request.trainerId, receiverId: request.clientId, conversationId, content: msgContent, messageType: "system" });
+        notifyNewMessage(conversationId, { id: "reschedule-counter-" + input.id, senderId: request.trainerId, senderName: "Calendar", receiverId: request.clientId, content: msgContent, conversationId }, [request.clientId]);
+        notifyBadgeCounts([request.clientId]);
+
+        return { success: true };
+      }),
+  }),
+
+  // ============================================================================
   // ORDERS
   // ============================================================================
   orders: router({
@@ -3312,20 +3410,57 @@ export const appRouter = router({
           continue;
         }
 
-        const changes: Partial<db.InsertSession> = {};
         if (gcEvent.start && gcEvent.start !== session.sessionDate) {
-          changes.sessionDate = gcEvent.start;
-        }
-        if (gcEvent.location && gcEvent.location !== session.location) {
-          changes.location = gcEvent.location;
-        }
-        if (gcEvent.summary && gcEvent.summary !== session.sessionType) {
-          changes.notes = `[Updated from Google Calendar] ${gcEvent.summary}`;
-        }
+          const client = await db.getClientById(session.clientId);
+          const clientUserId = client?.userId || session.clientId;
+          try {
+            await db.createRescheduleRequest({
+              sessionId: session.id,
+              trainerId: session.trainerId,
+              clientId: clientUserId,
+              originalDate: session.sessionDate,
+              proposedDate: gcEvent.start,
+              proposedDuration: null,
+              proposedLocation: gcEvent.location || null,
+              source: "google_calendar",
+              note: "Session was moved in Google Calendar",
+            });
+            updated++;
 
-        if (Object.keys(changes).length > 0) {
-          await db.updateSession(session.id, changes);
-          updated++;
+            const conversationId = [session.trainerId, clientUserId].sort().join("-");
+            const clientName = client?.name || "your client";
+            const oldTime = new Date(session.sessionDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            const newTime = new Date(gcEvent.start).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            const msgContent = `📅 Reschedule request: Your session has been proposed to move from ${oldTime} to ${newTime}. Please check your calendar for details.`;
+            await db.createMessage({
+              senderId: session.trainerId,
+              receiverId: clientUserId,
+              conversationId,
+              content: msgContent,
+              messageType: "system",
+            });
+            notifyNewMessage(conversationId, {
+              id: "reschedule-" + session.id,
+              senderId: session.trainerId,
+              senderName: "Calendar",
+              receiverId: clientUserId,
+              content: msgContent,
+              conversationId,
+            }, [clientUserId]);
+          } catch {
+            // Reschedule request creation failed, fall back to direct update
+            await db.updateSession(session.id, { sessionDate: gcEvent.start });
+            updated++;
+          }
+        } else {
+          const changes: Partial<db.InsertSession> = {};
+          if (gcEvent.location && gcEvent.location !== session.location) {
+            changes.location = gcEvent.location;
+          }
+          if (Object.keys(changes).length > 0) {
+            await db.updateSession(session.id, changes);
+            updated++;
+          }
         }
       }
 
