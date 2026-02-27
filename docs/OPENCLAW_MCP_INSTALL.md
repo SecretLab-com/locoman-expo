@@ -11,6 +11,20 @@ From this repo configuration:
 - Supabase URL: `https://cvtvsfeaqauxlwgykdxb.supabase.co`
 - Supabase project ref: `cvtvsfeaqauxlwgykdxb`
 
+## 1.1 In-app connect flow (recommended)
+
+You can now generate OpenClaw connection details directly in the app:
+
+1. Sign in as trainer
+2. Open `Trainer -> Settings -> OpenClaw MCP`
+3. Tap **Generate OpenClaw Connection**
+4. Copy:
+   - user token
+   - `mcporter` command, or
+   - `mcporter` JSON config
+
+If your backend requires endpoint key protection, paste `LOCO_MCP_AUTH_TOKEN` in the in-app key field first. If left blank, copied output keeps `${LOCO_MCP_AUTH_TOKEN}` as a placeholder.
+
 ## 2. Auth model (important)
 
 The MCP endpoint uses two auth values with different purposes:

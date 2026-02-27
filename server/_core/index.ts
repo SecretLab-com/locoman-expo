@@ -9,7 +9,12 @@ import { appRouter } from "../routers";
 import * as shopify from "../shopify";
 import { createContext } from "./context";
 import { logError, logEvent } from "./logger";
-import { registerTrainerAssistantMcpHttpRoutes } from "./mcp-http";
+let registerTrainerAssistantMcpHttpRoutes: ((app: any) => void) | null = null;
+try {
+  registerTrainerAssistantMcpHttpRoutes = require("./mcp-http").registerTrainerAssistantMcpHttpRoutes;
+} catch {
+  console.warn("[MCP] HTTP routes not available (MCP SDK not installed in this environment)");
+}
 import { registerOAuthRoutes } from "./oauth";
 import { setupWebSocket } from "./websocket";
 
@@ -221,7 +226,7 @@ async function startServer() {
   app.use("/uploads", express.static(path.join(process.cwd(), "public/uploads")));
 
   registerOAuthRoutes(app);
-  registerTrainerAssistantMcpHttpRoutes(app);
+  registerTrainerAssistantMcpHttpRoutes?.(app);
 
   // Adyen redirect return endpoint (session-based payments)
   app.get("/api/payments/redirect", (req, res) => {

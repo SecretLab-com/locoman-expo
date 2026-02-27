@@ -1,32 +1,58 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { COOKIE_NAME, LOCO_ASSISTANT_NAME, LOCO_ASSISTANT_USER_ID } from "../shared/const.js";
+import {
+  COOKIE_NAME,
+  LOCO_ASSISTANT_NAME,
+  LOCO_ASSISTANT_USER_ID,
+} from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { getInviteEmailFailureUserMessage, sendInviteEmail } from "./_core/email";
+import {
+  getInviteEmailFailureUserMessage,
+  sendInviteEmail,
+} from "./_core/email";
 import { logError } from "./_core/logger";
 import { generateImage } from "./_core/imageGeneration";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
 import { runTrainerAssistant } from "./_core/trainerAssistant";
 import { transcribeAudio } from "./_core/voiceTranscription";
-import { coordinatorProcedure, managerProcedure, protectedProcedure, publicProcedure, router, trainerProcedure } from "./_core/trpc";
-import { isUserOnline, notifyBadgeCounts, notifyNewMessage, sendToUser } from "./_core/websocket";
+import {
+  coordinatorProcedure,
+  managerProcedure,
+  protectedProcedure,
+  publicProcedure,
+  router,
+  trainerProcedure,
+} from "./_core/trpc";
+import {
+  isUserOnline,
+  notifyBadgeCounts,
+  notifyNewMessage,
+  sendToUser,
+} from "./_core/websocket";
 import * as adyen from "./adyen";
 import * as db from "./db";
 import {
-    mapBundleToOffer,
-    mapOfferInputToBundleDraft,
-    type OfferPaymentType,
-    type OfferType,
+  mapBundleToOffer,
+  mapOfferInputToBundleDraft,
+  type OfferPaymentType,
+  type OfferType,
 } from "./domains/offers";
-import { mapPaymentSessionForView, mapPaymentState, summarizePaymentSessions } from "./domains/payments";
+import {
+  mapPaymentSessionForView,
+  mapPaymentState,
+  summarizePaymentSessions,
+} from "./domains/payments";
 import * as googleCalendar from "./google-calendar";
 import * as shopify from "./shopify";
 import { storagePut } from "./storage";
 
 const SERVER_USER_ID = LOCO_ASSISTANT_USER_ID;
 
-function toMessagePushBody(content: string, messageType: "text" | "image" | "file" = "text"): string {
+function toMessagePushBody(
+  content: string,
+  messageType: "text" | "image" | "file" = "text",
+): string {
   const trimmed = content.trim();
   if (trimmed.length > 0) {
     return trimmed.length > 120 ? `${trimmed.slice(0, 117)}...` : trimmed;
@@ -40,7 +66,14 @@ function isManagerLikeRole(role: string): boolean {
   return role === "manager" || role === "coordinator";
 }
 
-function toAbsoluteRequestUrl(req: { protocol?: string; get?: (name: string) => string | undefined; headers?: Record<string, unknown> }, value: string): string {
+function toAbsoluteRequestUrl(
+  req: {
+    protocol?: string;
+    get?: (name: string) => string | undefined;
+    headers?: Record<string, unknown>;
+  },
+  value: string,
+): string {
   if (/^https?:\/\//i.test(value)) return value;
   if (!value.startsWith("/")) return value;
 
@@ -49,12 +82,148 @@ function toAbsoluteRequestUrl(req: { protocol?: string; get?: (name: string) => 
   const protocol = forwardedProto || req.protocol || "https";
   const host = req.get?.("host") || String(req.headers?.host || "");
   if (!host) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot resolve absolute URL for transcription" });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Cannot resolve absolute URL for transcription",
+    });
   }
   return `${protocol}://${host}${value}`;
 }
 
-async function notifyInviteFailureByMessage(user: { id: string; name?: string | null }, email: string, errorMessage: string) {
+function extractBearerTokenFromRequest(req: {
+  headers?: Record<string, unknown>;
+}): string | null {
+  const rawAuthorization =
+    req.headers?.authorization ?? req.headers?.Authorization;
+  if (typeof rawAuthorization !== "string") return null;
+  const [scheme, token] = rawAuthorization.trim().split(/\s+/, 2);
+  if (!scheme || !token || scheme.toLowerCase() !== "bearer") return null;
+  return token.trim();
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const payloadPart = token.split(".")[1];
+    if (!payloadPart) return null;
+    const json = Buffer.from(payloadPart, "base64url").toString("utf8");
+    const payload = JSON.parse(json);
+    if (!payload || typeof payload !== "object") return null;
+    return payload as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtExpiryIso(token: string): string | null {
+  const payload = decodeJwtPayload(token);
+  const exp = payload?.exp;
+  if (typeof exp !== "number" || !Number.isFinite(exp)) return null;
+  return new Date(exp * 1000).toISOString();
+}
+
+function getSupabaseMcpTokenEnv() {
+  const supabaseUrl = (
+    process.env.SUPABASE_URL ||
+    process.env.EXPO_PUBLIC_SUPABASE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const anonKey =
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+    "";
+  return { supabaseUrl, serviceRoleKey, anonKey };
+}
+
+function extractTokenHashFromSupabaseActionLink(
+  actionLink: unknown,
+): string | null {
+  if (!actionLink || typeof actionLink !== "string") return null;
+  try {
+    const url = new URL(actionLink);
+    return (
+      url.searchParams.get("token_hash") ||
+      url.hash?.match(/token_hash=([^&]+)/)?.[1] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function mintSupabaseAccessTokenForEmail(email: string): Promise<string> {
+  const { supabaseUrl, serviceRoleKey, anonKey } = getSupabaseMcpTokenEnv();
+  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
+    throw new Error(
+      "Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, or SUPABASE_ANON_KEY",
+    );
+  }
+
+  const linkResponse = await fetch(
+    `${supabaseUrl}/auth/v1/admin/generate_link`,
+    {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "magiclink",
+        email,
+      }),
+    },
+  );
+
+  if (!linkResponse.ok) {
+    const body = await linkResponse.text();
+    throw new Error(`generate_link failed (${linkResponse.status}): ${body}`);
+  }
+
+  const linkPayload = (await linkResponse.json()) as {
+    properties?: { hashed_token?: string | null };
+    hashed_token?: string | null;
+    action_link?: string | null;
+  };
+  const tokenHash =
+    linkPayload.properties?.hashed_token ||
+    linkPayload.hashed_token ||
+    extractTokenHashFromSupabaseActionLink(linkPayload.action_link);
+  if (!tokenHash) {
+    throw new Error("Could not extract token hash from generate_link response");
+  }
+
+  const verifyResponse = await fetch(`${supabaseUrl}/auth/v1/verify`, {
+    method: "POST",
+    headers: {
+      apikey: anonKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "magiclink",
+      token_hash: tokenHash,
+    }),
+  });
+  if (!verifyResponse.ok) {
+    const body = await verifyResponse.text();
+    throw new Error(`verify failed (${verifyResponse.status}): ${body}`);
+  }
+
+  const verifyPayload = (await verifyResponse.json()) as {
+    access_token?: string | null;
+  };
+  const accessToken = verifyPayload.access_token || "";
+  if (!accessToken) {
+    throw new Error("No access_token in verify response");
+  }
+  return accessToken;
+}
+
+async function notifyInviteFailureByMessage(
+  user: { id: string; name?: string | null },
+  email: string,
+  errorMessage: string,
+) {
   const conversationId = `server-alert-${user.id}`;
   const content = `Server notice: We could not send an invite email to ${email}.\n\n${getInviteEmailFailureUserMessage(errorMessage)}`;
   try {
@@ -66,14 +235,18 @@ async function notifyInviteFailureByMessage(user: { id: string; name?: string | 
       messageType: "system",
     });
 
-    notifyNewMessage(conversationId, {
-      id: messageId,
-      senderId: SERVER_USER_ID,
-      senderName: "Server",
-      receiverId: user.id,
-      content,
+    notifyNewMessage(
       conversationId,
-    }, [user.id]);
+      {
+        id: messageId,
+        senderId: SERVER_USER_ID,
+        senderName: "Server",
+        receiverId: user.id,
+        content,
+        conversationId,
+      },
+      [user.id],
+    );
     notifyBadgeCounts([user.id]);
     await sendPushToUsers([user.id], {
       title: "Server notice",
@@ -86,7 +259,10 @@ async function notifyInviteFailureByMessage(user: { id: string; name?: string | 
       },
     });
   } catch (notifyError) {
-    console.error("[Invite] Failed to send server failure message", notifyError);
+    console.error(
+      "[Invite] Failed to send server failure message",
+      notifyError,
+    );
   }
 }
 
@@ -99,7 +275,9 @@ async function createSponsoredProductBonuses(params: {
   try {
     const items = parseBundleProducts(params.productsJson);
     if (!items.length) return;
-    const productIds = items.map((i) => i.productId).filter(Boolean) as string[];
+    const productIds = items
+      .map((i) => i.productId)
+      .filter(Boolean) as string[];
     if (!productIds.length) return;
 
     const allProducts = await db.getProducts();
@@ -113,7 +291,11 @@ async function createSponsoredProductBonuses(params: {
       const bonus = Number.parseFloat(product.trainerBonus);
       if (!Number.isFinite(bonus) || bonus <= 0) continue;
 
-      if (product.bonusExpiresAt && new Date(product.bonusExpiresAt).getTime() < Date.now()) continue;
+      if (
+        product.bonusExpiresAt &&
+        new Date(product.bonusExpiresAt).getTime() < Date.now()
+      )
+        continue;
 
       const totalBonus = bonus * (item.quantity || 1);
       await db.createEarning({
@@ -173,14 +355,18 @@ function queueTrainerAssistantReply(params: {
           content: unsupportedMessage,
           messageType: "system",
         });
-        notifyNewMessage(conversationId, {
-          id: botMsgId,
-          senderId: LOCO_ASSISTANT_USER_ID,
-          senderName: LOCO_ASSISTANT_NAME,
-          receiverId: userId,
-          content: unsupportedMessage,
+        notifyNewMessage(
           conversationId,
-        }, [userId]);
+          {
+            id: botMsgId,
+            senderId: LOCO_ASSISTANT_USER_ID,
+            senderName: LOCO_ASSISTANT_NAME,
+            receiverId: userId,
+            content: unsupportedMessage,
+            conversationId,
+          },
+          [userId],
+        );
         notifyBadgeCounts([userId]);
         return;
       }
@@ -193,7 +379,8 @@ function queueTrainerAssistantReply(params: {
         conversationMessages: history,
       });
 
-      const assistantContent = assistant.reply.trim() || "I’m ready to help with trainer workflows.";
+      const assistantContent =
+        assistant.reply.trim() || "I’m ready to help with trainer workflows.";
       const botMsgId = await db.createMessage({
         senderId: LOCO_ASSISTANT_USER_ID,
         receiverId: userId,
@@ -202,14 +389,18 @@ function queueTrainerAssistantReply(params: {
         messageType: "system",
       });
 
-      notifyNewMessage(conversationId, {
-        id: botMsgId,
-        senderId: LOCO_ASSISTANT_USER_ID,
-        senderName: LOCO_ASSISTANT_NAME,
-        receiverId: userId,
-        content: assistantContent,
+      notifyNewMessage(
         conversationId,
-      }, [userId]);
+        {
+          id: botMsgId,
+          senderId: LOCO_ASSISTANT_USER_ID,
+          senderName: LOCO_ASSISTANT_NAME,
+          receiverId: userId,
+          content: assistantContent,
+          conversationId,
+        },
+        [userId],
+      );
       notifyBadgeCounts([userId]);
 
       if (!isUserOnline(userId)) {
@@ -232,7 +423,9 @@ function queueTrainerAssistantReply(params: {
 
       const errorContent =
         "Sorry, I wasn't able to process that request. " +
-        (error instanceof Error ? error.message : "An unexpected error occurred.") +
+        (error instanceof Error
+          ? error.message
+          : "An unexpected error occurred.") +
         " Please try again.";
       try {
         const errorMsgId = await db.createMessage({
@@ -242,17 +435,24 @@ function queueTrainerAssistantReply(params: {
           content: errorContent,
           messageType: "system",
         });
-        notifyNewMessage(conversationId, {
-          id: errorMsgId,
-          senderId: LOCO_ASSISTANT_USER_ID,
-          senderName: LOCO_ASSISTANT_NAME,
-          receiverId: userId,
-          content: errorContent,
+        notifyNewMessage(
           conversationId,
-        }, [userId]);
+          {
+            id: errorMsgId,
+            senderId: LOCO_ASSISTANT_USER_ID,
+            senderName: LOCO_ASSISTANT_NAME,
+            receiverId: userId,
+            content: errorContent,
+            conversationId,
+          },
+          [userId],
+        );
         notifyBadgeCounts([userId]);
       } catch (notifyError) {
-        logError("assistant.error_reply_failed", notifyError, { userId, conversationId });
+        logError("assistant.error_reply_failed", notifyError, {
+          userId,
+          conversationId,
+        });
       }
     } finally {
       clearInterval(keepAlive);
@@ -285,7 +485,8 @@ function assertSubscriptionAccess(
   subscription: { trainerId: string; clientId: string },
 ) {
   if (isManagerLikeRole(user.role)) return;
-  if (subscription.trainerId === user.id || subscription.clientId === user.id) return;
+  if (subscription.trainerId === user.id || subscription.clientId === user.id)
+    return;
   forbidden("You do not have access to this subscription");
 }
 
@@ -365,14 +566,17 @@ function parseBundleProducts(productsJson: unknown) {
     .map((product, index) => {
       const name = String(
         product.name ||
-        product.title ||
-        product.productName ||
-        product.label ||
-        ""
+          product.title ||
+          product.productName ||
+          product.label ||
+          "",
       ).trim();
       const quantityRaw = Number(product.quantity ?? product.qty ?? 1);
-      const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
-      const productId = product.productId ? String(product.productId) : undefined;
+      const quantity =
+        Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+      const productId = product.productId
+        ? String(product.productId)
+        : undefined;
       if (!name) return null;
       return {
         id: String(product.id ?? productId ?? index),
@@ -382,20 +586,25 @@ function parseBundleProducts(productsJson: unknown) {
       };
     })
     .filter((item) => item !== null) as Array<{
-      id: string;
-      productId?: string;
-      name: string;
-      quantity: number;
-    }>;
+    id: string;
+    productId?: string;
+    name: string;
+    quantity: number;
+  }>;
   return parsed;
 }
 
 function parseBundleServices(servicesJson: unknown) {
   return toArray<Record<string, any>>(servicesJson)
     .map((service, index) => {
-      const name = String(service.name || service.title || service.serviceName || "").trim();
-      const sessionsRaw = Number(service.sessions ?? service.quantity ?? service.count ?? 1);
-      const sessions = Number.isFinite(sessionsRaw) && sessionsRaw > 0 ? sessionsRaw : 1;
+      const name = String(
+        service.name || service.title || service.serviceName || "",
+      ).trim();
+      const sessionsRaw = Number(
+        service.sessions ?? service.quantity ?? service.count ?? 1,
+      );
+      const sessions =
+        Number.isFinite(sessionsRaw) && sessionsRaw > 0 ? sessionsRaw : 1;
       if (!name) return null;
       return {
         id: String(service.id ?? index),
@@ -403,7 +612,9 @@ function parseBundleServices(servicesJson: unknown) {
         sessions,
       };
     })
-    .filter((item): item is { id: string; name: string; sessions: number } => Boolean(item));
+    .filter((item): item is { id: string; name: string; sessions: number } =>
+      Boolean(item),
+    );
 }
 
 type TrainerPayoutBankDetails = {
@@ -446,7 +657,9 @@ function toSanitizedDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
-function getTrainerPayoutBankDetails(metadataRaw: unknown): TrainerPayoutBankDetails | null {
+function getTrainerPayoutBankDetails(
+  metadataRaw: unknown,
+): TrainerPayoutBankDetails | null {
   const metadata = toObjectRecord(metadataRaw);
   const payout = toObjectRecord(metadata.payout);
   const bank = toObjectRecord(payout.bank);
@@ -455,11 +668,19 @@ function getTrainerPayoutBankDetails(metadataRaw: unknown): TrainerPayoutBankDet
   const bankName = String(bank.bankName || "").trim();
   const sortCode = toSanitizedDigits(String(bank.sortCode || ""));
   const accountNumber = toSanitizedDigits(String(bank.accountNumber || ""));
-  const accountNumberLast4 = String(bank.accountNumberLast4 || accountNumber.slice(-4) || "").trim();
+  const accountNumberLast4 = String(
+    bank.accountNumberLast4 || accountNumber.slice(-4) || "",
+  ).trim();
   const connectedAt = String(bank.connectedAt || "").trim();
   const updatedAt = String(bank.updatedAt || "").trim();
 
-  if (!accountHolderName || !bankName || sortCode.length !== 6 || accountNumber.length < 6 || !connectedAt) {
+  if (
+    !accountHolderName ||
+    !bankName ||
+    sortCode.length !== 6 ||
+    accountNumber.length < 6 ||
+    !connectedAt
+  ) {
     return null;
   }
 
@@ -474,14 +695,18 @@ function getTrainerPayoutBankDetails(metadataRaw: unknown): TrainerPayoutBankDet
   };
 }
 
-function getGoogleCalendarIntegration(metadataRaw: unknown): TrainerGoogleCalendarIntegration | null {
+function getGoogleCalendarIntegration(
+  metadataRaw: unknown,
+): TrainerGoogleCalendarIntegration | null {
   const metadata = toObjectRecord(metadataRaw);
   const google = toObjectRecord(metadata.googleCalendar);
   const accessToken = String(google.accessToken || "").trim();
   const refreshTokenRaw = String(google.refreshToken || "").trim();
   const expiresAtRaw = String(google.expiresAt || "").trim();
   const selectedCalendarIdRaw = String(google.selectedCalendarId || "").trim();
-  const selectedCalendarNameRaw = String(google.selectedCalendarName || "").trim();
+  const selectedCalendarNameRaw = String(
+    google.selectedCalendarName || "",
+  ).trim();
   if (!accessToken) return null;
   return {
     connected: true,
@@ -508,7 +733,10 @@ async function ensureGoogleCalendarAccessToken(user: db.User): Promise<{
   const metadata = toObjectRecord(user.metadata);
   const integration = getGoogleCalendarIntegration(metadata);
   if (!integration) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Google Calendar is not connected." });
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Google Calendar is not connected.",
+    });
   }
 
   if (!isIsoExpired(integration.expiresAt)) {
@@ -522,7 +750,9 @@ async function ensureGoogleCalendarAccessToken(user: db.User): Promise<{
     });
   }
 
-  const refreshed = await googleCalendar.refreshGoogleCalendarAccessToken(integration.refreshToken);
+  const refreshed = await googleCalendar.refreshGoogleCalendarAccessToken(
+    integration.refreshToken,
+  );
   const nextMetadata = {
     ...metadata,
     googleCalendar: {
@@ -610,7 +840,9 @@ async function provisionOrderPaymentLink(input: {
       status: "created",
       orderId: input.orderId,
       paymentLink: link.url,
-      expiresAt: link.expiresAt ? new Date(link.expiresAt).toISOString() : undefined,
+      expiresAt: link.expiresAt
+        ? new Date(link.expiresAt).toISOString()
+        : undefined,
       metadata: {
         source: "order_checkout",
       },
@@ -656,16 +888,21 @@ function encodeRescheduleRequest(payload: RescheduleRequestPayload): string {
   return `${RESCHEDULE_REQUEST_PREFIX}${JSON.stringify(payload)}`;
 }
 
-function decodeRescheduleRequest(notes: string | null | undefined): RescheduleRequestPayload | null {
+function decodeRescheduleRequest(
+  notes: string | null | undefined,
+): RescheduleRequestPayload | null {
   if (!notes) return null;
 
   if (notes.startsWith(RESCHEDULE_REQUEST_PREFIX)) {
     try {
-      const raw = JSON.parse(notes.slice(RESCHEDULE_REQUEST_PREFIX.length)) as Partial<RescheduleRequestPayload>;
+      const raw = JSON.parse(
+        notes.slice(RESCHEDULE_REQUEST_PREFIX.length),
+      ) as Partial<RescheduleRequestPayload>;
       return {
         requestedDate: normalizeIsoDate(raw.requestedDate ?? null),
         reason: raw.reason ? String(raw.reason) : null,
-        requestedAt: normalizeIsoDate(raw.requestedAt ?? null) ?? new Date().toISOString(),
+        requestedAt:
+          normalizeIsoDate(raw.requestedAt ?? null) ?? new Date().toISOString(),
       };
     } catch {
       return null;
@@ -687,7 +924,11 @@ function parseBundleGoals(goalsJson: unknown): string[] {
     .map((goal) => {
       if (typeof goal === "string") return goal.trim();
       if (goal && typeof goal === "object") {
-        return String((goal as Record<string, any>).name || (goal as Record<string, any>).title || "").trim();
+        return String(
+          (goal as Record<string, any>).name ||
+            (goal as Record<string, any>).title ||
+            "",
+        ).trim();
       }
       return "";
     })
@@ -712,7 +953,9 @@ function computeBundleProgress(
   bundle: db.BundleDraft | undefined,
   deliveredQtyByProductName?: Map<string, number>,
 ) {
-  const sessionsFromSubscription = safePositiveInt(subscription.sessionsIncluded);
+  const sessionsFromSubscription = safePositiveInt(
+    subscription.sessionsIncluded,
+  );
   const sessionsFromServices = parseBundleServices(bundle?.servicesJson).reduce(
     (sum, service) => sum + safePositiveInt(service.sessions),
     0,
@@ -738,20 +981,26 @@ function computeBundleProgress(
   }, 0);
 
   const sessionsProgressPct =
-    sessionsIncluded > 0 ? Math.min(100, Math.round((sessionsUsed / sessionsIncluded) * 100)) : 0;
+    sessionsIncluded > 0
+      ? Math.min(100, Math.round((sessionsUsed / sessionsIncluded) * 100))
+      : 0;
   const productsProgressPct =
-    productsIncluded > 0 ? Math.min(100, Math.round((productsUsed / productsIncluded) * 100)) : 0;
+    productsIncluded > 0
+      ? Math.min(100, Math.round((productsUsed / productsIncluded) * 100))
+      : 0;
   const sessionsRemaining = Math.max(sessionsIncluded - sessionsUsed, 0);
   const productsRemaining = Math.max(productsIncluded - productsUsed, 0);
   const alerts: string[] = [];
 
   if (sessionsIncluded > 0) {
     if (sessionsUsed >= sessionsIncluded) alerts.push("Sessions exhausted");
-    else if (sessionsUsed / sessionsIncluded >= 0.8) alerts.push("Sessions are running low");
+    else if (sessionsUsed / sessionsIncluded >= 0.8)
+      alerts.push("Sessions are running low");
   }
   if (productsIncluded > 0) {
     if (productsUsed >= productsIncluded) alerts.push("Products exhausted");
-    else if (productsUsed / productsIncluded >= 0.8) alerts.push("Products are running low");
+    else if (productsUsed / productsIncluded >= 0.8)
+      alerts.push("Products are running low");
   }
   if (sessionsUsed > 0 && productsUsed > sessionsUsed + 1) {
     alerts.push("Product usage is outpacing sessions");
@@ -811,8 +1060,12 @@ export const appRouter = router({
         const userInvitation = await db.getUserInvitationByToken(token);
         if (userInvitation) {
           const expiresAtMs = new Date(userInvitation.expiresAt).getTime();
-          const isExpired = Number.isFinite(expiresAtMs) && expiresAtMs < Date.now();
-          const status = isExpired && userInvitation.status === "pending" ? "expired" : userInvitation.status;
+          const isExpired =
+            Number.isFinite(expiresAtMs) && expiresAtMs < Date.now();
+          const status =
+            isExpired && userInvitation.status === "pending"
+              ? "expired"
+              : userInvitation.status;
           return {
             source: "user_invitation" as const,
             email: userInvitation.email || null,
@@ -826,8 +1079,12 @@ export const appRouter = router({
         const trainerInvitation = await db.getInvitationByToken(token);
         if (!trainerInvitation) return null;
         const expiresAtMs = new Date(trainerInvitation.expiresAt).getTime();
-        const isExpired = Number.isFinite(expiresAtMs) && expiresAtMs < Date.now();
-        const status = isExpired && trainerInvitation.status === "pending" ? "expired" : trainerInvitation.status;
+        const isExpired =
+          Number.isFinite(expiresAtMs) && expiresAtMs < Date.now();
+        const status =
+          isExpired && trainerInvitation.status === "pending"
+            ? "expired"
+            : trainerInvitation.status;
         return {
           source: "trainer_invitation" as const,
           email: trainerInvitation.email || null,
@@ -857,7 +1114,10 @@ export const appRouter = router({
           });
         }
 
-        if (invitation.status === "revoked" || invitation.status === "expired") {
+        if (
+          invitation.status === "revoked" ||
+          invitation.status === "expired"
+        ) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: `This invitation is ${invitation.status}.`,
@@ -865,10 +1125,14 @@ export const appRouter = router({
         }
 
         if (invitation.status === "accepted") {
-          if (invitation.acceptedByUserId && invitation.acceptedByUserId !== ctx.user.id) {
+          if (
+            invitation.acceptedByUserId &&
+            invitation.acceptedByUserId !== ctx.user.id
+          ) {
             throw new TRPCError({
               code: "FORBIDDEN",
-              message: "This invitation has already been accepted by another user.",
+              message:
+                "This invitation has already been accepted by another user.",
             });
           }
           await db.updateUserRole(ctx.user.id, invitation.role);
@@ -888,7 +1152,10 @@ export const appRouter = router({
           acceptedAt: new Date().toISOString(),
           acceptedByUserId: ctx.user.id,
         });
-        await db.revokeOtherPendingUserInvitationsByEmail(invitation.email, invitation.id);
+        await db.revokeOtherPendingUserInvitationsByEmail(
+          invitation.email,
+          invitation.id,
+        );
         await db.logUserActivity({
           targetUserId: ctx.user.id,
           performedBy: invitation.invitedBy,
@@ -908,6 +1175,95 @@ export const appRouter = router({
   }),
 
   // ============================================================================
+  // MCP (OpenClaw / remote tool connection bootstrap)
+  // ============================================================================
+  mcp: router({
+    createOpenClawConnection: trainerProcedure.mutation(async ({ ctx }) => {
+      const requestToken = extractBearerTokenFromRequest(ctx.req);
+      if (!requestToken) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Missing bearer token in the current session.",
+        });
+      }
+
+      const mcpUrl = toAbsoluteRequestUrl(ctx.req, "/mcp");
+      const serverName = "locomotivate-trainer";
+      const endpointKeyRequired = Boolean(
+        String(process.env.LOCO_MCP_AUTH_TOKEN || "").trim(),
+      );
+      const endpointKeyPlaceholder = "${LOCO_MCP_AUTH_TOKEN}";
+
+      let userAccessToken = requestToken;
+      let tokenSource: "session" | "minted" = "session";
+
+      const userEmail = String(ctx.user.email || "").trim();
+      if (userEmail) {
+        try {
+          userAccessToken = await mintSupabaseAccessTokenForEmail(userEmail);
+          tokenSource = "minted";
+        } catch (error) {
+          logError("mcp.openclaw.token_mint_failed", error, {
+            userId: ctx.user.id,
+            userEmail,
+          });
+        }
+      }
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${userAccessToken}`,
+      };
+      if (endpointKeyRequired) {
+        headers["X-LOCO-MCP-KEY"] = endpointKeyPlaceholder;
+      }
+
+      const mcporterCommandParts = [
+        `mcporter config add ${serverName} ${mcpUrl}`,
+        "--scope home",
+      ];
+      if (endpointKeyRequired) {
+        mcporterCommandParts.push(
+          `--header X-LOCO-MCP-KEY='${endpointKeyPlaceholder}'`,
+        );
+      }
+      mcporterCommandParts.push(
+        `--header Authorization='Bearer ${userAccessToken}'`,
+      );
+      mcporterCommandParts.push('--description "Locomotivate trainer MCP"');
+
+      const mcporterConfigJson = JSON.stringify(
+        {
+          mcpServers: {
+            [serverName]: {
+              description: "Locomotivate trainer MCP",
+              baseUrl: mcpUrl,
+              headers,
+            },
+          },
+        },
+        null,
+        2,
+      );
+
+      return {
+        serverName,
+        mcpUrl,
+        endpointKeyRequired,
+        endpointKeyHeader: "X-LOCO-MCP-KEY",
+        endpointKeyPlaceholder,
+        userBearerHeader: "Authorization",
+        userEmail: userEmail || null,
+        userAccessToken,
+        userAccessTokenExpiresAt: decodeJwtExpiryIso(userAccessToken),
+        tokenSource,
+        generatedAt: new Date().toISOString(),
+        mcporterCommandTemplate: mcporterCommandParts.join(" "),
+        mcporterConfigJsonTemplate: mcporterConfigJson,
+      };
+    }),
+  }),
+
+  // ============================================================================
   // CATALOG (Public bundle browsing)
   // ============================================================================
   catalog: router({
@@ -919,7 +1275,10 @@ export const appRouter = router({
         const activeTrainerIds = myTrainers
           .filter((trainer: any) => trainer.relationshipStatus === "active")
           .map((trainer: any) => trainer.id)
-          .filter((id: unknown): id is string => typeof id === "string" && id.length > 0);
+          .filter(
+            (id: unknown): id is string =>
+              typeof id === "string" && id.length > 0,
+          );
         if (activeTrainerIds.length === 0) return [];
         return db.getPublishedBundlesByTrainerIds(activeTrainerIds);
       }
@@ -972,7 +1331,9 @@ export const appRouter = router({
         const invitation = await db.getInvitationByToken(input.token);
         if (!invitation) return null;
 
-        const trainer = invitation.trainerId ? await db.getUserById(invitation.trainerId) : undefined;
+        const trainer = invitation.trainerId
+          ? await db.getUserById(invitation.trainerId)
+          : undefined;
         const bundle = invitation.bundleDraftId
           ? await db.getBundleDraftById(invitation.bundleDraftId)
           : undefined;
@@ -982,8 +1343,12 @@ export const appRouter = router({
         const goals = parseBundleGoals(bundle?.goalsJson);
         const bundlePrice = Number.parseFloat(String(bundle?.price ?? "0"));
 
-        const expiresAt = invitation.expiresAt ? new Date(invitation.expiresAt) : null;
-        const isExpired = Boolean(expiresAt && expiresAt.getTime() < Date.now());
+        const expiresAt = invitation.expiresAt
+          ? new Date(invitation.expiresAt)
+          : null;
+        const isExpired = Boolean(
+          expiresAt && expiresAt.getTime() < Date.now(),
+        );
 
         return {
           id: invitation.id,
@@ -1000,7 +1365,10 @@ export const appRouter = router({
           services,
           goals,
           personalMessage: null,
-          status: isExpired && invitation.status === "pending" ? "expired" : (invitation.status || "pending"),
+          status:
+            isExpired && invitation.status === "pending"
+              ? "expired"
+              : invitation.status || "pending",
           expiresAt: invitation.expiresAt,
           email: invitation.email,
         };
@@ -1040,7 +1408,10 @@ export const appRouter = router({
         const trainerId = invitation.trainerId || bundle.trainerId;
         if (!trainerId) notFound("Trainer");
 
-        let clientRecord = await db.getClientByTrainerAndUser(trainerId, ctx.user.id);
+        let clientRecord = await db.getClientByTrainerAndUser(
+          trainerId,
+          ctx.user.id,
+        );
         if (!clientRecord) {
           const clientId = await db.createClient({
             trainerId,
@@ -1098,9 +1469,17 @@ export const appRouter = router({
           name: string;
           quantity: number;
           productId?: string;
-        }> = bundleProducts.length > 0
-          ? bundleProducts
-          : [{ id: "bundle", name: bundle.title, quantity: 1, productId: undefined }];
+        }> =
+          bundleProducts.length > 0
+            ? bundleProducts
+            : [
+                {
+                  id: "bundle",
+                  name: bundle.title,
+                  quantity: 1,
+                  productId: undefined,
+                },
+              ];
 
         const deliveryIds: string[] = [];
         for (const lineItem of orderLineItems) {
@@ -1132,8 +1511,9 @@ export const appRouter = router({
 
         let subscriptionId: string | null = null;
         if (bundle.cadence && bundle.cadence !== "one_time") {
-          const sessionsFromServices = parseBundleServices(bundle.servicesJson)
-            .reduce((sum, service) => sum + service.sessions, 0);
+          const sessionsFromServices = parseBundleServices(
+            bundle.servicesJson,
+          ).reduce((sum, service) => sum + service.sessions, 0);
           const goals =
             bundle.goalsJson && typeof bundle.goalsJson === "object"
               ? (bundle.goalsJson as Record<string, unknown>)
@@ -1143,7 +1523,8 @@ export const appRouter = router({
             Number.isFinite(sessionsFromGoalRaw) && sessionsFromGoalRaw > 0
               ? Math.floor(sessionsFromGoalRaw)
               : 0;
-          const sessionsIncluded = sessionsFromGoal || sessionsFromServices || 0;
+          const sessionsIncluded =
+            sessionsFromGoal || sessionsFromServices || 0;
           subscriptionId = await db.createSubscription({
             clientId: clientRecord.id,
             trainerId,
@@ -1220,16 +1601,18 @@ export const appRouter = router({
       }),
 
     create: trainerProcedure
-      .input(z.object({
-        title: z.string().min(1).max(255),
-        description: z.string().optional(),
-        templateId: z.string().optional(),
-        price: z.string().optional(),
-        cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
-        goalsJson: z.any().optional(),
-        servicesJson: z.any().optional(),
-        productsJson: z.any().optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string().min(1).max(255),
+          description: z.string().optional(),
+          templateId: z.string().optional(),
+          price: z.string().optional(),
+          cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
+          goalsJson: z.any().optional(),
+          servicesJson: z.any().optional(),
+          productsJson: z.any().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         let productsJson = input.productsJson;
         let servicesJson = input.servicesJson;
@@ -1246,8 +1629,8 @@ export const appRouter = router({
             if (!productsJson) productsJson = template.productsJson;
             if (!servicesJson) servicesJson = template.servicesJson;
             if (!goalsJson) goalsJson = template.goalsJson;
-            if (!price) price = template.price;
-            if (!description) description = template.description;
+            if (!price) price = template.price ?? undefined;
+            if (!description) description = template.description ?? undefined;
           }
         }
 
@@ -1265,17 +1648,19 @@ export const appRouter = router({
       }),
 
     update: trainerProcedure
-      .input(z.object({
-        id: z.string(),
-        title: z.string().min(1).max(255).optional(),
-        description: z.string().optional(),
-        price: z.string().optional(),
-        cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
-        imageUrl: z.string().optional(),
-        goalsJson: z.any().optional(),
-        servicesJson: z.any().optional(),
-        productsJson: z.any().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          title: z.string().min(1).max(255).optional(),
+          description: z.string().optional(),
+          price: z.string().optional(),
+          cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
+          imageUrl: z.string().optional(),
+          goalsJson: z.any().optional(),
+          servicesJson: z.any().optional(),
+          productsJson: z.any().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const bundle = await db.getBundleDraftById(input.id);
         if (!bundle) notFound("Bundle");
@@ -1295,7 +1680,10 @@ export const appRouter = router({
           status: "pending_review",
           submittedForReviewAt: new Date().toISOString(),
         });
-        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        const managerIds = await db.getUserIdsByRoles([
+          "manager",
+          "coordinator",
+        ]);
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
@@ -1307,14 +1695,23 @@ export const appRouter = router({
       ]);
 
       const allProducts = await db.getProducts();
-      const productBonusMap = new Map<string, { bonus: number; sponsoredBy: string | null; expiresAt: string | null }>();
+      const productBonusMap = new Map<
+        string,
+        { bonus: number; sponsoredBy: string | null; expiresAt: string | null }
+      >();
       for (const p of allProducts) {
         if (p.isSponsored && p.trainerBonus) {
           const bonus = Number.parseFloat(p.trainerBonus);
           if (bonus > 0) {
-            const expired = p.bonusExpiresAt && new Date(p.bonusExpiresAt).getTime() < Date.now();
+            const expired =
+              p.bonusExpiresAt &&
+              new Date(p.bonusExpiresAt).getTime() < Date.now();
             if (!expired) {
-              productBonusMap.set(p.id, { bonus, sponsoredBy: p.sponsoredBy, expiresAt: p.bonusExpiresAt });
+              productBonusMap.set(p.id, {
+                bonus,
+                sponsoredBy: p.sponsoredBy,
+                expiresAt: p.bonusExpiresAt,
+              });
             }
           }
         }
@@ -1325,7 +1722,8 @@ export const appRouter = router({
         let total = 0;
         for (const item of items) {
           if (item.productId && productBonusMap.has(item.productId)) {
-            total += productBonusMap.get(item.productId)!.bonus * (item.quantity || 1);
+            total +=
+              productBonusMap.get(item.productId)!.bonus * (item.quantity || 1);
           }
         }
         return total;
@@ -1358,7 +1756,10 @@ export const appRouter = router({
         totalTrainerBonus: calcTotalBonus(b.productsJson),
       }));
 
-      return [...legacyTemplates.map((t) => ({ ...t, isPromoted: false })), ...promotedAsTpl];
+      return [
+        ...legacyTemplates.map((t) => ({ ...t, isPromoted: false })),
+        ...promotedAsTpl,
+      ];
     }),
 
     delete: trainerProcedure
@@ -1367,8 +1768,13 @@ export const appRouter = router({
         const bundle = await db.getBundleDraftById(input.id);
         if (!bundle) notFound("Bundle");
         assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
-        if (bundle.status === "pending_review" || bundle.status === "publishing") {
-          forbidden("Cannot delete a bundle while it is under review or publishing");
+        if (
+          bundle.status === "pending_review" ||
+          bundle.status === "publishing"
+        ) {
+          forbidden(
+            "Cannot delete a bundle while it is under review or publishing",
+          );
         }
         await db.deleteBundleDraft(input.id);
         return { success: true };
@@ -1385,7 +1791,9 @@ export const appRouter = router({
         bundles.map(async (bundle) => {
           const mapped = mapBundleToOffer(bundle);
           if (mapped.imageUrl || !bundle.shopifyProductId) return mapped;
-          const linkedProduct = await db.getProductByShopifyProductId(bundle.shopifyProductId);
+          const linkedProduct = await db.getProductByShopifyProductId(
+            bundle.shopifyProductId,
+          );
           return {
             ...mapped,
             imageUrl: linkedProduct?.imageUrl || null,
@@ -1403,7 +1811,9 @@ export const appRouter = router({
         assertTrainerOwned(ctx.user, bundle.trainerId, "offer");
         const mapped = mapBundleToOffer(bundle);
         if (mapped.imageUrl || !bundle.shopifyProductId) return mapped;
-        const linkedProduct = await db.getProductByShopifyProductId(bundle.shopifyProductId);
+        const linkedProduct = await db.getProductByShopifyProductId(
+          bundle.shopifyProductId,
+        );
         return {
           ...mapped,
           imageUrl: linkedProduct?.imageUrl || null,
@@ -1415,7 +1825,11 @@ export const appRouter = router({
         z.object({
           title: z.string().min(1).max(255),
           description: z.string().optional(),
-          type: z.enum(["one_off_session", "multi_session_package", "product_bundle"]),
+          type: z.enum([
+            "one_off_session",
+            "multi_session_package",
+            "product_bundle",
+          ]),
           priceMinor: z.number().int().min(1),
           included: z.array(z.string()).default([]),
           sessionCount: z.number().int().min(1).optional(),
@@ -1424,16 +1838,18 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const draft = mapOfferInputToBundleDraft(input as {
-          title: string;
-          description?: string;
-          type: OfferType;
-          priceMinor: number;
-          included?: string[];
-          sessionCount?: number;
-          paymentType: OfferPaymentType;
-          publish?: boolean;
-        });
+        const draft = mapOfferInputToBundleDraft(
+          input as {
+            title: string;
+            description?: string;
+            type: OfferType;
+            priceMinor: number;
+            included?: string[];
+            sessionCount?: number;
+            paymentType: OfferPaymentType;
+            publish?: boolean;
+          },
+        );
 
         const id = await db.createBundleDraft({
           trainerId: ctx.user.id,
@@ -1458,7 +1874,13 @@ export const appRouter = router({
           id: z.string(),
           title: z.string().min(1).max(255).optional(),
           description: z.string().optional(),
-          type: z.enum(["one_off_session", "multi_session_package", "product_bundle"]).optional(),
+          type: z
+            .enum([
+              "one_off_session",
+              "multi_session_package",
+              "product_bundle",
+            ])
+            .optional(),
           priceMinor: z.number().int().min(1).optional(),
           included: z.array(z.string()).optional(),
           sessionCount: z.number().int().min(1).optional(),
@@ -1474,13 +1896,18 @@ export const appRouter = router({
         const mapped = mapOfferInputToBundleDraft({
           title: input.title || bundle.title,
           description: input.description ?? bundle.description ?? undefined,
-          type: (input.type ||
-            mapBundleToOffer(bundle).type) as OfferType,
-          priceMinor: input.priceMinor ?? Math.round((parseFloat(bundle.price || "0") || 0) * 100),
+          type: (input.type || mapBundleToOffer(bundle).type) as OfferType,
+          priceMinor:
+            input.priceMinor ??
+            Math.round((parseFloat(bundle.price || "0") || 0) * 100),
           included: input.included || mapBundleToOffer(bundle).included,
-          sessionCount: input.sessionCount ?? mapBundleToOffer(bundle).sessionCount ?? undefined,
-          paymentType: (input.paymentType || mapBundleToOffer(bundle).paymentType) as OfferPaymentType,
-          publish: input.publish ?? (bundle.status === "published"),
+          sessionCount:
+            input.sessionCount ??
+            mapBundleToOffer(bundle).sessionCount ??
+            undefined,
+          paymentType: (input.paymentType ||
+            mapBundleToOffer(bundle).paymentType) as OfferPaymentType,
+          publish: input.publish ?? bundle.status === "published",
         });
 
         await db.updateBundleDraft(input.id, {
@@ -1521,7 +1948,10 @@ export const appRouter = router({
           status: "pending_review",
           submittedForReviewAt: new Date().toISOString(),
         });
-        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        const managerIds = await db.getUserIdsByRoles([
+          "manager",
+          "coordinator",
+        ]);
         notifyBadgeCounts(managerIds);
         const updated = await db.getBundleDraftById(input.id);
         if (!updated) notFound("Offer");
@@ -1534,11 +1964,12 @@ export const appRouter = router({
   // ============================================================================
   clients: router({
     list: trainerProcedure.query(async ({ ctx }) => {
-      const [trainerClients, trainerSubscriptions, trainerDeliveries] = await Promise.all([
-        db.getClientsByTrainer(ctx.user.id),
-        db.getSubscriptionsByTrainer(ctx.user.id),
-        db.getDeliveriesByTrainer(ctx.user.id),
-      ]);
+      const [trainerClients, trainerSubscriptions, trainerDeliveries] =
+        await Promise.all([
+          db.getClientsByTrainer(ctx.user.id),
+          db.getSubscriptionsByTrainer(ctx.user.id),
+          db.getDeliveriesByTrainer(ctx.user.id),
+        ]);
 
       const activeBundleCountsByClient = new Map<string, number>();
       const activeSubscriptionByClient = new Map<string, db.Subscription>();
@@ -1562,21 +1993,32 @@ export const appRouter = router({
       );
       const bundleById = new Map<string, db.BundleDraft>();
       if (activeBundleIds.length > 0) {
-        const bundles = await Promise.all(activeBundleIds.map((id) => db.getBundleDraftById(id)));
+        const bundles = await Promise.all(
+          activeBundleIds.map((id) => db.getBundleDraftById(id)),
+        );
         for (const bundle of bundles) {
           if (bundle?.id) bundleById.set(bundle.id, bundle);
         }
       }
 
-      const consumedDeliveriesByClientAndProduct = new Map<string, Map<string, number>>();
+      const consumedDeliveriesByClientAndProduct = new Map<
+        string,
+        Map<string, number>
+      >();
       for (const delivery of trainerDeliveries) {
         const status = String(delivery.status || "").toLowerCase();
         if (status !== "delivered" && status !== "confirmed") continue;
         const clientId = delivery.clientId;
         const productKey = normalizeLookupKey(delivery.productName);
         if (!clientId || !productKey) continue;
-        const perClient = consumedDeliveriesByClientAndProduct.get(clientId) || new Map<string, number>();
-        perClient.set(productKey, (perClient.get(productKey) || 0) + Math.max(1, Number(delivery.quantity || 1)));
+        const perClient =
+          consumedDeliveriesByClientAndProduct.get(clientId) ||
+          new Map<string, number>();
+        perClient.set(
+          productKey,
+          (perClient.get(productKey) || 0) +
+            Math.max(1, Number(delivery.quantity || 1)),
+        );
         consumedDeliveriesByClientAndProduct.set(clientId, perClient);
       }
 
@@ -1584,9 +2026,12 @@ export const appRouter = router({
         trainerClients.map(async (client) => {
           const [totalSpent, linkedUser] = await Promise.all([
             db.getTotalSpentByClient(client.id),
-            client.userId ? db.getUserById(client.userId) : Promise.resolve(undefined),
+            client.userId
+              ? db.getUserById(client.userId)
+              : Promise.resolve(undefined),
           ]);
-          const resolvedPhotoUrl = client.photoUrl || linkedUser?.photoUrl || null;
+          const resolvedPhotoUrl =
+            client.photoUrl || linkedUser?.photoUrl || null;
           const currentSubscription = activeSubscriptionByClient.get(client.id);
           const currentBundle = currentSubscription
             ? computeBundleProgress(
@@ -1624,11 +2069,12 @@ export const appRouter = router({
         if (!client) return undefined;
         assertTrainerOwned(ctx.user, client.trainerId, "client");
 
-        const [subscriptions, trainerOrders, deliveriesByClient] = await Promise.all([
-          db.getSubscriptionsByClient(client.id),
-          db.getOrdersByTrainer(ctx.user.id),
-          db.getDeliveriesByClient(client.id),
-        ]);
+        const [subscriptions, trainerOrders, deliveriesByClient] =
+          await Promise.all([
+            db.getSubscriptionsByClient(client.id),
+            db.getOrdersByTrainer(ctx.user.id),
+            db.getDeliveriesByClient(client.id),
+          ]);
 
         const consumedDeliveriesByProduct = new Map<string, number>();
         for (const delivery of deliveriesByClient) {
@@ -1638,7 +2084,8 @@ export const appRouter = router({
           if (!productKey) continue;
           consumedDeliveriesByProduct.set(
             productKey,
-            (consumedDeliveriesByProduct.get(productKey) || 0) + Math.max(1, Number(delivery.quantity || 1)),
+            (consumedDeliveriesByProduct.get(productKey) || 0) +
+              Math.max(1, Number(delivery.quantity || 1)),
           );
         }
 
@@ -1646,8 +2093,14 @@ export const appRouter = router({
           subscriptions
             .filter((sub) => sub.status === "active")
             .map(async (sub) => {
-              const bundle = sub.bundleDraftId ? await db.getBundleDraftById(sub.bundleDraftId) : undefined;
-              const progress = computeBundleProgress(sub, bundle, consumedDeliveriesByProduct);
+              const bundle = sub.bundleDraftId
+                ? await db.getBundleDraftById(sub.bundleDraftId)
+                : undefined;
+              const progress = computeBundleProgress(
+                sub,
+                bundle,
+                consumedDeliveriesByProduct,
+              );
               return {
                 id: sub.id,
                 bundleDraftId: sub.bundleDraftId || null,
@@ -1671,9 +2124,16 @@ export const appRouter = router({
         const paymentHistory = trainerOrders
           .filter((order) => {
             if (client.email && order.customerEmail) {
-              return order.customerEmail.trim().toLowerCase() === client.email.trim().toLowerCase();
+              return (
+                order.customerEmail.trim().toLowerCase() ===
+                client.email.trim().toLowerCase()
+              );
             }
-            return Boolean(order.customerName && client.name && order.customerName === client.name);
+            return Boolean(
+              order.customerName &&
+              client.name &&
+              order.customerName === client.name,
+            );
           })
           .map((order) => ({
             id: order.id,
@@ -1681,7 +2141,10 @@ export const appRouter = router({
             status: order.paymentStatus || "pending",
             createdAt: order.createdAt,
           }))
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          .sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          );
 
         return {
           ...client,
@@ -1692,13 +2155,15 @@ export const appRouter = router({
       }),
 
     create: trainerProcedure
-      .input(z.object({
-        name: z.string().min(1).max(255),
-        email: z.string().email().optional(),
-        phone: z.string().optional(),
-        goals: z.any().optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().min(1).max(255),
+          email: z.string().email().optional(),
+          phone: z.string().optional(),
+          goals: z.any().optional(),
+          notes: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         return db.createClient({
           trainerId: ctx.user.id,
@@ -1711,15 +2176,19 @@ export const appRouter = router({
       }),
 
     update: trainerProcedure
-      .input(z.object({
-        id: z.string(),
-        name: z.string().min(1).max(255).optional(),
-        email: z.string().email().optional(),
-        phone: z.string().optional(),
-        goals: z.any().optional(),
-        notes: z.string().optional(),
-        status: z.enum(["pending", "active", "inactive", "removed"]).optional(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          name: z.string().min(1).max(255).optional(),
+          email: z.string().email().optional(),
+          phone: z.string().optional(),
+          goals: z.any().optional(),
+          notes: z.string().optional(),
+          status: z
+            .enum(["pending", "active", "inactive", "removed"])
+            .optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const client = await db.getClientById(input.id);
         if (!client) notFound("Client");
@@ -1730,12 +2199,14 @@ export const appRouter = router({
       }),
 
     invite: trainerProcedure
-      .input(z.object({
-        email: z.string().email(),
-        name: z.string().optional(),
-        bundleDraftId: z.string().optional(),
-        message: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          email: z.string().email(),
+          name: z.string().optional(),
+          bundleDraftId: z.string().optional(),
+          message: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         if (input.bundleDraftId) {
           const bundle = await db.getBundleDraftById(input.bundleDraftId);
@@ -1743,7 +2214,9 @@ export const appRouter = router({
           assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
         }
         const token = crypto.randomUUID();
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+        const expiresAt = new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString(); // 7 days
         await db.createInvitation({
           trainerId: ctx.user.id,
           email: input.email,
@@ -1773,7 +2246,11 @@ export const appRouter = router({
             recipient: input.email,
             flow: "single",
           });
-          await notifyInviteFailureByMessage(ctx.user, input.email, error?.message || "unknown error");
+          await notifyInviteFailureByMessage(
+            ctx.user,
+            input.email,
+            error?.message || "unknown error",
+          );
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: getInviteEmailFailureUserMessage(error),
@@ -1787,14 +2264,18 @@ export const appRouter = router({
     }),
 
     bulkInvite: trainerProcedure
-      .input(z.object({
-        invitations: z.array(z.object({
-          email: z.string().email(),
-          name: z.string().optional(),
-        })),
-        bundleDraftId: z.string().optional(),
-        message: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          invitations: z.array(
+            z.object({
+              email: z.string().email(),
+              name: z.string().optional(),
+            }),
+          ),
+          bundleDraftId: z.string().optional(),
+          message: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         if (input.bundleDraftId) {
           const bundle = await db.getBundleDraftById(input.bundleDraftId);
@@ -1804,7 +2285,9 @@ export const appRouter = router({
         const results = [];
         for (const invite of input.invitations) {
           const token = crypto.randomUUID();
-          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+          const expiresAt = new Date(
+            Date.now() + 7 * 24 * 60 * 60 * 1000,
+          ).toISOString(); // 7 days
           await db.createInvitation({
             trainerId: ctx.user.id,
             email: invite.email,
@@ -1834,7 +2317,11 @@ export const appRouter = router({
               recipient: invite.email,
               flow: "bulk",
             });
-            await notifyInviteFailureByMessage(ctx.user, invite.email, error?.message || "unknown error");
+            await notifyInviteFailureByMessage(
+              ctx.user,
+              invite.email,
+              error?.message || "unknown error",
+            );
             throw new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
               message: `Invite email to ${invite.email} failed. ${getInviteEmailFailureUserMessage(error)}`,
@@ -1857,7 +2344,9 @@ export const appRouter = router({
       const allSubs = [];
       for (const trainer of myTrainers) {
         if (trainer.relationshipId) {
-          const subs = await db.getSubscriptionsByClient(trainer.relationshipId);
+          const subs = await db.getSubscriptionsByClient(
+            trainer.relationshipId,
+          );
           allSubs.push(...subs);
         }
       }
@@ -1883,14 +2372,16 @@ export const appRouter = router({
       }),
 
     create: trainerProcedure
-      .input(z.object({
-        clientId: z.string(),
-        bundleDraftId: z.string().optional(),
-        price: z.string(),
-        subscriptionType: z.enum(["weekly", "monthly", "yearly"]).optional(),
-        sessionsIncluded: z.number().default(0),
-        startDate: z.date().optional(),
-      }))
+      .input(
+        z.object({
+          clientId: z.string(),
+          bundleDraftId: z.string().optional(),
+          price: z.string(),
+          subscriptionType: z.enum(["weekly", "monthly", "yearly"]).optional(),
+          sessionsIncluded: z.number().default(0),
+          startDate: z.date().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const client = await db.getClientById(input.clientId);
         if (!client) notFound("Client");
@@ -1903,7 +2394,9 @@ export const appRouter = router({
           subscriptionType: input.subscriptionType,
           sessionsIncluded: input.sessionsIncluded,
           sessionsUsed: 0,
-          startDate: input.startDate ? input.startDate.toISOString() : new Date().toISOString(),
+          startDate: input.startDate
+            ? input.startDate.toISOString()
+            : new Date().toISOString(),
         });
       }),
 
@@ -1929,7 +2422,10 @@ export const appRouter = router({
         const sub = await db.getSubscriptionById(input.id);
         if (!sub) notFound("Subscription");
         assertSubscriptionAccess(ctx.user, sub);
-        await db.updateSubscription(input.id, { status: "paused", pausedAt: new Date().toISOString() });
+        await db.updateSubscription(input.id, {
+          status: "paused",
+          pausedAt: new Date().toISOString(),
+        });
         return { success: true };
       }),
 
@@ -1940,7 +2436,10 @@ export const appRouter = router({
         const sub = await db.getSubscriptionById(input.id);
         if (!sub) notFound("Subscription");
         assertSubscriptionAccess(ctx.user, sub);
-        await db.updateSubscription(input.id, { status: "active", pausedAt: null });
+        await db.updateSubscription(input.id, {
+          status: "active",
+          pausedAt: null,
+        });
         return { success: true };
       }),
 
@@ -1951,7 +2450,10 @@ export const appRouter = router({
         const sub = await db.getSubscriptionById(input.id);
         if (!sub) notFound("Subscription");
         assertSubscriptionAccess(ctx.user, sub);
-        await db.updateSubscription(input.id, { status: "cancelled", cancelledAt: new Date().toISOString() });
+        await db.updateSubscription(input.id, {
+          status: "cancelled",
+          cancelledAt: new Date().toISOString(),
+        });
         return { success: true };
       }),
   }),
@@ -1983,20 +2485,25 @@ export const appRouter = router({
       }
 
       return allSessions.sort(
-        (a, b) => new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime()
+        (a, b) =>
+          new Date(b.sessionDate).getTime() - new Date(a.sessionDate).getTime(),
       );
     }),
 
     create: trainerProcedure
-      .input(z.object({
-        clientId: z.string(),
-        subscriptionId: z.string().optional(),
-        sessionDate: z.date(),
-        durationMinutes: z.number().default(60),
-        sessionType: z.enum(["training", "check_in", "call", "plan_review"]).optional(),
-        location: z.string().optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          clientId: z.string(),
+          subscriptionId: z.string().optional(),
+          sessionDate: z.date(),
+          durationMinutes: z.number().default(60),
+          sessionType: z
+            .enum(["training", "check_in", "call", "plan_review"])
+            .optional(),
+          location: z.string().optional(),
+          notes: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const client = await db.getClientById(input.clientId);
         if (!client) notFound("Client");
@@ -2017,20 +2524,26 @@ export const appRouter = router({
           const trainer = await db.getUserById(client.trainerId);
           if (trainer) {
             const ensured = await ensureGoogleCalendarAccessToken(trainer);
-            const calendarId = ensured.integration.selectedCalendarId || "primary";
-            const eventEnd = new Date(input.sessionDate.getTime() + input.durationMinutes * 60_000).toISOString();
+            const calendarId =
+              ensured.integration.selectedCalendarId || "primary";
+            const eventEnd = new Date(
+              input.sessionDate.getTime() + input.durationMinutes * 60_000,
+            ).toISOString();
             const gcEvent = await googleCalendar.createGoogleCalendarEvent({
               accessToken: ensured.token,
               calendarId,
               summary: `${input.sessionType || "Training"} with ${client.name || "Client"}`,
-              description: input.notes || "Scheduled from LocoMotivate trainer calendar.",
+              description:
+                input.notes || "Scheduled from LocoMotivate trainer calendar.",
               location: input.location || undefined,
               startTimeIso: input.sessionDate.toISOString(),
               endTimeIso: eventEnd,
               attendeeEmails: client.email ? [client.email] : [],
             });
             if (gcEvent.id) {
-              await db.updateSession(sessionId, { googleCalendarEventId: gcEvent.id });
+              await db.updateSession(sessionId, {
+                googleCalendarEventId: gcEvent.id,
+              });
             }
           }
         } catch (error) {
@@ -2064,7 +2577,8 @@ export const appRouter = router({
             const trainer = await db.getUserById(session.trainerId);
             if (trainer) {
               const ensured = await ensureGoogleCalendarAccessToken(trainer);
-              const calendarId = ensured.integration.selectedCalendarId || "primary";
+              const calendarId =
+                ensured.integration.selectedCalendarId || "primary";
               await googleCalendar.deleteGoogleCalendarEvent({
                 accessToken: ensured.token,
                 calendarId,
@@ -2072,7 +2586,10 @@ export const appRouter = router({
               });
             }
           } catch (error) {
-            console.warn("[GoogleCalendar] Failed to delete event on cancel:", error);
+            console.warn(
+              "[GoogleCalendar] Failed to delete event on cancel:",
+              error,
+            );
           }
         }
 
@@ -2101,13 +2618,28 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const session = await db.getSessionById(input.id);
         if (!session) notFound("Session");
-        if (!(isManagerLikeRole(ctx.user.role) || session.trainerId === ctx.user.id || session.clientId === ctx.user.id)) {
+        if (
+          !(
+            isManagerLikeRole(ctx.user.role) ||
+            session.trainerId === ctx.user.id ||
+            session.clientId === ctx.user.id
+          )
+        ) {
           forbidden("You do not have access to this session");
         }
 
-        const proposer = session.trainerId === ctx.user.id ? "trainer" : session.clientId === ctx.user.id ? "client" : "manager";
-        const proposedEnd = new Date(input.proposedStartTime.getTime() + input.durationMinutes * 60_000);
-        const noteLine = input.note?.trim() ? ` Note: ${input.note.trim()}` : "";
+        const proposer =
+          session.trainerId === ctx.user.id
+            ? "trainer"
+            : session.clientId === ctx.user.id
+              ? "client"
+              : "manager";
+        const proposedEnd = new Date(
+          input.proposedStartTime.getTime() + input.durationMinutes * 60_000,
+        );
+        const noteLine = input.note?.trim()
+          ? ` Note: ${input.note.trim()}`
+          : "";
         const suggestionLine = `\n[Reschedule suggestion by ${proposer}] ${input.proposedStartTime.toISOString()} (${input.durationMinutes}m).${noteLine}`;
         const nextNotes = `${session.notes || ""}${suggestionLine}`.trim();
 
@@ -2119,19 +2651,24 @@ export const appRouter = router({
           const client = await db.getClientById(session.clientId);
           if (trainer) {
             const ensured = await ensureGoogleCalendarAccessToken(trainer);
-            const calendarId = ensured.integration.selectedCalendarId || "primary";
+            const calendarId =
+              ensured.integration.selectedCalendarId || "primary";
             await googleCalendar.createGoogleCalendarEvent({
               accessToken: ensured.token,
               calendarId,
               summary: `Reschedule suggestion: ${client?.name || "Client"}`,
-              description: `Suggested move from LocoMotivate by ${proposer}.${noteLine || ""}`.trim(),
+              description:
+                `Suggested move from LocoMotivate by ${proposer}.${noteLine || ""}`.trim(),
               startTimeIso: input.proposedStartTime.toISOString(),
               endTimeIso: proposedEnd.toISOString(),
               attendeeEmails: client?.email ? [client.email] : [],
             });
           }
         } catch (error) {
-          console.warn("[GoogleCalendar] Reschedule suggestion sync failed:", error);
+          console.warn(
+            "[GoogleCalendar] Reschedule suggestion sync failed:",
+            error,
+          );
         }
 
         return { success: true };
@@ -2155,18 +2692,52 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const request = await db.getRescheduleRequestById(input.id);
         if (!request) notFound("Reschedule request");
-        if (request.trainerId !== ctx.user.id && !isManagerLikeRole(ctx.user.role)) {
+        if (
+          request.trainerId !== ctx.user.id &&
+          !isManagerLikeRole(ctx.user.role)
+        ) {
           forbidden("You do not have access to this request");
         }
 
-        await db.updateSession(request.sessionId, { sessionDate: request.proposedDate, location: request.proposedLocation || undefined });
-        await db.updateRescheduleRequest(input.id, { status: "approved", respondedAt: new Date().toISOString() } as any);
+        await db.updateSession(request.sessionId, {
+          sessionDate: request.proposedDate,
+          location: request.proposedLocation || undefined,
+        });
+        await db.updateRescheduleRequest(input.id, {
+          status: "approved",
+          respondedAt: new Date().toISOString(),
+        } as any);
 
-        const conversationId = [request.trainerId, request.clientId].sort().join("-");
-        const newTime = new Date(request.proposedDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        const conversationId = [request.trainerId, request.clientId]
+          .sort()
+          .join("-");
+        const newTime = new Date(request.proposedDate).toLocaleString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
         const msgContent = `✅ Reschedule approved! Your session has been moved to ${newTime}.`;
-        await db.createMessage({ senderId: request.trainerId, receiverId: request.clientId, conversationId, content: msgContent, messageType: "system" });
-        notifyNewMessage(conversationId, { id: "reschedule-approved-" + input.id, senderId: request.trainerId, senderName: "Calendar", receiverId: request.clientId, content: msgContent, conversationId }, [request.clientId]);
+        await db.createMessage({
+          senderId: request.trainerId,
+          receiverId: request.clientId,
+          conversationId,
+          content: msgContent,
+          messageType: "system",
+        });
+        notifyNewMessage(
+          conversationId,
+          {
+            id: "reschedule-approved-" + input.id,
+            senderId: request.trainerId,
+            senderName: "Calendar",
+            receiverId: request.clientId,
+            content: msgContent,
+            conversationId,
+          },
+          [request.clientId],
+        );
         notifyBadgeCounts([request.clientId]);
 
         return { success: true };
@@ -2177,11 +2748,18 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const request = await db.getRescheduleRequestById(input.id);
         if (!request) notFound("Reschedule request");
-        if (request.trainerId !== ctx.user.id && !isManagerLikeRole(ctx.user.role)) {
+        if (
+          request.trainerId !== ctx.user.id &&
+          !isManagerLikeRole(ctx.user.role)
+        ) {
           forbidden("You do not have access to this request");
         }
 
-        await db.updateRescheduleRequest(input.id, { status: "rejected", responseNote: input.note || null, respondedAt: new Date().toISOString() } as any);
+        await db.updateRescheduleRequest(input.id, {
+          status: "rejected",
+          responseNote: input.note || null,
+          respondedAt: new Date().toISOString(),
+        } as any);
 
         // Revert Google Calendar event to original time
         try {
@@ -2190,8 +2768,12 @@ export const appRouter = router({
             const session = await db.getSessionById(request.sessionId);
             if (session?.googleCalendarEventId) {
               const ensured = await ensureGoogleCalendarAccessToken(trainer);
-              const calendarId = ensured.integration.selectedCalendarId || "primary";
-              const endTime = new Date(new Date(request.originalDate).getTime() + (session.durationMinutes || 60) * 60_000).toISOString();
+              const calendarId =
+                ensured.integration.selectedCalendarId || "primary";
+              const endTime = new Date(
+                new Date(request.originalDate).getTime() +
+                  (session.durationMinutes || 60) * 60_000,
+              ).toISOString();
               await googleCalendar.updateGoogleCalendarEvent({
                 accessToken: ensured.token,
                 calendarId,
@@ -2205,31 +2787,89 @@ export const appRouter = router({
           // Best effort revert
         }
 
-        const conversationId = [request.trainerId, request.clientId].sort().join("-");
+        const conversationId = [request.trainerId, request.clientId]
+          .sort()
+          .join("-");
         const msgContent = `❌ Reschedule declined. Your session stays at the original time.${input.note ? ` Note: ${input.note}` : ""}`;
-        await db.createMessage({ senderId: request.trainerId, receiverId: request.clientId, conversationId, content: msgContent, messageType: "system" });
-        notifyNewMessage(conversationId, { id: "reschedule-rejected-" + input.id, senderId: request.trainerId, senderName: "Calendar", receiverId: request.clientId, content: msgContent, conversationId }, [request.clientId]);
+        await db.createMessage({
+          senderId: request.trainerId,
+          receiverId: request.clientId,
+          conversationId,
+          content: msgContent,
+          messageType: "system",
+        });
+        notifyNewMessage(
+          conversationId,
+          {
+            id: "reschedule-rejected-" + input.id,
+            senderId: request.trainerId,
+            senderName: "Calendar",
+            receiverId: request.clientId,
+            content: msgContent,
+            conversationId,
+          },
+          [request.clientId],
+        );
         notifyBadgeCounts([request.clientId]);
 
         return { success: true };
       }),
 
     counterPropose: trainerProcedure
-      .input(z.object({ id: z.string(), counterDate: z.date(), note: z.string().optional() }))
+      .input(
+        z.object({
+          id: z.string(),
+          counterDate: z.date(),
+          note: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const request = await db.getRescheduleRequestById(input.id);
         if (!request) notFound("Reschedule request");
-        if (request.trainerId !== ctx.user.id && !isManagerLikeRole(ctx.user.role)) {
+        if (
+          request.trainerId !== ctx.user.id &&
+          !isManagerLikeRole(ctx.user.role)
+        ) {
           forbidden("You do not have access to this request");
         }
 
-        await db.updateRescheduleRequest(input.id, { status: "counter_proposed", counterDate: input.counterDate.toISOString(), responseNote: input.note || null, respondedAt: new Date().toISOString() } as any);
+        await db.updateRescheduleRequest(input.id, {
+          status: "counter_proposed",
+          counterDate: input.counterDate.toISOString(),
+          responseNote: input.note || null,
+          respondedAt: new Date().toISOString(),
+        } as any);
 
-        const conversationId = [request.trainerId, request.clientId].sort().join("-");
-        const counterTime = input.counterDate.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        const conversationId = [request.trainerId, request.clientId]
+          .sort()
+          .join("-");
+        const counterTime = input.counterDate.toLocaleString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
         const msgContent = `🔄 Counter-proposal: How about ${counterTime} instead?${input.note ? ` ${input.note}` : ""}`;
-        await db.createMessage({ senderId: request.trainerId, receiverId: request.clientId, conversationId, content: msgContent, messageType: "system" });
-        notifyNewMessage(conversationId, { id: "reschedule-counter-" + input.id, senderId: request.trainerId, senderName: "Calendar", receiverId: request.clientId, content: msgContent, conversationId }, [request.clientId]);
+        await db.createMessage({
+          senderId: request.trainerId,
+          receiverId: request.clientId,
+          conversationId,
+          content: msgContent,
+          messageType: "system",
+        });
+        notifyNewMessage(
+          conversationId,
+          {
+            id: "reschedule-counter-" + input.id,
+            senderId: request.trainerId,
+            senderName: "Calendar",
+            receiverId: request.clientId,
+            content: msgContent,
+            conversationId,
+          },
+          [request.clientId],
+        );
         notifyBadgeCounts([request.clientId]);
 
         return { success: true };
@@ -2251,74 +2891,98 @@ export const appRouter = router({
     }),
 
     create: protectedProcedure
-      .input(z.object({
-        items: z.array(z.object({
-          title: z.string().min(1),
-          quantity: z.number().int().min(1),
-          bundleId: z.string().optional(),
-          productId: z.string().optional(),
-          trainerId: z.string().optional(),
-          unitPrice: z.number().min(0),
-          fulfillment: z.enum(["home_ship", "trainer_delivery", "vending", "cafeteria"]).optional(),
-        })).min(1),
-        subtotalAmount: z.number().min(0).optional(),
-        taxAmount: z.number().min(0).optional(),
-        shippingAmount: z.number().min(0).optional(),
-        totalAmount: z.number().min(0).optional(),
-      }))
+      .input(
+        z.object({
+          items: z
+            .array(
+              z.object({
+                title: z.string().min(1),
+                quantity: z.number().int().min(1),
+                bundleId: z.string().optional(),
+                productId: z.string().optional(),
+                trainerId: z.string().optional(),
+                unitPrice: z.number().min(0),
+                fulfillment: z
+                  .enum([
+                    "home_ship",
+                    "trainer_delivery",
+                    "vending",
+                    "cafeteria",
+                  ])
+                  .optional(),
+              }),
+            )
+            .min(1),
+          subtotalAmount: z.number().min(0).optional(),
+          taxAmount: z.number().min(0).optional(),
+          shippingAmount: z.number().min(0).optional(),
+          totalAmount: z.number().min(0).optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role === "trainer" || isManagerLikeRole(ctx.user.role)) {
           forbidden("Only shoppers and clients can place orders");
         }
 
-        const resolvedItems = await Promise.all(input.items.map(async (item) => {
-          let name = item.title;
-          let unitPrice = item.unitPrice;
-          let trainerId = item.trainerId;
-          let productId = item.productId;
+        const resolvedItems = await Promise.all(
+          input.items.map(async (item) => {
+            let name = item.title;
+            let unitPrice = item.unitPrice;
+            let trainerId = item.trainerId;
+            let productId = item.productId;
 
-          if (item.bundleId) {
-            const bundle = await db.getBundleDraftById(item.bundleId);
-            if (bundle) {
-              name = bundle.title || name;
-              const price = Number.parseFloat(String(bundle.price || unitPrice));
-              unitPrice = Number.isFinite(price) ? price : unitPrice;
-              trainerId = trainerId || bundle.trainerId || undefined;
+            if (item.bundleId) {
+              const bundle = await db.getBundleDraftById(item.bundleId);
+              if (bundle) {
+                name = bundle.title || name;
+                const price = Number.parseFloat(
+                  String(bundle.price || unitPrice),
+                );
+                unitPrice = Number.isFinite(price) ? price : unitPrice;
+                trainerId = trainerId || bundle.trainerId || undefined;
+              }
+            } else if (item.productId) {
+              const product = await db.getProductById(item.productId);
+              if (product) {
+                name = product.name || name;
+                const price = Number.parseFloat(
+                  String(product.price || unitPrice),
+                );
+                unitPrice = Number.isFinite(price) ? price : unitPrice;
+                productId = product.id;
+              }
             }
-          } else if (item.productId) {
-            const product = await db.getProductById(item.productId);
-            if (product) {
-              name = product.name || name;
-              const price = Number.parseFloat(String(product.price || unitPrice));
-              unitPrice = Number.isFinite(price) ? price : unitPrice;
-              productId = product.id;
-            }
-          }
 
-          return {
-            ...item,
-            name,
-            unitPrice,
-            trainerId,
-            productId,
-          };
-        }));
+            return {
+              ...item,
+              name,
+              unitPrice,
+              trainerId,
+              productId,
+            };
+          }),
+        );
 
         const trainerIds = Array.from(
-          new Set(resolvedItems.map((item) => item.trainerId).filter((id): id is string => Boolean(id)))
+          new Set(
+            resolvedItems
+              .map((item) => item.trainerId)
+              .filter((id): id is string => Boolean(id)),
+          ),
         );
         if (trainerIds.length > 1) {
           forbidden("Mixed-trainer carts are not supported yet");
         }
 
         const subtotalComputed = resolvedItems.reduce(
-          (sum, item) => sum + (item.unitPrice * item.quantity),
+          (sum, item) => sum + item.unitPrice * item.quantity,
           0,
         );
         const subtotalAmount = input.subtotalAmount ?? subtotalComputed;
         const shippingAmount = input.shippingAmount ?? 0;
         const taxAmount = input.taxAmount ?? 0;
-        const totalAmount = input.totalAmount ?? (subtotalAmount + shippingAmount + taxAmount);
+        const totalAmount =
+          input.totalAmount ?? subtotalAmount + shippingAmount + taxAmount;
         const paymentStatus = totalAmount > 0 ? "pending" : "paid";
 
         const orderId = await db.createOrder({
@@ -2333,7 +2997,8 @@ export const appRouter = router({
           status: "pending",
           paymentStatus,
           fulfillmentStatus: "unfulfilled",
-          fulfillmentMethod: resolvedItems[0]?.fulfillment || "trainer_delivery",
+          fulfillmentMethod:
+            resolvedItems[0]?.fulfillment || "trainer_delivery",
           orderData: {
             source: "checkout",
             itemCount: resolvedItems.length,
@@ -2413,7 +3078,9 @@ export const appRouter = router({
           };
         }
 
-        const amountMinor = Math.round(Number.parseFloat(String(order.totalAmount || "0")) * 100);
+        const amountMinor = Math.round(
+          Number.parseFloat(String(order.totalAmount || "0")) * 100,
+        );
         const payment = await provisionOrderPaymentLink({
           orderId: order.id,
           requestedBy: ctx.user.id,
@@ -2428,10 +3095,20 @@ export const appRouter = router({
 
     // Update order status
     updateStatus: trainerProcedure
-      .input(z.object({
-        id: z.string(),
-        status: z.enum(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          status: z.enum([
+            "pending",
+            "confirmed",
+            "processing",
+            "shipped",
+            "delivered",
+            "cancelled",
+            "refunded",
+          ]),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const order = await db.getOrderById(input.id);
         if (!order) notFound("Order");
@@ -2442,15 +3119,24 @@ export const appRouter = router({
 
     // Update fulfillment status
     updateFulfillment: trainerProcedure
-      .input(z.object({
-        id: z.string(),
-        fulfillmentStatus: z.enum(["unfulfilled", "partial", "fulfilled", "restocked"]),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          fulfillmentStatus: z.enum([
+            "unfulfilled",
+            "partial",
+            "fulfilled",
+            "restocked",
+          ]),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const order = await db.getOrderById(input.id);
         if (!order) notFound("Order");
         assertOrderManageAccess(ctx.user, order);
-        await db.updateOrder(input.id, { fulfillmentStatus: input.fulfillmentStatus });
+        await db.updateOrder(input.id, {
+          fulfillmentStatus: input.fulfillmentStatus,
+        });
         return { success: true };
       }),
   }),
@@ -2511,10 +3197,12 @@ export const appRouter = router({
 
     // Client reports issue
     reportIssue: protectedProcedure
-      .input(z.object({
-        id: z.string(),
-        reason: z.string(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          reason: z.string(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
         if (!delivery) notFound("Delivery");
@@ -2529,18 +3217,23 @@ export const appRouter = router({
 
     // Client requests reschedule
     requestReschedule: protectedProcedure
-      .input(z.object({
-        id: z.string(),
-        requestedDate: z.string(),
-        reason: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          requestedDate: z.string(),
+          reason: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
         if (!delivery) notFound("Delivery");
         assertDeliveryClientAccess(ctx.user, delivery);
         const requestedDate = normalizeIsoDate(input.requestedDate);
         if (!requestedDate) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid requestedDate" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid requestedDate",
+          });
         }
         await db.updateDelivery(input.id, {
           clientNotes: encodeRescheduleRequest({
@@ -2555,17 +3248,22 @@ export const appRouter = router({
 
     // Trainer approves reschedule
     approveReschedule: trainerProcedure
-      .input(z.object({
-        id: z.string(),
-        newDate: z.string(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          newDate: z.string(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
         if (!delivery) notFound("Delivery");
         assertDeliveryManageAccess(ctx.user, delivery);
         const normalizedNewDate = normalizeIsoDate(input.newDate);
         if (!normalizedNewDate) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid newDate" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid newDate",
+          });
         }
         const request = decodeRescheduleRequest(delivery.clientNotes);
         const priorDate = normalizeIsoDate(delivery.scheduledDate);
@@ -2577,7 +3275,9 @@ export const appRouter = router({
         ]
           .filter(Boolean)
           .join(" ");
-        const updatedNotes = [delivery.notes?.trim(), transition].filter(Boolean).join("\n");
+        const updatedNotes = [delivery.notes?.trim(), transition]
+          .filter(Boolean)
+          .join("\n");
         await db.updateDelivery(input.id, {
           scheduledDate: normalizedNewDate,
           notes: updatedNotes,
@@ -2589,16 +3289,19 @@ export const appRouter = router({
 
     // Trainer rejects reschedule
     rejectReschedule: trainerProcedure
-      .input(z.object({
-        id: z.string(),
-        reason: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          reason: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const delivery = await db.getDeliveryById(input.id);
         if (!delivery) notFound("Delivery");
         assertDeliveryManageAccess(ctx.user, delivery);
         const request = decodeRescheduleRequest(delivery.clientNotes);
-        const rejectionReason = input.reason?.trim() || request?.reason || "No reason provided";
+        const rejectionReason =
+          input.reason?.trim() || request?.reason || "No reason provided";
         const updatedNotes = [
           delivery.notes?.trim(),
           `Reschedule rejected: ${rejectionReason}`,
@@ -2615,17 +3318,23 @@ export const appRouter = router({
 
     // Create delivery records for an order (called after order is placed)
     createForOrder: trainerProcedure
-      .input(z.object({
-        orderId: z.string(),
-        clientId: z.string(),
-        products: z.array(z.object({
-          productId: z.string().optional(),
-          productName: z.string(),
-          quantity: z.number(),
-        })),
-        scheduledDate: z.string().optional(),
-        deliveryMethod: z.enum(["in_person", "locker", "front_desk", "shipped"]).optional(),
-      }))
+      .input(
+        z.object({
+          orderId: z.string(),
+          clientId: z.string(),
+          products: z.array(
+            z.object({
+              productId: z.string().optional(),
+              productName: z.string(),
+              quantity: z.number(),
+            }),
+          ),
+          scheduledDate: z.string().optional(),
+          deliveryMethod: z
+            .enum(["in_person", "locker", "front_desk", "shipped"])
+            .optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const order = await db.getOrderById(input.orderId);
         if (!order) notFound("Order");
@@ -2662,8 +3371,9 @@ export const appRouter = router({
   messages: router({
     conversations: protectedProcedure.query(async ({ ctx }) => {
       const summaries = await db.getConversationSummaries(ctx.user.id);
-      return summaries.map(s => {
-        const isAssistantConversation = s.conversationId === `bot-${ctx.user.id}`;
+      return summaries.map((s) => {
+        const isAssistantConversation =
+          s.conversationId === `bot-${ctx.user.id}`;
         const participants =
           isAssistantConversation && s.participants.length === 0
             ? [
@@ -2676,8 +3386,12 @@ export const appRouter = router({
               ]
             : s.participants;
         const otherUser = participants[0];
-        const isGroup = !isAssistantConversation && (s.conversationId.startsWith("group-") || participants.length > 1);
-        const participantNames = participants.map(p => p.name).filter(Boolean);
+        const isGroup =
+          !isAssistantConversation &&
+          (s.conversationId.startsWith("group-") || participants.length > 1);
+        const participantNames = participants
+          .map((p) => p.name)
+          .filter(Boolean);
         return {
           id: s.conversationId,
           conversationId: s.conversationId,
@@ -2700,7 +3414,10 @@ export const appRouter = router({
     thread: protectedProcedure
       .input(z.object({ conversationId: z.string() }))
       .query(async ({ ctx, input }) => {
-        const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+        const isParticipant = await db.isConversationParticipant(
+          input.conversationId,
+          ctx.user.id,
+        );
         if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
           forbidden("You do not have access to this conversation");
         }
@@ -2708,19 +3425,25 @@ export const appRouter = router({
       }),
 
     send: protectedProcedure
-      .input(z.object({
-        receiverId: z.string(),
-        content: z.string().min(1),
-        conversationId: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          receiverId: z.string(),
+          content: z.string().min(1),
+          conversationId: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         if (input.conversationId) {
-          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          const isParticipant = await db.isConversationParticipant(
+            input.conversationId,
+            ctx.user.id,
+          );
           if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
             forbidden("You do not have access to this conversation");
           }
         }
-        const conversationId = input.conversationId ||
+        const conversationId =
+          input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
 
         const messageId = await db.createMessage({
@@ -2732,14 +3455,19 @@ export const appRouter = router({
 
         const isAssistantReceiver = input.receiverId === LOCO_ASSISTANT_USER_ID;
 
-        notifyNewMessage(conversationId, {
-          id: messageId,
-          senderId: ctx.user.id,
-          senderName: ctx.user.name ?? "Someone",
-          receiverId: input.receiverId,
-          content: input.content,
+        notifyNewMessage(
           conversationId,
-        }, isAssistantReceiver ? [ctx.user.id] : [input.receiverId, ctx.user.id], ctx.user.id);
+          {
+            id: messageId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "Someone",
+            receiverId: input.receiverId,
+            content: input.content,
+            conversationId,
+          },
+          isAssistantReceiver ? [ctx.user.id] : [input.receiverId, ctx.user.id],
+          ctx.user.id,
+        );
 
         if (isAssistantReceiver) {
           queueTrainerAssistantReply({
@@ -2768,14 +3496,19 @@ export const appRouter = router({
       }),
 
     sendGroup: protectedProcedure
-      .input(z.object({
-        receiverIds: z.array(z.string()).min(1),
-        content: z.string().min(1),
-        conversationId: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          receiverIds: z.array(z.string()).min(1),
+          content: z.string().min(1),
+          conversationId: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         if (input.conversationId) {
-          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          const isParticipant = await db.isConversationParticipant(
+            input.conversationId,
+            ctx.user.id,
+          );
           if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
             forbidden("You do not have access to this conversation");
           }
@@ -2831,7 +3564,10 @@ export const appRouter = router({
         const message = await db.getMessageById(input.id);
         if (!message) notFound("Message");
         assertMessageAccess(ctx.user, message);
-        if (!isManagerLikeRole(ctx.user.role) && message.receiverId !== ctx.user.id) {
+        if (
+          !isManagerLikeRole(ctx.user.role) &&
+          message.receiverId !== ctx.user.id
+        ) {
           forbidden("Only the recipient can mark this message as read");
         }
         await db.markMessageRead(input.id);
@@ -2843,13 +3579,16 @@ export const appRouter = router({
         z.object({
           id: z.string(),
           content: z.string().min(1).max(4000),
-        })
+        }),
       )
       .mutation(async ({ ctx, input }) => {
         const message = await db.getMessageById(input.id);
         if (!message) notFound("Message");
         assertMessageAccess(ctx.user, message);
-        if (!isManagerLikeRole(ctx.user.role) && message.senderId !== ctx.user.id) {
+        if (
+          !isManagerLikeRole(ctx.user.role) &&
+          message.senderId !== ctx.user.id
+        ) {
           forbidden("Only the sender can edit this message");
         }
         if (message.messageType && message.messageType !== "text") {
@@ -2866,7 +3605,10 @@ export const appRouter = router({
         const message = await db.getMessageById(input.id);
         if (!message) notFound("Message");
         assertMessageAccess(ctx.user, message);
-        if (!isManagerLikeRole(ctx.user.role) && message.senderId !== ctx.user.id) {
+        if (
+          !isManagerLikeRole(ctx.user.role) &&
+          message.senderId !== ctx.user.id
+        ) {
           forbidden("Only the sender can delete this message");
         }
 
@@ -2877,7 +3619,10 @@ export const appRouter = router({
     deleteConversation: protectedProcedure
       .input(z.object({ conversationId: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+        const isParticipant = await db.isConversationParticipant(
+          input.conversationId,
+          ctx.user.id,
+        );
         if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
           forbidden("You do not have access to this conversation");
         }
@@ -2888,24 +3633,30 @@ export const appRouter = router({
 
     // Send message with attachment
     sendWithAttachment: protectedProcedure
-      .input(z.object({
-        receiverId: z.string(),
-        content: z.string(),
-        conversationId: z.string().optional(),
-        messageType: z.enum(["text", "image", "file"]).default("text"),
-        attachmentUrl: z.string().optional(),
-        attachmentName: z.string().optional(),
-        attachmentSize: z.number().optional(),
-        attachmentMimeType: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          receiverId: z.string(),
+          content: z.string(),
+          conversationId: z.string().optional(),
+          messageType: z.enum(["text", "image", "file"]).default("text"),
+          attachmentUrl: z.string().optional(),
+          attachmentName: z.string().optional(),
+          attachmentSize: z.number().optional(),
+          attachmentMimeType: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         if (input.conversationId) {
-          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          const isParticipant = await db.isConversationParticipant(
+            input.conversationId,
+            ctx.user.id,
+          );
           if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
             forbidden("You do not have access to this conversation");
           }
         }
-        const conversationId = input.conversationId ||
+        const conversationId =
+          input.conversationId ||
           [ctx.user.id, input.receiverId].sort().join("-");
 
         const messageId = await db.createMessage({
@@ -2922,14 +3673,19 @@ export const appRouter = router({
 
         const isAssistantReceiver = input.receiverId === LOCO_ASSISTANT_USER_ID;
 
-        notifyNewMessage(conversationId, {
-          id: messageId,
-          senderId: ctx.user.id,
-          senderName: ctx.user.name ?? "Someone",
-          receiverId: input.receiverId,
-          content: input.content,
+        notifyNewMessage(
           conversationId,
-        }, isAssistantReceiver ? [ctx.user.id] : [input.receiverId, ctx.user.id], ctx.user.id);
+          {
+            id: messageId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "Someone",
+            receiverId: input.receiverId,
+            content: input.content,
+            conversationId,
+          },
+          isAssistantReceiver ? [ctx.user.id] : [input.receiverId, ctx.user.id],
+          ctx.user.id,
+        );
 
         if (isAssistantReceiver) {
           queueTrainerAssistantReply({
@@ -2958,19 +3714,24 @@ export const appRouter = router({
       }),
 
     sendGroupWithAttachment: protectedProcedure
-      .input(z.object({
-        receiverIds: z.array(z.string()).min(1),
-        content: z.string(),
-        conversationId: z.string().optional(),
-        messageType: z.enum(["text", "image", "file"]).default("text"),
-        attachmentUrl: z.string().optional(),
-        attachmentName: z.string().optional(),
-        attachmentSize: z.number().optional(),
-        attachmentMimeType: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          receiverIds: z.array(z.string()).min(1),
+          content: z.string(),
+          conversationId: z.string().optional(),
+          messageType: z.enum(["text", "image", "file"]).default("text"),
+          attachmentUrl: z.string().optional(),
+          attachmentName: z.string().optional(),
+          attachmentSize: z.number().optional(),
+          attachmentMimeType: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         if (input.conversationId) {
-          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          const isParticipant = await db.isConversationParticipant(
+            input.conversationId,
+            ctx.user.id,
+          );
           if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
             forbidden("You do not have access to this conversation");
           }
@@ -3037,10 +3798,12 @@ export const appRouter = router({
 
     // Add reaction to a message
     addReaction: protectedProcedure
-      .input(z.object({
-        messageId: z.string(),
-        reaction: z.string().max(32),
-      }))
+      .input(
+        z.object({
+          messageId: z.string(),
+          reaction: z.string().max(32),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const message = await db.getMessageById(input.messageId);
         if (!message) notFound("Message");
@@ -3054,15 +3817,21 @@ export const appRouter = router({
 
     // Remove reaction from a message
     removeReaction: protectedProcedure
-      .input(z.object({
-        messageId: z.string(),
-        reaction: z.string(),
-      }))
+      .input(
+        z.object({
+          messageId: z.string(),
+          reaction: z.string(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const message = await db.getMessageById(input.messageId);
         if (!message) notFound("Message");
         assertMessageAccess(ctx.user, message);
-        await db.removeMessageReaction(input.messageId, ctx.user.id, input.reaction);
+        await db.removeMessageReaction(
+          input.messageId,
+          ctx.user.id,
+          input.reaction,
+        );
         return { success: true };
       }),
 
@@ -3070,7 +3839,10 @@ export const appRouter = router({
     getConversationReactions: protectedProcedure
       .input(z.object({ conversationId: z.string() }))
       .query(async ({ ctx, input }) => {
-        const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+        const isParticipant = await db.isConversationParticipant(
+          input.conversationId,
+          ctx.user.id,
+        );
         if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
           forbidden("You do not have access to this conversation");
         }
@@ -3079,11 +3851,13 @@ export const appRouter = router({
 
     // Upload attachment for message
     uploadAttachment: protectedProcedure
-      .input(z.object({
-        fileName: z.string().min(1).max(255),
-        fileData: z.string(), // Base64 encoded
-        mimeType: z.string(),
-      }))
+      .input(
+        z.object({
+          fileName: z.string().min(1).max(255),
+          fileData: z.string(), // Base64 encoded
+          mimeType: z.string(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // 8 MB decoded size
         const allowedMimePrefixes = ["image/", "video/", "audio/", "text/"];
@@ -3100,33 +3874,49 @@ export const appRouter = router({
           allowedMimePrefixes.some((prefix) => mimeType.startsWith(prefix)) ||
           mimeType.startsWith("application/vnd.");
         if (!mimeAllowed) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Unsupported attachment type" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Unsupported attachment type",
+          });
         }
 
         // Quick guard against obviously oversized payloads before decoding.
         const estimatedBytes = Math.ceil((input.fileData.length * 3) / 4);
         if (estimatedBytes > MAX_ATTACHMENT_BYTES) {
-          throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Attachment exceeds 8 MB limit" });
+          throw new TRPCError({
+            code: "PAYLOAD_TOO_LARGE",
+            message: "Attachment exceeds 8 MB limit",
+          });
         }
 
         let buffer: Buffer;
         try {
           buffer = Buffer.from(input.fileData, "base64");
         } catch {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid attachment payload" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid attachment payload",
+          });
         }
         if (buffer.length === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Attachment payload is empty" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Attachment payload is empty",
+          });
         }
         if (buffer.length > MAX_ATTACHMENT_BYTES) {
-          throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Attachment exceeds 8 MB limit" });
+          throw new TRPCError({
+            code: "PAYLOAD_TOO_LARGE",
+            message: "Attachment exceeds 8 MB limit",
+          });
         }
 
         // Generate unique key with user ID and timestamp
         const timestamp = Date.now();
         const randomSuffix = Math.random().toString(36).substring(2, 8);
         const extCandidate = input.fileName.split(".").pop() || "bin";
-        const ext = extCandidate.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "bin";
+        const ext =
+          extCandidate.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "bin";
         const key = `messages/${ctx.user.id}/${timestamp}-${randomSuffix}.${ext}`;
 
         const { url } = await storagePut(key, buffer, mimeType);
@@ -3136,9 +3926,11 @@ export const appRouter = router({
 
     // Send a message to Loco Assistant
     sendToBot: protectedProcedure
-      .input(z.object({
-        content: z.string().min(1),
-      }))
+      .input(
+        z.object({
+          content: z.string().min(1),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const conversationId = `bot-${ctx.user.id}`;
 
@@ -3150,14 +3942,18 @@ export const appRouter = router({
           content: input.content,
         });
 
-        notifyNewMessage(conversationId, {
-          id: userMsgId,
-          senderId: ctx.user.id,
-          senderName: ctx.user.name ?? "You",
-          receiverId: LOCO_ASSISTANT_USER_ID,
-          content: input.content,
+        notifyNewMessage(
           conversationId,
-        }, [ctx.user.id]);
+          {
+            id: userMsgId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name ?? "You",
+            receiverId: LOCO_ASSISTANT_USER_ID,
+            content: input.content,
+            conversationId,
+          },
+          [ctx.user.id],
+        );
 
         queueTrainerAssistantReply({
           user: ctx.user,
@@ -3191,15 +3987,19 @@ export const appRouter = router({
     }),
 
     create: protectedProcedure
-      .input(z.object({
-        title: z.string().min(1).max(255),
-        description: z.string().optional(),
-        location: z.string().optional(),
-        startTime: z.date(),
-        endTime: z.date(),
-        eventType: z.enum(["session", "delivery", "appointment", "other"]).optional(),
-        relatedClientId: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string().min(1).max(255),
+          description: z.string().optional(),
+          location: z.string().optional(),
+          startTime: z.date(),
+          endTime: z.date(),
+          eventType: z
+            .enum(["session", "delivery", "appointment", "other"])
+            .optional(),
+          relatedClientId: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         return db.createCalendarEvent({
           userId: ctx.user.id,
@@ -3214,14 +4014,16 @@ export const appRouter = router({
       }),
 
     update: protectedProcedure
-      .input(z.object({
-        id: z.string(),
-        title: z.string().min(1).max(255).optional(),
-        description: z.string().optional(),
-        location: z.string().optional(),
-        startTime: z.date().optional(),
-        endTime: z.date().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          title: z.string().min(1).max(255).optional(),
+          description: z.string().optional(),
+          location: z.string().optional(),
+          startTime: z.date().optional(),
+          endTime: z.date().optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         const { id, startTime, endTime, ...rest } = input;
         await db.updateCalendarEvent(id, {
@@ -3252,7 +4054,9 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => {
-        const authUrl = googleCalendar.buildGoogleCalendarAuthUrl(input.redirectUri);
+        const authUrl = googleCalendar.buildGoogleCalendarAuthUrl(
+          input.redirectUri,
+        );
         return { authUrl };
       }),
 
@@ -3271,10 +4075,15 @@ export const appRouter = router({
           code: input.code,
           redirectUri: input.redirectUri,
         });
-        const calendars = await googleCalendar.listGoogleCalendars(token.accessToken);
+        const calendars = await googleCalendar.listGoogleCalendars(
+          token.accessToken,
+        );
 
-        const locoCalendar = calendars.find((calendar) =>
-          String(calendar.summary || "").trim().toLowerCase() === "locomotivate",
+        const locoCalendar = calendars.find(
+          (calendar) =>
+            String(calendar.summary || "")
+              .trim()
+              .toLowerCase() === "locomotivate",
         );
 
         let selected: { id: string; summary: string } | null = locoCalendar
@@ -3286,13 +4095,18 @@ export const appRouter = router({
             const created = await googleCalendar.createGoogleCalendar({
               accessToken: token.accessToken,
               summary: "Locomotivate",
-              description: "Training sessions and client appointments from Locomotivate",
+              description:
+                "Training sessions and client appointments from Locomotivate",
             });
             selected = { id: created.id, summary: created.summary };
           } catch {
-            const primaryCalendar = calendars.find((calendar) => calendar.primary);
+            const primaryCalendar = calendars.find(
+              (calendar) => calendar.primary,
+            );
             const fallback = primaryCalendar || calendars[0] || null;
-            selected = fallback ? { id: fallback.id, summary: fallback.summary } : null;
+            selected = fallback
+              ? { id: fallback.id, summary: fallback.summary }
+              : null;
           }
         }
 
@@ -3330,7 +4144,12 @@ export const appRouter = router({
       const selectedId = ensured.integration.selectedCalendarId;
       const selectedName = ensured.integration.selectedCalendarName;
       if (selectedId && !calendars.some((c) => c.id === selectedId)) {
-        calendars.unshift({ id: selectedId, summary: selectedName || "Locomotivate", primary: false, accessRole: "owner" });
+        calendars.unshift({
+          id: selectedId,
+          summary: selectedName || "Locomotivate",
+          primary: false,
+          accessRole: "owner",
+        });
       }
       return {
         selectedCalendarId: selectedId,
@@ -3393,7 +4212,8 @@ export const appRouter = router({
       const sessions = await db.getSessionsByTrainer(ctx.user.id);
       const sessionsByGcId = new Map<string, db.Session>();
       for (const s of sessions) {
-        if (s.googleCalendarEventId) sessionsByGcId.set(s.googleCalendarEventId, s);
+        if (s.googleCalendarEventId)
+          sessionsByGcId.set(s.googleCalendarEventId, s);
       }
 
       let updated = 0;
@@ -3427,10 +4247,27 @@ export const appRouter = router({
             });
             updated++;
 
-            const conversationId = [session.trainerId, clientUserId].sort().join("-");
+            const conversationId = [session.trainerId, clientUserId]
+              .sort()
+              .join("-");
             const clientName = client?.name || "your client";
-            const oldTime = new Date(session.sessionDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-            const newTime = new Date(gcEvent.start).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            const oldTime = new Date(session.sessionDate).toLocaleString(
+              "en-US",
+              {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              },
+            );
+            const newTime = new Date(gcEvent.start).toLocaleString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            });
             const msgContent = `📅 Reschedule request: Your session has been proposed to move from ${oldTime} to ${newTime}. Please check your calendar for details.`;
             await db.createMessage({
               senderId: session.trainerId,
@@ -3439,14 +4276,18 @@ export const appRouter = router({
               content: msgContent,
               messageType: "system",
             });
-            notifyNewMessage(conversationId, {
-              id: "reschedule-" + session.id,
-              senderId: session.trainerId,
-              senderName: "Calendar",
-              receiverId: clientUserId,
-              content: msgContent,
+            notifyNewMessage(
               conversationId,
-            }, [clientUserId]);
+              {
+                id: "reschedule-" + session.id,
+                senderId: session.trainerId,
+                senderName: "Calendar",
+                receiverId: clientUserId,
+                content: msgContent,
+                conversationId,
+              },
+              [clientUserId],
+            );
           } catch {
             // Reschedule request creation failed, fall back to direct update
             await db.updateSession(session.id, { sessionDate: gcEvent.start });
@@ -3494,15 +4335,17 @@ export const appRouter = router({
     }),
 
     update: protectedProcedure
-      .input(z.object({
-        name: z.string().optional(),
-        phone: z.string().optional(),
-        bio: z.string().optional(),
-        username: z.string().optional(),
-        photoUrl: z.string().optional(),
-        specialties: z.any().optional(),
-        socialLinks: z.any().optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().optional(),
+          phone: z.string().optional(),
+          bio: z.string().optional(),
+          username: z.string().optional(),
+          photoUrl: z.string().optional(),
+          specialties: z.any().optional(),
+          socialLinks: z.any().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         await db.updateUser(ctx.user.id, input);
         return { success: true };
@@ -3515,7 +4358,7 @@ export const appRouter = router({
         z.object({
           token: z.string().min(10),
           platform: z.enum(["ios", "android", "unknown"]).default("unknown"),
-        })
+        }),
       )
       .mutation(async ({ ctx, input }) => {
         await db.upsertUserPushToken(ctx.user.id, input.token, input.platform);
@@ -3534,12 +4377,15 @@ export const appRouter = router({
       // Enrich with active bundles count
       const enrichedTrainers = await Promise.all(
         trainers.map(async (trainer) => {
-          const activeBundles = await db.getActiveBundlesCount(trainer.id, ctx.user.id);
+          const activeBundles = await db.getActiveBundlesCount(
+            trainer.id,
+            ctx.user.id,
+          );
           return {
             ...trainer,
             activeBundles,
           };
-        })
+        }),
       );
 
       return enrichedTrainers;
@@ -3555,22 +4401,29 @@ export const appRouter = router({
 
     // Get available trainers for discovery (not already connected)
     discover: protectedProcedure
-      .input(z.object({
-        search: z.string().optional(),
-        specialty: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            search: z.string().optional(),
+            specialty: z.string().optional(),
+          })
+          .optional(),
+      )
       .query(async ({ ctx, input }) => {
         const trainers = await db.getAvailableTrainers(
           ctx.user.id,
           input?.search,
-          input?.specialty
+          input?.specialty,
         );
 
         // Enrich with bundle count
         const enrichedTrainers = await Promise.all(
           trainers.map(async (trainer) => {
             const bundleCount = await db.getTrainerBundleCount(trainer.id);
-            const bundles = await db.getPublishedBundlesPreviewByTrainer(trainer.id, 2);
+            const bundles = await db.getPublishedBundlesPreviewByTrainer(
+              trainer.id,
+              2,
+            );
             let presentationHtml: string | null = null;
             if (trainer.metadata) {
               try {
@@ -3580,10 +4433,14 @@ export const appRouter = router({
                     : trainer.metadata;
                 presentationHtml =
                   metadata && typeof metadata === "object"
-                    ? (metadata as { presentationHtml?: string }).presentationHtml ?? null
+                    ? ((metadata as { presentationHtml?: string })
+                        .presentationHtml ?? null)
                     : null;
               } catch (error) {
-                console.warn("[Trainers] Failed to parse trainer metadata:", error);
+                console.warn(
+                  "[Trainers] Failed to parse trainer metadata:",
+                  error,
+                );
               }
             }
             return {
@@ -3592,7 +4449,7 @@ export const appRouter = router({
               bundles,
               presentationHtml,
             };
-          })
+          }),
         );
 
         return enrichedTrainers;
@@ -3600,15 +4457,17 @@ export const appRouter = router({
 
     // Send a join request to a trainer
     requestToJoin: protectedProcedure
-      .input(z.object({
-        trainerId: z.string(),
-        message: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          trainerId: z.string(),
+          message: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const requestId = await db.createJoinRequest(
           input.trainerId,
           ctx.user.id,
-          input.message
+          input.message,
         );
         notifyBadgeCounts([ctx.user.id, input.trainerId]);
         return { success: true, requestId };
@@ -3636,7 +4495,10 @@ export const appRouter = router({
     approveRequest: trainerProcedure
       .input(z.object({ requestId: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        const approved = await db.approveJoinRequest(input.requestId, ctx.user.id);
+        const approved = await db.approveJoinRequest(
+          input.requestId,
+          ctx.user.id,
+        );
         notifyBadgeCounts([ctx.user.id, approved.userId || ctx.user.id]);
         return { success: true };
       }),
@@ -3644,7 +4506,10 @@ export const appRouter = router({
     rejectRequest: trainerProcedure
       .input(z.object({ requestId: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        const rejected = await db.rejectJoinRequest(input.requestId, ctx.user.id);
+        const rejected = await db.rejectJoinRequest(
+          input.requestId,
+          ctx.user.id,
+        );
         notifyBadgeCounts([ctx.user.id, rejected.userId || ctx.user.id]);
         return { success: true };
       }),
@@ -3669,10 +4534,14 @@ export const appRouter = router({
         if (!business) notFound("Business");
 
         if (business.isAvailable === false || business.status === "inactive") {
-          forbidden("This business is not currently accepting partnership requests");
+          forbidden(
+            "This business is not currently accepting partnership requests",
+          );
         }
 
-        const commissionRate = Number.parseFloat(String(business.commissionRate ?? 0));
+        const commissionRate = Number.parseFloat(
+          String(business.commissionRate ?? 0),
+        );
         const partnershipId = await db.createTrainerPartnership({
           trainerId: ctx.user.id,
           businessId: input.businessId,
@@ -3698,13 +4567,15 @@ export const appRouter = router({
       }),
 
     submitBusiness: trainerProcedure
-      .input(z.object({
-        name: z.string().trim().min(1).max(255),
-        type: z.string().trim().min(1).max(100),
-        description: z.string().trim().max(2000).optional(),
-        website: z.string().trim().max(512).optional(),
-        contactEmail: z.string().trim().email(),
-      }))
+      .input(
+        z.object({
+          name: z.string().trim().min(1).max(255),
+          type: z.string().trim().min(1).max(100),
+          description: z.string().trim().max(2000).optional(),
+          website: z.string().trim().max(512).optional(),
+          contactEmail: z.string().trim().email(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const businessId = await db.createPartnershipBusiness({
           name: input.name,
@@ -3742,15 +4613,17 @@ export const appRouter = router({
     }),
 
     usersWithFilters: managerProcedure
-      .input(z.object({
-        limit: z.number().min(1).max(100).default(20),
-        offset: z.number().min(0).default(0),
-        role: z.string().optional(),
-        status: z.enum(["active", "inactive"]).optional(),
-        search: z.string().optional(),
-        joinedAfter: z.string().optional(),
-        joinedBefore: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).default(20),
+          offset: z.number().min(0).default(0),
+          role: z.string().optional(),
+          status: z.enum(["active", "inactive"]).optional(),
+          search: z.string().optional(),
+          joinedAfter: z.string().optional(),
+          joinedBefore: z.string().optional(),
+        }),
+      )
       .query(async ({ input }) => {
         return db.getUsersWithFilters({
           limit: input.limit,
@@ -3758,8 +4631,12 @@ export const appRouter = router({
           role: input.role,
           status: input.status,
           search: input.search,
-          joinedAfter: input.joinedAfter ? new Date(input.joinedAfter) : undefined,
-          joinedBefore: input.joinedBefore ? new Date(input.joinedBefore) : undefined,
+          joinedAfter: input.joinedAfter
+            ? new Date(input.joinedAfter)
+            : undefined,
+          joinedBefore: input.joinedBefore
+            ? new Date(input.joinedBefore)
+            : undefined,
         });
       }),
 
@@ -3770,12 +4647,16 @@ export const appRouter = router({
       }),
 
     deliveries: managerProcedure
-      .input(z.object({
-        limit: z.number().min(1).max(200).default(100),
-        offset: z.number().min(0).default(0),
-        status: z.string().optional(),
-        search: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            limit: z.number().min(1).max(200).default(100),
+            offset: z.number().min(0).default(0),
+            status: z.string().optional(),
+            search: z.string().optional(),
+          })
+          .optional(),
+      )
       .query(async ({ input }) => {
         return db.getAllDeliveries({
           limit: input?.limit,
@@ -3786,10 +4667,14 @@ export const appRouter = router({
       }),
 
     lowInventory: managerProcedure
-      .input(z.object({
-        threshold: z.number().int().min(0).max(100).default(5),
-        limit: z.number().int().min(1).max(100).default(20),
-      }).optional())
+      .input(
+        z
+          .object({
+            threshold: z.number().int().min(0).max(100).default(5),
+            limit: z.number().int().min(1).max(100).default(20),
+          })
+          .optional(),
+      )
       .query(async ({ input }) => {
         return db.getLowInventoryProducts({
           threshold: input?.threshold,
@@ -3802,46 +4687,70 @@ export const appRouter = router({
     }),
 
     revenueTrend: managerProcedure
-      .input(z.object({ months: z.number().int().min(1).max(24).default(6) }).optional())
+      .input(
+        z
+          .object({ months: z.number().int().min(1).max(24).default(6) })
+          .optional(),
+      )
       .query(async ({ input }) => {
         return db.getRevenueTrend({ months: input?.months });
       }),
 
     updateUserRole: managerProcedure
-      .input(z.object({
-        userId: z.string(),
-        role: z.enum(["shopper", "client", "trainer", "manager", "coordinator"]),
-      }))
+      .input(
+        z.object({
+          userId: z.string(),
+          role: z.enum([
+            "shopper",
+            "client",
+            "trainer",
+            "manager",
+            "coordinator",
+          ]),
+        }),
+      )
       .mutation(async ({ input }) => {
         await db.updateUserRole(input.userId, input.role);
         return { success: true };
       }),
 
     updateUserStatus: managerProcedure
-      .input(z.object({
-        userId: z.string(),
-        active: z.boolean(),
-      }))
+      .input(
+        z.object({
+          userId: z.string(),
+          active: z.boolean(),
+        }),
+      )
       .mutation(async ({ input }) => {
         await db.updateUserStatus(input.userId, input.active);
         return { success: true };
       }),
 
     bulkUpdateRole: managerProcedure
-      .input(z.object({
-        userIds: z.array(z.string()).min(1),
-        role: z.enum(["shopper", "client", "trainer", "manager", "coordinator"]),
-      }))
+      .input(
+        z.object({
+          userIds: z.array(z.string()).min(1),
+          role: z.enum([
+            "shopper",
+            "client",
+            "trainer",
+            "manager",
+            "coordinator",
+          ]),
+        }),
+      )
       .mutation(async ({ input }) => {
         await db.bulkUpdateUserRole(input.userIds, input.role);
         return { success: true, count: input.userIds.length };
       }),
 
     bulkUpdateStatus: managerProcedure
-      .input(z.object({
-        userIds: z.array(z.string()).min(1),
-        active: z.boolean(),
-      }))
+      .input(
+        z.object({
+          userIds: z.array(z.string()).min(1),
+          active: z.boolean(),
+        }),
+      )
       .mutation(async ({ input }) => {
         await db.bulkUpdateUserStatus(input.userIds, input.active);
         return { success: true, count: input.userIds.length };
@@ -3878,16 +4787,21 @@ export const appRouter = router({
             },
           });
         }
-        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        const managerIds = await db.getUserIdsByRoles([
+          "manager",
+          "coordinator",
+        ]);
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
 
     rejectBundle: managerProcedure
-      .input(z.object({
-        id: z.string(),
-        reason: z.string(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          reason: z.string(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const bundle = await db.getBundleDraftById(input.id);
         await db.updateBundleDraft(input.id, {
@@ -3914,16 +4828,21 @@ export const appRouter = router({
             },
           });
         }
-        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        const managerIds = await db.getUserIdsByRoles([
+          "manager",
+          "coordinator",
+        ]);
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
 
     requestChanges: managerProcedure
-      .input(z.object({
-        id: z.string(),
-        comments: z.string(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          comments: z.string(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const bundle = await db.getBundleDraftById(input.id);
         await db.updateBundleDraft(input.id, {
@@ -3943,7 +4862,10 @@ export const appRouter = router({
             },
           });
         }
-        const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+        const managerIds = await db.getUserIdsByRoles([
+          "manager",
+          "coordinator",
+        ]);
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
@@ -3962,17 +4884,21 @@ export const appRouter = router({
       }),
 
     createTemplate: managerProcedure
-      .input(z.object({
-        title: z.string().min(1).max(255),
-        description: z.string().optional(),
-        goalType: z.enum(["weight_loss", "strength", "longevity", "power"]).optional(),
-        goalsJson: z.any().optional(),
-        imageUrl: z.string().optional(),
-        basePrice: z.string().optional(),
-        defaultServices: z.any().optional(),
-        defaultProducts: z.any().optional(),
-        active: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string().min(1).max(255),
+          description: z.string().optional(),
+          goalType: z
+            .enum(["weight_loss", "strength", "longevity", "power"])
+            .optional(),
+          goalsJson: z.any().optional(),
+          imageUrl: z.string().optional(),
+          basePrice: z.string().optional(),
+          defaultServices: z.any().optional(),
+          defaultProducts: z.any().optional(),
+          active: z.boolean().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         return db.createBundleTemplate({
           ...input,
@@ -3981,18 +4907,22 @@ export const appRouter = router({
       }),
 
     updateTemplate: managerProcedure
-      .input(z.object({
-        id: z.string(),
-        title: z.string().min(1).max(255).optional(),
-        description: z.string().optional(),
-        goalType: z.enum(["weight_loss", "strength", "longevity", "power"]).optional(),
-        goalsJson: z.any().optional(),
-        imageUrl: z.string().optional(),
-        basePrice: z.string().optional(),
-        defaultServices: z.any().optional(),
-        defaultProducts: z.any().optional(),
-        active: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          title: z.string().min(1).max(255).optional(),
+          description: z.string().optional(),
+          goalType: z
+            .enum(["weight_loss", "strength", "longevity", "power"])
+            .optional(),
+          goalsJson: z.any().optional(),
+          imageUrl: z.string().optional(),
+          basePrice: z.string().optional(),
+          defaultServices: z.any().optional(),
+          defaultProducts: z.any().optional(),
+          active: z.boolean().optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         const template = await db.getBundleTemplateById(input.id);
         if (!template) notFound("Template");
@@ -4020,16 +4950,18 @@ export const appRouter = router({
     }),
 
     createBundle: managerProcedure
-      .input(z.object({
-        title: z.string().min(1).max(255),
-        description: z.string().optional(),
-        price: z.string().optional(),
-        cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
-        goalsJson: z.any().optional(),
-        servicesJson: z.any().optional(),
-        productsJson: z.any().optional(),
-        imageUrl: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string().min(1).max(255),
+          description: z.string().optional(),
+          price: z.string().optional(),
+          cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
+          goalsJson: z.any().optional(),
+          servicesJson: z.any().optional(),
+          productsJson: z.any().optional(),
+          imageUrl: z.string().optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         return db.createBundleDraft({
           trainerId: null,
@@ -4046,17 +4978,19 @@ export const appRouter = router({
       }),
 
     updateBundle: managerProcedure
-      .input(z.object({
-        id: z.string(),
-        title: z.string().min(1).max(255).optional(),
-        description: z.string().optional(),
-        price: z.string().optional(),
-        cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
-        goalsJson: z.any().optional(),
-        servicesJson: z.any().optional(),
-        productsJson: z.any().optional(),
-        imageUrl: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          id: z.string(),
+          title: z.string().min(1).max(255).optional(),
+          description: z.string().optional(),
+          price: z.string().optional(),
+          cadence: z.enum(["one_time", "weekly", "monthly"]).optional(),
+          goalsJson: z.any().optional(),
+          servicesJson: z.any().optional(),
+          productsJson: z.any().optional(),
+          imageUrl: z.string().optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         const bundle = await db.getBundleDraftById(input.id);
         if (!bundle) notFound("Bundle");
@@ -4078,14 +5012,16 @@ export const appRouter = router({
     }),
 
     promoteBundleToTemplate: managerProcedure
-      .input(z.object({
-        bundleId: z.string(),
-        templateVisibility: z.array(z.string()).optional(),
-        discountType: z.enum(["percentage", "fixed"]).nullable().optional(),
-        discountValue: z.string().nullable().optional(),
-        availabilityStart: z.string().nullable().optional(),
-        availabilityEnd: z.string().nullable().optional(),
-      }))
+      .input(
+        z.object({
+          bundleId: z.string(),
+          templateVisibility: z.array(z.string()).optional(),
+          discountType: z.enum(["percentage", "fixed"]).nullable().optional(),
+          discountValue: z.string().nullable().optional(),
+          availabilityStart: z.string().nullable().optional(),
+          availabilityEnd: z.string().nullable().optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         const bundle = await db.getBundleDraftById(input.bundleId);
         if (!bundle) notFound("Bundle");
@@ -4100,20 +5036,25 @@ export const appRouter = router({
       }),
 
     updateTemplateSettings: managerProcedure
-      .input(z.object({
-        bundleId: z.string(),
-        templateVisibility: z.array(z.string()).optional(),
-        discountType: z.enum(["percentage", "fixed"]).nullable().optional(),
-        discountValue: z.string().nullable().optional(),
-        availabilityStart: z.string().nullable().optional(),
-        availabilityEnd: z.string().nullable().optional(),
-        templateActive: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          bundleId: z.string(),
+          templateVisibility: z.array(z.string()).optional(),
+          discountType: z.enum(["percentage", "fixed"]).nullable().optional(),
+          discountValue: z.string().nullable().optional(),
+          availabilityStart: z.string().nullable().optional(),
+          availabilityEnd: z.string().nullable().optional(),
+          templateActive: z.boolean().optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         const bundle = await db.getBundleDraftById(input.bundleId);
         if (!bundle) notFound("Bundle");
         if (!bundle.isTemplate) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "This bundle is not a template." });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This bundle is not a template.",
+          });
         }
         const { bundleId, ...settings } = input;
         await db.updateTemplateSettings(bundleId, settings);
@@ -4126,7 +5067,10 @@ export const appRouter = router({
         const bundle = await db.getBundleDraftById(input.bundleId);
         if (!bundle) notFound("Bundle");
         if (!bundle.isTemplate) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "This bundle is not a template." });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This bundle is not a template.",
+          });
         }
         await db.demoteTemplate(input.bundleId);
         return { success: true };
@@ -4147,10 +5091,14 @@ export const appRouter = router({
 
     /** Unified activity feed — combines user actions, system logs, and payment events */
     activityFeed: managerProcedure
-      .input(z.object({
-        limit: z.number().default(50),
-        category: z.enum(["all", "auth", "admin", "payments", "shopify"]).default("all"),
-      }))
+      .input(
+        z.object({
+          limit: z.number().default(50),
+          category: z
+            .enum(["all", "auth", "admin", "payments", "shopify"])
+            .default("all"),
+        }),
+      )
       .query(async ({ input }) => {
         const items: Array<{
           id: string;
@@ -4164,7 +5112,11 @@ export const appRouter = router({
         }> = [];
 
         // 1. User activity logs (admin actions)
-        if (input.category === "all" || input.category === "admin" || input.category === "auth") {
+        if (
+          input.category === "all" ||
+          input.category === "admin" ||
+          input.category === "auth"
+        ) {
           const userLogs = await db.getRecentActivityLogs(input.limit);
           // Resolve user names for the logs
           const userIds = new Set<string>();
@@ -4218,7 +5170,11 @@ export const appRouter = router({
                 description,
                 userId: log.performedBy,
                 userName: performer,
-                metadata: { targetUserId: log.targetUserId, previousValue: log.previousValue, newValue: log.newValue },
+                metadata: {
+                  targetUserId: log.targetUserId,
+                  previousValue: log.previousValue,
+                  newValue: log.newValue,
+                },
                 createdAt: log.createdAt,
               });
             }
@@ -4233,7 +5189,9 @@ export const appRouter = router({
           const sb = getServerSupabase();
           const { data: recentPayments } = await sb
             .from("payment_sessions")
-            .select("id, merchant_reference, requested_by, amount_minor, currency, status, description, method, created_at, updated_at")
+            .select(
+              "id, merchant_reference, requested_by, amount_minor, currency, status, description, method, created_at, updated_at",
+            )
             .order("updated_at", { ascending: false })
             .limit(input.limit);
 
@@ -4247,7 +5205,11 @@ export const appRouter = router({
               description: `${requester?.name || "Unknown"} — ${ps.currency} ${amount} ${ps.description || ""} (${ps.status})`,
               userId: ps.requested_by,
               userName: requester?.name || null,
-              metadata: { merchantReference: ps.merchant_reference, method: ps.method, amountMinor: ps.amount_minor },
+              metadata: {
+                merchantReference: ps.merchant_reference,
+                method: ps.method,
+                amountMinor: ps.amount_minor,
+              },
               createdAt: ps.updated_at || ps.created_at,
             });
           }
@@ -4278,18 +5240,31 @@ export const appRouter = router({
         }
 
         // Sort by createdAt descending and limit
-        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        items.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
         return items.slice(0, input.limit);
       }),
 
     logUserAction: managerProcedure
-      .input(z.object({
-        targetUserId: z.string(),
-        action: z.enum(["role_changed", "status_changed", "impersonation_started", "impersonation_ended", "profile_updated", "invited", "deleted"]),
-        previousValue: z.string().optional(),
-        newValue: z.string().optional(),
-        notes: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          targetUserId: z.string(),
+          action: z.enum([
+            "role_changed",
+            "status_changed",
+            "impersonation_started",
+            "impersonation_ended",
+            "profile_updated",
+            "invited",
+            "deleted",
+          ]),
+          previousValue: z.string().optional(),
+          newValue: z.string().optional(),
+          notes: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         await db.logUserActivity({
           targetUserId: input.targetUserId,
@@ -4311,11 +5286,19 @@ export const appRouter = router({
 
     // User Invitations
     createUserInvitation: managerProcedure
-      .input(z.object({
-        email: z.string().email(),
-        name: z.string().optional(),
-        role: z.enum(["shopper", "client", "trainer", "manager", "coordinator"]),
-      }))
+      .input(
+        z.object({
+          email: z.string().email(),
+          name: z.string().optional(),
+          role: z.enum([
+            "shopper",
+            "client",
+            "trainer",
+            "manager",
+            "coordinator",
+          ]),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const token = crypto.randomUUID().replace(/-/g, "");
         const expiresAtDate = new Date();
@@ -4345,7 +5328,10 @@ export const appRouter = router({
           try {
             await db.revokeUserInvitation(id);
           } catch (revokeError) {
-            console.error("[Invite] Failed to revoke user invitation after email failure", revokeError);
+            console.error(
+              "[Invite] Failed to revoke user invitation after email failure",
+              revokeError,
+            );
           }
           logError("invite.user.email_failed", error, {
             inviterId: ctx.user.id,
@@ -4353,7 +5339,10 @@ export const appRouter = router({
             recipient: input.email,
             inviteRole: input.role,
           });
-          const message = error instanceof Error ? error.message : String(error || "Invite email failed");
+          const message =
+            error instanceof Error
+              ? error.message
+              : String(error || "Invite email failed");
           await notifyInviteFailureByMessage(ctx.user, input.email, message);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
@@ -4374,11 +5363,15 @@ export const appRouter = router({
       }),
 
     getUserInvitations: managerProcedure
-      .input(z.object({
-        limit: z.number().default(20),
-        offset: z.number().default(0),
-        status: z.enum(["pending", "accepted", "expired", "revoked"]).optional(),
-      }))
+      .input(
+        z.object({
+          limit: z.number().default(20),
+          offset: z.number().default(0),
+          status: z
+            .enum(["pending", "accepted", "expired", "revoked"])
+            .optional(),
+        }),
+      )
       .query(async ({ input }) => {
         return db.getUserInvitations(input);
       }),
@@ -4395,13 +5388,22 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const invitation = await db.getUserInvitationById(input.id);
         if (!invitation) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Invitation not found" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Invitation not found",
+          });
         }
         if (invitation.status === "accepted") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "This invitation has already been accepted." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "This invitation has already been accepted.",
+          });
         }
         if (invitation.status === "revoked") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "This invitation has been revoked." });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "This invitation has been revoked.",
+          });
         }
 
         // Rotate token and extend expiry whenever invite is resent.
@@ -4424,8 +5426,15 @@ export const appRouter = router({
             expiresAtIso: refreshedExpiry.toISOString(),
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error || "Invite email failed");
-          await notifyInviteFailureByMessage(ctx.user, invitation.email, message);
+          const message =
+            error instanceof Error
+              ? error.message
+              : String(error || "Invite email failed");
+          await notifyInviteFailureByMessage(
+            ctx.user,
+            invitation.email,
+            message,
+          );
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: getInviteEmailFailureUserMessage(error),
@@ -4446,19 +5455,22 @@ export const appRouter = router({
       const orders = await db.getOrdersByTrainer(ctx.user.id);
       const earnings = await db.getEarningsByTrainer(ctx.user.id);
 
-      const totalEarnings = earnings.reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
+      const totalEarnings = earnings.reduce(
+        (sum, e) => sum + parseFloat(e.amount || "0"),
+        0,
+      );
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthlyEarnings = earnings
-        .filter(e => new Date(e.createdAt) >= startOfMonth)
+        .filter((e) => new Date(e.createdAt) >= startOfMonth)
         .reduce((sum, e) => sum + parseFloat(e.amount || "0"), 0);
 
       return {
         totalEarnings,
         monthlyEarnings,
-        activeClients: clients.filter(c => c.status === "active").length,
-        activeBundles: bundles.filter(b => b.status === "published").length,
-        pendingOrders: orders.filter(o => o.status === "pending").length,
+        activeClients: clients.filter((c) => c.status === "active").length,
+        activeBundles: bundles.filter((b) => b.status === "published").length,
+        pendingOrders: orders.filter((o) => o.status === "pending").length,
         completedDeliveries: 0, // Would need delivery query
       };
     }),
@@ -4475,7 +5487,7 @@ export const appRouter = router({
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      return sessions.filter(s => {
+      return sessions.filter((s) => {
         const sessionDate = new Date(s.sessionDate);
         return sessionDate >= today && sessionDate < tomorrow;
       });
@@ -4494,7 +5506,11 @@ export const appRouter = router({
     }),
 
     pointHistory: trainerProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }).optional())
+      .input(
+        z
+          .object({ limit: z.number().int().min(1).max(100).default(20) })
+          .optional(),
+      )
       .query(async ({ ctx, input }) => {
         const limit = input?.limit ?? 20;
 
@@ -4520,21 +5536,29 @@ export const appRouter = router({
         sessions
           .filter((session) => session.status === "completed")
           .forEach((session) => {
-            const date = session.completedAt || session.sessionDate || session.createdAt;
+            const date =
+              session.completedAt || session.sessionDate || session.createdAt;
             if (!date) return;
             entries.push({
               id: `session-${session.id}`,
               activity: "Completed a session",
               points: 10,
               date,
-              clientName: session.clientId ? clientNameById.get(session.clientId) : undefined,
+              clientName: session.clientId
+                ? clientNameById.get(session.clientId)
+                : undefined,
             });
           });
 
         orders
-          .filter((order) => ["paid", "completed", "delivered"].includes(String(order.paymentStatus || order.status || "")))
+          .filter((order) =>
+            ["paid", "completed", "delivered"].includes(
+              String(order.paymentStatus || order.status || ""),
+            ),
+          )
           .forEach((order) => {
-            const date = order.deliveredAt || order.updatedAt || order.createdAt;
+            const date =
+              order.deliveredAt || order.updatedAt || order.createdAt;
             if (!date) return;
             entries.push({
               id: `order-${order.id}`,
@@ -4559,7 +5583,9 @@ export const appRouter = router({
 
         return entries
           .filter((entry) => !Number.isNaN(new Date(entry.date).getTime()))
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          )
           .slice(0, limit);
       }),
   }),
@@ -4569,20 +5595,27 @@ export const appRouter = router({
   // ============================================================================
   ai: router({
     trainerAssistant: trainerProcedure
-      .input(z.object({
-        message: z.string().min(1).max(4000),
-        provider: z.enum(["auto", "chatgpt", "claude", "gemini"]).optional(),
-        allowMutations: z.boolean().optional(),
-        conversationId: z.string().optional(),
-      }))
+      .input(
+        z.object({
+          message: z.string().min(1).max(4000),
+          provider: z.enum(["auto", "chatgpt", "claude", "gemini"]).optional(),
+          allowMutations: z.boolean().optional(),
+          conversationId: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         let conversationMessages: db.Message[] | undefined;
         if (input.conversationId) {
-          const isParticipant = await db.isConversationParticipant(input.conversationId, ctx.user.id);
+          const isParticipant = await db.isConversationParticipant(
+            input.conversationId,
+            ctx.user.id,
+          );
           if (!isParticipant && !isManagerLikeRole(ctx.user.role)) {
             forbidden("You do not have access to this conversation");
           }
-          conversationMessages = await db.getMessagesByConversation(input.conversationId);
+          conversationMessages = await db.getMessagesByConversation(
+            input.conversationId,
+          );
         }
 
         return runTrainerAssistant({
@@ -4595,10 +5628,14 @@ export const appRouter = router({
       }),
 
     generateImage: protectedProcedure
-      .input(z.object({
-        prompt: z.string().min(1).max(1000),
-        style: z.enum(["modern", "fitness", "wellness", "professional"]).optional(),
-      }))
+      .input(
+        z.object({
+          prompt: z.string().min(1).max(1000),
+          style: z
+            .enum(["modern", "fitness", "wellness", "professional"])
+            .optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         const result = await generateImage({
           prompt: input.prompt,
@@ -4607,19 +5644,28 @@ export const appRouter = router({
       }),
 
     generateBundleImage: protectedProcedure
-      .input(z.object({
-        title: z.string().min(1).max(255),
-        description: z.string().optional(),
-        goals: z.array(z.string()).optional(),
-        style: z.enum(["modern", "fitness", "wellness", "professional"]).optional(),
-      }))
+      .input(
+        z.object({
+          title: z.string().min(1).max(255),
+          description: z.string().optional(),
+          goals: z.array(z.string()).optional(),
+          style: z
+            .enum(["modern", "fitness", "wellness", "professional"])
+            .optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
-        const goalsText = input.goals?.length ? `focusing on ${input.goals.join(", ")}` : "";
+        const goalsText = input.goals?.length
+          ? `focusing on ${input.goals.join(", ")}`
+          : "";
         const styleDescriptions: Record<string, string> = {
-          modern: "clean, minimalist, modern design with geometric shapes and gradients",
+          modern:
+            "clean, minimalist, modern design with geometric shapes and gradients",
           fitness: "energetic, dynamic fitness imagery with athletic elements",
-          wellness: "calm, serene wellness imagery with natural elements and soft colors",
-          professional: "professional, corporate style with clean lines and business aesthetics",
+          wellness:
+            "calm, serene wellness imagery with natural elements and soft colors",
+          professional:
+            "professional, corporate style with clean lines and business aesthetics",
         };
         const styleDesc = styleDescriptions[input.style || "fitness"];
 
@@ -4635,11 +5681,13 @@ export const appRouter = router({
   // ============================================================================
   voice: router({
     transcribe: protectedProcedure
-      .input(z.object({
-        audioUrl: z.string().min(1).max(2048),
-        language: z.string().min(2).max(16).optional(),
-        prompt: z.string().min(1).max(500).optional(),
-      }))
+      .input(
+        z.object({
+          audioUrl: z.string().min(1).max(2048),
+          language: z.string().min(2).max(16).optional(),
+          prompt: z.string().min(1).max(500).optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const audioUrl = toAbsoluteRequestUrl(ctx.req, input.audioUrl.trim());
         const result = await transcribeAudio({
@@ -4652,13 +5700,16 @@ export const appRouter = router({
           const code =
             result.code === "FILE_TOO_LARGE"
               ? "PAYLOAD_TOO_LARGE"
-              : result.code === "INVALID_FORMAT" || result.code === "TRANSCRIPTION_FAILED"
+              : result.code === "INVALID_FORMAT" ||
+                  result.code === "TRANSCRIPTION_FAILED"
                 ? "BAD_REQUEST"
                 : "INTERNAL_SERVER_ERROR";
 
           throw new TRPCError({
             code,
-            message: result.details ? `${result.error}: ${result.details}` : result.error,
+            message: result.details
+              ? `${result.error}: ${result.details}`
+              : result.error,
           });
         }
 
@@ -4718,13 +5769,15 @@ export const appRouter = router({
 
     /** Create a checkout session for card/Apple Pay */
     createSession: trainerProcedure
-      .input(z.object({
-        amountMinor: z.number().min(1),
-        currency: z.string().default("GBP"),
-        description: z.string().optional(),
-        payerId: z.string().optional(),
-        method: z.enum(["card", "apple_pay", "tap"]).optional(),
-      }))
+      .input(
+        z.object({
+          amountMinor: z.number().min(1),
+          currency: z.string().default("GBP"),
+          description: z.string().optional(),
+          payerId: z.string().optional(),
+          method: z.enum(["card", "apple_pay", "tap"]).optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const ref = adyen.generateMerchantReference("PAY");
         const session = await adyen.createCheckoutSession({
@@ -4745,7 +5798,9 @@ export const appRouter = router({
           description: input.description,
           method: input.method || "card",
           status: "created",
-          expiresAt: session.expiresAt ? new Date(session.expiresAt).toISOString() : undefined,
+          expiresAt: session.expiresAt
+            ? new Date(session.expiresAt).toISOString()
+            : undefined,
         });
 
         return {
@@ -4759,13 +5814,15 @@ export const appRouter = router({
 
     /** Create a payment link (for QR codes and shareable URLs) */
     createLink: trainerProcedure
-      .input(z.object({
-        amountMinor: z.number().min(1),
-        currency: z.string().default("GBP"),
-        description: z.string().optional(),
-        payerId: z.string().optional(),
-        expiresInMinutes: z.number().default(60),
-      }))
+      .input(
+        z.object({
+          amountMinor: z.number().min(1),
+          currency: z.string().default("GBP"),
+          description: z.string().optional(),
+          payerId: z.string().optional(),
+          expiresInMinutes: z.number().default(60),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const ref = adyen.generateMerchantReference("LINK");
         const link = await adyen.createPaymentLink({
@@ -4787,7 +5844,9 @@ export const appRouter = router({
           method: "link",
           status: "created",
           paymentLink: link.url,
-          expiresAt: link.expiresAt ? new Date(link.expiresAt).toISOString() : undefined,
+          expiresAt: link.expiresAt
+            ? new Date(link.expiresAt).toISOString()
+            : undefined,
         });
 
         return {
@@ -4805,19 +5864,30 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const session = await db.getPaymentSessionByReference(input.merchantReference);
+        const session = await db.getPaymentSessionByReference(
+          input.merchantReference,
+        );
         if (!session) notFound("Payment link");
         if (session.requestedBy !== ctx.user.id) {
           forbidden("You do not have access to this payment link");
         }
         if ((session.method || "").toLowerCase() !== "link") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Only payment links can be cancelled" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only payment links can be cancelled",
+          });
         }
 
         const rawStatus = (session.status || "").toLowerCase();
-        const isSettled = rawStatus === "authorised" || rawStatus === "captured" || rawStatus === "paid_out";
+        const isSettled =
+          rawStatus === "authorised" ||
+          rawStatus === "captured" ||
+          rawStatus === "paid_out";
         if (isSettled) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Paid links cannot be cancelled" });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Paid links cannot be cancelled",
+          });
         }
         if (rawStatus === "cancelled") {
           return { success: true, cancelled: false };
@@ -4841,7 +5911,9 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         const allSessions = await db.getPaymentSessionsByTrainer(ctx.user.id);
         const filtered = input.status
-          ? allSessions.filter((session) => mapPaymentState(session.status) === input.status)
+          ? allSessions.filter(
+              (session) => mapPaymentState(session.status) === input.status,
+            )
           : allSessions;
         const page = filtered.slice(input.offset, input.offset + input.limit);
         return page.map(mapPaymentSessionForView);
@@ -4862,7 +5934,10 @@ export const appRouter = router({
 
     trainerServices: trainerProcedure.query(async ({ ctx }) => {
       const bundles = await db.getBundleDraftsByTrainer(ctx.user.id);
-      const seen = new Map<string, { id: string; name: string; sessions: number }>();
+      const seen = new Map<
+        string,
+        { id: string; name: string; sessions: number }
+      >();
       for (const bundle of bundles) {
         const services = parseBundleServices(bundle.servicesJson);
         for (const s of services) {
@@ -4875,7 +5950,10 @@ export const appRouter = router({
 
     payoutSummary: trainerProcedure.query(async ({ ctx }) => {
       const earnings = await db.getEarningsSummary(ctx.user.id);
-      const available = Math.max((earnings.total || 0) - (earnings.pending || 0), 0);
+      const available = Math.max(
+        (earnings.total || 0) - (earnings.pending || 0),
+        0,
+      );
       const trainer = await db.getUserById(ctx.user.id);
       const payoutBank = getTrainerPayoutBankDetails(trainer?.metadata);
       const destination = payoutBank
@@ -4937,7 +6015,10 @@ export const appRouter = router({
 
         const sortCode = toSanitizedDigits(input.sortCode);
         if (sortCode.length !== 6) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Sort code must be 6 digits." });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Sort code must be 6 digits.",
+          });
         }
 
         const accountNumber = toSanitizedDigits(input.accountNumber);
@@ -4953,7 +6034,8 @@ export const appRouter = router({
         const existingPayout = toObjectRecord(existingMetadata.payout);
         const existingBank = toObjectRecord(existingPayout.bank);
         const connectedAt =
-          typeof existingBank.connectedAt === "string" && existingBank.connectedAt.trim().length > 0
+          typeof existingBank.connectedAt === "string" &&
+          existingBank.connectedAt.trim().length > 0
             ? existingBank.connectedAt
             : nowIso;
 
@@ -5022,17 +6104,21 @@ export const appRouter = router({
     }),
 
     publishBundle: trainerProcedure
-      .input(z.object({
-        bundleId: z.string(),
-        title: z.string(),
-        description: z.string(),
-        price: z.string(),
-        imageUrl: z.string().optional(),
-        products: z.array(z.object({
-          name: z.string(),
-          quantity: z.number(),
-        })),
-      }))
+      .input(
+        z.object({
+          bundleId: z.string(),
+          title: z.string(),
+          description: z.string(),
+          price: z.string(),
+          imageUrl: z.string().optional(),
+          products: z.array(
+            z.object({
+              name: z.string(),
+              quantity: z.number(),
+            }),
+          ),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         const result = await shopify.publishBundle({
           ...input,

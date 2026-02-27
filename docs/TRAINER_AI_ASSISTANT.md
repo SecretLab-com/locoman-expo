@@ -212,6 +212,16 @@ mcporter list locomotivate-trainer --schema
 mcporter call locomotivate-trainer.get_context_snapshot
 ```
 
+### In-app OpenClaw Connect UI
+
+Trainer users can bootstrap this from the app:
+
+- `Trainer -> Settings -> OpenClaw MCP`
+- Tap **Generate OpenClaw Connection**
+- Copy token / command / config
+
+This flow always uses a user-scoped bearer token for `Authorization`.
+
 ## Primary Use Case
 
 This integration gives an external coding/chat assistant (ChatGPT, Claude, Gemini via MCP-capable clients) an authenticated tool surface to automate trainer workflows in your app:
