@@ -507,15 +507,7 @@ export default function CalendarScreen() {
   return (
     <ScreenContainer className="flex-1" edges={["left", "right"]}>
       {/* Navigation Header */}
-      <NavigationHeader
-        title="Calendar"
-        rightAction={{
-          icon: "plus",
-          onPress: openAddSessionModal,
-          label: "Add session",
-          testID: "add-session",
-        }}
-      />
+      <NavigationHeader title="Calendar" />
 
       {/* Month Navigation */}
       <View className="flex-row items-center justify-between px-4 mb-4">

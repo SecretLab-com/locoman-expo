@@ -558,7 +558,7 @@ server.registerTool(
   },
   async () => {
     try {
-      const trainers = await trpcClient.trainers.query();
+      const trainers = await (trpcClient as any).trainers.query();
       const rows = (trainers as any[]).map((t) => ({
         id: t.id,
         name: t.name || null,
