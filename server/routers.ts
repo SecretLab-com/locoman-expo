@@ -3229,9 +3229,14 @@ export const appRouter = router({
       if (!user) notFound("Trainer");
       const ensured = await ensureGoogleCalendarAccessToken(user);
       const calendars = await googleCalendar.listGoogleCalendars(ensured.token);
+      const selectedId = ensured.integration.selectedCalendarId;
+      const selectedName = ensured.integration.selectedCalendarName;
+      if (selectedId && !calendars.some((c) => c.id === selectedId)) {
+        calendars.unshift({ id: selectedId, summary: selectedName || "Locomotivate", primary: false, accessRole: "owner" });
+      }
       return {
-        selectedCalendarId: ensured.integration.selectedCalendarId,
-        selectedCalendarName: ensured.integration.selectedCalendarName,
+        selectedCalendarId: selectedId,
+        selectedCalendarName: selectedName,
         calendars,
       };
     }),
