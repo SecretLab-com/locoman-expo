@@ -171,6 +171,44 @@ This project now includes:
 
 So Cursor can start the MCP server without storing secrets inside `.cursor/mcp.json`.
 
+### Backend-Integrated MCP HTTP Endpoint (`/mcp`)
+
+The backend now also serves the trainer MCP directly over HTTP at:
+
+- `POST /mcp`
+
+This is intended for remote tool clients (for example OpenClaw via `mcporter`) so you can publish a single MCP URL.
+
+Environment variables:
+
+- `LOCO_MCP_HTTP_ENABLED` (optional, default `true`) — set to `false` to disable `/mcp`
+- `LOCO_MCP_AUTH_TOKEN` (optional but recommended) — shared secret required for `/mcp` access
+- `LOCO_API_TOKEN` or `SUPABASE_ACCESS_TOKEN` (required for tool execution) — trainer auth token used by MCP -> tRPC calls
+- `LOCO_API_BASE_URL` (optional) — defaults from `EXPO_PUBLIC_API_BASE_URL` or `http://localhost:3000`
+- `LOCO_IMPERSONATE_USER_ID` (optional) — impersonation header for coordinator flows
+
+Auth behavior for `/mcp`:
+
+- If `LOCO_MCP_AUTH_TOKEN` is set, requests must provide either:
+  - `X-LOCO-MCP-KEY: <token>`, or
+  - `Authorization: Bearer <token>`
+
+OpenClaw + mcporter example:
+
+```bash
+mcporter config add locomotivate-trainer https://services.bright.coach/mcp \
+  --scope home \
+  --header X-LOCO-MCP-KEY='${LOCO_MCP_AUTH_TOKEN}' \
+  --description "Locomotivate trainer MCP"
+```
+
+Then verify:
+
+```bash
+mcporter list locomotivate-trainer --schema
+mcporter call locomotivate-trainer.get_context_snapshot
+```
+
 ## Primary Use Case
 
 This integration gives an external coding/chat assistant (ChatGPT, Claude, Gemini via MCP-capable clients) an authenticated tool surface to automate trainer workflows in your app:

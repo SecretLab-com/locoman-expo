@@ -492,7 +492,7 @@ export default function CalendarScreen() {
 
     try {
       await createSessionMutation.mutateAsync({
-        clientId: newSessionClientId,
+        clientId: newSessionClientId!,
         sessionDate,
         durationMinutes,
         sessionType: newSessionType,
@@ -517,7 +517,6 @@ export default function CalendarScreen() {
         }}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
       {/* Month Navigation */}
       <View className="flex-row items-center justify-between px-4 mb-4">
         <TouchableOpacity
@@ -736,30 +735,26 @@ export default function CalendarScreen() {
         </View>
       ) : (
         <>
-          {/* Calendar Grid */}
-          <View className="px-4 mb-4">
-            {/* Day Headers */}
-            <View className="flex-row mb-2">
+          {/* Compact Calendar Grid — fixed at top */}
+          <View className="px-4 pb-2 border-b border-border">
+            <View className="flex-row mb-1">
               {DAYS.map((day) => (
                 <View key={day} className="flex-1 items-center">
                   <Text className="text-xs text-muted font-medium">{day}</Text>
                 </View>
               ))}
             </View>
-
-            {/* Date Grid */}
             <View className="flex-row flex-wrap">
               {calendarData.map((day, index) => (
                 <TouchableOpacity
                   key={index}
                   onPress={() => setSelectedDate(day.date)}
-                  className="w-[14.28%] aspect-square items-center justify-center"
+                  className="w-[14.28%] items-center justify-center"
+                  style={{ paddingVertical: 4 }}
                 >
                   <View
-                    className={`w-10 h-10 rounded-full items-center justify-center ${
-                      isSelected(day.date)
-                        ? "bg-primary"
-                        : ""
+                    className={`w-9 h-9 rounded-full items-center justify-center ${
+                      isSelected(day.date) ? "bg-primary" : ""
                     }`}
                     style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
                   >
@@ -776,101 +771,76 @@ export default function CalendarScreen() {
                     >
                       {day.date.getDate()}
                     </Text>
-                    {day.hasEvents && !isSelected(day.date) && (
-                      <View className="absolute bottom-0.5 w-1.5 h-1.5 rounded-full bg-success" />
-                    )}
                   </View>
+                  {day.hasEvents && (
+                    <View className="w-1.5 h-1.5 rounded-full bg-success mt-0.5" />
+                  )}
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          {/* Selected Date Sessions */}
-          <View className="px-4">
-            <Text className="text-base font-semibold text-foreground mb-3">
+          {/* Selected Date Header */}
+          <View className="px-4 pt-3 pb-2 flex-row items-center justify-between">
+            <Text className="text-base font-semibold text-foreground">
               {selectedDate.toLocaleDateString("en-US", {
                 weekday: "long",
                 month: "long",
                 day: "numeric",
               })}
             </Text>
-
-            <View>
-              {isLoading ? (
-                <View className="items-center py-12">
-                  <ActivityIndicator size="large" color={colors.primary} />
-                </View>
-              ) : selectedDateSessions.length === 0 ? (
-                <View className="bg-surface rounded-xl p-6 items-center">
-                  <IconSymbol name="calendar" size={32} color={colors.muted} />
-                  <Text className="text-muted mt-2">No sessions scheduled</Text>
-                  <TouchableOpacity
-                    onPress={openAddSessionModal}
-                    className="mt-3 px-4 py-2 border border-border rounded-lg"
-                  >
-                    <Text className="text-foreground">Schedule Session</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                selectedDateSessions.map((session) => (
-                  <TouchableOpacity
-                    key={session.id}
-                    onPress={() => {
-                      setSelectedSession(session);
-                      setShowSessionModal(true);
-                    }}
-                    className="bg-surface rounded-xl p-4 mb-3 border border-border"
-                  >
-                    <View className="flex-row items-start">
-                      {/* Time */}
-                      <View className="w-16">
-                        <Text className="text-lg font-bold text-foreground">
-                          {session.time}
-                        </Text>
-                        <Text className="text-xs text-muted">{session.duration}min</Text>
-                      </View>
-
-                      {/* Divider */}
-                      <View
-                        className="w-1 h-full rounded-full mr-3"
-                        style={{ backgroundColor: getStatusColor(session.status) }}
-                      />
-
-                      {/* Content */}
-                      <View className="flex-1">
-                        <Text className="text-base font-semibold text-foreground">
-                          {session.clientName}
-                        </Text>
-                        <Text className="text-sm text-muted">{session.bundleTitle}</Text>
-                        <View className="flex-row items-center mt-1">
-                          <View
-                            className="px-2 py-0.5 rounded"
-                            style={{ backgroundColor: `${getStatusColor(session.status)}20` }}
-                          >
-                            <Text
-                              className="text-xs font-medium"
-                              style={{ color: getStatusColor(session.status) }}
-                            >
-                              {getTypeLabel(session.type)}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* Chevron */}
-                      <IconSymbol name="chevron.right" size={20} color={colors.muted} />
-                    </View>
-                  </TouchableOpacity>
-                ))
-              )}
-
-              {/* Bottom padding */}
-              <View className="h-24" />
-            </View>
+            <TouchableOpacity
+              onPress={openAddSessionModal}
+              className="bg-primary px-3 py-1.5 rounded-full"
+            >
+              <Text className="text-white text-xs font-semibold">+ Add</Text>
+            </TouchableOpacity>
           </View>
+
+          {/* Sessions list — scrollable, fills remaining space */}
+          <ScrollView
+            className="flex-1"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+            refreshControl={
+              <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
+            }
+          >
+            {isLoading ? (
+              <View className="items-center py-12">
+                <ActivityIndicator size="large" color={colors.primary} />
+              </View>
+            ) : selectedDateSessions.length === 0 ? (
+              <View className="bg-surface rounded-xl p-6 items-center mt-2">
+                <IconSymbol name="calendar" size={32} color={colors.muted} />
+                <Text className="text-muted mt-2">No sessions on this day</Text>
+              </View>
+            ) : (
+              selectedDateSessions.map((session) => (
+                <TouchableOpacity
+                  key={session.id}
+                  onPress={() => {
+                    setSelectedSession(session);
+                    setShowSessionModal(true);
+                  }}
+                  className="bg-surface rounded-xl p-4 mb-2 border border-border"
+                >
+                  <View className="flex-row items-center">
+                    <View style={{ width: 4, height: 40, borderRadius: 2, backgroundColor: getStatusColor(session.status), marginRight: 12 }} />
+                    <View className="flex-1">
+                      <Text className="text-foreground font-semibold">{session.clientName}</Text>
+                      <Text className="text-xs text-muted mt-0.5">
+                        {session.time} · {session.duration}min · {getTypeLabel(session.type)}
+                      </Text>
+                    </View>
+                    <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
         </>
       )}
-      </ScrollView>
 
       {/* Session Detail Modal */}
       <Modal

@@ -4,6 +4,7 @@ import "dotenv/config";
 import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { pathToFileURL } from "node:url";
 import superjson from "superjson";
 import { z } from "zod";
 
@@ -13,14 +14,16 @@ const DEFAULT_API_BASE_URL = "http://localhost:3000";
 const apiBaseUrl = (process.env.LOCO_API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL)
   .trim()
   .replace(/\/+$/g, "");
-const authToken = (process.env.LOCO_API_TOKEN || process.env.SUPABASE_ACCESS_TOKEN || "").trim();
-const impersonateUserId = (process.env.LOCO_IMPERSONATE_USER_ID || "").trim();
+function getAuthToken(): string {
+  return (process.env.LOCO_API_TOKEN || process.env.SUPABASE_ACCESS_TOKEN || "").trim();
+}
 
-if (!authToken) {
-  console.error(
-    "Missing LOCO_API_TOKEN. Set LOCO_API_TOKEN (or SUPABASE_ACCESS_TOKEN) before starting this MCP server.",
-  );
-  process.exit(1);
+function getImpersonateUserId(): string {
+  return (process.env.LOCO_IMPERSONATE_USER_ID || "").trim();
+}
+
+export function hasTrainerAssistantMcpAuthToken(): boolean {
+  return Boolean(getAuthToken());
 }
 
 const trpcUrl = `${apiBaseUrl}/api/trpc`;
@@ -31,9 +34,16 @@ const trpcClient = createTRPCProxyClient<AppRouter>({
       url: trpcUrl,
       transformer: superjson,
       headers() {
+        const authToken = getAuthToken();
+        if (!authToken) {
+          throw new Error(
+            "Missing LOCO_API_TOKEN. Set LOCO_API_TOKEN (or SUPABASE_ACCESS_TOKEN) before using the trainer MCP server.",
+          );
+        }
         const headers: Record<string, string> = {
           Authorization: `Bearer ${authToken}`,
         };
+        const impersonateUserId = getImpersonateUserId();
         if (impersonateUserId) {
           headers["X-Impersonate-User-Id"] = impersonateUserId;
         }
@@ -532,10 +542,11 @@ async function buildClientValueReport(input: { clientIds?: string[]; topN: numbe
   };
 }
 
-const server = new McpServer({
-  name: "locomotivate-trainer-assistant",
-  version: "1.1.0",
-});
+export function createTrainerAssistantMcpServer(): McpServer {
+  const server = new McpServer({
+    name: "locomotivate-trainer-assistant",
+    version: "1.1.0",
+  });
 
 server.registerTool(
   "list_trainers",
@@ -1193,13 +1204,32 @@ server.registerTool(
   },
 );
 
-async function main() {
+  return server;
+}
+
+async function startStdioServer() {
+  if (!hasTrainerAssistantMcpAuthToken()) {
+    console.error(
+      "Missing LOCO_API_TOKEN. Set LOCO_API_TOKEN (or SUPABASE_ACCESS_TOKEN) before starting this MCP server.",
+    );
+    process.exit(1);
+  }
+
+  const server = createTrainerAssistantMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`[MCP] Trainer assistant server connected over stdio (${trpcUrl})`);
 }
 
-main().catch((error) => {
-  console.error("[MCP] Server error:", error);
-  process.exit(1);
-});
+function isRunAsMainModule(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return import.meta.url === pathToFileURL(entry).href;
+}
+
+if (isRunAsMainModule()) {
+  startStdioServer().catch((error) => {
+    console.error("[MCP] Server error:", error);
+    process.exit(1);
+  });
+}

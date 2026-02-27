@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import * as shopify from "../shopify";
 import { createContext } from "./context";
 import { logError, logEvent } from "./logger";
+import { registerTrainerAssistantMcpHttpRoutes } from "./mcp-http";
 import { registerOAuthRoutes } from "./oauth";
 import { setupWebSocket } from "./websocket";
 
@@ -63,7 +64,7 @@ async function startServer() {
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.header(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Impersonate-User-Id",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Impersonate-User-Id, X-LOCO-MCP-KEY, MCP-Session-Id, Last-Event-ID",
     );
     if (isAllowedOrigin) {
       res.header("Access-Control-Allow-Credentials", "true");
@@ -220,6 +221,7 @@ async function startServer() {
   app.use("/uploads", express.static(path.join(process.cwd(), "public/uploads")));
 
   registerOAuthRoutes(app);
+  registerTrainerAssistantMcpHttpRoutes(app);
 
   // Adyen redirect return endpoint (session-based payments)
   app.get("/api/payments/redirect", (req, res) => {
