@@ -57,7 +57,7 @@ export function registerTrainerAssistantMcpHttpRoutes(app: Express) {
       return;
     }
 
-    const userToken = getBearerToken(req);
+    let userToken = getBearerToken(req);
     if (!userToken) {
       sendJsonRpcError(
         res,
@@ -71,9 +71,27 @@ export function registerTrainerAssistantMcpHttpRoutes(app: Express) {
       req.headers["x-impersonate-user-id"] || "",
     ).trim();
 
+    // Auto-refresh expired tokens: resolve the user from the token, then mint a fresh one
+    try {
+      const { resolveSupabaseUserFromToken } = await import("./token-resolver");
+      const supabaseUser = await resolveSupabaseUserFromToken(userToken);
+      if (!supabaseUser?.email) {
+        // Token might be expired — try to mint a fresh one using the Supabase admin API
+        // Decode the expired JWT to get the email
+        const payload = JSON.parse(Buffer.from(userToken.split(".")[1] || "", "base64").toString("utf8"));
+        const email = payload?.email;
+        if (email) {
+          const { mintSupabaseAccessTokenForEmail } = await import("../routers");
+          const freshToken = await mintSupabaseAccessTokenForEmail(email);
+          if (freshToken) userToken = freshToken;
+        }
+      }
+    } catch {
+      // Continue with original token if refresh fails
+    }
+
     const server = createTrainerAssistantMcpServer();
     const transport = new StreamableHTTPServerTransport({
-      // Stateless mode: one transport per request.
       sessionIdGenerator: undefined,
     });
 

@@ -151,7 +151,7 @@ function extractTokenHashFromSupabaseActionLink(
   }
 }
 
-async function mintSupabaseAccessTokenForEmail(email: string): Promise<string> {
+export async function mintSupabaseAccessTokenForEmail(email: string): Promise<string> {
   const { supabaseUrl, serviceRoleKey, anonKey } = getSupabaseMcpTokenEnv();
   if (!supabaseUrl || !serviceRoleKey || !anonKey) {
     throw new Error(
