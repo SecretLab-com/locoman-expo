@@ -429,19 +429,6 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <View className="mb-4">
-            <Text className="text-sm font-medium text-foreground dark:text-white mb-2">
-              Username
-            </Text>
-            <TextInput
-              value={username}
-              onChangeText={setUsername}
-              placeholder="@username"
-              placeholderTextColor={colors.muted}
-              autoCapitalize="none"
-              className="bg-surface border border-border rounded-xl px-4 py-3.5 text-foreground dark:text-white text-base"
-            />
-          </View>
 
           <View className="mb-4">
             <Text className="text-sm font-medium text-foreground dark:text-white mb-2">
