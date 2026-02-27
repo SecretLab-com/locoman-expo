@@ -466,6 +466,7 @@ export default function CalendarScreen() {
         }}
       />
 
+      <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
       {/* Month Navigation */}
       <View className="flex-row items-center justify-between px-4 mb-4">
         <TouchableOpacity
@@ -710,7 +711,7 @@ export default function CalendarScreen() {
           </View>
 
           {/* Selected Date Sessions */}
-          <View className="flex-1 px-4">
+          <View className="px-4">
             <Text className="text-base font-semibold text-foreground mb-3">
               {selectedDate.toLocaleDateString("en-US", {
                 weekday: "long",
@@ -719,12 +720,7 @@ export default function CalendarScreen() {
               })}
             </Text>
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              refreshControl={
-                <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
-              }
-            >
+            <View>
               {isLoading ? (
                 <View className="items-center py-12">
                   <ActivityIndicator size="large" color={colors.primary} />
@@ -795,10 +791,11 @@ export default function CalendarScreen() {
 
               {/* Bottom padding */}
               <View className="h-24" />
-            </ScrollView>
+            </View>
           </View>
         </>
       )}
+      </ScrollView>
 
       {/* Session Detail Modal */}
       <Modal
