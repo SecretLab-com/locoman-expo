@@ -867,10 +867,8 @@ export default function CalendarScreen() {
         animationType="slide"
         onRequestClose={() => setShowSessionModal(false)}
       >
-        <Pressable
-          onPress={() => setShowSessionModal(false)}
-          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
-        >
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowSessionModal(false)} />
           <SwipeDownSheet
             visible={showSessionModal}
             onClose={() => setShowSessionModal(false)}
@@ -935,7 +933,7 @@ export default function CalendarScreen() {
               </>
             )}
           </SwipeDownSheet>
-        </Pressable>
+        </View>
       </Modal>
 
       <Modal
@@ -944,7 +942,8 @@ export default function CalendarScreen() {
         animationType="slide"
         onRequestClose={() => setShowRescheduleModal(false)}
       >
-        <Pressable onPress={() => setShowRescheduleModal(false)} style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowRescheduleModal(false)} />
           <SwipeDownSheet
             visible={showRescheduleModal}
             onClose={() => setShowRescheduleModal(false)}
@@ -997,7 +996,7 @@ export default function CalendarScreen() {
               </Text>
             </TouchableOpacity>
           </SwipeDownSheet>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* Add Session Modal */}
@@ -1007,10 +1006,8 @@ export default function CalendarScreen() {
         animationType="slide"
         onRequestClose={() => setShowAddModal(false)}
       >
-        <Pressable
-          onPress={() => setShowAddModal(false)}
-          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
-        >
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowAddModal(false)} />
           <SwipeDownSheet
             visible={showAddModal}
             onClose={() => setShowAddModal(false)}
@@ -1172,7 +1169,7 @@ export default function CalendarScreen() {
               </View>
             </ScrollView>
           </SwipeDownSheet>
-        </Pressable>
+        </View>
       </Modal>
     </ScreenContainer>
   );
