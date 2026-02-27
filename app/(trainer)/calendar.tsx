@@ -469,7 +469,7 @@ export default function CalendarScreen() {
       return;
     }
 
-    const timeMatch = /^([01]\\d|2[0-3]):([0-5]\\d)$/.exec(newSessionTime.trim());
+    const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(newSessionTime.trim());
     if (!timeMatch) {
       Alert.alert("Invalid Time", "Use 24-hour format HH:MM (e.g. 09:00).");
       return;
