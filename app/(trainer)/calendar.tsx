@@ -74,6 +74,7 @@ export default function CalendarScreen() {
   const [newSessionNotes, setNewSessionNotes] = useState("");
   const [searchClient, setSearchClient] = useState("");
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [showCalendarSettings, setShowCalendarSettings] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("09:00");
   const [rescheduleDuration, setRescheduleDuration] = useState("60");
@@ -500,69 +501,91 @@ export default function CalendarScreen() {
         </TouchableOpacity>
       </View>
 
-      <View className="px-4 mb-3">
-        <View className="bg-surface rounded-xl border border-border p-3">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-sm font-semibold text-foreground">Google Calendar</Text>
-            {googleStatus.data?.connected ? (
-              <TouchableOpacity
-                onPress={() => disconnectGoogleCalendar.mutate()}
-                accessibilityRole="button"
-                accessibilityLabel="Disconnect Google Calendar"
-                testID="calendar-google-disconnect"
-              >
-                <Text className="text-xs text-error font-semibold">Disconnect</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                onPress={handleConnectGoogleCalendar}
-                accessibilityRole="button"
-                accessibilityLabel="Connect Google Calendar"
-                testID="calendar-google-connect"
-              >
-                <Text className="text-xs text-primary font-semibold">Connect</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+      <View className="px-4 mb-3 flex-row items-center justify-between">
+        <View className="flex-row items-center">
           {googleStatus.data?.connected ? (
             <>
-              <Text className="text-xs text-muted mt-1">
-                Connected: {googleStatus.data.selectedCalendarName || "Google Calendar"}
+              <View className="w-2 h-2 rounded-full bg-success mr-2" />
+              <Text className="text-xs text-muted">
+                Syncing to {googleStatus.data.selectedCalendarName || "Google Calendar"}
               </Text>
-              {googleCalendars.data?.calendars?.length ? (
-                <View className="mt-2">
-                  <Text className="text-xs text-muted mb-1">Sync calendar</Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    {googleCalendars.data.calendars.slice(0, 8).map((calendar) => {
-                      const active = googleCalendars.data?.selectedCalendarId === calendar.id;
-                      return (
-                        <TouchableOpacity
-                          key={calendar.id}
-                          onPress={() =>
-                            selectGoogleCalendar.mutate({
-                              calendarId: calendar.id,
-                              calendarName: calendar.summary,
-                            })
-                          }
-                          className={`px-3 py-1.5 rounded-full border ${active ? "bg-primary border-primary" : "bg-background border-border"}`}
-                        >
-                          <Text className={active ? "text-white text-xs font-medium" : "text-foreground text-xs"}>
-                            {calendar.summary}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                </View>
-              ) : null}
             </>
           ) : (
-            <Text className="text-xs text-muted mt-1">
-              Connect Google Calendar to auto-sync sessions and reschedule suggestions.
-            </Text>
+            <TouchableOpacity onPress={handleConnectGoogleCalendar} className="flex-row items-center">
+              <IconSymbol name="link" size={14} color={colors.primary} />
+              <Text className="text-xs text-primary font-medium ml-1">Connect Google Calendar</Text>
+            </TouchableOpacity>
           )}
         </View>
+        <TouchableOpacity
+          onPress={() => setShowCalendarSettings(!showCalendarSettings)}
+          className="w-8 h-8 rounded-full bg-surface items-center justify-center"
+          accessibilityRole="button"
+          accessibilityLabel="Calendar settings"
+          testID="calendar-settings-toggle"
+        >
+          <IconSymbol name="gearshape.fill" size={16} color={colors.muted} />
+        </TouchableOpacity>
       </View>
+
+      {showCalendarSettings && (
+        <View className="px-4 mb-3">
+          <View className="bg-surface rounded-xl border border-border p-3">
+            <View className="flex-row items-center justify-between mb-2">
+              <Text className="text-sm font-semibold text-foreground">Google Calendar</Text>
+              {googleStatus.data?.connected ? (
+                <TouchableOpacity
+                  onPress={() => disconnectGoogleCalendar.mutate()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Disconnect Google Calendar"
+                  testID="calendar-google-disconnect"
+                >
+                  <Text className="text-xs text-error font-semibold">Disconnect</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={handleConnectGoogleCalendar}
+                  accessibilityRole="button"
+                  accessibilityLabel="Connect Google Calendar"
+                  testID="calendar-google-connect"
+                >
+                  <Text className="text-xs text-primary font-semibold">Connect</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {googleStatus.data?.connected && googleCalendars.data?.calendars?.length ? (
+              <View>
+                <Text className="text-xs text-muted mb-1">Sync calendar</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {googleCalendars.data.calendars.slice(0, 8).map((calendar) => {
+                    const active = googleCalendars.data?.selectedCalendarId === calendar.id;
+                    return (
+                      <TouchableOpacity
+                        key={calendar.id}
+                        onPress={() =>
+                          selectGoogleCalendar.mutate({
+                            calendarId: calendar.id,
+                            calendarName: calendar.summary,
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-full border ${active ? "bg-primary border-primary" : "bg-background border-border"}`}
+                      >
+                        <Text className={active ? "text-white text-xs font-medium" : "text-foreground text-xs"}>
+                          {calendar.summary}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : !googleStatus.data?.connected ? (
+              <Text className="text-xs text-muted">
+                Connect Google Calendar to auto-sync sessions.
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      )}
 
       {isWideScreen ? (
         <View className="flex-1 flex-row px-4 pb-3">
