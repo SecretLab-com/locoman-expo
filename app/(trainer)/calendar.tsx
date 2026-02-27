@@ -383,7 +383,37 @@ export default function CalendarScreen() {
     const redirectUri = getGoogleRedirectUri();
     const { authUrl } = await getGoogleAuthUrl.mutateAsync({ redirectUri });
     if (Platform.OS === "web") {
-      window.location.assign(authUrl);
+      const popup = window.open(authUrl, "google-calendar-auth", "width=500,height=700,popup=yes");
+      if (!popup) {
+        window.location.assign(authUrl);
+        return;
+      }
+      const timer = setInterval(async () => {
+        try {
+          if (popup.closed) {
+            clearInterval(timer);
+            return;
+          }
+          const popupUrl = popup.location.href;
+          if (popupUrl.includes("code=")) {
+            clearInterval(timer);
+            const url = new URL(popupUrl);
+            const code = url.searchParams.get("code");
+            popup.close();
+            if (code) {
+              try {
+                await connectGoogleCalendar.mutateAsync({ code, redirectUri });
+                await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+                Alert.alert("Connected", "Google Calendar connected.");
+              } catch (err: any) {
+                Alert.alert("Connection failed", err?.message || "Could not connect.");
+              }
+            }
+          }
+        } catch {
+          // cross-origin — popup still on Google's domain, keep waiting
+        }
+      }, 500);
       return;
     }
     const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
