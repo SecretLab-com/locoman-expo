@@ -1470,21 +1470,9 @@ async function startStdioServer() {
   );
 }
 
-function isRunAsMainModule(): boolean {
-  try {
-    const entry = process.argv[1];
-    if (!entry) return false;
-    const entryUrl = pathToFileURL(entry).href;
-    if (typeof import.meta?.url === "string") {
-      return import.meta.url === entryUrl || import.meta.url.includes("mcp-trainer-assistant");
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
+const _MCP_STDIO_MODE = process.env.MCP_STDIO_MODE === "1" || process.argv.includes("--mcp-stdio");
 
-if (isRunAsMainModule()) {
+if (_MCP_STDIO_MODE) {
   startStdioServer().catch((error) => {
     console.error("[MCP] Server error:", error);
     process.exit(1);

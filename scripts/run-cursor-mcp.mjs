@@ -155,6 +155,7 @@ async function main() {
   }
 
   process.env.LOCO_API_TOKEN = token;
+  process.env.MCP_STDIO_MODE = "1";
 
   const child = spawn("pnpm", ["mcp:trainer-assistant"], {
     cwd: rootDir,
