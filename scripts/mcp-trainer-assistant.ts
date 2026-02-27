@@ -1471,9 +1471,17 @@ async function startStdioServer() {
 }
 
 function isRunAsMainModule(): boolean {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  return import.meta.url === pathToFileURL(entry).href;
+  try {
+    const entry = process.argv[1];
+    if (!entry) return false;
+    const entryUrl = pathToFileURL(entry).href;
+    if (typeof import.meta?.url === "string") {
+      return import.meta.url === entryUrl || import.meta.url.includes("mcp-trainer-assistant");
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 if (isRunAsMainModule()) {
