@@ -648,15 +648,16 @@ export default function CalendarScreen() {
                     className={`w-10 h-10 rounded-full items-center justify-center ${
                       isSelected(day.date)
                         ? "bg-primary"
-                        : isToday(day.date)
-                        ? "bg-primary/20"
                         : ""
                     }`}
+                    style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
                   >
                     <Text
                       className={`text-sm ${
                         isSelected(day.date)
                           ? "text-white font-bold"
+                          : isToday(day.date)
+                          ? "text-primary font-bold"
                           : day.isCurrentMonth
                           ? "text-foreground"
                           : "text-muted"
@@ -665,7 +666,7 @@ export default function CalendarScreen() {
                       {day.date.getDate()}
                     </Text>
                     {day.hasEvents && !isSelected(day.date) && (
-                      <View className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
+                      <View className="absolute bottom-0.5 w-1.5 h-1.5 rounded-full bg-success" />
                     )}
                   </View>
                 </TouchableOpacity>
@@ -758,15 +759,16 @@ export default function CalendarScreen() {
                     className={`w-10 h-10 rounded-full items-center justify-center ${
                       isSelected(day.date)
                         ? "bg-primary"
-                        : isToday(day.date)
-                        ? "bg-primary/20"
                         : ""
                     }`}
+                    style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
                   >
                     <Text
                       className={`text-sm ${
                         isSelected(day.date)
                           ? "text-white font-bold"
+                          : isToday(day.date)
+                          ? "text-primary font-bold"
                           : day.isCurrentMonth
                           ? "text-foreground"
                           : "text-muted"
@@ -775,7 +777,7 @@ export default function CalendarScreen() {
                       {day.date.getDate()}
                     </Text>
                     {day.hasEvents && !isSelected(day.date) && (
-                      <View className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
+                      <View className="absolute bottom-0.5 w-1.5 h-1.5 rounded-full bg-success" />
                     )}
                   </View>
                 </TouchableOpacity>
