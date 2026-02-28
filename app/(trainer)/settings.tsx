@@ -604,7 +604,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {isTrainer && (
+        {(isTrainer || isCoordinator || isManager) && (
           <View className="mb-8">
             <Text className="text-lg font-semibold text-foreground mb-4">
               OpenClaw MCP

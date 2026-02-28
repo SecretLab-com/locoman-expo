@@ -113,7 +113,7 @@ export default function CoordinatorMoreScreen() {
       icon: "gearshape.fill",
       title: "Settings",
       subtitle: "Profile and account settings",
-      href: "/(coordinator)/settings",
+      href: "/(trainer)/settings",
     },
   ];
 
