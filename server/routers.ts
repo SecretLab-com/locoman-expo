@@ -4230,7 +4230,16 @@ export const appRouter = router({
           continue;
         }
 
-        if (gcEvent.start && gcEvent.start !== session.sessionDate) {
+        const gcStartMs = gcEvent.start ? new Date(gcEvent.start).getTime() : 0;
+        const sessionMs = new Date(session.sessionDate).getTime();
+        const timeDiffMs = Math.abs(gcStartMs - sessionMs);
+
+        if (gcEvent.start && timeDiffMs > 60_000) {
+          // Check if a pending request already exists for this session
+          const existingRequests = await db.getPendingRescheduleRequests(session.trainerId);
+          const alreadyRequested = existingRequests.some((r) => r.sessionId === session.id);
+          if (alreadyRequested) continue;
+
           const client = await db.getClientById(session.clientId);
           const clientUserId = client?.userId || session.clientId;
           try {
