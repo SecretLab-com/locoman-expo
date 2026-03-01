@@ -1050,7 +1050,7 @@ export default function CalendarScreen() {
           <SwipeDownSheet
             visible={showAddModal}
             onClose={() => setShowAddModal(false)}
-            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32, maxHeight: "85%" }}
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 24, paddingHorizontal: 24 }}
           >
             <View className="flex-row items-center justify-between mb-4">
               <Text className="text-xl font-bold text-foreground">Schedule Session</Text>
@@ -1059,7 +1059,11 @@ export default function CalendarScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 32 }}
+            >
               <View className="mb-4">
                 <Text className="text-sm font-medium text-foreground mb-2">Date</Text>
                 <View className="bg-surface border border-border rounded-xl px-4 py-3">
