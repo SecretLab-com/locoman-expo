@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
+    KeyboardAvoidingView,
     Modal,
     Platform,
     Pressable,
@@ -1043,12 +1044,13 @@ export default function CalendarScreen() {
         animationType="slide"
         onRequestClose={() => setShowAddModal(false)}
       >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
           <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowAddModal(false)} />
           <SwipeDownSheet
             visible={showAddModal}
             onClose={() => setShowAddModal(false)}
-            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32, maxHeight: "85%" }}
           >
             <View className="flex-row items-center justify-between mb-4">
               <Text className="text-xl font-bold text-foreground">Schedule Session</Text>
@@ -1057,7 +1059,7 @@ export default function CalendarScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 500 }} showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <View className="mb-4">
                 <Text className="text-sm font-medium text-foreground mb-2">Date</Text>
                 <View className="bg-surface border border-border rounded-xl px-4 py-3">
@@ -1212,6 +1214,7 @@ export default function CalendarScreen() {
             </ScrollView>
           </SwipeDownSheet>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScreenContainer>
   );
