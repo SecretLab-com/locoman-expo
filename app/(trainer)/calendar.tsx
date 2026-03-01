@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -77,6 +77,10 @@ export default function CalendarScreen() {
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [showCalendarSettings, setShowCalendarSettings] = useState(false);
   const [scheduleErrors, setScheduleErrors] = useState<Record<string, string>>({});
+  const timeInputRef = useRef<TextInput>(null);
+  const durationInputRef = useRef<TextInput>(null);
+  const locationInputRef = useRef<TextInput>(null);
+  const notesInputRef = useRef<TextInput>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("09:00");
   const [rescheduleDuration, setRescheduleDuration] = useState("60");
@@ -1129,12 +1133,15 @@ export default function CalendarScreen() {
               <View className="mb-4">
                 <Text className="text-sm font-medium text-foreground mb-2">Time (HH:MM)</Text>
                 <TextInput
+                  ref={timeInputRef}
                   className={`bg-surface border rounded-xl px-4 py-3 text-foreground ${scheduleErrors.time ? "border-error" : "border-border"}`}
                   placeholder="09:00"
                   placeholderTextColor={colors.muted}
                   value={newSessionTime}
                   onChangeText={(v) => { setNewSessionTime(v); setScheduleErrors((prev) => { const { time: _, ...rest } = prev; return rest; }); }}
                   keyboardType="numbers-and-punctuation"
+                  returnKeyType="next"
+                  onSubmitEditing={() => durationInputRef.current?.focus()}
                 />
                 {scheduleErrors.time && <Text className="text-error text-xs mt-1">{scheduleErrors.time}</Text>}
               </View>
@@ -1142,13 +1149,22 @@ export default function CalendarScreen() {
               <View className="mb-4">
                 <Text className="text-sm font-medium text-foreground mb-2">Duration (minutes)</Text>
                 <TextInput
+                  ref={durationInputRef}
                   className={`bg-surface border rounded-xl px-4 py-3 text-foreground ${scheduleErrors.duration ? "border-error" : "border-border"}`}
                   placeholder="60"
                   placeholderTextColor={colors.muted}
                   value={newSessionDuration}
                   onChangeText={(v) => { setNewSessionDuration(v); setScheduleErrors((prev) => { const { duration: _, ...rest } = prev; return rest; }); }}
                   keyboardType="number-pad"
+                  returnKeyType="next"
+                  onSubmitEditing={() => locationInputRef.current?.focus()}
                 />
+                <TouchableOpacity
+                  onPress={() => locationInputRef.current?.focus()}
+                  className="bg-primary/10 rounded-lg px-3 py-1.5 self-end mt-1"
+                >
+                  <Text className="text-primary text-xs font-semibold">Next →</Text>
+                </TouchableOpacity>
                 {scheduleErrors.duration && <Text className="text-error text-xs mt-1">{scheduleErrors.duration}</Text>}
               </View>
 
@@ -1176,22 +1192,28 @@ export default function CalendarScreen() {
               <View className="mb-4">
                 <Text className="text-sm font-medium text-foreground mb-2">Location (optional)</Text>
                 <TextInput
+                  ref={locationInputRef}
                   className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
                   placeholder="Gym floor, Zoom, etc."
                   placeholderTextColor={colors.muted}
                   value={newSessionLocation}
                   onChangeText={setNewSessionLocation}
+                  returnKeyType="next"
+                  onSubmitEditing={() => notesInputRef.current?.focus()}
                 />
               </View>
 
               <View className="mb-5">
                 <Text className="text-sm font-medium text-foreground mb-2">Notes (optional)</Text>
                 <TextInput
+                  ref={notesInputRef}
                   className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
                   placeholder="Any notes for this session..."
                   placeholderTextColor={colors.muted}
                   value={newSessionNotes}
                   onChangeText={setNewSessionNotes}
+                  returnKeyType="done"
+                  blurOnSubmit
                   multiline
                   numberOfLines={3}
                   style={{ minHeight: 90, textAlignVertical: "top" }}
