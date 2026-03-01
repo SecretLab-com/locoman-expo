@@ -81,6 +81,7 @@ export default function CalendarScreen() {
   const durationInputRef = useRef<TextInput>(null);
   const locationInputRef = useRef<TextInput>(null);
   const notesInputRef = useRef<TextInput>(null);
+  const scheduleScrollRef = useRef<ScrollView>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("09:00");
   const [rescheduleDuration, setRescheduleDuration] = useState("60");
@@ -1064,6 +1065,7 @@ export default function CalendarScreen() {
             </View>
 
             <ScrollView
+              ref={scheduleScrollRef}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{ paddingBottom: 32 }}
@@ -1199,6 +1201,7 @@ export default function CalendarScreen() {
                   value={newSessionLocation}
                   onChangeText={setNewSessionLocation}
                   returnKeyType="next"
+                  onFocus={() => setTimeout(() => scheduleScrollRef.current?.scrollToEnd({ animated: true }), 300)}
                   onSubmitEditing={() => notesInputRef.current?.focus()}
                 />
               </View>
@@ -1214,6 +1217,7 @@ export default function CalendarScreen() {
                   onChangeText={setNewSessionNotes}
                   returnKeyType="done"
                   blurOnSubmit
+                  onFocus={() => setTimeout(() => scheduleScrollRef.current?.scrollToEnd({ animated: true }), 300)}
                   multiline
                   numberOfLines={3}
                   style={{ minHeight: 90, textAlignVertical: "top" }}
