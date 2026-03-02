@@ -284,8 +284,8 @@ export default function TrainerSocialProgramScreen() {
                     ? "Connect Phyllo now to start pulling social metrics for campaign eligibility."
                     : "Your membership is restricted. Ask a coordinator or manager to reactivate you."}
             </Text>
-            <Animated.View style={{ transform: [{ scale: ctaRingScale }], opacity: ctaRingOpacity }}>
-              <View
+            <Animated.View style={{ transform: [{ scale: ctaRingScale }] }}>
+              <Animated.View
                 pointerEvents="none"
                 style={{
                   position: "absolute",
@@ -296,6 +296,7 @@ export default function TrainerSocialProgramScreen() {
                   borderRadius: 14,
                   borderWidth: 2,
                   borderColor: "rgba(96,165,250,0.5)",
+                  opacity: ctaRingOpacity,
                 }}
               />
               <ActionButton
