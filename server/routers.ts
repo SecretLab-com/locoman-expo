@@ -6128,11 +6128,20 @@ export const appRouter = router({
         const profile = await db.getTrainerSocialProfile(ctx.user.id);
         let phylloUserId = profile?.phylloUserId || null;
         const bootstrapUser = getBootstrapPhylloUserFromEnv();
+        const sdkTokenFromEnv = getBootstrapSdkTokenFromEnv();
+        const hasPhylloAuthBasic = Boolean(ENV.phylloAuthBasic);
 
         if (!phylloUserId || input?.forceNewUser) {
           if (bootstrapUser && !input?.forceNewUser) {
             phylloUserId = bootstrapUser.id;
           } else {
+            if (!hasPhylloAuthBasic) {
+              throw new TRPCError({
+                code: "INTERNAL_SERVER_ERROR",
+                message:
+                  "Phyllo API credentials are missing. Set PHYLLO_AUTH_BASIC or provide PHYLLO_ID + PHYLLO_SDK_TOKEN bootstrap values.",
+              });
+            }
             const created = await createPhylloUser({
               name: ctx.user.name || ENV.phylloName || "LocoMotivate Trainer",
               externalId:
@@ -6142,19 +6151,29 @@ export const appRouter = router({
           }
         }
 
-        const sdkTokenFromEnv = getBootstrapSdkTokenFromEnv();
         const sdkTokenPayload =
           sdkTokenFromEnv && !input?.forceNewUser
             ? {
                 sdk_token: sdkTokenFromEnv.sdkToken,
                 expires_at: sdkTokenFromEnv.expiresAt || "",
               }
-            : await createPhylloSdkToken({ userId: phylloUserId });
+            : await (() => {
+                if (!hasPhylloAuthBasic) {
+                  throw new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message:
+                      "Phyllo SDK token generation requires PHYLLO_AUTH_BASIC. Add PHYLLO_SDK_TOKEN for bootstrap mode or configure PHYLLO_AUTH_BASIC.",
+                  });
+                }
+                return createPhylloSdkToken({ userId: phylloUserId });
+              })();
 
-        const [accounts, profiles] = await Promise.all([
-          getPhylloAccounts(phylloUserId).catch(() => []),
-          getPhylloProfiles(phylloUserId).catch(() => []),
-        ]);
+        const [accounts, profiles] = hasPhylloAuthBasic
+          ? await Promise.all([
+              getPhylloAccounts(phylloUserId).catch(() => []),
+              getPhylloProfiles(phylloUserId).catch(() => []),
+            ])
+          : [[], []];
 
         const platformNames = Array.from(
           new Set(
