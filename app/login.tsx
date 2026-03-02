@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase-client";
 import { TEST_LOGIN_ACCOUNTS } from "@/constants/test-login-accounts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -31,6 +32,11 @@ const FormView = Platform.OS === 'web' ? 'form' : View;
 
 export default function LoginScreen() {
   const colors = useColors();
+  const backgroundPlayer = useVideoPlayer(require("../assets/background.m4v"), (video) => {
+    video.loop = true;
+    video.muted = true;
+    video.play();
+  });
   const { inviteToken } = useLocalSearchParams<{ inviteToken?: string }>();
   const { isAuthenticated, loading: authLoading } = useAuthContext();
   const [email, setEmail] = useState("");
@@ -173,6 +179,23 @@ export default function LoginScreen() {
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
+      <VideoView
+        player={backgroundPlayer}
+        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+        contentFit="cover"
+        nativeControls={false}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          backgroundColor: "rgba(0,0,0,0.45)",
+        }}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
@@ -187,8 +210,8 @@ export default function LoginScreen() {
               <View className="w-20 h-20 rounded-2xl bg-primary items-center justify-center mb-4">
                 <Text className="text-4xl text-background font-bold">L</Text>
               </View>
-              <Text className="text-3xl font-bold text-foreground">LocoMotivate</Text>
-              <Text className="text-base text-muted mt-2">
+              <Text className="text-3xl font-bold text-white">LocoMotivate</Text>
+              <Text className="text-base text-white/80 mt-2">
                 Connect with trainers, achieve your goals
               </Text>
             </View>
@@ -219,7 +242,7 @@ export default function LoginScreen() {
                   handleLogin();
                 }
               } : {})}
-              className="w-full"
+              className="w-full bg-background/80 border border-border/60 rounded-2xl p-4"
             >
               {/* Email Input */}
               <View className="mb-4">
@@ -301,7 +324,7 @@ export default function LoginScreen() {
 
             {/* Other Auth Links */}
             <View className="flex-row justify-center">
-              <Text className="text-muted">{"Don't have an account? "}</Text>
+              <Text className="text-white/80">{"Don't have an account? "}</Text>
               <TouchableOpacity onPress={handleRegisterPress}>
                 <Text className="text-primary font-semibold">Sign Up</Text>
               </TouchableOpacity>
@@ -316,7 +339,7 @@ export default function LoginScreen() {
               accessibilityLabel="Cancel login"
               testID="login-cancel"
             >
-              <Text className="text-muted">Cancel</Text>
+              <Text className="text-white/80">Cancel</Text>
             </TouchableOpacity>
 
             {/* Skip for now (guest browsing) */}
@@ -327,12 +350,12 @@ export default function LoginScreen() {
               accessibilityLabel="Browse as guest"
               testID="login-guest"
             >
-              <Text className="text-muted">Browse as guest</Text>
+              <Text className="text-white/80">Browse as guest</Text>
             </TouchableOpacity>
 
             {/* Quick test account sign-in buttons */}
-            <View className="mt-8 pt-4 border-t border-border/70">
-              <Text className="text-center text-xs text-muted mb-3">Test accounts</Text>
+            <View className="mt-8 pt-4 border-t border-white/30">
+              <Text className="text-center text-xs text-white/70 mb-3">Test accounts</Text>
               <View className="flex-row flex-wrap justify-center gap-2">
                 {TEST_LOGIN_ACCOUNTS.map((account) => (
                   <TouchableOpacity

@@ -9,9 +9,9 @@ import { Platform } from "react-native";
 WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_OAUTH_QUERY_PARAMS = {
-  // Always show the Google account chooser so users can switch accounts
-  // after app logout, even if Google still has an active browser session.
-  prompt: "select_account",
+  // Keep native auth flow simple; forcing chooser prompts can trap iOS
+  // sessions in a signed-out account list.
+  access_type: "offline",
 };
 
 function isMissingCodeVerifierError(error: unknown): boolean {
@@ -145,7 +145,10 @@ export async function signInWithGoogle(): Promise<void> {
     }
   });
 
-  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo, {
+    // Avoid stale cookie/session state that can leave Google chooser stuck.
+    preferEphemeralSession: Platform.OS === "ios",
+  });
   if (result.type === "success" && result.url) {
     await processCallbackUrl(result.url);
     authCompleted = true;

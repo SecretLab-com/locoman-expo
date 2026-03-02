@@ -6,6 +6,7 @@ import { haptics } from "@/hooks/use-haptics";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase-client";
 import { router } from "expo-router";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 
@@ -31,6 +32,11 @@ const SLIDES: OnboardingSlide[] = [
 
 export default function WelcomeScreen() {
   const colors = useColors();
+  const backgroundPlayer = useVideoPlayer(require("../assets/background.m4v"), (video) => {
+    video.loop = true;
+    video.muted = true;
+    video.play();
+  });
   const { isAuthenticated, loading } = useAuthContext();
   const [index, setIndex] = useState(0);
   const [testLoginLoading, setTestLoginLoading] = useState<string | null>(null);
@@ -77,10 +83,27 @@ export default function WelcomeScreen() {
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
+      <VideoView
+        player={backgroundPlayer}
+        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+        contentFit="cover"
+        nativeControls={false}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          backgroundColor: "rgba(0,0,0,0.45)",
+        }}
+      />
       <View className="flex-1 px-6 justify-between py-8">
         <View className="items-center pt-8">
-          <Text className="text-3xl font-black text-foreground">LocoMotive</Text>
-          <Text className="text-sm text-muted mt-2">Simple beats powerful.</Text>
+          <Text className="text-3xl font-black text-white">LocoMotive</Text>
+          <Text className="text-sm text-white/80 mt-2">Simple beats powerful.</Text>
         </View>
 
         <View className="bg-surface border border-border rounded-2xl p-6">

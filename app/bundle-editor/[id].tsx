@@ -131,6 +131,16 @@ export default function BundleEditorScreen() {
   const [selectedProductDetail, setSelectedProductDetail] = useState<ProductItem | null>(null);
   const [detailQuantity, setDetailQuantity] = useState(1);
   const [showDetailBarcodeScanner, setShowDetailBarcodeScanner] = useState(false);
+  const [reopenProductPickerAfterDetail, setReopenProductPickerAfterDetail] = useState(false);
+
+  const closeProductDetail = () => {
+    setShowProductDetail(false);
+    setDetailQuantity(1);
+    if (reopenProductPickerAfterDetail) {
+      setReopenProductPickerAfterDetail(false);
+      setShowProductModal(true);
+    }
+  };
 
   // AI image generation mutation
   const generateImageMutation = trpc.ai.generateBundleImage.useMutation();
@@ -1601,10 +1611,17 @@ export default function BundleEditorScreen() {
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
                           onPress={() => {
                             setSelectedProductDetail(item);
-                            setShowProductDetail(true);
+                            // iOS pageSheet modals can fail to present a second modal on top.
+                            // Close picker first, then present detail and reopen picker on close.
+                            setReopenProductPickerAfterDetail(true);
+                            setShowProductModal(false);
+                            setTimeout(() => setShowProductDetail(true), 100);
                             haptics.light();
                           }}
                           activeOpacity={0.7}
+                          accessibilityRole="button"
+                          accessibilityLabel={`View details for ${item.title}`}
+                          testID={`bundle-product-detail-${item.id}`}
                         >
                           {/* Product Image - always show with placeholder fallback */}
                           <View style={{ width: 56, height: 56, borderRadius: 8, marginRight: 12, backgroundColor: colors.surface, overflow: 'hidden' }}>
@@ -1767,19 +1784,13 @@ export default function BundleEditorScreen() {
           visible={showProductDetail}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={() => {
-            setShowProductDetail(false);
-            setDetailQuantity(1);
-          }}
+          onRequestClose={closeProductDetail}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
             <View className="flex-1 bg-background">
               {/* Header */}
               <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-                <TouchableOpacity onPress={() => {
-                  setShowProductDetail(false);
-                  setDetailQuantity(1);
-                }}>
+                <TouchableOpacity onPress={closeProductDetail}>
                   <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
                 </TouchableOpacity>
                 <Text className="text-lg font-semibold text-foreground">Product Details</Text>
@@ -2003,8 +2014,7 @@ export default function BundleEditorScreen() {
                           className="bg-primary rounded-xl py-4 items-center mb-2"
                           onPress={() => {
                             addProductWithQuantity(selectedProductDetail, detailQuantity);
-                            setShowProductDetail(false);
-                            setDetailQuantity(1);
+                            closeProductDetail();
                           }}
                         >
                           <Text className="text-background font-semibold">
@@ -2018,8 +2028,7 @@ export default function BundleEditorScreen() {
                             className="bg-error rounded-xl py-4 items-center"
                             onPress={() => {
                               toggleProduct(selectedProductDetail);
-                              setShowProductDetail(false);
-                              setDetailQuantity(1);
+                              closeProductDetail();
                             }}
                           >
                             <Text className="text-background font-semibold">
