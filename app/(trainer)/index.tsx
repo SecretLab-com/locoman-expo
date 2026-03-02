@@ -306,6 +306,8 @@ export default function TrainerHomeScreen() {
   const stepProgressAnim = useRef(new Animated.Value(1)).current;
   const glowFloatAnim = useRef(new Animated.Value(0)).current;
   const glowPulseAnim = useRef(new Animated.Value(0)).current;
+  const socialCardPulseAnim = useRef(new Animated.Value(0)).current;
+  const socialCardFloatAnim = useRef(new Animated.Value(0)).current;
 
   const {
     data: clients = [],
@@ -649,6 +651,47 @@ export default function TrainerHomeScreen() {
     };
   }, [glowFloatAnim, glowPulseAnim]);
 
+  useEffect(() => {
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(socialCardPulseAnim, {
+          toValue: 1,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(socialCardPulseAnim, {
+          toValue: 0,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    const floatLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(socialCardFloatAnim, {
+          toValue: 1,
+          duration: 2600,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(socialCardFloatAnim, {
+          toValue: 0,
+          duration: 2600,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    pulseLoop.start();
+    floatLoop.start();
+    return () => {
+      pulseLoop.stop();
+      floatLoop.stop();
+    };
+  }, [socialCardFloatAnim, socialCardPulseAnim]);
+
   const sparkleRotate = sparkleAnim.interpolate({
     inputRange: [0, 0.35, 0.7, 1],
     outputRange: ["0deg", "22deg", "-16deg", "0deg"],
@@ -680,6 +723,18 @@ export default function TrainerHomeScreen() {
   const bottomGlowScale = glowPulseAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [1, 1.14],
+  });
+  const socialRingScale = socialCardPulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.12],
+  });
+  const socialRingOpacity = socialCardPulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.25, 0.48],
+  });
+  const socialFloatY = socialCardFloatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -7],
   });
 
   const openGetPaid = (source: string, mode?: "tap" | "link") => {
@@ -1043,33 +1098,102 @@ export default function TrainerHomeScreen() {
         )}
 
         <View className={SECTION_SPACING_CLASS}>
-          <SurfaceCard style={CARD_SOFT_STYLE}>
+          <SurfaceCard style={{ ...CARD_SOFT_STYLE, borderColor: DASH.borderStrong, overflow: "hidden" }}>
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: -20,
+                right: -25,
+                width: 110,
+                height: 110,
+                borderRadius: 55,
+                backgroundColor: "rgba(96,165,250,0.18)",
+              }}
+            />
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                bottom: -28,
+                left: -20,
+                width: 120,
+                height: 120,
+                borderRadius: 60,
+                backgroundColor: "rgba(167,139,250,0.14)",
+                transform: [{ translateY: socialFloatY }],
+              }}
+            />
             <View className="flex-row items-start justify-between gap-3">
               <View className="flex-1">
+                <View
+                  className="self-start rounded-full px-2.5 py-1 mb-2 flex-row items-center"
+                  style={{ backgroundColor: "rgba(96,165,250,0.16)", borderWidth: 1, borderColor: "rgba(96,165,250,0.38)" }}
+                >
+                  <IconSymbol name="sparkles" size={12} color="#BFDBFE" />
+                  <Text className="text-[11px] font-semibold ml-1" style={{ color: "#BFDBFE" }}>
+                    New ways to earn
+                  </Text>
+                </View>
                 <Text className="text-base font-semibold" style={{ color: DASH.text }}>
                   Get Paid for Social Posts
                 </Text>
                 <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
                   Join the social program, connect your channels, and track compliance targets.
                 </Text>
+                <View className="flex-row mt-3">
+                  {["Followers", "Views", "Compliance"].map((pill) => (
+                    <View
+                      key={pill}
+                      className="mr-2 rounded-full px-2.5 py-1"
+                      style={{ backgroundColor: "rgba(15,23,42,0.55)", borderWidth: 1, borderColor: "rgba(148,163,184,0.25)" }}
+                    >
+                      <Text className="text-[10px] font-semibold" style={{ color: "#C7D2FE" }}>
+                        {pill}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
                 {socialStatus?.pendingInvite ? (
-                  <Text className="text-xs mt-2 font-semibold" style={{ color: "#93C5FD" }}>
-                    New invite available from {socialStatus.invitedBy?.name || "your coordinator"}.
-                  </Text>
+                  <View
+                    className="mt-2 self-start rounded-full px-2.5 py-1 flex-row items-center"
+                    style={{ backgroundColor: "rgba(147,197,253,0.14)", borderWidth: 1, borderColor: "rgba(147,197,253,0.4)" }}
+                  >
+                    <IconSymbol name="bell.fill" size={11} color="#93C5FD" />
+                    <Text className="text-[11px] ml-1 font-semibold" style={{ color: "#93C5FD" }}>
+                      Invite from {socialStatus.invitedBy?.name || "your coordinator"}
+                    </Text>
+                  </View>
                 ) : null}
               </View>
-              <TouchableOpacity
-                className="px-3 py-2 rounded-lg"
-                style={{ backgroundColor: DASH.primary }}
-                onPress={() => router.push("/(trainer)/social-program" as any)}
-                accessibilityRole="button"
-                accessibilityLabel="Open social program"
-                testID="trainer-social-program-cta"
-              >
-                <Text className="font-semibold" style={{ color: "#0B1020" }}>
-                  Open
-                </Text>
-              </TouchableOpacity>
+              <Animated.View style={{ transform: [{ scale: socialRingScale }], opacity: socialRingOpacity }}>
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    top: -6,
+                    left: -6,
+                    right: -6,
+                    bottom: -6,
+                    borderRadius: 14,
+                    borderWidth: 2,
+                    borderColor: "rgba(96,165,250,0.55)",
+                  }}
+                />
+                <TouchableOpacity
+                  className="px-3.5 py-2.5 rounded-xl flex-row items-center"
+                  style={{ backgroundColor: DASH.primary }}
+                  onPress={() => router.push("/(trainer)/social-program" as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open social program"
+                  testID="trainer-social-program-cta"
+                >
+                  <Text className="font-semibold" style={{ color: "#0B1020" }}>
+                    Open
+                  </Text>
+                  <IconSymbol name="arrow.right" size={12} color="#0B1020" />
+                </TouchableOpacity>
+              </Animated.View>
             </View>
           </SurfaceCard>
         </View>
