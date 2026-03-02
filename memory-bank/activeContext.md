@@ -1,76 +1,41 @@
 # Active Context
 
 ## Current Focus
-- **Supabase migration complete**: All 20 tables migrated with RLS policies and RPC functions
-- **Supabase Auth implemented**: Replaced custom OAuth with Supabase Auth (Google OAuth provider)
-- **Real API integration**: 20+ mock screens converted to real tRPC API calls
-- **WebSocket authentication**: Fixed to use Supabase JWT tokens
-- **Performance optimization**: N+1 queries eliminated via RPC functions
-- **Error handling**: Added comprehensive error handling to all DB queries
-- **Legacy cleanup**: Old SDK and ORM code removed
+- **Calendar UI redesign**: Google Calendar-style layout with fixed compact grid at top, scrollable sessions below
+- **Reschedule requests**: Full workflow with approve/reject/counter-propose UI on calendar alerts
+- **AI Assistant**: OpenRouter LLM (Gemini 2.5 Flash) with tool-calling, vision, and voice input
+- **Google Calendar integration**: Two-way sync, auto-create "Locomotivate" calendar, event deletion on cancellation
+- **Accessibility audit**: Adding `accessibilityRole`, `accessibilityLabel`, and `testID` to interactive components
 
 ## Recent Changes
-- **Products IA refactor**: Storefront menu now has `Bundles`, `Categories`, and `Products` as separate modes
-  - `Bundles` shows large trainer bundle tiles (client-scoped bundles for active trainer relationships; all bundles for non-client roles)
-  - `Categories` shows side-scrolling large Shopify collection cards with per-card `See All`
-  - `See All` deep-links into `Products` with that collection preselected as the active filter
-  - `Products` shows only individual catalog products with search + horizontal category filters including `All Products`
-- **Categories now driven by Shopify Shop-channel collections**: Product Categories no longer use static hardcoded category list
-  - Added Shopify collection publication/channel sync via GraphQL (with REST fallback)
-  - Added `channels` + `shopEnabled` metadata and filtered category source to Shop-enabled collections only
-  - Category cards now render dynamically from synced Shopify collections data
-- **Shopify collection-backed category cards**: Product Categories view now renders horizontal background-image cards from Shopify Collections
-  - Added `catalog.collections` API route backed by new `shopify.fetchCollections()` (custom + smart collections)
-  - Replaced category chip row with storefront-style image cards and overlay labels/counts
-- **Invite-aware registration UX**: Register screen now preloads invite context and enforces invite email
-  - Added `auth.inviteRegistrationContext` public endpoint for token lookup across user/trainer invite types
-  - `/register` now pre-fills name/email from invite token and locks email editing when invite email exists
-- **Pending invite revoke reliability fix**: Revoke confirm flow now uses `window.confirm` on web and `Alert.alert` on native
-  - Fixes web path where Alert button callbacks can fail to execute, causing revoke to appear non-functional
-- **iOS manager/coordinator invite delivery fix**: `admin.createUserInvitation` now sends Resend email as part of mutation
-  - Previous behavior created invitation records without dispatching email
-  - Mutation now fails if email send fails and auto-revokes the just-created invite to avoid false "sent" state
-- **Pending invite resend flow**: Added `resendUserInvitation` backend mutation and wired "Resend" actions in manager/coordinator pending invite lists
-  - Resend now rotates invite token, extends expiry by 7 days, and re-sends invite email via Resend
-  - Invite failures in resend flow are surfaced with user-friendly errors and a Server message notification
-- **Database**: Complete migration to Supabase PostgreSQL
-  - All 20 tables created with proper enum types, indexes, and foreign keys
-  - RLS policies enabled on all tables
-  - RPC functions created for atomic operations (eliminates N+1 queries)
-  - `updated_at` triggers on all mutable tables
-- **Authentication**: Migrated to Supabase Auth
-  - Google OAuth via Supabase provider
-  - Test accounts with password authentication
-  - JWT tokens from Supabase used throughout app
-- **API Layer**: Converted mock screens to real tRPC endpoints
-  - 20+ screens now use real API calls instead of mock data
-  - Type-safe tRPC routers with proper error handling
-  - All DB queries wrapped with error handling
-- **WebSocket**: Updated to verify Supabase JWT tokens
-  - Custom WebSocket server authenticates using Supabase JWT
-  - Real-time messaging works with Supabase auth
-- **Database Layer**: `server/db.ts` using Supabase JS client
-  - Snake_case ↔ camelCase conversion layer
-  - All IDs are UUID strings
-  - Service role client for server-side operations
-- **Frontend**: Supabase client integration
-  - `lib/supabase-client.ts` for frontend auth operations
-  - `lib/supabase.ts` for server-side operations
-- **Auth Utilities**: `server/_core/auth-utils.ts` for shared auth helpers
-- **Removed**: Legacy SDK (`server/_core/sdk.ts`) and legacy SQL dependencies
+- **Counter-propose UI**: Reschedule request alerts now include a "Suggest" button that expands an inline form for date/time/note counter-proposals
+- **Client spending categorization**: Orders now categorized as sessions/subscriptions/products based on description and fulfillment method (was previously all "products")
+- **Accessibility labels**: Added `accessibilityRole="button"`, `accessibilityLabel`, and `testID` to trainer MoreRow components
+- **Calendar layout**: Redesigned to Google Calendar mobile style (fixed compact grid, scrollable session list)
+- **Schedule form**: Light mode support, field chaining (Next/Done buttons), auto-scroll to focused inputs, inline validation
+- **AI Assistant (Loco Assistant)**: Full-featured chat with OpenRouter LLM, tool-calling for business data, vision support for images
+- **Voice input**: Mic button in chat input, records audio, transcribes via Groq Whisper, auto-sends for assistant chats
+- **OpenRouter LLM**: Replaced Forge API with OpenRouter for cost-effectiveness and multi-provider flexibility
+- **Google Calendar sync**: Two-way sync creates reschedule requests for moved events, cancels sessions for deleted events
+- **Auto-create Locomotivate calendar**: `googleCalendar.connectWithCode` creates dedicated calendar if none exists
+- **Modal backgrounds**: Fixed transparency/overlap issues across 16 files using inline styles instead of NativeWind className
+- **Sponsored products**: Database schema for trainer bonus, sponsored_by, bonus_expires_at, is_sponsored fields
+- **MCP server**: HTTP routes with auto-refresh for expired JWT tokens, graceful skip in production builds
+- **OpenClaw MCP**: Connection endpoint, token auto-refresh, role-based visibility in settings
+- **Bundle creation from templates**: Copies template product/service/goal data, pre-populates form fields
 
 ## Next Steps / Remaining TODOs
-- **Join requests endpoint**: Needs implementation
+- **Google Calendar webhook**: Real-time push notifications from Google (currently polling-based sync)
 - **Partnerships**: Still using mock data, needs real API
-- **Checkout flow**: Needs completion
+- **Checkout flow**: Needs completion and payment processing integration (Adyen Drop-in requires native module setup)
 - **Revenue analytics**: Some mock data remains, needs real calculations
 - **Testing**: Full end-to-end testing of all flows
-- **Deployment**: Update Cloud Run with Supabase environment variables
 
 ## Decisions
-- **Supabase as single source**: Database + Auth provider (no separate auth system)
+- **OpenRouter over Forge**: Chosen for cost control and multi-provider flexibility (Gemini 2.5 Flash default)
+- **Groq Whisper**: Used for speech-to-text (whisper-large-v3 model)
+- **Reschedule requests over auto-update**: Google Calendar moves create approval requests instead of auto-changing sessions
+- **Supabase as single source**: Database + Auth provider
 - **Service role key**: Used for all server-side DB operations (bypasses RLS)
-- **RLS policies**: Created for potential direct client access in future
 - **Snake_case in DB**: Postgres uses snake_case, app code uses camelCase with conversion layer
-- **RPC functions**: Used for complex queries to avoid N+1 problems
-- **Type safety**: tRPC provides end-to-end type safety from DB to frontend
+- **Inline styles for modals on web**: NativeWind className unreliable inside React Native Modal on web

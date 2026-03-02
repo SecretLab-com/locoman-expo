@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -351,43 +352,41 @@ export default function ClientDeliveriesScreen() {
       <View className="flex-row gap-2">
         {item.status === "delivered" && (
           <>
-            <TouchableOpacity
+            <ActionButton
+              variant="primary"
               className="flex-1 bg-success py-3 rounded-lg items-center"
+              textClassName="text-background"
               onPress={() => handleConfirmReceipt(item)}
-              disabled={confirmReceiptMutation.isPending}
+              loading={confirmReceiptMutation.isPending}
+              accessibilityLabel="Confirm Receipt"
+              testID="delivery-confirm-receipt"
             >
-              {confirmReceiptMutation.isPending ? (
-                <ActivityIndicator color={colors.background} size="small" />
-              ) : (
-                <Text className="text-background font-semibold">Confirm Receipt</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="flex-1 bg-error py-3 rounded-lg items-center"
+              Confirm Receipt
+            </ActionButton>
+            <ActionButton
+              variant="danger"
+              className="flex-1 py-3 rounded-lg items-center"
               onPress={() => handleReportIssue(item)}
-              disabled={reportIssueMutation.isPending}
+              loading={reportIssueMutation.isPending}
+              accessibilityLabel="Report Issue"
+              testID="delivery-report-issue"
             >
-              {reportIssueMutation.isPending ? (
-                <ActivityIndicator color={colors.background} size="small" />
-              ) : (
-                <Text className="text-background font-semibold">Report Issue</Text>
-              )}
-            </TouchableOpacity>
+              Report Issue
+            </ActionButton>
           </>
         )}
         {(item.status === "pending" || item.status === "ready" || item.status === "scheduled") && 
          !rescheduleRequest && (
-          <TouchableOpacity
-            className="flex-1 bg-surface border border-border py-3 rounded-lg items-center"
+          <ActionButton
+            variant="secondary"
+            className="flex-1 py-3 rounded-lg items-center"
             onPress={() => handleRequestReschedule(item)}
-            disabled={requestRescheduleMutation.isPending}
+            loading={requestRescheduleMutation.isPending}
+            accessibilityLabel="Request Reschedule"
+            testID="delivery-request-reschedule"
           >
-            {requestRescheduleMutation.isPending ? (
-              <ActivityIndicator color={colors.foreground} size="small" />
-            ) : (
-              <Text className="text-foreground font-medium">Request Reschedule</Text>
-            )}
-          </TouchableOpacity>
+            Request Reschedule
+          </ActionButton>
         )}
         {item.status === "confirmed" && (
           <View className="flex-1 bg-success/10 border border-success/30 py-3 rounded-lg items-center">

@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -457,33 +458,51 @@ export default function OrdersScreen() {
 
                   {/* Actions */}
                   {selectedOrder.status === "pending" && (
-                    <TouchableOpacity
+                    <ActionButton
                       onPress={() => handleProcessOrder(selectedOrder)}
-                      disabled={updateStatus.isPending}
-                      className="bg-primary py-4 rounded-xl items-center mb-3"
+                      loading={updateStatus.isPending}
+                      loadingText="Processing..."
+                      variant="primary"
+                      size="lg"
+                      fullWidth
+                      className="py-4 mb-3"
+                      accessibilityLabel="Start processing order"
+                      testID="order-process"
                     >
-                      <Text className="text-white font-semibold">Start Processing</Text>
-                    </TouchableOpacity>
+                      Start Processing
+                    </ActionButton>
                   )}
 
                   {selectedOrder.status === "processing" && (
-                    <TouchableOpacity
+                    <ActionButton
                       onPress={() => handleMarkReady(selectedOrder)}
-                      disabled={updateStatus.isPending}
-                      className="bg-success py-4 rounded-xl items-center mb-3"
+                      loading={updateStatus.isPending}
+                      loadingText="Marking ready..."
+                      variant="primary"
+                      size="lg"
+                      fullWidth
+                      className="bg-success py-4 mb-3"
+                      accessibilityLabel="Mark order as ready"
+                      testID="order-mark-ready"
                     >
-                      <Text className="text-white font-semibold">Mark as Ready</Text>
-                    </TouchableOpacity>
+                      Mark as Ready
+                    </ActionButton>
                   )}
 
                   {selectedOrder.status === "ready" && (
-                    <TouchableOpacity
+                    <ActionButton
                       onPress={() => handleMarkDelivered(selectedOrder)}
-                      disabled={updateStatus.isPending}
-                      className="bg-success py-4 rounded-xl items-center mb-3"
+                      loading={updateStatus.isPending}
+                      loadingText="Marking delivered..."
+                      variant="primary"
+                      size="lg"
+                      fullWidth
+                      className="bg-success py-4 mb-3"
+                      accessibilityLabel="Mark order as delivered"
+                      testID="order-mark-delivered"
                     >
-                      <Text className="text-white font-semibold">Mark as Delivered</Text>
-                    </TouchableOpacity>
+                      Mark as Delivered
+                    </ActionButton>
                   )}
 
                   <TouchableOpacity

@@ -21,7 +21,7 @@ export default function ProductDetailScreen() {
   return (
     <>
       <Stack.Screen options={{ presentation: "modal", headerShown: false, gestureEnabled: true }} />
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, overflow: "hidden" }}>
         {/* Handle bar */}
         <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 6 }}>
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border }} />
@@ -58,7 +58,7 @@ export default function ProductDetailScreen() {
             <Text style={{ color: colors.muted, textAlign: "center" }}>Product not found.</Text>
           </View>
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }}>
+          <ScrollView showsVerticalScrollIndicator style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 32) }}>
             {p.imageUrl ? (
               <View style={{ width: "100%", height: 300, backgroundColor: "#fff", padding: 16 }}>
                 <Image

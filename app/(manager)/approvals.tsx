@@ -1,3 +1,4 @@
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -314,17 +315,16 @@ export default function ManagerApprovalsScreen() {
       {/* Action Buttons */}
       {(item.status === "pending_review" || item.status === "changes_requested") && (
         <View className="flex-row gap-2">
-          <TouchableOpacity
+          <ActionButton
             className="flex-1 bg-success py-3 rounded-lg items-center"
             onPress={() => handleApprove(item)}
-            disabled={approveMutation.isPending}
+            loading={approveMutation.isPending}
+            loadingText="Approving..."
+            accessibilityLabel="Approve bundle"
+            testID="approvals-approve"
           >
-            {approveMutation.isPending ? (
-              <ActivityIndicator color={colors.background} size="small" />
-            ) : (
-              <Text className="text-background font-semibold">Approve</Text>
-            )}
-          </TouchableOpacity>
+            Approve
+          </ActionButton>
           <TouchableOpacity
             className="flex-1 bg-warning py-3 rounded-lg items-center"
             onPress={() => handleRequestChanges(item)}
@@ -332,13 +332,17 @@ export default function ManagerApprovalsScreen() {
           >
             <Text className="text-background font-semibold">Request Changes</Text>
           </TouchableOpacity>
-          <TouchableOpacity
+          <ActionButton
             className="flex-1 bg-error py-3 rounded-lg items-center"
             onPress={() => handleReject(item)}
-            disabled={rejectMutation.isPending}
+            loading={rejectMutation.isPending}
+            loadingText="Rejecting..."
+            variant="danger"
+            accessibilityLabel="Reject bundle"
+            testID="approvals-reject"
           >
-            <Text className="text-background font-semibold">Reject</Text>
-          </TouchableOpacity>
+            Reject
+          </ActionButton>
         </View>
       )}
     </TouchableOpacity>
@@ -484,17 +488,17 @@ export default function ManagerApprovalsScreen() {
               >
                 <Text className="text-foreground font-medium">Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <ActionButton
                 className="flex-1 bg-warning py-3 rounded-lg items-center"
                 onPress={submitRequestChanges}
-                disabled={!comments.trim() || requestChangesMutation.isPending}
+                loading={requestChangesMutation.isPending}
+                loadingText="Sending..."
+                disabled={!comments.trim()}
+                accessibilityLabel="Send feedback"
+                testID="approvals-send-feedback"
               >
-                {requestChangesMutation.isPending ? (
-                  <ActivityIndicator color={colors.background} size="small" />
-                ) : (
-                  <Text className="text-background font-semibold">Send Feedback</Text>
-                )}
-              </TouchableOpacity>
+                Send Feedback
+              </ActionButton>
             </View>
           </View>
         </View>

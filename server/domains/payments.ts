@@ -1,6 +1,6 @@
 import type { PaymentSession } from "../db";
 
-export type PaymentViewState = "awaiting_payment" | "paid" | "paid_out";
+export type PaymentViewState = "awaiting_payment" | "paid" | "paid_out" | "cancelled";
 
 const RAW_TO_VIEW_STATE: Record<string, PaymentViewState> = {
   created: "awaiting_payment",
@@ -8,7 +8,7 @@ const RAW_TO_VIEW_STATE: Record<string, PaymentViewState> = {
   authorised: "paid",
   captured: "paid",
   refused: "awaiting_payment",
-  cancelled: "awaiting_payment",
+  cancelled: "cancelled",
   error: "awaiting_payment",
   refunded: "awaiting_payment",
   paid_out: "paid_out",
@@ -31,6 +31,7 @@ export function summarizePaymentSessions(sessions: PaymentSession[]) {
   let awaitingPayment = 0;
   let paid = 0;
   let paidOut = 0;
+  let cancelled = 0;
   let totalPaidMinor = 0;
 
   for (const session of sessions) {
@@ -41,6 +42,7 @@ export function summarizePaymentSessions(sessions: PaymentSession[]) {
       totalPaidMinor += session.amountMinor || 0;
     }
     if (viewStatus === "paid_out") paidOut += 1;
+    if (viewStatus === "cancelled") cancelled += 1;
   }
 
   return {
@@ -48,6 +50,7 @@ export function summarizePaymentSessions(sessions: PaymentSession[]) {
     awaitingPayment,
     paid,
     paidOut,
+    cancelled,
     totalPaidMinor,
   };
 }

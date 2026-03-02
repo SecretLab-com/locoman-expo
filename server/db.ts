@@ -654,6 +654,7 @@ export type PaymentSession = {
   metadata: any;
   expiresAt: string | null;
   completedAt: string | null;
+  lastReminderSentAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1120,6 +1121,16 @@ export async function upsertBundleFromShopify(data: {
     .from("bundle_drafts")
     .upsert(dbData, { onConflict: "shopify_product_id" });
   if (error) { console.error("[Database] upsertBundleFromShopify:", error.message); throw error; }
+}
+
+export async function getAllBundles(): Promise<BundleDraft[]> {
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .not("shopify_product_id", "is", null)
+    .order("updated_at", { ascending: false });
+  if (error) { console.error("[Database] getAllBundles:", error.message); return []; }
+  return mapRowsFromDb<BundleDraft>(data || []);
 }
 
 export async function getPublishedBundles(): Promise<BundleDraft[]> {

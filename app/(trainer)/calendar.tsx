@@ -1,3 +1,4 @@
+import { ActionButton } from "@/components/action-button";
 import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
@@ -55,7 +56,7 @@ type Session = {
 
 export default function CalendarScreen() {
   const colors = useColors();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const params = useLocalSearchParams<{ scheduleClientId?: string | string[]; code?: string | string[] }>();
   const scheduleClientId = Array.isArray(params.scheduleClientId)
     ? params.scheduleClientId[0]
@@ -77,6 +78,11 @@ export default function CalendarScreen() {
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [showCalendarSettings, setShowCalendarSettings] = useState(false);
   const [scheduleErrors, setScheduleErrors] = useState<Record<string, string>>({});
+  const [calendarExpanded, setCalendarExpanded] = useState(windowHeight >= 700);
+  const [counterProposeId, setCounterProposeId] = useState<string | null>(null);
+  const [counterDate, setCounterDate] = useState("");
+  const [counterTime, setCounterTime] = useState("");
+  const [counterNote, setCounterNote] = useState("");
   const timeInputRef = useRef<TextInput>(null);
   const durationInputRef = useRef<TextInput>(null);
   const locationInputRef = useRef<TextInput>(null);
@@ -236,6 +242,10 @@ export default function CalendarScreen() {
     onSuccess: () => { refetchReschedules(); Alert.alert("Rejected", "Reschedule declined, original time kept."); },
     onError: (err) => Alert.alert("Error", err.message),
   });
+  const counterPropose = trpc.reschedule.counterPropose.useMutation({
+    onSuccess: () => { refetchReschedules(); setCounterProposeId(null); setCounterDate(""); setCounterTime(""); setCounterNote(""); Alert.alert("Sent", "Counter-proposal sent to client."); },
+    onError: (err) => Alert.alert("Error", err.message),
+  });
 
   const onRefresh = async () => {
     await Promise.all([refetch(), refetchReschedules()]);
@@ -287,6 +297,15 @@ export default function CalendarScreen() {
     return days;
   }, [currentDate, sessions]);
 
+  const visibleCalendarData = useMemo(() => {
+    if (calendarExpanded || isWideScreen) return calendarData;
+    const selectedIdx = calendarData.findIndex(
+      (d) => d.date.toDateString() === selectedDate.toDateString()
+    );
+    const weekRow = Math.floor((selectedIdx >= 0 ? selectedIdx : 0) / 7);
+    return calendarData.slice(weekRow * 7, weekRow * 7 + 7);
+  }, [calendarData, calendarExpanded, selectedDate, isWideScreen]);
+
   // Get sessions for selected date
   const selectedDateSessions = useMemo(() => {
     return sessions.filter(
@@ -301,6 +320,24 @@ export default function CalendarScreen() {
 
   const goToNextMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  };
+
+  const goToPreviousWeek = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 7);
+    setSelectedDate(d);
+    if (d.getMonth() !== currentDate.getMonth() || d.getFullYear() !== currentDate.getFullYear()) {
+      setCurrentDate(new Date(d.getFullYear(), d.getMonth(), 1));
+    }
+  };
+
+  const goToNextWeek = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + 7);
+    setSelectedDate(d);
+    if (d.getMonth() !== currentDate.getMonth() || d.getFullYear() !== currentDate.getFullYear()) {
+      setCurrentDate(new Date(d.getFullYear(), d.getMonth(), 1));
+    }
   };
 
   const goToToday = () => {
@@ -544,26 +581,54 @@ export default function CalendarScreen() {
       <NavigationHeader title="Calendar" />
 
       {/* Month Navigation */}
-      <View className="flex-row items-center justify-between px-4 mb-4">
+      <View className="flex-row items-center justify-between px-4 mb-3">
         <TouchableOpacity
           onPress={goToPreviousMonth}
-          className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+          className="w-9 h-9 rounded-full bg-surface items-center justify-center"
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
         >
-          <IconSymbol name="chevron.left" size={20} color={colors.foreground} />
+          <IconSymbol name="chevron.left" size={18} color={colors.foreground} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToToday}>
+        <TouchableOpacity
+          onPress={() => { if (!isWideScreen) setCalendarExpanded(!calendarExpanded); else goToToday(); }}
+          className="flex-row items-center gap-1"
+          accessibilityRole="button"
+          accessibilityLabel={calendarExpanded ? "Collapse to week view" : "Expand to month view"}
+        >
           <Text className="text-lg font-semibold text-foreground">
             {MONTHS[currentDate.getMonth()]} {currentDate.getFullYear()}
           </Text>
+          {!isWideScreen && (
+            <IconSymbol
+              name={calendarExpanded ? "chevron.up" : "chevron.down"}
+              size={16}
+              color={colors.muted}
+            />
+          )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={goToNextMonth}
-          className="w-10 h-10 rounded-full bg-surface items-center justify-center"
-        >
-          <IconSymbol name="chevron.right" size={20} color={colors.foreground} />
-        </TouchableOpacity>
+        <View className="flex-row items-center gap-2">
+          {!isToday(selectedDate) && (
+            <TouchableOpacity
+              onPress={goToToday}
+              className="px-2 py-1 rounded-full border border-primary"
+              accessibilityRole="button"
+              accessibilityLabel="Go to today"
+            >
+              <Text className="text-primary text-xs font-semibold">Today</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={goToNextMonth}
+            className="w-9 h-9 rounded-full bg-surface items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+          >
+            <IconSymbol name="chevron.right" size={18} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View className="px-4 mb-3 flex-row items-center justify-between">
@@ -666,21 +731,87 @@ export default function CalendarScreen() {
                   {req.source === "google_calendar" ? " (from Google Calendar)" : ""}
                 </Text>
                 <View className="flex-row gap-2">
-                  <TouchableOpacity
-                    className="flex-1 bg-success py-2 rounded-lg items-center"
+                  <ActionButton
+                    className="flex-1 bg-success py-2 rounded-lg"
                     onPress={() => approveReschedule.mutate({ id: req.id })}
-                    disabled={approveReschedule.isPending}
+                    loading={approveReschedule.isPending}
+                    variant="primary"
+                    size="sm"
+                    accessibilityLabel="Approve reschedule"
                   >
-                    <Text className="text-white text-xs font-semibold">Approve</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    className="flex-1 bg-error py-2 rounded-lg items-center"
+                    Approve
+                  </ActionButton>
+                  <ActionButton
+                    className="flex-1 bg-error py-2 rounded-lg"
                     onPress={() => rejectReschedule.mutate({ id: req.id })}
-                    disabled={rejectReschedule.isPending}
+                    loading={rejectReschedule.isPending}
+                    variant="danger"
+                    size="sm"
+                    accessibilityLabel="Reject reschedule"
                   >
-                    <Text className="text-white text-xs font-semibold">Reject</Text>
-                  </TouchableOpacity>
+                    Reject
+                  </ActionButton>
+                  <ActionButton
+                    className="flex-1 bg-primary py-2 rounded-lg"
+                    variant="primary"
+                    size="sm"
+                    onPress={() => {
+                      setCounterProposeId(counterProposeId === req.id ? null : req.id);
+                      const d = new Date(req.proposedDate);
+                      setCounterDate(d.toISOString().slice(0, 10));
+                      setCounterTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+                      setCounterNote("");
+                    }}
+                    accessibilityLabel="Suggest alternative time"
+                  >
+                    Suggest
+                  </ActionButton>
                 </View>
+                {counterProposeId === req.id && (
+                  <View className="mt-3 pt-3 border-t border-warning/20">
+                    <Text className="text-foreground text-xs font-semibold mb-2">Suggest another time</Text>
+                    <View className="flex-row gap-2 mb-2">
+                      <TextInput
+                        className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-xs"
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={colors.muted}
+                        value={counterDate}
+                        onChangeText={setCounterDate}
+                      />
+                      <TextInput
+                        className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-xs"
+                        placeholder="HH:MM"
+                        placeholderTextColor={colors.muted}
+                        value={counterTime}
+                        onChangeText={setCounterTime}
+                      />
+                    </View>
+                    <TextInput
+                      className="bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-xs mb-2"
+                      placeholder="Note (optional)"
+                      placeholderTextColor={colors.muted}
+                      value={counterNote}
+                      onChangeText={setCounterNote}
+                    />
+                    <ActionButton
+                      className="bg-primary py-2 rounded-lg"
+                      loading={counterPropose.isPending}
+                      loadingText="Sending..."
+                      variant="primary"
+                      size="sm"
+                      onPress={() => {
+                        const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(counterDate.trim());
+                        const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(counterTime.trim());
+                        if (!dateMatch || !timeMatch) { Alert.alert("Invalid", "Use YYYY-MM-DD and HH:MM format."); return; }
+                        const proposed = new Date(+dateMatch[1], +dateMatch[2] - 1, +dateMatch[3], +timeMatch[1], +timeMatch[2]);
+                        counterPropose.mutate({ id: req.id, counterDate: proposed, note: counterNote.trim() || undefined });
+                      }}
+                      accessibilityLabel="Send counter-proposal"
+                    >
+                      Send Counter-Proposal
+                    </ActionButton>
+                  </View>
+                )}
               </View>
             );
           })}
@@ -796,49 +927,116 @@ export default function CalendarScreen() {
         </View>
       ) : (
         <>
-          {/* Compact Calendar Grid — fixed at top */}
-          <View className="px-4 pb-2 border-b border-border">
-            <View className="flex-row mb-1">
-              {DAYS.map((day) => (
-                <View key={day} className="flex-1 items-center">
-                  <Text className="text-xs text-muted font-medium">{day}</Text>
+          {/* Compact Calendar Grid — fixed at top, collapsible */}
+          <View className="border-b border-border" style={{ paddingBottom: 0 }}>
+            {calendarExpanded ? (
+              <>
+                <View className="flex-row mb-1 px-4">
+                  {DAYS.map((day) => (
+                    <View key={day} className="flex-1 items-center">
+                      <Text className="text-xs text-muted font-medium">{day}</Text>
+                    </View>
+                  ))}
                 </View>
-              ))}
-            </View>
-            <View className="flex-row flex-wrap">
-              {calendarData.map((day, index) => (
-                <TouchableOpacity
-                  key={index}
-                  onPress={() => setSelectedDate(day.date)}
-                  className="w-[14.28%] items-center justify-center"
-                  style={{ paddingVertical: 4 }}
-                >
-                  <View
-                    className={`w-9 h-9 rounded-full items-center justify-center ${
-                      isSelected(day.date) ? "bg-primary" : ""
-                    }`}
-                    style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
-                  >
-                    <Text
-                      className={`text-sm ${
-                        isSelected(day.date)
-                          ? "text-white font-bold"
-                          : isToday(day.date)
-                          ? "text-primary font-bold"
-                          : day.isCurrentMonth
-                          ? "text-foreground"
-                          : "text-muted"
-                      }`}
+                <View className="flex-row flex-wrap px-4">
+                  {visibleCalendarData.map((day, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => setSelectedDate(day.date)}
+                      className="w-[14.28%] items-center justify-center"
+                      style={{ paddingVertical: 3 }}
                     >
-                      {day.date.getDate()}
-                    </Text>
-                  </View>
-                  {day.hasEvents && (
-                    <View className="w-1.5 h-1.5 rounded-full bg-success mt-0.5" />
-                  )}
+                      <View
+                        className={`w-8 h-8 rounded-full items-center justify-center ${
+                          isSelected(day.date) ? "bg-primary" : ""
+                        }`}
+                        style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
+                      >
+                        <Text
+                          className={`text-sm ${
+                            isSelected(day.date)
+                              ? "text-white font-bold"
+                              : isToday(day.date)
+                              ? "text-primary font-bold"
+                              : day.isCurrentMonth
+                              ? "text-foreground"
+                              : "text-muted"
+                          }`}
+                        >
+                          {day.date.getDate()}
+                        </Text>
+                      </View>
+                      {day.hasEvents && (
+                        <View className="w-1 h-1 rounded-full bg-success mt-0.5" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <View className="flex-row items-center">
+                <TouchableOpacity
+                  onPress={goToPreviousWeek}
+                  className="w-8 items-center justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous week"
+                >
+                  <IconSymbol name="chevron.left" size={16} color={colors.muted} />
                 </TouchableOpacity>
-              ))}
-            </View>
+                <View className="flex-1">
+                  <View className="flex-row mb-1">
+                    {DAYS.map((day) => (
+                      <View key={day} className="flex-1 items-center">
+                        <Text className="text-xs text-muted font-medium">{day}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View className="flex-row">
+                    {visibleCalendarData.map((day, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        onPress={() => setSelectedDate(day.date)}
+                        className="flex-1 items-center justify-center"
+                        style={{ paddingVertical: 3 }}
+                      >
+                        <View
+                          className={`w-8 h-8 rounded-full items-center justify-center ${
+                            isSelected(day.date) ? "bg-primary" : ""
+                          }`}
+                          style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
+                        >
+                          <Text
+                            className={`text-sm ${
+                              isSelected(day.date)
+                                ? "text-white font-bold"
+                                : isToday(day.date)
+                                ? "text-primary font-bold"
+                                : day.isCurrentMonth
+                                ? "text-foreground"
+                                : "text-muted"
+                            }`}
+                          >
+                            {day.date.getDate()}
+                          </Text>
+                        </View>
+                        {day.hasEvents && (
+                          <View className="w-1 h-1 rounded-full bg-success mt-0.5" />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={goToNextWeek}
+                  className="w-8 items-center justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="Next week"
+                >
+                  <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+                </TouchableOpacity>
+              </View>
+            )}
+            <View className="h-1" />
           </View>
 
           {/* Selected Date Header */}

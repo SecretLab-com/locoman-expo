@@ -1,5 +1,5 @@
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
-import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -15,17 +15,16 @@ import {
   Alert,
   Animated,
   Easing,
-  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
-  Share,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 
 type NextAction = "invite" | "offer" | "pay" | "done";
-type PaymentStatus = "awaiting_payment" | "paid" | "paid_out";
+type PaymentStatus = "awaiting_payment" | "paid" | "paid_out" | "cancelled";
 type OfferStatus = "draft" | "in_review" | "published" | "archived";
 type PendingPaymentRow = {
   id: string;
@@ -36,6 +35,7 @@ type PendingPaymentRow = {
   paymentLink: string | null;
   method: string | null;
   rawStatus?: string | null;
+  lastReminderSentAt?: string | null;
 };
 
 type HeroConfig = {
@@ -88,6 +88,7 @@ const ACTIVITY_STATUS_STYLE: Record<PaymentStatus, { bg: string; text: string; l
   awaiting_payment: { bg: "rgba(250,204,21,0.15)", text: "#FACC15", label: "Awaiting payment" },
   paid: { bg: "rgba(52,211,153,0.18)", text: "#34D399", label: "Paid" },
   paid_out: { bg: "rgba(96,165,250,0.18)", text: DASH.primary, label: "Paid out" },
+  cancelled: { bg: "rgba(248,113,113,0.15)", text: "#F87171", label: "Cancelled" },
 };
 
 const OFFER_STATUS_STYLE: Record<OfferStatus, { bg: string; border: string; text: string; label: string }> = {
@@ -299,7 +300,6 @@ export default function TrainerHomeScreen() {
   const utils = trpc.useUtils();
   const [testStateOverride, setTestStateOverride] = useState<NextAction | null>(null);
   const [earningsExpanded, setEarningsExpanded] = useState(false);
-  const [pendingPaymentsVisible, setPendingPaymentsVisible] = useState(false);
   const heroScaleAnim = useRef(new Animated.Value(1)).current;
   const ctaScaleAnim = useRef(new Animated.Value(1)).current;
   const sparkleAnim = useRef(new Animated.Value(0)).current;
@@ -390,10 +390,8 @@ export default function TrainerHomeScreen() {
   const pointsToNextTier = nextTier ? Math.max(0, nextTierMin - totalPoints) : 0;
   const pendingPaymentRows = useMemo(() => {
     return (pendingPaymentHistory as PendingPaymentRow[]).filter((payment) => {
-      const method = (payment.method || "").toLowerCase();
       const rawStatus = (payment.rawStatus || "").toLowerCase();
-      if (method !== "link") return false;
-      return rawStatus === "created" || rawStatus === "pending";
+      return rawStatus !== "cancelled" && rawStatus !== "authorised" && rawStatus !== "captured" && rawStatus !== "paid_out";
     });
   }, [pendingPaymentHistory]);
   const pendingPaymentsCount = pendingPaymentRows.length;
@@ -402,13 +400,16 @@ export default function TrainerHomeScreen() {
     [pendingPaymentRows],
   );
 
+  const [cancellingRef, setCancellingRef] = useState<string | null>(null);
   const cancelPendingPayment = trpc.payments.cancelLink.useMutation({
     onSuccess: async () => {
+      setCancellingRef(null);
       await Promise.all([
         utils.payments.history.invalidate(),
         utils.payments.stats.invalidate(),
       ]);
     },
+    onError: () => setCancellingRef(null),
   });
 
   const previewClients = (clients.filter((client) => client.status === "active").length > 0
@@ -681,35 +682,34 @@ export default function TrainerHomeScreen() {
     } as any);
   };
 
-  const handleSendReminder = async (payment: PendingPaymentRow) => {
-    if (!payment.paymentLink) {
-      Alert.alert("No payment link", "This payment does not have a shareable link.");
-      return;
-    }
-    const amount = formatGBPFromMinor(payment.amountMinor || 0);
-    const message = `Friendly reminder: ${payment.description || "Training payment"} (${amount}) is still pending.\n\n${payment.paymentLink}`;
-    await Share.share({ message, url: payment.paymentLink });
-  };
 
-  const handleCancelPendingPayment = (payment: PendingPaymentRow) => {
-    Alert.alert(
-      "Cancel payment link?",
-      "The client will no longer be able to pay using this link.",
-      [
-        { text: "Keep link", style: "cancel" },
-        {
-          text: "Cancel link",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await cancelPendingPayment.mutateAsync({ merchantReference: payment.merchantReference });
-            } catch (error: any) {
-              Alert.alert("Unable to cancel", error?.message || "Please try again.");
-            }
-          },
-        },
-      ],
-    );
+  const handleCancelPendingPayment = async (payment: PendingPaymentRow) => {
+    const doCancel = async () => {
+      try {
+        setCancellingRef(payment.merchantReference);
+        await cancelPendingPayment.mutateAsync({ merchantReference: payment.merchantReference });
+      } catch (error: any) {
+        setCancellingRef(null);
+        const msg = error?.message || "Please try again.";
+        if (Platform.OS === "web") { window.alert("Unable to cancel: " + msg); }
+        else { Alert.alert("Unable to cancel", msg); }
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm("Cancel payment link?\n\nThe client will no longer be able to pay using this link.")) {
+        await doCancel();
+      }
+    } else {
+      Alert.alert(
+        "Cancel payment link?",
+        "The client will no longer be able to pay using this link.",
+        [
+          { text: "Keep link", style: "cancel" },
+          { text: "Cancel link", style: "destructive", onPress: doCancel },
+        ],
+      );
+    }
   };
 
   const totalEarned = formatGBPFromMinor(paymentStats?.totalPaidMinor || 0);
@@ -744,12 +744,12 @@ export default function TrainerHomeScreen() {
       label: "Pending payments",
       subtitle: pendingPaymentsLoading ? "Loading..." : `${pendingPaymentsCount} outstanding`,
       value: formatGBPFromMinor(pendingPaymentsTotalMinor),
-      onPress: () => setPendingPaymentsVisible(true),
+      onPress: () => router.push("/(trainer)/payment-history" as any),
       testID: "trainer-quick-pending-payments",
     },
   ];
 
-  const activityRows = recentActivity.slice(0, 5);
+  const activityRows = (recentActivity as any[]).filter((item) => item.status !== "cancelled").slice(0, 5);
   const hasAnyLoading =
     clientsLoading ||
     offersLoading ||
@@ -770,6 +770,8 @@ export default function TrainerHomeScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={DASH.primary} />}
       >
+        {process.env.EXPO_PUBLIC_SHOW_PROGRESS_HEADER === "1" ? (
+          <>
         <View className="px-6 pt-3 pb-4">
           <View className="pr-24">
             <Text className="text-3xl font-bold tracking-tight" style={{ color: DASH.text }}>
@@ -995,6 +997,41 @@ export default function TrainerHomeScreen() {
             </SurfaceCard>
           </Animated.View>
         </View>
+          </>
+        ) : (
+          <View className="px-6 pt-4 pb-6">
+            <View style={{ borderRadius: 20, overflow: "hidden", backgroundColor: "#1E1B4B", padding: 28, position: "relative" }}>
+              <View pointerEvents="none" style={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(129,140,248,0.18)" }} />
+              <View pointerEvents="none" style={{ position: "absolute", bottom: -50, left: -20, width: 130, height: 130, borderRadius: 65, backgroundColor: "rgba(96,165,250,0.14)" }} />
+              <Text style={{ fontSize: 28, fontWeight: "800", color: "#F8FAFC", letterSpacing: -0.5 }}>
+                Hi, {firstName} 👋
+              </Text>
+              <Text style={{ fontSize: 15, color: "#C7D2FE", marginTop: 6, lineHeight: 22 }}>
+                Manage clients, create offers, and grow your business.
+              </Text>
+              <View style={{ flexDirection: "row", gap: 12, marginTop: 18 }}>
+                <TouchableOpacity
+                  style={{ backgroundColor: "#818CF8", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, flexDirection: "row", alignItems: "center" }}
+                  onPress={() => router.push("/(trainer)/get-paid" as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Get paid"
+                >
+                  <IconSymbol name="creditcard.fill" size={16} color="#0B1020" />
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: "#0B1020", marginLeft: 6 }}>Get Paid</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", paddingHorizontal: 18, paddingVertical: 10, flexDirection: "row", alignItems: "center" }}
+                  onPress={() => router.push("/(trainer)/offers/new" as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create an offer"
+                >
+                  <IconSymbol name="sparkles" size={16} color="#C7D2FE" />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: "#E0E7FF", marginLeft: 6 }}>New Offer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
 
         <SectionHeader title="Quick actions" />
         <View className={SECTION_SPACING_CLASS}>
@@ -1303,7 +1340,11 @@ export default function TrainerHomeScreen() {
           )}
         </View>
 
-        <SectionHeader title="Recent activity" />
+        <SectionHeader
+          title="Recent activity"
+          actionLabel="See all"
+          onActionPress={() => router.push("/(trainer)/payment-history" as any)}
+        />
         <View className={SECTION_SPACING_CLASS}>
           {activityLoading ? (
             <View className="py-6 items-center">
@@ -1324,6 +1365,7 @@ export default function TrainerHomeScreen() {
                 const status = (item.status as PaymentStatus) || "awaiting_payment";
                 const statusStyle = ACTIVITY_STATUS_STYLE[status] || ACTIVITY_STATUS_STYLE.awaiting_payment;
                 const methodLabel = item.method === "link" ? "Payment Link" : "Tap to Pay";
+                const canCancel = status === "awaiting_payment" && item.merchantReference;
                 return (
                   <View
                     key={item.id}
@@ -1350,10 +1392,26 @@ export default function TrainerHomeScreen() {
                         {formatGBPFromMinor(item.amountMinor || 0)}
                       </Text>
                     </View>
-                    <View className="self-start mt-2 px-2 py-1 rounded-full" style={{ backgroundColor: statusStyle.bg }}>
-                      <Text className="text-[11px] font-medium" style={{ color: statusStyle.text }}>
-                        {statusStyle.label}
-                      </Text>
+                    <View className="flex-row items-center justify-between mt-2">
+                      <View className="px-2 py-1 rounded-full" style={{ backgroundColor: statusStyle.bg }}>
+                        <Text className="text-[11px] font-medium" style={{ color: statusStyle.text }}>
+                          {statusStyle.label}
+                        </Text>
+                      </View>
+                      {canCancel && (
+                        <ActionButton
+                          onPress={() => handleCancelPendingPayment(item as PendingPaymentRow)}
+                          loading={cancellingRef === item.merchantReference}
+                          variant="ghost"
+                          size="sm"
+                          className="px-3 py-1 rounded-full border"
+                          style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(248,113,113,0.1)" }}
+                          textClassName="text-[11px]"
+                          accessibilityLabel={`Cancel ${item.description || "payment"}`}
+                        >
+                          <Text className="text-[11px] font-semibold" style={{ color: "#FCA5A5" }}>Cancel</Text>
+                        </ActionButton>
+                      )}
                     </View>
                   </View>
                 );
@@ -1390,118 +1448,6 @@ export default function TrainerHomeScreen() {
           </View>
         ) : null}
       </ScrollView>
-      <Modal
-        visible={pendingPaymentsVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setPendingPaymentsVisible(false)}
-      >
-        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
-          <TouchableOpacity
-            className="flex-1"
-            activeOpacity={1}
-            onPress={() => setPendingPaymentsVisible(false)}
-          />
-          <SwipeDownSheet
-            visible={pendingPaymentsVisible}
-            onClose={() => setPendingPaymentsVisible(false)}
-            className="rounded-t-3xl"
-            style={{ backgroundColor: "#0F172A", borderTopColor: DASH.border, borderTopWidth: 1 }}
-          >
-            <View className="px-6 pt-4 pb-6">
-            <View className="flex-row items-start justify-between">
-              <View className="flex-1 pr-3">
-                <Text className="text-xl font-bold" style={{ color: DASH.text }}>
-                  Pending Payments
-                </Text>
-                <Text className="text-xs mt-1" style={{ color: DASH.muted }}>
-                  {pendingPaymentsCount} outstanding · {formatGBPFromMinor(pendingPaymentsTotalMinor)} total
-                </Text>
-              </View>
-              <TouchableOpacity
-                className="px-2 py-1"
-                onPress={() => setPendingPaymentsVisible(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Close pending payments"
-                testID="pending-payments-close"
-              >
-                <IconSymbol name="xmark" size={18} color={DASH.muted} />
-              </TouchableOpacity>
-            </View>
-
-            {pendingPaymentsLoading ? (
-              <View className="py-8 items-center">
-                <ActivityIndicator size="small" color={DASH.primary} />
-              </View>
-            ) : pendingPaymentRows.length === 0 ? (
-              <View
-                className="mt-4 rounded-2xl border p-4"
-                style={{ borderColor: "rgba(148,163,184,0.2)", backgroundColor: "rgba(15,23,42,0.6)" }}
-              >
-                <Text className="text-sm" style={{ color: DASH.muted }}>
-                  No pending payment links right now.
-                </Text>
-              </View>
-            ) : (
-              <ScrollView className="mt-4" showsVerticalScrollIndicator={false} style={{ maxHeight: 380 }}>
-                {pendingPaymentRows.map((payment, index) => (
-                  <View
-                    key={payment.id}
-                    className="rounded-2xl border p-4 mb-3"
-                    style={{
-                      borderColor: "rgba(148,163,184,0.22)",
-                      backgroundColor: "rgba(15,23,42,0.78)",
-                      marginBottom: index === pendingPaymentRows.length - 1 ? 0 : 12,
-                    }}
-                  >
-                    <View className="flex-row items-start justify-between">
-                      <View className="flex-1 pr-3">
-                        <Text className="text-sm font-semibold" style={{ color: DASH.text }} numberOfLines={1}>
-                          {payment.description || "Training payment"}
-                        </Text>
-                        <Text className="text-xs mt-1" style={{ color: DASH.muted }}>
-                          Sent {formatDateShort(payment.createdAt)}
-                        </Text>
-                      </View>
-                      <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
-                        {formatGBPFromMinor(payment.amountMinor || 0)}
-                      </Text>
-                    </View>
-                    <View className="flex-row items-center mt-3">
-                      <TouchableOpacity
-                        className="flex-1 rounded-xl border px-3 py-2 mr-2"
-                        style={MUTED_BADGE_STYLE}
-                        onPress={() => handleCancelPendingPayment(payment)}
-                        disabled={cancelPendingPayment.isPending}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Cancel ${payment.description || "payment link"}`}
-                        testID={`pending-payment-cancel-${payment.id}`}
-                      >
-                        <Text className="text-center text-xs font-semibold" style={{ color: "#FCA5A5" }}>
-                          Cancel
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        className="flex-1 rounded-xl border px-3 py-2"
-                        style={{ borderColor: "rgba(96,165,250,0.5)", backgroundColor: "rgba(96,165,250,0.14)" }}
-                        onPress={() => handleSendReminder(payment)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Send reminder for ${payment.description || "payment link"}`}
-                        testID={`pending-payment-reminder-${payment.id}`}
-                      >
-                        <Text className="text-center text-xs font-semibold" style={{ color: DASH.primary }}>
-                          Send Reminder
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
-              </ScrollView>
-            )}
-            </View>
-          </SwipeDownSheet>
-        </View>
-      </Modal>
     </ScreenContainer>
   );
 }

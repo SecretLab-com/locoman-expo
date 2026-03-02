@@ -11,6 +11,7 @@ import {
   Platform,
   ActivityIndicator,
 } from "react-native";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Image } from "expo-image";
@@ -225,14 +226,17 @@ export default function CoordinatorTemplatesScreen() {
                       >
                         <Text className="text-primary font-medium text-sm">Settings</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
+                      <ActionButton
                         onPress={() => handleDemote(template)}
+                        loading={demoteMutation.isPending}
+                        loadingText="Removing..."
+                        variant="danger"
                         className="flex-1 py-2 rounded-lg items-center bg-error/10"
-                        accessibilityRole="button"
                         accessibilityLabel="Remove template"
+                        testID="remove-template"
                       >
                         <Text className="text-error font-medium text-sm">Remove</Text>
-                      </TouchableOpacity>
+                      </ActionButton>
                     </View>
                   )}
                 </View>

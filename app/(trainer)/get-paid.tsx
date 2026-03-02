@@ -54,31 +54,43 @@ export default function GetPaidScreen() {
               accessibilityRole="button"
               accessibilityLabel="Setup payment merchant account"
               testID="get-paid-setup-payment"
+              style={!payoutSummary?.bankConnected ? {
+                backgroundColor: "rgba(251,191,36,0.12)",
+                borderWidth: 2,
+                borderColor: "rgba(251,191,36,0.5)",
+                borderRadius: 16,
+                padding: 16,
+              } : undefined}
             >
-              <SurfaceCard>
-                <View className="flex-row items-center">
-                  <View
-                    className={`h-9 w-9 rounded-full items-center justify-center mr-3 ${
-                      payoutSummary?.bankConnected ? "bg-success/10" : "bg-warning/10"
-                    }`}
-                  >
-                    <IconSymbol
-                      name={payoutSummary?.bankConnected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"}
-                      size={18}
-                      color={payoutSummary?.bankConnected ? colors.success : colors.warning}
-                    />
+              {payoutSummary?.bankConnected ? (
+                <SurfaceCard>
+                  <View className="flex-row items-center">
+                    <View className="h-9 w-9 rounded-full items-center justify-center mr-3 bg-success/10">
+                      <IconSymbol name="checkmark.circle.fill" size={18} color={colors.success} />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-sm font-semibold text-foreground">Setup payment</Text>
+                      <Text className="text-xs text-muted mt-0.5">Merchant account active</Text>
+                    </View>
+                    <IconSymbol name="chevron.right" size={16} color={colors.muted} />
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-sm font-semibold text-foreground">Setup payment</Text>
-                    <Text className="text-xs text-muted mt-0.5">
-                      {payoutSummary?.bankConnected
-                        ? "Merchant account active"
-                        : "Complete merchant onboarding to get paid"}
+                </SurfaceCard>
+              ) : (
+                <View className="flex-row items-center">
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(251,191,36,0.22)", alignItems: "center", justifyContent: "center", marginRight: 14 }}>
+                    <IconSymbol name="exclamationmark.triangle.fill" size={22} color="#FBBF24" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "700", color: "#FBBF24" }}>Complete Setup to Get Paid</Text>
+                    <Text style={{ fontSize: 12, color: "#FDE68A", marginTop: 3 }}>
+                      Finish merchant onboarding so clients can pay you
                     </Text>
                   </View>
-                  <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+                  <View style={{ backgroundColor: "#FBBF24", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "700", color: "#0A0A14" }}>Setup</Text>
+                  </View>
                 </View>
-              </SurfaceCard>
+              )}
             </TouchableOpacity>
           </View>
 

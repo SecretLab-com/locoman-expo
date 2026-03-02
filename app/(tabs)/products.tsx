@@ -75,13 +75,15 @@ type Collection = {
 export default function ProductsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const { canManage, effectiveRole, isClient } = useAuthContext();
+  const { canManage, effectiveRole, isClient, isCoordinator, isManager } = useAuthContext();
+  const isAdmin = isCoordinator || isManager;
   // const bottomNavHeight = useBottomNavHeight();
   const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
   const { width, height: windowHeight } = useWindowDimensions();
   const overlayColor = "rgba(0,0,0,0.85)";
   const { addItem } = useCart();
   const [viewMode, setViewMode] = useState<"bundles" | "categories" | "products">("categories");
+  const [showHiddenBundles, setShowHiddenBundles] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [bundleSearchQuery, setBundleSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -121,6 +123,10 @@ export default function ProductsScreen() {
   });
   const { data: bundles } = trpc.catalog.bundles.useQuery(undefined, {
     staleTime: 60000,
+  });
+  const { data: allBundles } = trpc.catalog.allBundles.useQuery(undefined, {
+    staleTime: 60000,
+    enabled: isAdmin,
   });
   const { data: collections = [] } = trpc.catalog.collections.useQuery(undefined, {
     staleTime: 60000,
@@ -346,7 +352,8 @@ export default function ProductsScreen() {
   }, [categories, selectedCategory, viewMode]);
 
   const filteredBundles = useMemo(() => {
-    const all = (bundles as Bundle[] | undefined) ?? [];
+    const source = (isAdmin && showHiddenBundles ? allBundles : bundles) as Bundle[] | undefined ?? [];
+    const all = source ?? [];
     if (!bundleSearchQuery.trim()) return all;
     const term = bundleSearchQuery.toLowerCase();
     return all.filter(
@@ -354,7 +361,7 @@ export default function ProductsScreen() {
         b.title.toLowerCase().includes(term) ||
         (b.description || "").toLowerCase().includes(term),
     );
-  }, [bundles, bundleSearchQuery]);
+  }, [bundles, allBundles, bundleSearchQuery, isAdmin, showHiddenBundles]);
 
   const filteredProducts = useMemo(() => {
     if (!baseProducts.length) return [];
@@ -571,6 +578,19 @@ export default function ProductsScreen() {
               </TouchableOpacity>
             )}
           </View>
+          {isAdmin && (
+            <TouchableOpacity
+              onPress={() => setShowHiddenBundles(!showHiddenBundles)}
+              className="flex-row items-center mt-2"
+              accessibilityRole="button"
+              accessibilityLabel={showHiddenBundles ? "Hide withdrawn bundles" : "Show withdrawn bundles"}
+            >
+              <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: showHiddenBundles ? colors.primary : colors.muted, backgroundColor: showHiddenBundles ? colors.primary : "transparent", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
+                {showHiddenBundles && <IconSymbol name="checkmark" size={12} color="#fff" />}
+              </View>
+              <Text className="text-sm text-muted">Show hidden / withdrawn bundles</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -631,9 +651,21 @@ export default function ProductsScreen() {
                   )}
                 </View>
                 <View className="p-4">
-                  <Text className="text-lg font-semibold text-foreground" numberOfLines={2}>
-                    {bundle.title}
-                  </Text>
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-lg font-semibold text-foreground flex-1 mr-2" numberOfLines={2}>
+                      {bundle.title}
+                    </Text>
+                    {isAdmin && showHiddenBundles && (bundle as any).status !== "published" && (
+                      <View style={{
+                        backgroundColor: (bundle as any).status === "archived" ? "rgba(248,113,113,0.15)" : "rgba(250,204,21,0.15)",
+                        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
+                      }}>
+                        <Text style={{ fontSize: 11, fontWeight: "600", color: (bundle as any).status === "archived" ? "#F87171" : "#FACC15", textTransform: "capitalize" }}>
+                          {((bundle as any).status || "draft").replace(/_/g, " ")}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   {bundle.price ? (
                     <Text className="text-base font-bold text-foreground mt-2">
                       ${parseFloat(bundle.price).toFixed(2)}

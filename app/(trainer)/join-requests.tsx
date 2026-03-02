@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -33,10 +34,14 @@ function JoinRequestCard({
   request,
   onApprove,
   onReject,
+  isApproving,
+  isRejecting,
 }: {
   request: JoinRequest;
   onApprove: () => void;
   onReject: () => void;
+  isApproving: boolean;
+  isRejecting: boolean;
 }) {
   const colors = useColors();
 
@@ -96,22 +101,31 @@ function JoinRequestCard({
       {/* Action buttons */}
       {request.status === "pending" ? (
         <View className="flex-row gap-3">
-          <TouchableOpacity
+          <ActionButton
+            variant="secondary"
+            size="lg"
             onPress={onReject}
-            className="flex-1 py-3 rounded-lg border border-border items-center"
-            style={{ opacity: 1 }}
-            activeOpacity={0.7}
+            loading={isRejecting}
+            loadingText="Declining..."
+            className="flex-1 py-3 rounded-lg border border-border"
+            accessibilityLabel="Decline request"
+            testID="join-request-decline"
           >
-            <Text className="text-muted font-semibold">Decline</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+            Decline
+          </ActionButton>
+          <ActionButton
+            variant="primary"
+            size="lg"
             onPress={onApprove}
-            className="flex-1 py-3 rounded-lg items-center"
+            loading={isApproving}
+            loadingText="Accepting..."
+            className="flex-1 py-3 rounded-lg"
             style={{ backgroundColor: colors.primary }}
-            activeOpacity={0.7}
+            accessibilityLabel="Accept request"
+            testID="join-request-accept"
           >
-            <Text className="text-white font-semibold">Accept</Text>
-          </TouchableOpacity>
+            Accept
+          </ActionButton>
         </View>
       ) : (
         <View
@@ -320,6 +334,8 @@ export default function JoinRequestsScreen() {
             request={item}
             onApprove={() => handleApprove(item.id)}
             onReject={() => handleReject(item.id)}
+            isApproving={approveRequest.isPending && processingRequestId === item.id}
+            isRejecting={rejectRequest.isPending && processingRequestId === item.id}
           />
         )}
         refreshControl={

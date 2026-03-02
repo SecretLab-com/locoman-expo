@@ -57,15 +57,24 @@ export default function SpendingScreen() {
   // Derive spending items from orders
   const spendingItems = useMemo((): SpendingItem[] => {
     if (!orders || orders.length === 0) return [];
-    return orders.map((order: any) => ({
-      id: order.id,
-      description: order.description || order.status || "Order",
-      amount: parseFloat(order.totalAmount || order.amount || "0"),
-      date: new Date(order.createdAt),
-      // TODO: categorize orders properly once order schema includes category
-      category: "products" as SpendingCategory,
-      trainerName: order.trainerName,
-    }));
+    return orders.map((order: any) => {
+      const desc = String(order.description || order.status || "").toLowerCase();
+      const method = String(order.fulfillmentMethod || "").toLowerCase();
+      let category: SpendingCategory = "products";
+      if (desc.includes("session") || desc.includes("training") || method === "session") {
+        category = "sessions";
+      } else if (desc.includes("subscription") || desc.includes("recurring") || desc.includes("monthly") || desc.includes("weekly")) {
+        category = "subscriptions";
+      }
+      return {
+        id: order.id,
+        description: order.description || order.status || "Order",
+        amount: parseFloat(order.totalAmount || order.amount || "0"),
+        date: new Date(order.createdAt),
+        category,
+        trainerName: order.trainerName,
+      };
+    });
   }, [orders]);
 
   // Build monthly spending from orders
@@ -84,9 +93,16 @@ export default function SpendingScreen() {
         monthMap.set(key, { month: monthLabel, total: 0, subscriptions: 0, products: 0, sessions: 0, other: 0 });
       }
       const entry = monthMap.get(key)!;
+      const desc = String((order as any).description || (order as any).status || "").toLowerCase();
+      const method = String((order as any).fulfillmentMethod || "").toLowerCase();
       entry.total += amount;
-      // TODO: categorize properly
-      entry.products += amount;
+      if (desc.includes("session") || desc.includes("training") || method === "session") {
+        entry.sessions += amount;
+      } else if (desc.includes("subscription") || desc.includes("recurring")) {
+        entry.subscriptions += amount;
+      } else {
+        entry.products += amount;
+      }
     }
 
     return Array.from(monthMap.values())

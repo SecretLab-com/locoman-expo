@@ -1291,6 +1291,22 @@ export const appRouter = router({
         return db.getBundleDraftById(input.id);
       }),
 
+    /** All bundles including archived/draft - coordinator/manager only */
+    allBundles: managerProcedure.query(async () => {
+      return db.getAllBundles();
+    }),
+
+    /** Change bundle status - coordinator/manager only */
+    setBundleStatus: managerProcedure
+      .input(z.object({
+        id: z.string(),
+        status: z.enum(["published", "archived", "draft"]),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateBundleDraft(input.id, { status: input.status });
+        return { success: true };
+      }),
+
     trainers: publicProcedure.query(async () => {
       return db.getTrainers();
     }),
@@ -5865,7 +5881,7 @@ export const appRouter = router({
         };
       }),
 
-    /** Cancel a pending payment link */
+    /** Cancel a pending payment request */
     cancelLink: trainerProcedure
       .input(
         z.object({
@@ -5876,15 +5892,9 @@ export const appRouter = router({
         const session = await db.getPaymentSessionByReference(
           input.merchantReference,
         );
-        if (!session) notFound("Payment link");
+        if (!session) notFound("Payment request");
         if (session.requestedBy !== ctx.user.id) {
-          forbidden("You do not have access to this payment link");
-        }
-        if ((session.method || "").toLowerCase() !== "link") {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Only payment links can be cancelled",
-          });
+          forbidden("You do not have access to this payment request");
         }
 
         const rawStatus = (session.status || "").toLowerCase();
@@ -5908,13 +5918,26 @@ export const appRouter = router({
         return { success: true, cancelled: true };
       }),
 
+    /** Record that a payment reminder was sent */
+    recordReminder: trainerProcedure
+      .input(z.object({ merchantReference: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.getPaymentSessionByReference(input.merchantReference);
+        if (!session) notFound("Payment request");
+        if (session.requestedBy !== ctx.user.id) forbidden("You do not have access to this payment request");
+        await db.updatePaymentSessionByReference(input.merchantReference, {
+          lastReminderSentAt: new Date().toISOString(),
+        });
+        return { success: true };
+      }),
+
     /** Get payment history for the current trainer */
     history: trainerProcedure
       .input(
         z.object({
           limit: z.number().default(50),
           offset: z.number().default(0),
-          status: z.enum(["awaiting_payment", "paid", "paid_out"]).optional(),
+          status: z.enum(["awaiting_payment", "paid", "paid_out", "cancelled"]).optional(),
         }),
       )
       .query(async ({ ctx, input }) => {

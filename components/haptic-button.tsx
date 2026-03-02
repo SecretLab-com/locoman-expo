@@ -5,6 +5,7 @@ import {
   Text,
   ActivityIndicator,
   StyleSheet,
+  View,
 } from "react-native";
 import { haptics } from "@/hooks/use-haptics";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,8 @@ interface HapticButtonProps extends TouchableOpacityProps {
   variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
   size?: "sm" | "md" | "lg";
   loading?: boolean;
+  loadingText?: string;
+  fullWidth?: boolean;
   hapticType?: "light" | "medium" | "heavy" | "selection";
   children: React.ReactNode;
   className?: string;
@@ -25,6 +28,8 @@ export function HapticButton({
   variant = "primary",
   size = "md",
   loading = false,
+  loadingText,
+  fullWidth = false,
   hapticType = "light",
   children,
   className,
@@ -38,7 +43,6 @@ export function HapticButton({
   const handlePress = async (e: any) => {
     if (disabled || loading) return;
 
-    // Trigger haptic feedback
     switch (hapticType) {
       case "light":
         await haptics.light();
@@ -85,8 +89,11 @@ export function HapticButton({
     lg: "text-lg",
   };
 
+  const spinnerColor = variant === "primary" || variant === "danger" ? colors.background : colors.primary;
+
   const computedAccessibilityLabel =
     props.accessibilityLabel ||
+    (loading && loadingText ? loadingText : undefined) ||
     (typeof children === "string" ? children : undefined);
 
   return (
@@ -105,16 +112,30 @@ export function HapticButton({
         "rounded-xl flex-row items-center justify-center",
         variantStyles[variant],
         sizeStyles[size],
-        disabled && "opacity-50",
+        (disabled || loading) && "opacity-60",
+        fullWidth && "w-full",
         className
       )}
       {...props}
     >
       {loading ? (
-        <ActivityIndicator
-          size="small"
-          color={variant === "primary" || variant === "danger" ? colors.background : colors.primary}
-        />
+        loadingText ? (
+          <View className="flex-row items-center justify-center">
+            <ActivityIndicator size="small" color={spinnerColor} />
+            <Text
+              className={cn(
+                "font-semibold text-center ml-2",
+                variantTextStyles[variant],
+                sizeTextStyles[size],
+                textClassName
+              )}
+            >
+              {loadingText}
+            </Text>
+          </View>
+        ) : (
+          <ActivityIndicator size="small" color={spinnerColor} />
+        )
       ) : (
         typeof children === "string" ? (
           <Text
@@ -137,7 +158,7 @@ export function HapticButton({
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 44, // iOS accessibility minimum
+    minHeight: 44,
   },
   disabled: {
     opacity: 0.5,

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Text, View, TouchableOpacity, FlatList, Alert, Platform, RefreshControl } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
 import { getRoleConversationPath } from "@/lib/navigation";
@@ -29,11 +30,13 @@ function TrainerCard({
   onPress, 
   onMessage,
   onRemove,
+  removeLoading,
 }: { 
   trainer: MyTrainer; 
   onPress: () => void;
   onMessage: () => void;
   onRemove: () => void;
+  removeLoading?: boolean;
 }) {
   const colors = useColors();
   const [showActions, setShowActions] = useState(false);
@@ -113,16 +116,21 @@ function TrainerCard({
         {/* Expanded actions */}
         {showActions && (
           <View className="mt-3 pt-3 border-t border-border">
-            <TouchableOpacity
-              className="flex-row items-center py-2"
+            <ActionButton
+              variant="ghost"
+              size="sm"
+              className="flex-row items-center justify-start py-2"
               onPress={() => {
                 setShowActions(false);
                 onRemove();
               }}
+              loading={removeLoading}
+              loadingText="Removing..."
+              accessibilityLabel="Remove trainer"
             >
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.error} />
               <Text className="text-error ml-3">Remove Trainer</Text>
-            </TouchableOpacity>
+            </ActionButton>
           </View>
         )}
       </View>
@@ -133,6 +141,7 @@ function TrainerCard({
 function PendingRequestCard({
   request,
   onCancel,
+  cancelLoading,
 }: {
   request: {
     id: string;
@@ -145,6 +154,7 @@ function PendingRequestCard({
     createdAt: Date;
   };
   onCancel: () => void;
+  cancelLoading?: boolean;
 }) {
   const trainer = request.trainer;
 
@@ -171,12 +181,18 @@ function PendingRequestCard({
         </View>
       </View>
       <View className="flex-row mt-3 gap-2">
-        <TouchableOpacity
-          className="flex-1 bg-surface border border-border py-2 rounded-lg"
+        <ActionButton
+          variant="secondary"
+          size="sm"
+          className="flex-1 py-2 rounded-lg"
+          textClassName="text-muted font-medium"
           onPress={onCancel}
+          loading={cancelLoading}
+          loadingText="Cancelling..."
+          accessibilityLabel="Cancel request"
         >
-          <Text className="text-muted text-center font-medium">Cancel Request</Text>
-        </TouchableOpacity>
+          Cancel Request
+        </ActionButton>
         <TouchableOpacity
           className="flex-1 bg-primary py-2 rounded-lg"
           onPress={() => router.push(`/trainer/${trainer.id}` as any)}
@@ -307,6 +323,7 @@ export default function MyTrainersScreen() {
               key={request.id}
               request={request}
               onCancel={() => handleCancelRequest(request.id)}
+              cancelLoading={cancelMutation.isPending && cancelMutation.variables?.requestId === request.id}
             />
           ))}
         </View>
@@ -382,6 +399,7 @@ export default function MyTrainersScreen() {
             onPress={() => handleTrainerPress(item)}
             onMessage={() => handleMessageTrainer(item)}
             onRemove={() => handleRemoveTrainer(item)}
+            removeLoading={removeMutation.isPending && removeMutation.variables?.trainerId === item.id}
           />
         )}
         contentContainerStyle={{ padding: 16, flexGrow: 1 }}

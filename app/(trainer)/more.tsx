@@ -28,6 +28,9 @@ function MoreRow({
     <TouchableOpacity
       className="rounded-xl"
       onPress={() => router.push(item.href as any)}
+      accessibilityRole="button"
+      accessibilityLabel={item.title}
+      testID={`trainer-more-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
     >
       <SurfaceCard className="px-4 py-4 mb-3">
         <View className="flex-row items-center">

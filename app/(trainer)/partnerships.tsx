@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -411,11 +412,14 @@ export default function TrainerPartnershipsScreen() {
               </View>
             ) : (
               availableBusinesses.map((business) => (
-                <TouchableOpacity
+                <ActionButton
                   key={business.id}
                   className="bg-surface border border-border rounded-xl p-4 mb-3"
                   onPress={() => handleCreatePartnership(business)}
-                  disabled={!business.isAvailable || requestPartnershipMutation.isPending}
+                  loading={requestPartnershipMutation.isPending}
+                  loadingText="Requesting..."
+                  disabled={!business.isAvailable}
+                  accessibilityLabel={`Request partnership with ${business.name}`}
                 >
                   <View className="flex-row justify-between items-start mb-2">
                     <View className="flex-1">
@@ -429,7 +433,7 @@ export default function TrainerPartnershipsScreen() {
                     </View>
                   </View>
                   <Text className="text-muted text-sm">{business.description}</Text>
-                </TouchableOpacity>
+                </ActionButton>
               ))
             )}
           </ScrollView>
@@ -444,11 +448,16 @@ export default function TrainerPartnershipsScreen() {
               <Text className="text-primary font-medium">Cancel</Text>
             </TouchableOpacity>
             <Text className="text-lg font-semibold text-foreground">Submit Business</Text>
-            <TouchableOpacity onPress={handleSubmitBusiness} disabled={submitBusinessMutation.isPending}>
-              <Text className="text-primary font-medium">
-                {submitBusinessMutation.isPending ? "Submitting..." : "Submit"}
-              </Text>
-            </TouchableOpacity>
+            <ActionButton
+              onPress={handleSubmitBusiness}
+              loading={submitBusinessMutation.isPending}
+              loadingText="Submitting..."
+              variant="ghost"
+              className="px-0 py-0 min-h-0"
+              accessibilityLabel="Submit business"
+            >
+              <Text className="text-primary font-medium">Submit</Text>
+            </ActionButton>
           </View>
 
           <ScrollView className="flex-1 p-4">
