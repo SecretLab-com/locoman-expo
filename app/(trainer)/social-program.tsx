@@ -6,8 +6,8 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { router } from "expo-router";
-import { useEffect, useRef } from "react";
-import { ActivityIndicator, Animated, Easing, ScrollView, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Animated, Easing, Platform, ScrollView, Text, View } from "react-native";
 
 export default function TrainerSocialProgramScreen() {
   const colors = useColors();
@@ -15,6 +15,8 @@ export default function TrainerSocialProgramScreen() {
   const { data, isLoading } = trpc.socialProgram.myStatus.useQuery();
   const ctaPulseAnim = useRef(new Animated.Value(0)).current;
   const orbFloatAnim = useRef(new Animated.Value(0)).current;
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const acceptMutation = trpc.socialProgram.acceptInvite.useMutation({
     onSuccess: async () => {
@@ -96,6 +98,37 @@ export default function TrainerSocialProgramScreen() {
     outputRange: [0, -8],
   });
 
+  const showFeedback = (title: string, message: string) => {
+    if (Platform.OS === "web") {
+      window.alert(`${title}\n\n${message}`);
+      return;
+    }
+    Alert.alert(title, message);
+  };
+
+  const handleConnectPhyllo = async () => {
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const result = await connectMutation.mutateAsync({});
+      await Promise.all([
+        utils.socialProgram.myStatus.invalidate(),
+        utils.socialProgram.myProgramDashboard.invalidate(),
+      ]);
+      const connectedPlatforms = Number(result?.profile?.platforms?.length || 0);
+      const message =
+        connectedPlatforms > 0
+          ? `Connected successfully. ${connectedPlatforms} platform(s) linked.`
+          : "Connected successfully. If no platforms appear yet, complete account linking in your Phyllo dashboard and tap Refresh status.";
+      setActionSuccess(message);
+      showFeedback("Phyllo connected", message);
+    } catch (error: any) {
+      const message = String(error?.message || "Unable to connect Phyllo right now.");
+      setActionError(message);
+      showFeedback("Connection failed", message);
+    }
+  };
+
   return (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -116,6 +149,23 @@ export default function TrainerSocialProgramScreen() {
         />
 
         <View className="px-4 pb-8 gap-4">
+          {actionError ? (
+            <SurfaceCard style={{ borderColor: "rgba(248,113,113,0.4)" }}>
+              <Text className="text-sm font-semibold" style={{ color: "#F87171" }}>
+                Connection error
+              </Text>
+              <Text className="text-sm text-muted mt-1">{actionError}</Text>
+            </SurfaceCard>
+          ) : null}
+          {actionSuccess ? (
+            <SurfaceCard style={{ borderColor: "rgba(52,211,153,0.45)" }}>
+              <Text className="text-sm font-semibold" style={{ color: "#34D399" }}>
+                Success
+              </Text>
+              <Text className="text-sm text-muted mt-1">{actionSuccess}</Text>
+            </SurfaceCard>
+          ) : null}
+
           <SurfaceCard style={{ overflow: "hidden", borderColor: "rgba(96,165,250,0.5)" }}>
             <View
               pointerEvents="none"
@@ -252,7 +302,7 @@ export default function TrainerSocialProgramScreen() {
                 onPress={() =>
                   hasPendingInvite && data?.pendingInvite?.id
                     ? acceptMutation.mutate({ inviteId: data.pendingInvite.id })
-                    : connectMutation.mutate({})
+                    : handleConnectPhyllo()
                 }
                 loading={hasPendingInvite ? acceptMutation.isPending : connectMutation.isPending}
                 loadingText={hasPendingInvite ? "Accepting..." : "Connecting..."}

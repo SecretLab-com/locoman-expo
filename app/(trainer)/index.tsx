@@ -309,6 +309,23 @@ export default function TrainerHomeScreen() {
   const socialCardPulseAnim = useRef(new Animated.Value(0)).current;
   const socialCardFloatAnim = useRef(new Animated.Value(0)).current;
 
+  // Twitch-style floating emoji stream for social card
+  const SOCIAL_EMOJIS = ["💰", "📱", "🔥", "⭐", "💫", "👀", "📊", "💪", "✨", "🎯"];
+  const EMOJI_POOL_SIZE = 6;
+  const emojiPool = useRef(
+    Array.from({ length: EMOJI_POOL_SIZE }, () => ({
+      y: new Animated.Value(0),
+      opacity: new Animated.Value(0),
+    }))
+  ).current;
+  const [emojiSlots, setEmojiSlots] = useState<{ emoji: string; right: number }[]>(
+    Array.from({ length: EMOJI_POOL_SIZE }, (_, i) => ({
+      emoji: "💰",
+      right: 12 + (i % 4) * 18,
+    }))
+  );
+  const nextEmojiSlot = useRef(0);
+
   const {
     data: clients = [],
     isLoading: clientsLoading,
@@ -691,6 +708,40 @@ export default function TrainerHomeScreen() {
       floatLoop.stop();
     };
   }, [socialCardFloatAnim, socialCardPulseAnim]);
+
+  // Spawn floating emoji reactions
+  useEffect(() => {
+    const rightPositions = [14, 32, 50, 22, 42, 8];
+    const interval = setInterval(() => {
+      const idx = nextEmojiSlot.current % EMOJI_POOL_SIZE;
+      nextEmojiSlot.current++;
+      const emoji = SOCIAL_EMOJIS[Math.floor(Math.random() * SOCIAL_EMOJIS.length)];
+      const right = rightPositions[idx];
+      setEmojiSlots((prev) => {
+        const next = [...prev];
+        next[idx] = { emoji, right };
+        return next;
+      });
+      const slot = emojiPool[idx];
+      slot.y.setValue(0);
+      slot.opacity.setValue(0);
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(slot.opacity, { toValue: 0.92, duration: 180, useNativeDriver: true }),
+          Animated.delay(650),
+          Animated.timing(slot.opacity, { toValue: 0, duration: 380, useNativeDriver: true }),
+        ]),
+        Animated.timing(slot.y, {
+          toValue: -88,
+          duration: 1210,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 480);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emojiPool, nextEmojiSlot]);
 
   const sparkleRotate = sparkleAnim.interpolate({
     inputRange: [0, 0.35, 0.7, 1],
@@ -1195,6 +1246,25 @@ export default function TrainerHomeScreen() {
                 </TouchableOpacity>
               </Animated.View>
             </View>
+
+            {/* Twitch-style floating emoji stream */}
+            {emojiPool.map((slot, i) => (
+              <Animated.Text
+                key={i}
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  bottom: 10,
+                  right: emojiSlots[i].right,
+                  fontSize: 17,
+                  opacity: slot.opacity,
+                  transform: [{ translateY: slot.y }],
+                  zIndex: 10,
+                }}
+              >
+                {emojiSlots[i].emoji}
+              </Animated.Text>
+            ))}
           </SurfaceCard>
         </View>
 
