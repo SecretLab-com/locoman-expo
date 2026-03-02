@@ -779,6 +779,18 @@ export async function getUserById(id: string): Promise<User | undefined> {
   return mapFromDb<User>(data);
 }
 
+export async function getUsersByIds(ids: string[]): Promise<User[]> {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+  const { data, error } = await sb().from("users").select("*").in("id", uniqueIds);
+  if (error) {
+    console.error("[Database] getUsersByIds:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<User>(data || []);
+}
+
 export async function updateUserRole(userId: string, role: UserRole) {
   const { error } = await sb().from("users").update({ role }).eq("id", userId);
   if (error) { console.error("[Database] updateUserRole:", error.message); throw error; }
@@ -1257,8 +1269,8 @@ export async function getPendingReviewBundles(): Promise<BundleDraft[]> {
   const { data, error } = await sb()
     .from("bundle_drafts")
     .select("*")
-    .eq("status", "pending_review")
-    .order("submitted_for_review_at", { ascending: true });
+    .in("status", ["pending_review", "changes_requested", "published", "rejected"])
+    .order("updated_at", { ascending: false });
   if (error) { console.error("[Database] getPendingReviewBundles:", error.message); return []; }
   return mapRowsFromDb<BundleDraft>(data || []);
 }
@@ -3190,4 +3202,691 @@ export async function getRescheduleRequestById(id: string): Promise<RescheduleRe
     .maybeSingle();
   if (error) { console.error("[Database] getRescheduleRequestById:", error.message); return undefined; }
   return mapFromDb<RescheduleRequest>(data);
+}
+
+// ============================================================================
+// SOCIAL PROGRAM (PHYLLO)
+// ============================================================================
+
+export type TrainerSocialMembershipStatus =
+  | "invited"
+  | "active"
+  | "paused"
+  | "banned"
+  | "declined";
+
+export type TrainerSocialMembership = {
+  id: string;
+  trainerId: string;
+  status: TrainerSocialMembershipStatus;
+  invitedBy: string | null;
+  invitedAt: string;
+  acceptedAt: string | null;
+  pausedAt: string | null;
+  bannedAt: string | null;
+  declinedAt: string | null;
+  reason: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialMembership = Partial<
+  Omit<TrainerSocialMembership, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+};
+
+export type TrainerSocialInviteStatus =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "expired"
+  | "revoked";
+
+export type TrainerSocialInvite = {
+  id: string;
+  trainerId: string;
+  invitedBy: string;
+  membershipId: string | null;
+  status: TrainerSocialInviteStatus;
+  summary: string | null;
+  sentInApp: boolean;
+  sentMessage: boolean;
+  sentEmail: boolean;
+  messageConversationId: string | null;
+  messageId: string | null;
+  emailMessageId: string | null;
+  expiresAt: string | null;
+  acceptedAt: string | null;
+  declinedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialInvite = Partial<
+  Omit<TrainerSocialInvite, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+  invitedBy: string;
+};
+
+export type TrainerSocialProfile = {
+  id: string;
+  trainerId: string;
+  phylloUserId: string | null;
+  phylloAccountIds: string[] | null;
+  platforms: string[] | null;
+  followerCount: number;
+  avgViewsPerMonth: number;
+  avgEngagementRate: number;
+  avgCtr: number;
+  metadata: any;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialProfile = Partial<
+  Omit<TrainerSocialProfile, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+};
+
+export type TrainerSocialMetricDaily = {
+  id: string;
+  trainerId: string;
+  profileId: string | null;
+  metricDate: string;
+  platform: string | null;
+  followers: number;
+  views: number;
+  engagements: number;
+  clicks: number;
+  shareSaves: number;
+  postsDelivered: number;
+  postsOnTime: number;
+  requiredPosts: number;
+  requiredTagPosts: number;
+  approvedCreativePosts: number;
+  metadata: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialMetricDaily = Partial<
+  Omit<TrainerSocialMetricDaily, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+  metricDate: string;
+};
+
+export type TrainerSocialCampaignCommitment = {
+  id: string;
+  trainerId: string;
+  minimumFollowers: number;
+  minimumPosts: number;
+  minimumOnTimePct: number;
+  minimumTagPct: number;
+  minimumApprovedCreativePct: number;
+  minimumAvgViews: number;
+  minimumEngagementRate: number;
+  minimumCtr: number;
+  minimumShareSaveRate: number;
+  active: boolean;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialCampaignCommitment = Partial<
+  Omit<TrainerSocialCampaignCommitment, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+};
+
+export type TrainerSocialCommitmentProgress = {
+  id: string;
+  trainerId: string;
+  commitmentId: string | null;
+  periodStart: string;
+  periodEnd: string;
+  status: "on_track" | "watch" | "breach" | "paused" | "banned";
+  postsDelivered: number;
+  postsRequired: number;
+  onTimePct: number;
+  tagPct: number;
+  approvedCreativePct: number;
+  avgViews: number;
+  engagementRate: number;
+  ctr: number;
+  shareSaveRate: number;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialCommitmentProgress = Partial<
+  Omit<TrainerSocialCommitmentProgress, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+  periodStart: string;
+  periodEnd: string;
+};
+
+export type TrainerSocialViolation = {
+  id: string;
+  trainerId: string;
+  commitmentId: string | null;
+  metricDate: string | null;
+  type: string;
+  severity: "warning" | "critical";
+  status: "open" | "resolved" | "dismissed";
+  message: string;
+  evidence: any;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialViolation = Partial<
+  Omit<TrainerSocialViolation, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+  type: string;
+  message: string;
+};
+
+export async function getTrainerSocialMembership(
+  trainerId: string,
+): Promise<TrainerSocialMembership | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_social_memberships")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getTrainerSocialMembership:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerSocialMembership>(data);
+}
+
+export async function upsertTrainerSocialMembership(
+  data: InsertTrainerSocialMembership,
+): Promise<TrainerSocialMembership | undefined> {
+  const payload = mapToDb({
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_social_memberships")
+    .upsert(payload, { onConflict: "trainer_id" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerSocialMembership:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerSocialMembership>(row);
+}
+
+export async function getSocialMembershipByTrainerIds(
+  trainerIds: string[],
+): Promise<TrainerSocialMembership[]> {
+  if (!trainerIds.length) return [];
+  const { data, error } = await sb()
+    .from("trainer_social_memberships")
+    .select("*")
+    .in("trainer_id", trainerIds);
+  if (error) {
+    console.error("[Database] getSocialMembershipByTrainerIds:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialMembership>(data || []);
+}
+
+export async function createTrainerSocialInvite(
+  data: InsertTrainerSocialInvite,
+): Promise<string> {
+  const { data: row, error } = await sb()
+    .from("trainer_social_invites")
+    .insert(mapToDb(data))
+    .select("id")
+    .single();
+  if (error) throw error;
+  return row.id;
+}
+
+export async function updateTrainerSocialInvite(
+  id: string,
+  data: Partial<InsertTrainerSocialInvite>,
+) {
+  const { error } = await sb()
+    .from("trainer_social_invites")
+    .update(mapToDb({ ...data, updatedAt: new Date().toISOString() }))
+    .eq("id", id);
+  if (error) {
+    console.error("[Database] updateTrainerSocialInvite:", error.message);
+    throw error;
+  }
+}
+
+export async function getPendingTrainerSocialInvite(
+  trainerId: string,
+): Promise<TrainerSocialInvite | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_social_invites")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getPendingTrainerSocialInvite:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerSocialInvite>(data);
+}
+
+export async function getTrainerSocialInvitesByTrainer(
+  trainerId: string,
+): Promise<TrainerSocialInvite[]> {
+  const { data, error } = await sb()
+    .from("trainer_social_invites")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("[Database] getTrainerSocialInvitesByTrainer:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialInvite>(data || []);
+}
+
+export async function getSocialInvitesByInviter(
+  inviterId: string,
+): Promise<TrainerSocialInvite[]> {
+  const { data, error } = await sb()
+    .from("trainer_social_invites")
+    .select("*")
+    .eq("invited_by", inviterId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("[Database] getSocialInvitesByInviter:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialInvite>(data || []);
+}
+
+export async function getTrainerSocialProfile(
+  trainerId: string,
+): Promise<TrainerSocialProfile | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_social_profiles")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getTrainerSocialProfile:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerSocialProfile>(data);
+}
+
+export async function upsertTrainerSocialProfile(
+  data: InsertTrainerSocialProfile,
+): Promise<TrainerSocialProfile | undefined> {
+  const { data: row, error } = await sb()
+    .from("trainer_social_profiles")
+    .upsert(
+      mapToDb({
+        ...data,
+        updatedAt: new Date().toISOString(),
+      }),
+      { onConflict: "trainer_id" },
+    )
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerSocialProfile:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerSocialProfile>(row);
+}
+
+export async function upsertTrainerSocialMetricDaily(
+  data: InsertTrainerSocialMetricDaily,
+): Promise<TrainerSocialMetricDaily | undefined> {
+  const metricDate = new Date(data.metricDate).toISOString().slice(0, 10);
+  const payload = mapToDb({
+    ...data,
+    metricDate,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_social_metrics_daily")
+    .upsert(payload, { onConflict: "trainer_id,metric_date,platform" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerSocialMetricDaily:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerSocialMetricDaily>(row);
+}
+
+export async function getTrainerSocialMetricsRange(
+  trainerId: string,
+  options?: { fromDate?: string; toDate?: string; limit?: number },
+): Promise<TrainerSocialMetricDaily[]> {
+  const limit = options?.limit || 120;
+  let query = sb()
+    .from("trainer_social_metrics_daily")
+    .select("*")
+    .eq("trainer_id", trainerId);
+  if (options?.fromDate) query = query.gte("metric_date", options.fromDate);
+  if (options?.toDate) query = query.lte("metric_date", options.toDate);
+  const { data, error } = await query
+    .order("metric_date", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] getTrainerSocialMetricsRange:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialMetricDaily>(data || []);
+}
+
+export async function upsertTrainerSocialCommitment(
+  data: InsertTrainerSocialCampaignCommitment,
+): Promise<string> {
+  const { data: row, error } = await sb()
+    .from("trainer_social_campaign_commitments")
+    .insert(
+      mapToDb({
+        ...data,
+        updatedAt: new Date().toISOString(),
+      }),
+    )
+    .select("id")
+    .single();
+  if (error) throw error;
+  return row.id;
+}
+
+export async function getActiveTrainerSocialCommitment(
+  trainerId: string,
+): Promise<TrainerSocialCampaignCommitment | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_social_campaign_commitments")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .eq("active", true)
+    .order("effective_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getActiveTrainerSocialCommitment:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerSocialCampaignCommitment>(data);
+}
+
+export async function upsertTrainerSocialCommitmentProgress(
+  data: InsertTrainerSocialCommitmentProgress,
+): Promise<TrainerSocialCommitmentProgress | undefined> {
+  const payload = mapToDb({
+    ...data,
+    periodStart: new Date(data.periodStart).toISOString().slice(0, 10),
+    periodEnd: new Date(data.periodEnd).toISOString().slice(0, 10),
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_social_commitment_progress")
+    .upsert(payload, { onConflict: "trainer_id,period_start,period_end" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error(
+      "[Database] upsertTrainerSocialCommitmentProgress:",
+      error.message,
+    );
+    throw error;
+  }
+  return mapFromDb<TrainerSocialCommitmentProgress>(row);
+}
+
+export async function getLatestTrainerSocialProgress(
+  trainerId: string,
+): Promise<TrainerSocialCommitmentProgress | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_social_commitment_progress")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("period_end", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getLatestTrainerSocialProgress:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerSocialCommitmentProgress>(data);
+}
+
+export async function createTrainerSocialViolation(
+  data: InsertTrainerSocialViolation,
+): Promise<string> {
+  const { data: row, error } = await sb()
+    .from("trainer_social_violations")
+    .insert(mapToDb(data))
+    .select("id")
+    .single();
+  if (error) throw error;
+  return row.id;
+}
+
+export async function updateTrainerSocialViolation(
+  id: string,
+  data: Partial<InsertTrainerSocialViolation>,
+) {
+  const { error } = await sb()
+    .from("trainer_social_violations")
+    .update(mapToDb({ ...data, updatedAt: new Date().toISOString() }))
+    .eq("id", id);
+  if (error) {
+    console.error("[Database] updateTrainerSocialViolation:", error.message);
+    throw error;
+  }
+}
+
+export async function listTrainerSocialViolations(options?: {
+  trainerId?: string;
+  status?: string;
+  limit?: number;
+}): Promise<TrainerSocialViolation[]> {
+  const limit = options?.limit || 100;
+  let query = sb().from("trainer_social_violations").select("*");
+  if (options?.trainerId) query = query.eq("trainer_id", options.trainerId);
+  if (options?.status) query = query.eq("status", options.status);
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] listTrainerSocialViolations:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialViolation>(data || []);
+}
+
+export async function listEligibleSocialTrainers(options?: {
+  search?: string;
+  limit?: number;
+}): Promise<User[]> {
+  const limit = options?.limit || 200;
+  let query = sb()
+    .from("users")
+    .select("*")
+    .eq("role", "trainer")
+    .eq("active", true)
+    .order("name", { ascending: true })
+    .limit(limit);
+  const term = options?.search?.trim();
+  if (term) {
+    const safe = sanitizeSearchTerm(term);
+    if (safe) {
+      query = query.or(`name.ilike.%${safe}%,email.ilike.%${safe}%`);
+    }
+  }
+  const { data, error } = await query;
+  if (error) {
+    console.error("[Database] listEligibleSocialTrainers:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<User>(data || []);
+}
+
+export async function getTopSocialPerformerRows(limit = 10): Promise<
+  Array<{
+    trainerId: string;
+    name: string | null;
+    photoUrl: string | null;
+    followerCount: number;
+    avgViewsPerMonth: number;
+    avgEngagementRate: number;
+    avgCtr: number;
+  }>
+> {
+  const { data, error } = await sb()
+    .from("trainer_social_profiles")
+    .select("trainer_id, follower_count, avg_views_per_month, avg_engagement_rate, avg_ctr")
+    .order("avg_views_per_month", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] getTopSocialPerformerRows:", error.message);
+    return [];
+  }
+  const rows = mapRowsFromDb<TrainerSocialProfile>(data || []);
+  const userById = new Map<string, User>();
+  if (rows.length > 0) {
+    const userIds = rows.map((row) => row.trainerId);
+    const users = await getUsersByIds(userIds);
+    for (const user of users) userById.set(user.id, user);
+  }
+  return rows.map((row) => ({
+    trainerId: row.trainerId,
+    name: userById.get(row.trainerId)?.name || null,
+    photoUrl: userById.get(row.trainerId)?.photoUrl || null,
+    followerCount: Number(row.followerCount || 0),
+    avgViewsPerMonth: Number(row.avgViewsPerMonth || 0),
+    avgEngagementRate: Number(row.avgEngagementRate || 0),
+    avgCtr: Number(row.avgCtr || 0),
+  }));
+}
+
+export async function getSocialManagementSummary() {
+  const { count: activeMembers } = await sb()
+    .from("trainer_social_memberships")
+    .select("*", { head: true, count: "exact" })
+    .eq("status", "active");
+  const { count: invitedMembers } = await sb()
+    .from("trainer_social_memberships")
+    .select("*", { head: true, count: "exact" })
+    .eq("status", "invited");
+  const { count: pausedMembers } = await sb()
+    .from("trainer_social_memberships")
+    .select("*", { head: true, count: "exact" })
+    .eq("status", "paused");
+  const { count: bannedMembers } = await sb()
+    .from("trainer_social_memberships")
+    .select("*", { head: true, count: "exact" })
+    .eq("status", "banned");
+  const { data: profileRows } = await sb()
+    .from("trainer_social_profiles")
+    .select("follower_count, avg_views_per_month");
+  const { count: openViolations } = await sb()
+    .from("trainer_social_violations")
+    .select("*", { head: true, count: "exact" })
+    .eq("status", "open");
+
+  const totals = (profileRows || []).reduce(
+    (acc, row: any) => {
+      acc.followers += Number(row.follower_count || 0);
+      acc.views += Number(row.avg_views_per_month || 0);
+      return acc;
+    },
+    { followers: 0, views: 0 },
+  );
+
+  const profileCount = Math.max(1, Number((profileRows || []).length || 1));
+  return {
+    activeMembers: Number(activeMembers || 0),
+    invitedMembers: Number(invitedMembers || 0),
+    pausedMembers: Number(pausedMembers || 0),
+    bannedMembers: Number(bannedMembers || 0),
+    openViolations: Number(openViolations || 0),
+    totalFollowers: totals.followers,
+    avgViewsPerMonth: Math.round(totals.views / profileCount),
+    connectedPlatforms: (profileRows || []).length,
+  };
+}
+
+export async function listSocialMembers(options?: {
+  status?: TrainerSocialMembershipStatus | "all";
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const limit = options?.limit || 100;
+  const offset = options?.offset || 0;
+  let query = sb().from("trainer_social_memberships").select("*");
+  if (options?.status && options.status !== "all") {
+    query = query.eq("status", options.status);
+  }
+  const { data, error } = await query
+    .order("updated_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) {
+    console.error("[Database] listSocialMembers:", error.message);
+    return [];
+  }
+  const memberships = mapRowsFromDb<TrainerSocialMembership>(data || []);
+  if (!memberships.length) return [];
+
+  const userIds = memberships.map((m) => m.trainerId);
+  const [users, profiles, progressRows] = await Promise.all([
+    getUsersByIds(userIds),
+    Promise.all(userIds.map((id) => getTrainerSocialProfile(id))),
+    Promise.all(userIds.map((id) => getLatestTrainerSocialProgress(id))),
+  ]);
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const profileByTrainerId = new Map<string, TrainerSocialProfile>();
+  for (const profile of profiles) {
+    if (profile?.trainerId) profileByTrainerId.set(profile.trainerId, profile);
+  }
+  const progressByTrainerId = new Map<string, TrainerSocialCommitmentProgress>();
+  for (const progress of progressRows) {
+    if (progress?.trainerId) progressByTrainerId.set(progress.trainerId, progress);
+  }
+
+  const search = options?.search?.trim().toLowerCase() || "";
+  return memberships
+    .map((membership) => {
+      const user = userById.get(membership.trainerId);
+      const profile = profileByTrainerId.get(membership.trainerId);
+      const progress = progressByTrainerId.get(membership.trainerId);
+      return {
+        ...membership,
+        trainer: user || null,
+        profile: profile || null,
+        progress: progress || null,
+      };
+    })
+    .filter((row) => {
+      if (!search) return true;
+      const name = String(row.trainer?.name || "").toLowerCase();
+      const email = String(row.trainer?.email || "").toLowerCase();
+      return name.includes(search) || email.includes(search);
+    });
 }

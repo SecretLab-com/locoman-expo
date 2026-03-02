@@ -9,8 +9,18 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import {
   getInviteEmailFailureUserMessage,
   sendInviteEmail,
+  sendSocialProgramInviteEmail,
 } from "./_core/email";
+import { ENV } from "./_core/env";
 import { logError } from "./_core/logger";
+import {
+  createPhylloSdkToken,
+  createPhylloUser,
+  getBootstrapPhylloUserFromEnv,
+  getBootstrapSdkTokenFromEnv,
+  getPhylloAccounts,
+  getPhylloProfiles,
+} from "./_core/phyllo";
 import { generateImage } from "./_core/imageGeneration";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
@@ -64,6 +74,72 @@ function toMessagePushBody(
 
 function isManagerLikeRole(role: string): boolean {
   return role === "manager" || role === "coordinator";
+}
+
+function getBundleReviewLinks(bundleId: string) {
+  const webBase = String(process.env.EXPO_PUBLIC_APP_URL || "https://locomotivate.app")
+    .trim()
+    .replace(/\/+$/g, "");
+  const webUrl = `${webBase}/bundle-editor/${bundleId}`;
+  const deepLink = `locomotivate://bundle-editor/${bundleId}`;
+  return { webUrl, deepLink };
+}
+
+async function sendBundleReviewThreadMessage(params: {
+  senderId: string;
+  senderName: string;
+  receiverIds: string[];
+  bundleId: string;
+  content: string;
+}) {
+  const uniqueReceiverIds = Array.from(
+    new Set(
+      params.receiverIds.filter(
+        (receiverId) => receiverId && receiverId !== params.senderId,
+      ),
+    ),
+  );
+  if (uniqueReceiverIds.length === 0) return;
+
+  for (const receiverId of uniqueReceiverIds) {
+    const conversationId = [params.senderId, receiverId].sort().join("-");
+    const messageId = await db.createMessage({
+      senderId: params.senderId,
+      receiverId,
+      conversationId,
+      content: params.content,
+    });
+
+    notifyNewMessage(
+      conversationId,
+      {
+        id: messageId,
+        senderId: params.senderId,
+        senderName: params.senderName,
+        receiverId,
+        content: params.content,
+        conversationId,
+      },
+      [receiverId, params.senderId],
+      params.senderId,
+    );
+
+    notifyBadgeCounts([receiverId]);
+
+    if (!isUserOnline(receiverId)) {
+      await sendPushToUsers([receiverId], {
+        title: params.senderName,
+        body: toMessagePushBody(params.content, "text"),
+        data: {
+          type: "message",
+          conversationId,
+          senderId: params.senderId,
+          senderName: params.senderName,
+          bundleId: params.bundleId,
+        },
+      });
+    }
+  }
 }
 
 function toAbsoluteRequestUrl(
@@ -1421,6 +1497,9 @@ export const appRouter = router({
           ? await db.getBundleDraftById(invitation.bundleDraftId)
           : undefined;
         if (!bundle) notFound("Bundle");
+        if (bundle.status !== "published") {
+          forbidden("This bundle is not currently available for purchase");
+        }
         const trainerId = invitation.trainerId || bundle.trainerId;
         if (!trainerId) notFound("Trainer");
 
@@ -1700,6 +1779,75 @@ export const appRouter = router({
           "manager",
           "coordinator",
         ]);
+        const links = getBundleReviewLinks(input.id);
+        const message = [
+          `Review requested for bundle "${bundle.title || "Untitled Bundle"}".`,
+          "Please review content, pricing, and included items.",
+          `Bundle: ${links.webUrl}`,
+          `App: ${links.deepLink}`,
+        ].join("\n");
+        await sendBundleReviewThreadMessage({
+          senderId: ctx.user.id,
+          senderName: ctx.user.name || "Trainer",
+          receiverIds: managerIds,
+          bundleId: input.id,
+          content: message,
+        });
+        notifyBadgeCounts(managerIds);
+        return { success: true };
+      }),
+
+    respondToReview: trainerProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          response: z.string().min(1),
+          resubmit: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const bundle = await db.getBundleDraftById(input.id);
+        if (!bundle) notFound("Bundle");
+        assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+        if (
+          bundle.status !== "changes_requested" &&
+          bundle.status !== "pending_review"
+        ) {
+          forbidden("Bundle is not in an active review state");
+        }
+
+        const managerIds = await db.getUserIdsByRoles([
+          "manager",
+          "coordinator",
+        ]);
+        const reviewReceivers =
+          bundle.reviewedBy && bundle.reviewedBy.length > 0
+            ? [bundle.reviewedBy]
+            : managerIds;
+
+        const links = getBundleReviewLinks(input.id);
+        const message = [
+          `Trainer response for "${bundle.title || "Untitled Bundle"}":`,
+          input.response.trim(),
+          `Bundle: ${links.webUrl}`,
+          `App: ${links.deepLink}`,
+        ].join("\n\n");
+
+        await sendBundleReviewThreadMessage({
+          senderId: ctx.user.id,
+          senderName: ctx.user.name || "Trainer",
+          receiverIds: reviewReceivers,
+          bundleId: input.id,
+          content: message,
+        });
+
+        if (input.resubmit) {
+          await db.updateBundleDraft(input.id, {
+            status: "pending_review",
+            submittedForReviewAt: new Date().toISOString(),
+          });
+        }
+
         notifyBadgeCounts(managerIds);
         return { success: true };
       }),
@@ -1968,6 +2116,20 @@ export const appRouter = router({
           "manager",
           "coordinator",
         ]);
+        const links = getBundleReviewLinks(input.id);
+        const message = [
+          `Review requested for bundle "${bundle.title || "Untitled Bundle"}".`,
+          "Please review content, pricing, and included items.",
+          `Bundle: ${links.webUrl}`,
+          `App: ${links.deepLink}`,
+        ].join("\n");
+        await sendBundleReviewThreadMessage({
+          senderId: ctx.user.id,
+          senderName: ctx.user.name || "Trainer",
+          receiverIds: managerIds,
+          bundleId: input.id,
+          content: message,
+        });
         notifyBadgeCounts(managerIds);
         const updated = await db.getBundleDraftById(input.id);
         if (!updated) notFound("Offer");
@@ -2228,6 +2390,11 @@ export const appRouter = router({
           const bundle = await db.getBundleDraftById(input.bundleDraftId);
           if (!bundle) notFound("Bundle");
           assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+          if (bundle.status !== "published") {
+            forbidden(
+              "Only published bundles can be included in invitations",
+            );
+          }
         }
         const token = crypto.randomUUID();
         const expiresAt = new Date(
@@ -2297,6 +2464,11 @@ export const appRouter = router({
           const bundle = await db.getBundleDraftById(input.bundleDraftId);
           if (!bundle) notFound("Bundle");
           assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+          if (bundle.status !== "published") {
+            forbidden(
+              "Only published bundles can be included in invitations",
+            );
+          }
         }
         const results = [];
         for (const invite of input.invitations) {
@@ -2402,6 +2574,16 @@ export const appRouter = router({
         const client = await db.getClientById(input.clientId);
         if (!client) notFound("Client");
         assertTrainerOwned(ctx.user, client.trainerId, "client");
+        if (input.bundleDraftId) {
+          const bundle = await db.getBundleDraftById(input.bundleDraftId);
+          if (!bundle) notFound("Bundle");
+          assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+          if (bundle.status !== "published") {
+            forbidden(
+              "Only published bundles can be used for subscriptions",
+            );
+          }
+        }
         return db.createSubscription({
           clientId: input.clientId,
           trainerId: client.trainerId,
@@ -2950,12 +3132,19 @@ export const appRouter = router({
             if (item.bundleId) {
               const bundle = await db.getBundleDraftById(item.bundleId);
               if (bundle) {
+                if (bundle.status !== "published") {
+                  forbidden(
+                    `Bundle "${bundle.title || item.title || "selected bundle"}" is not available for sale`,
+                  );
+                }
                 name = bundle.title || name;
                 const price = Number.parseFloat(
                   String(bundle.price || unitPrice),
                 );
                 unitPrice = Number.isFinite(price) ? price : unitPrice;
                 trainerId = trainerId || bundle.trainerId || undefined;
+              } else {
+                notFound("Bundle");
               }
             } else if (item.productId) {
               const product = await db.getProductById(item.productId);
@@ -4877,6 +5066,20 @@ export const appRouter = router({
           reviewComments: input.comments,
         });
         if (bundle?.trainerId) {
+          const links = getBundleReviewLinks(input.id);
+          const message = [
+            `Changes requested for "${bundle.title || "Untitled Bundle"}":`,
+            input.comments,
+            `Bundle: ${links.webUrl}`,
+            `App: ${links.deepLink}`,
+          ].join("\n\n");
+          await sendBundleReviewThreadMessage({
+            senderId: ctx.user.id,
+            senderName: ctx.user.name || "Coordinator",
+            receiverIds: [bundle.trainerId],
+            bundleId: input.id,
+            content: message,
+          });
           await sendPushToUsers([bundle.trainerId], {
             title: "Changes requested",
             body: `Review feedback for "${bundle.title}": ${input.comments}`,
@@ -5781,6 +5984,544 @@ export const appRouter = router({
   // ============================================================================
   // PAYMENTS (Adyen integration)
   // ============================================================================
+  socialProgram: router({
+    myStatus: trainerProcedure.query(async ({ ctx }) => {
+      const [membership, profile, pendingInvite, commitment, progress, violations] =
+        await Promise.all([
+          db.getTrainerSocialMembership(ctx.user.id),
+          db.getTrainerSocialProfile(ctx.user.id),
+          db.getPendingTrainerSocialInvite(ctx.user.id),
+          db.getActiveTrainerSocialCommitment(ctx.user.id),
+          db.getLatestTrainerSocialProgress(ctx.user.id),
+          db.listTrainerSocialViolations({
+            trainerId: ctx.user.id,
+            status: "open",
+            limit: 25,
+          }),
+        ]);
+
+      const inviteBy =
+        pendingInvite?.invitedBy &&
+        (await db.getUserById(pendingInvite.invitedBy));
+
+      return {
+        membership,
+        profile,
+        pendingInvite,
+        invitedBy: inviteBy
+          ? {
+              id: inviteBy.id,
+              name: inviteBy.name,
+              role: inviteBy.role,
+            }
+          : null,
+        commitment,
+        progress,
+        openViolations: violations,
+      };
+    }),
+
+    acceptInvite: trainerProcedure
+      .input(z.object({ inviteId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const invites = await db.getTrainerSocialInvitesByTrainer(ctx.user.id);
+        const invite = invites.find((row) => row.id === input.inviteId);
+        if (!invite) notFound("Social invite");
+        if (invite.status !== "pending") {
+          forbidden(`Invite is ${invite.status}`);
+        }
+        await db.updateTrainerSocialInvite(invite.id, {
+          status: "accepted",
+          acceptedAt: new Date().toISOString(),
+        });
+        const membership = await db.upsertTrainerSocialMembership({
+          trainerId: ctx.user.id,
+          status: "active",
+          acceptedAt: new Date().toISOString(),
+          invitedBy: invite.invitedBy,
+          reason: null,
+        });
+        if (!membership) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to activate social membership",
+          });
+        }
+
+        let commitment = await db.getActiveTrainerSocialCommitment(ctx.user.id);
+        if (!commitment) {
+          await db.upsertTrainerSocialCommitment({
+            trainerId: ctx.user.id,
+            minimumFollowers: 10000,
+            minimumPosts: 4,
+            minimumOnTimePct: 95,
+            minimumTagPct: 98,
+            minimumApprovedCreativePct: 98,
+            minimumAvgViews: 1000,
+            minimumEngagementRate: 0.03,
+            minimumCtr: 0.008,
+            minimumShareSaveRate: 0.007,
+            active: true,
+            effectiveFrom: new Date().toISOString(),
+          });
+          commitment = await db.getActiveTrainerSocialCommitment(ctx.user.id);
+        }
+
+        const fromDate = new Date();
+        fromDate.setDate(1);
+        const toDate = new Date(fromDate);
+        toDate.setMonth(toDate.getMonth() + 1);
+        toDate.setDate(0);
+
+        await db.upsertTrainerSocialCommitmentProgress({
+          trainerId: ctx.user.id,
+          commitmentId: commitment?.id || null,
+          periodStart: fromDate.toISOString(),
+          periodEnd: toDate.toISOString(),
+          status: "on_track",
+          postsDelivered: 0,
+          postsRequired: commitment?.minimumPosts || 4,
+        });
+
+        notifyBadgeCounts(await db.getUserIdsByRoles(["manager", "coordinator"]));
+        return { success: true, membership };
+      }),
+
+    declineInvite: trainerProcedure
+      .input(z.object({ inviteId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const invites = await db.getTrainerSocialInvitesByTrainer(ctx.user.id);
+        const invite = invites.find((row) => row.id === input.inviteId);
+        if (!invite) notFound("Social invite");
+        await db.updateTrainerSocialInvite(invite.id, {
+          status: "declined",
+          declinedAt: new Date().toISOString(),
+        });
+        await db.upsertTrainerSocialMembership({
+          trainerId: ctx.user.id,
+          status: "declined",
+          declinedAt: new Date().toISOString(),
+          invitedBy: invite.invitedBy,
+          reason: "Trainer declined invitation",
+        });
+        notifyBadgeCounts(await db.getUserIdsByRoles(["manager", "coordinator"]));
+        return { success: true };
+      }),
+
+    connectPhyllo: trainerProcedure
+      .input(z.object({ forceNewUser: z.boolean().optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+        let membership = await db.getTrainerSocialMembership(ctx.user.id);
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You must accept the social invite first.",
+          });
+        }
+        if (membership.status === "banned") {
+          forbidden("Your social membership is banned");
+        }
+        if (membership.status === "paused") {
+          forbidden("Your social membership is paused");
+        }
+
+        const profile = await db.getTrainerSocialProfile(ctx.user.id);
+        let phylloUserId = profile?.phylloUserId || null;
+        const bootstrapUser = getBootstrapPhylloUserFromEnv();
+
+        if (!phylloUserId || input?.forceNewUser) {
+          if (bootstrapUser && !input?.forceNewUser) {
+            phylloUserId = bootstrapUser.id;
+          } else {
+            const created = await createPhylloUser({
+              name: ctx.user.name || ENV.phylloName || "LocoMotivate Trainer",
+              externalId:
+                `${ctx.user.id}-${Date.now()}` || ENV.phylloExternalId || "trainer",
+            });
+            phylloUserId = created.id;
+          }
+        }
+
+        const sdkTokenFromEnv = getBootstrapSdkTokenFromEnv();
+        const sdkTokenPayload =
+          sdkTokenFromEnv && !input?.forceNewUser
+            ? {
+                sdk_token: sdkTokenFromEnv.sdkToken,
+                expires_at: sdkTokenFromEnv.expiresAt || "",
+              }
+            : await createPhylloSdkToken({ userId: phylloUserId });
+
+        const [accounts, profiles] = await Promise.all([
+          getPhylloAccounts(phylloUserId).catch(() => []),
+          getPhylloProfiles(phylloUserId).catch(() => []),
+        ]);
+
+        const platformNames = Array.from(
+          new Set(
+            (profiles || [])
+              .map((row: any) => String(row?.platform || row?.platform_name || ""))
+              .filter(Boolean),
+          ),
+        );
+
+        const followerCount = (profiles || []).reduce(
+          (sum: number, row: any) =>
+            sum + Number(row?.audience?.follower_count || row?.followers || 0),
+          0,
+        );
+
+        const avgViewsPerMonth = Math.round(
+          (profiles || []).reduce(
+            (sum: number, row: any) =>
+              sum + Number(row?.engagement?.avg_views_per_month || row?.avg_views_per_month || 0),
+            0,
+          ),
+        );
+
+        const avgEngagementRate =
+          (profiles || []).length > 0
+            ? (profiles || []).reduce(
+                (sum: number, row: any) =>
+                  sum + Number(row?.engagement?.engagement_rate || row?.engagement_rate || 0),
+                0,
+              ) / (profiles || []).length
+            : 0;
+
+        const avgCtr =
+          (profiles || []).length > 0
+            ? (profiles || []).reduce(
+                (sum: number, row: any) =>
+                  sum + Number(row?.engagement?.ctr || row?.ctr || 0),
+                0,
+              ) / (profiles || []).length
+            : 0;
+
+        const savedProfile = await db.upsertTrainerSocialProfile({
+          trainerId: ctx.user.id,
+          phylloUserId,
+          phylloAccountIds: (accounts || []).map((a: any) => String(a?.id)).filter(Boolean),
+          platforms: platformNames,
+          followerCount,
+          avgViewsPerMonth,
+          avgEngagementRate,
+          avgCtr,
+          metadata: {
+            rawProfiles: profiles,
+            rawAccounts: accounts,
+          },
+          lastSyncedAt: new Date().toISOString(),
+        });
+
+        await db.upsertTrainerSocialMembership({
+          trainerId: ctx.user.id,
+          status: "active",
+          acceptedAt: membership.acceptedAt || new Date().toISOString(),
+          invitedBy: membership.invitedBy,
+          reason: null,
+        });
+
+        // Snapshot current month metrics for dashboard rollups.
+        await db.upsertTrainerSocialMetricDaily({
+          trainerId: ctx.user.id,
+          metricDate: new Date().toISOString(),
+          platform: "all",
+          followers: followerCount,
+          views: avgViewsPerMonth,
+          engagements: Math.round(avgViewsPerMonth * avgEngagementRate),
+          clicks: Math.round(avgViewsPerMonth * avgCtr),
+          shareSaves: Math.round(avgViewsPerMonth * 0.01),
+          postsDelivered: 0,
+          postsOnTime: 0,
+          requiredPosts: 4,
+          requiredTagPosts: 4,
+          approvedCreativePosts: 0,
+          metadata: { source: "connect_phyllo" },
+        });
+
+        return {
+          success: true,
+          profile: savedProfile,
+          sdkTokenExpiresAt: sdkTokenPayload.expires_at,
+        };
+      }),
+
+    myProgramDashboard: trainerProcedure.query(async ({ ctx }) => {
+      const [membership, profile, progress, commitment, violations, recentMetrics] =
+        await Promise.all([
+          db.getTrainerSocialMembership(ctx.user.id),
+          db.getTrainerSocialProfile(ctx.user.id),
+          db.getLatestTrainerSocialProgress(ctx.user.id),
+          db.getActiveTrainerSocialCommitment(ctx.user.id),
+          db.listTrainerSocialViolations({
+            trainerId: ctx.user.id,
+            limit: 20,
+          }),
+          db.getTrainerSocialMetricsRange(ctx.user.id, { limit: 30 }),
+        ]);
+      return {
+        membership,
+        profile,
+        progress,
+        commitment,
+        violations,
+        recentMetrics,
+      };
+    }),
+
+    managementSummary: protectedProcedure.query(async ({ ctx }) => {
+      if (!isManagerLikeRole(ctx.user.role)) {
+        forbidden("Only coordinator/manager can access social management");
+      }
+      const [summary, topPerformers, openViolations] = await Promise.all([
+        db.getSocialManagementSummary(),
+        db.getTopSocialPerformerRows(10),
+        db.listTrainerSocialViolations({ status: "open", limit: 25 }),
+      ]);
+      const violationUsers = await db.getUsersByIds(
+        Array.from(new Set(openViolations.map((row) => row.trainerId))),
+      );
+      const userById = new Map(violationUsers.map((user) => [user.id, user]));
+      return {
+        summary,
+        topPerformers,
+        openViolations: openViolations.map((row) => ({
+          ...row,
+          trainerName: userById.get(row.trainerId)?.name || "Trainer",
+        })),
+      };
+    }),
+
+    listMembers: protectedProcedure
+      .input(
+        z
+          .object({
+            status: z
+              .enum(["all", "invited", "active", "paused", "banned", "declined"])
+              .optional(),
+            search: z.string().optional(),
+            limit: z.number().int().min(1).max(500).optional(),
+            offset: z.number().int().min(0).optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ ctx, input }) => {
+        if (!isManagerLikeRole(ctx.user.role)) {
+          forbidden("Only coordinator/manager can access social members");
+        }
+        return db.listSocialMembers({
+          status: input?.status,
+          search: input?.search,
+          limit: input?.limit,
+          offset: input?.offset,
+        });
+      }),
+
+    listEligibleTrainers: protectedProcedure
+      .input(
+        z
+          .object({
+            search: z.string().optional(),
+            limit: z.number().int().min(1).max(500).optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ ctx, input }) => {
+        if (!isManagerLikeRole(ctx.user.role)) {
+          forbidden("Only coordinator/manager can invite trainers");
+        }
+        const trainers = await db.listEligibleSocialTrainers({
+          search: input?.search,
+          limit: input?.limit,
+        });
+        const memberships = await db.getSocialMembershipByTrainerIds(
+          trainers.map((trainer) => trainer.id),
+        );
+        const membershipByTrainerId = new Map(
+          memberships.map((membership) => [membership.trainerId, membership]),
+        );
+        return trainers.map((trainer) => ({
+          ...trainer,
+          socialMembership: membershipByTrainerId.get(trainer.id) || null,
+        }));
+      }),
+
+    inviteTrainer: protectedProcedure
+      .input(
+        z.object({
+          trainerId: z.string(),
+          summary: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (!isManagerLikeRole(ctx.user.role)) {
+          forbidden("Only coordinator/manager can invite trainers");
+        }
+        const trainer = await db.getUserById(input.trainerId);
+        if (!trainer || trainer.role !== "trainer") {
+          notFound("Trainer");
+        }
+
+        const membership = await db.upsertTrainerSocialMembership({
+          trainerId: trainer.id,
+          status: "invited",
+          invitedBy: ctx.user.id,
+          invitedAt: new Date().toISOString(),
+          reason: null,
+        });
+        if (!membership) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to create membership",
+          });
+        }
+
+        const summary =
+          input.summary?.trim() ||
+          "You are invited to earn by posting approved social campaign content.";
+        const appLink = "locomotivate://(trainer)/social-program";
+        const webBase = String(
+          process.env.EXPO_PUBLIC_APP_URL || "https://locomotivate.app",
+        )
+          .trim()
+          .replace(/\/+$/g, "");
+        const webLink = `${webBase}/(trainer)/social-program`;
+        const content = [
+          `You have been invited to the LocoMotivate Social Program.`,
+          summary,
+          `Open in app: ${appLink}`,
+          `Open on web: ${webLink}`,
+        ].join("\n\n");
+
+        const conversationId = [ctx.user.id, trainer.id].sort().join("-");
+        const messageId = await db.createMessage({
+          senderId: ctx.user.id,
+          receiverId: trainer.id,
+          conversationId,
+          content,
+          messageType: "system",
+        });
+        notifyNewMessage(
+          conversationId,
+          {
+            id: messageId,
+            senderId: ctx.user.id,
+            senderName: ctx.user.name || "Coordinator",
+            receiverId: trainer.id,
+            content,
+            conversationId,
+          },
+          [trainer.id, ctx.user.id],
+          ctx.user.id,
+        );
+
+        let emailMessageId: string | null = null;
+        if (trainer.email) {
+          try {
+            emailMessageId = await sendSocialProgramInviteEmail({
+              to: trainer.email,
+              trainerName: trainer.name || "Trainer",
+              coordinatorName: ctx.user.name || "Coordinator",
+              appLink: webLink,
+              summary,
+            });
+          } catch (error) {
+            logError("social.invite.email_failed", error, {
+              trainerId: trainer.id,
+              coordinatorId: ctx.user.id,
+              email: trainer.email,
+            });
+          }
+        }
+
+        const inviteId = await db.createTrainerSocialInvite({
+          trainerId: trainer.id,
+          invitedBy: ctx.user.id,
+          membershipId: membership.id,
+          status: "pending",
+          summary,
+          sentInApp: true,
+          sentMessage: true,
+          sentEmail: Boolean(emailMessageId),
+          messageConversationId: conversationId,
+          messageId,
+          emailMessageId,
+          expiresAt: new Date(
+            Date.now() + 14 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+        });
+
+        await sendPushToUsers([trainer.id], {
+          title: "Social program invitation",
+          body: "You have a new invitation to earn from social campaign posts.",
+          data: {
+            type: "social_program_invite",
+            inviteId,
+            conversationId,
+          },
+        });
+        notifyBadgeCounts([trainer.id]);
+        return { success: true, inviteId, membershipId: membership.id };
+      }),
+
+    setMemberStatus: protectedProcedure
+      .input(
+        z.object({
+          trainerId: z.string(),
+          status: z.enum(["active", "paused", "banned"]),
+          reason: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (!isManagerLikeRole(ctx.user.role)) {
+          forbidden("Only coordinator/manager can manage social members");
+        }
+        const trainer = await db.getUserById(input.trainerId);
+        if (!trainer || trainer.role !== "trainer") notFound("Trainer");
+        const nowIso = new Date().toISOString();
+        const nextData: db.InsertTrainerSocialMembership = {
+          trainerId: trainer.id,
+          status: input.status,
+          reason: input.reason?.trim() || null,
+        };
+        if (input.status === "paused") nextData.pausedAt = nowIso;
+        if (input.status === "banned") nextData.bannedAt = nowIso;
+        if (input.status === "active") nextData.acceptedAt = nowIso;
+        const membership = await db.upsertTrainerSocialMembership(nextData);
+        if (!membership) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to update membership",
+          });
+        }
+        if (input.status === "paused" || input.status === "banned") {
+          await db.upsertTrainerSocialCommitmentProgress({
+            trainerId: trainer.id,
+            periodStart: nowIso,
+            periodEnd: nowIso,
+            status: input.status,
+            postsDelivered: 0,
+            postsRequired: 0,
+            notes: input.reason || null,
+          });
+        }
+        return { success: true, membership };
+      }),
+
+    membershipByTrainerIds: protectedProcedure
+      .input(z.object({ trainerIds: z.array(z.string()).min(1) }))
+      .query(async ({ ctx, input }) => {
+        if (!isManagerLikeRole(ctx.user.role)) {
+          forbidden("Only coordinator/manager can view social membership data");
+        }
+        const rows = await db.getSocialMembershipByTrainerIds(input.trainerIds);
+        const map: Record<string, db.TrainerSocialMembership> = {};
+        for (const row of rows) {
+          map[row.trainerId] = row;
+        }
+        return map;
+      }),
+  }),
+
   payments: router({
     /** Get Adyen client config (safe for frontend) */
     config: protectedProcedure.query(() => {

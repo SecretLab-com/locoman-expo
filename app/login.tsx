@@ -162,11 +162,6 @@ export default function LoginScreen() {
     router.back();
   };
 
-  const handleGuestPress = async () => {
-    await haptics.light();
-    router.replace("/(tabs)/products?guest=true");
-  };
-
   const togglePasswordVisibility = async () => {
     await haptics.light();
     setShowPassword(!showPassword);
@@ -340,17 +335,6 @@ export default function LoginScreen() {
               testID="login-cancel"
             >
               <Text className="text-white/80">Cancel</Text>
-            </TouchableOpacity>
-
-            {/* Skip for now (guest browsing) */}
-            <TouchableOpacity
-              className="mt-6 items-center"
-              onPress={handleGuestPress}
-              accessibilityRole="button"
-              accessibilityLabel="Browse as guest"
-              testID="login-guest"
-            >
-              <Text className="text-white/80">Browse as guest</Text>
             </TouchableOpacity>
 
             {/* Quick test account sign-in buttons */}

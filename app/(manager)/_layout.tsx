@@ -9,6 +9,7 @@ export default function ManagerTabLayout() {
   useRoleGuard("manager");
   const { counts } = useBadgeContext();
   const pathname = usePathname();
+  const moreBadge = counts.unreadMessages + counts.pendingApprovals + counts.pendingDeliveries;
 
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(manager)/dashboard", testID: "tab-home" },
@@ -20,6 +21,13 @@ export default function ManagerTabLayout() {
       badge: counts.pendingApprovals,
     },
     { label: "Users", icon: "person.2.fill", href: "/(manager)/users", testID: "tab-users" },
+    {
+      label: "More",
+      icon: "ellipsis.circle.fill",
+      href: "/(manager)/more",
+      testID: "tab-more",
+      badge: moreBadge || undefined,
+    },
   ];
   const hideBottomNav = pathname.includes("/conversation/") || pathname.endsWith("/messages/new");
 

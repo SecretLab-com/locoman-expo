@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD)
 
-## Product: Trainer App (Working name: LocoMotive / Bright.Coach)
+## Product: Trainer App (Working name: LocoMotivate / Bright.Coach)
 
 ## Goal: Launch with all core features **present but simplified**, optimised for fast earnings and low cognitive load
 

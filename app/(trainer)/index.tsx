@@ -356,6 +356,12 @@ export default function TrainerHomeScreen() {
     isRefetching: pointsRefetching,
     refetch: refetchPoints,
   } = trpc.trainerDashboard.points.useQuery();
+  const {
+    data: socialStatus,
+    isLoading: socialStatusLoading,
+    isRefetching: socialStatusRefetching,
+    refetch: refetchSocialStatus,
+  } = trpc.socialProgram.myStatus.useQuery();
 
   const isRefetching =
     clientsRefetching ||
@@ -365,7 +371,8 @@ export default function TrainerHomeScreen() {
     payoutRefetching ||
     activityRefetching ||
     pendingPaymentsRefetching ||
-    pointsRefetching;
+    pointsRefetching ||
+    socialStatusRefetching;
 
   const hasClient = clients.length > 0;
   const hasPendingInvite = invitations.some((invite) => {
@@ -535,6 +542,7 @@ export default function TrainerHomeScreen() {
       refetchActivity(),
       refetchPendingPayments(),
       refetchPoints(),
+      refetchSocialStatus(),
     ]);
   };
 
@@ -758,7 +766,8 @@ export default function TrainerHomeScreen() {
     payoutLoading ||
     activityLoading ||
     pendingPaymentsLoading ||
-    pointsLoading;
+    pointsLoading ||
+    socialStatusLoading;
 
   return (
     <ScreenContainer
@@ -1032,6 +1041,38 @@ export default function TrainerHomeScreen() {
             </View>
           </View>
         )}
+
+        <View className={SECTION_SPACING_CLASS}>
+          <SurfaceCard style={CARD_SOFT_STYLE}>
+            <View className="flex-row items-start justify-between gap-3">
+              <View className="flex-1">
+                <Text className="text-base font-semibold" style={{ color: DASH.text }}>
+                  Get Paid for Social Posts
+                </Text>
+                <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
+                  Join the social program, connect your channels, and track compliance targets.
+                </Text>
+                {socialStatus?.pendingInvite ? (
+                  <Text className="text-xs mt-2 font-semibold" style={{ color: "#93C5FD" }}>
+                    New invite available from {socialStatus.invitedBy?.name || "your coordinator"}.
+                  </Text>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                className="px-3 py-2 rounded-lg"
+                style={{ backgroundColor: DASH.primary }}
+                onPress={() => router.push("/(trainer)/social-program" as any)}
+                accessibilityRole="button"
+                accessibilityLabel="Open social program"
+                testID="trainer-social-program-cta"
+              >
+                <Text className="font-semibold" style={{ color: "#0B1020" }}>
+                  Open
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </SurfaceCard>
+        </View>
 
         <SectionHeader title="Quick actions" />
         <View className={SECTION_SPACING_CLASS}>

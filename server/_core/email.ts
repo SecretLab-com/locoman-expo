@@ -165,3 +165,80 @@ export async function sendInviteEmail(input: InviteEmailInput): Promise<string> 
 
   return data.id;
 }
+
+type SocialProgramInviteEmailInput = {
+  to: string;
+  trainerName: string;
+  coordinatorName?: string | null;
+  appLink: string;
+  summary?: string | null;
+};
+
+export async function sendSocialProgramInviteEmail(
+  input: SocialProgramInviteEmailInput,
+): Promise<string> {
+  if (!ENV.resendApiKey) {
+    throw new InviteEmailError(
+      "INVITE_EMAIL_CONFIG_MISSING",
+      "RESEND_API_KEY is not configured",
+    );
+  }
+  if (!ENV.resendFromEmail) {
+    throw new InviteEmailError(
+      "INVITE_EMAIL_CONFIG_MISSING",
+      "RESEND_FROM_EMAIL is not configured",
+    );
+  }
+
+  const resend = new Resend(ENV.resendApiKey);
+  const coordinator = input.coordinatorName?.trim() || "Coordinator";
+  const summary = input.summary?.trim() || "You are invited to join the social posting program and earn from approved campaign posts.";
+  const escapedSummary = escapeHtml(summary);
+  const escapedTrainer = escapeHtml(input.trainerName || "Trainer");
+  const escapedCoordinator = escapeHtml(coordinator);
+  const escapedAppLink = escapeHtml(input.appLink);
+
+  const html = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;line-height:1.5;color:#0f172a;background:#f8fafc;padding:18px;">
+    <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;padding:22px;">
+      <h2 style="margin:0 0 12px;">Invitation: LocoMotivate Social Program</h2>
+      <p style="margin:0 0 12px;">Hi ${escapedTrainer},</p>
+      <p style="margin:0 0 12px;">${escapedCoordinator} invited you to join the LocoMotivate social campaign program.</p>
+      <p style="margin:0 0 16px;">${escapedSummary}</p>
+      <p style="margin:0 0 20px;">
+        <a href="${escapedAppLink}" style="display:inline-block;padding:10px 16px;border-radius:10px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:600;">
+          Review invitation in app
+        </a>
+      </p>
+      <p style="margin:0;font-size:13px;color:#64748b;">Direct link:</p>
+      <p style="margin:6px 0 0;font-size:13px;word-break:break-all;">
+        <a href="${escapedAppLink}" style="color:#2563eb;">${escapedAppLink}</a>
+      </p>
+    </div>
+  </div>
+  `.trim();
+
+  const text = `Hi ${input.trainerName},
+
+${coordinator} invited you to join the LocoMotivate social campaign program.
+
+${summary}
+
+Open in app: ${input.appLink}`;
+
+  const { data, error } = await resend.emails.send({
+    from: ENV.resendFromEmail,
+    to: input.to,
+    subject: "Invitation to LocoMotivate Social Program",
+    html,
+    text,
+  });
+
+  if (error || !data?.id) {
+    throw new InviteEmailError(
+      "INVITE_EMAIL_PROVIDER_ERROR",
+      `Resend failed: ${error?.message || "provider did not return a message id"}`,
+    );
+  }
+  return data.id;
+}

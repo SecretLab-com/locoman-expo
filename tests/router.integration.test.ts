@@ -11,6 +11,9 @@ vi.mock("../server/_core/websocket", () => ({
   notifyBadgeCounts: vi.fn(),
   notifyNewMessage: vi.fn(),
 }));
+vi.mock("../server/_core/push", () => ({
+  sendPushToUsers: vi.fn().mockResolvedValue(undefined),
+}));
 
 function createUser(role: User["role"]): User {
   const now = new Date().toISOString();
@@ -83,6 +86,7 @@ describe("router integration", () => {
       title: "Starter Bundle",
       price: "30.00",
       trainerId: "trainer-1",
+      status: "published",
     } as any);
     const createOrderSpy = vi.spyOn(db, "createOrder").mockResolvedValue("order-1");
     const createOrderItemSpy = vi.spyOn(db, "createOrderItem").mockResolvedValue("item-1");
@@ -464,5 +468,56 @@ describe("router integration", () => {
       }),
     );
     expect(result.reply).toBe("Invite Jane to Strength Sprint.");
+  });
+
+  it("blocks non-manager roles from social management summary", async () => {
+    const caller = createCaller("trainer");
+    await expect(caller.socialProgram.managementSummary()).rejects.toBeInstanceOf(
+      TRPCError,
+    );
+  });
+
+  it("creates social invite for a trainer", async () => {
+    const caller = createCaller("manager");
+
+    vi.spyOn(db, "getUserById").mockImplementation(async (id: string) => {
+      if (id === "trainer-abc") {
+        return {
+          ...createUser("trainer"),
+          id: "trainer-abc",
+          name: "Coach Alex",
+          email: "coach@example.com",
+        } as any;
+      }
+      return createUser("manager") as any;
+    });
+    vi.spyOn(db, "upsertTrainerSocialMembership").mockResolvedValue({
+      id: "membership-1",
+      trainerId: "trainer-abc",
+      status: "invited",
+      invitedBy: "00000000-0000-0000-0000-000000000001",
+      invitedAt: new Date().toISOString(),
+      acceptedAt: null,
+      pausedAt: null,
+      bannedAt: null,
+      declinedAt: null,
+      reason: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(db, "createMessage").mockResolvedValue("message-1");
+    vi.spyOn(db, "createTrainerSocialInvite").mockResolvedValue("invite-1");
+
+    const result = await caller.socialProgram.inviteTrainer({
+      trainerId: "trainer-abc",
+      summary: "Join the social posting program.",
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      inviteId: "invite-1",
+      membershipId: "membership-1",
+    });
+    expect(db.createTrainerSocialInvite).toHaveBeenCalledTimes(1);
   });
 });

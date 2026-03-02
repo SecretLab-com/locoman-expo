@@ -30,7 +30,7 @@ function MoreRow({
       onPress={() => router.push(item.href as any)}
       accessibilityRole="button"
       accessibilityLabel={item.title}
-      testID={`coordinator-more-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+      testID={`manager-more-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
     >
       <SurfaceCard className="px-4 py-4 mb-3">
         <View className="flex-row items-center">
@@ -43,7 +43,9 @@ function MoreRow({
           </View>
           {item.badge && item.badge > 0 ? (
             <View className="bg-error rounded-full min-w-[22px] h-[22px] items-center justify-center mr-2 px-1.5">
-              <Text className="text-white text-xs font-bold">{item.badge > 99 ? "99+" : item.badge}</Text>
+              <Text className="text-white text-xs font-bold">
+                {item.badge > 99 ? "99+" : item.badge}
+              </Text>
             </View>
           ) : null}
           <IconSymbol name="chevron.right" size={16} color={chevronColor} />
@@ -53,7 +55,7 @@ function MoreRow({
   );
 }
 
-export default function CoordinatorMoreScreen() {
+export default function ManagerMoreScreen() {
   const colors = useColors();
   const { counts } = useBadgeContext();
 
@@ -62,58 +64,46 @@ export default function CoordinatorMoreScreen() {
       icon: "message.fill",
       title: "Messages",
       subtitle: "Conversations and announcements",
-      href: "/(coordinator)/messages",
+      href: "/(manager)/messages",
       badge: counts.unreadMessages,
     },
     {
       icon: "rectangle.grid.2x2.fill",
       title: "Templates",
       subtitle: "Create and manage offer templates",
-      href: "/(coordinator)/templates",
+      href: "/(manager)/templates",
     },
     {
       icon: "shippingbox.fill",
       title: "Bundles",
       subtitle: "Review trainer bundles",
-      href: "/(coordinator)/bundles",
+      href: "/(manager)/bundles",
     },
     {
       icon: "checkmark.circle.fill",
       title: "Approvals",
       subtitle: "Review pending approvals",
-      href: "/(coordinator)/approvals",
+      href: "/(manager)/approvals",
       badge: counts.pendingApprovals,
-    },
-    {
-      icon: "bell.fill",
-      title: "Alerts",
-      subtitle: "Notifications and activity",
-      href: "/(coordinator)/alerts",
-    },
-    {
-      icon: "cube.box.fill",
-      title: "Deliveries",
-      subtitle: "Track delivery status",
-      href: "/(coordinator)/deliveries",
-      badge: counts.pendingDeliveries,
-    },
-    {
-      icon: "doc.text.fill",
-      title: "Logs",
-      subtitle: "System activity log",
-      href: "/(coordinator)/logs",
     },
     {
       icon: "chart.bar.fill",
       title: "Social Management",
       subtitle: "Program members, KPIs, and concerns",
-      href: "/(coordinator)/social-management",
+      href: "/(manager)/social-management",
+    },
+    {
+      icon: "cube.box.fill",
+      title: "Deliveries",
+      subtitle: "Track delivery status",
+      href: "/(manager)/deliveries",
+      badge: counts.pendingDeliveries,
     },
     {
       icon: "person.badge.plus",
       title: "Invite",
       subtitle: "Invite trainers and staff",
-      href: "/(coordinator)/invite",
+      href: "/(manager)/invite",
     },
     {
       icon: "gearshape.fill",
@@ -129,7 +119,6 @@ export default function CoordinatorMoreScreen() {
       <ScreenContainer>
         <ScrollView showsVerticalScrollIndicator={false}>
           <ScreenHeader title="More" subtitle="Additional tools and settings." />
-
           <View className="px-4 pb-8">
             {items.map((item) => (
               <MoreRow

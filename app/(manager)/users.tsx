@@ -265,6 +265,16 @@ export default function UsersScreen() {
     }
     return ordered;
   }, [users, sortKey]);
+  const trainerIdsForSocial = useMemo(
+    () => displayUsers.filter((user) => user.role === "trainer").map((user) => user.id),
+    [displayUsers],
+  );
+  const socialMembershipQuery = trpc.socialProgram.membershipByTrainerIds.useQuery(
+    { trainerIds: trainerIdsForSocial },
+    {
+      enabled: isAuthenticated && canManage && trainerIdsForSocial.length > 0,
+    },
+  );
 
   useEffect(() => {
     const normalize = (value: string | string[] | undefined) =>
@@ -1242,6 +1252,19 @@ export default function UsersScreen() {
                   <Text className="text-xs text-muted mt-1">
                     Joined {formatDate(user.createdAt)}
                   </Text>
+                  {user.role === "trainer" ? (
+                    <View
+                      className="mt-1 self-start px-2 py-0.5 rounded"
+                      style={{ backgroundColor: `${colors.primary}22` }}
+                    >
+                      <Text className="text-[10px] font-semibold" style={{ color: colors.primary }}>
+                        Social:{" "}
+                        {String(
+                          socialMembershipQuery.data?.[user.id]?.status || "not enrolled",
+                        ).replace(/_/g, " ")}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Role Badge */}

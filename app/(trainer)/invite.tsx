@@ -120,6 +120,7 @@ export default function InviteScreen() {
       ? offer.included.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
       : [],
     }))
+    .filter((offer) => offer.status === "published")
     .sort((a, b) => {
       const rank = (status: OfferStatus) =>
         status === "published" ? 0 : status === "in_review" ? 1 : status === "draft" ? 2 : 3;
@@ -264,8 +265,8 @@ export default function InviteScreen() {
   const shareLink = async () => {
     if (!inviteLink) return;
     const text = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotive:\n${inviteLink}`
-      : `Join me on LocoMotive:\n${inviteLink}`;
+      ? `${message.trim()}\n\nJoin me on LocoMotivate:\n${inviteLink}`
+      : `Join me on LocoMotivate:\n${inviteLink}`;
     try {
       await Share.share({ message: text, url: inviteLink });
     } catch {
@@ -275,10 +276,10 @@ export default function InviteScreen() {
 
   const emailLink = async () => {
     if (!inviteLink) return;
-    const subject = encodeURIComponent("Your LocoMotive invite");
+    const subject = encodeURIComponent("Your LocoMotivate invite");
     const bodyText = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotive:\n${inviteLink}`
-      : `Join me on LocoMotive:\n${inviteLink}`;
+      ? `${message.trim()}\n\nJoin me on LocoMotivate:\n${inviteLink}`
+      : `Join me on LocoMotivate:\n${inviteLink}`;
     const body = encodeURIComponent(bodyText);
     const recipient = encodeURIComponent(clientEmail.trim());
     const mailto = `mailto:${recipient}?subject=${subject}&body=${body}`;
@@ -297,8 +298,8 @@ export default function InviteScreen() {
   const smsLink = async () => {
     if (!inviteLink) return;
     const bodyText = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotive:\n${inviteLink}`
-      : `Join me on LocoMotive:\n${inviteLink}`;
+      ? `${message.trim()}\n\nJoin me on LocoMotivate:\n${inviteLink}`
+      : `Join me on LocoMotivate:\n${inviteLink}`;
     const separator = Platform.OS === "ios" ? "&" : "?";
     const smsTarget = clientPhone.trim().replace(/\s+/g, "");
     const url = `sms:${smsTarget}${separator}body=${encodeURIComponent(bodyText)}`;

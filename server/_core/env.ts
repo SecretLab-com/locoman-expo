@@ -15,4 +15,12 @@ export const ENV = {
   publicAppUrl: process.env.PUBLIC_APP_URL ?? "",
   expoPublicAppUrl: process.env.EXPO_PUBLIC_APP_URL ?? "",
   expoPublicApiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? "",
+  phylloApiBaseUrl:
+    process.env.PHYLLO_API_BASE_URL ?? "https://api.staging.getphyllo.com",
+  phylloAuthBasic: process.env.PHYLLO_AUTH_BASIC ?? "",
+  phylloName: process.env.PHYLLO_NAME ?? "",
+  phylloExternalId: process.env.PHYLLO_EXTERNAL_ID ?? "",
+  phylloId: process.env.PHYLLO_ID ?? "",
+  phylloSdkToken: process.env.PHYLLO_SDK_TOKEN ?? "",
+  phylloSdkTokenExpiresAt: process.env.PHYLLO_SDK_TOKEN_EXPIRES_AT ?? "",
 };

@@ -102,7 +102,7 @@ export default function WelcomeScreen() {
       />
       <View className="flex-1 px-6 justify-between py-8">
         <View className="items-center pt-8">
-          <Text className="text-3xl font-black text-white">LocoMotive</Text>
+          <Text className="text-3xl font-black text-white">LocoMotivate</Text>
           <Text className="text-sm text-white/80 mt-2">Simple beats powerful.</Text>
         </View>
 
@@ -142,19 +142,6 @@ export default function WelcomeScreen() {
           >
             <Text className="text-foreground font-semibold">Sign In</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            className="items-center py-2"
-            onPress={async () => {
-              await haptics.light();
-              router.replace("/(tabs)/products?guest=true");
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Continue as guest"
-            testID="welcome-guest"
-          >
-            <Text className="text-muted">Continue as guest</Text>
-          </TouchableOpacity>
-
           <View className="mt-6 pt-4 border-t border-border/70">
             <Text className="text-center text-xs text-muted mb-3">Test logins</Text>
             <View className="flex-row flex-wrap justify-center gap-2">

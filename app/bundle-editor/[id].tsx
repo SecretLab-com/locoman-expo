@@ -132,6 +132,8 @@ export default function BundleEditorScreen() {
   const [detailQuantity, setDetailQuantity] = useState(1);
   const [showDetailBarcodeScanner, setShowDetailBarcodeScanner] = useState(false);
   const [reopenProductPickerAfterDetail, setReopenProductPickerAfterDetail] = useState(false);
+  const [showReviewResponseModal, setShowReviewResponseModal] = useState(false);
+  const [reviewResponse, setReviewResponse] = useState("");
 
   const closeProductDetail = () => {
     setShowProductDetail(false);
@@ -291,6 +293,21 @@ export default function BundleEditorScreen() {
     onError: (error) => {
       haptics.error();
       platformAlert("Error", error.message);
+    },
+  });
+
+  const respondToReviewMutation = trpc.bundles.respondToReview.useMutation({
+    onSuccess: () => {
+      haptics.success();
+      setShowReviewResponseModal(false);
+      setReviewResponse("");
+      platformAlert("Response Sent", "Your response has been sent to the reviewer.", [
+        { text: "OK", onPress: () => effectiveRefetch() },
+      ]);
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message || "Failed to send response.");
     },
   });
 
@@ -846,6 +863,24 @@ export default function BundleEditorScreen() {
     );
   };
 
+  const handleSendReviewResponse = async (resubmit: boolean) => {
+    if (!bundleIdParam) return;
+    const trimmed = reviewResponse.trim();
+    if (!trimmed) {
+      platformAlert("Response required", "Please enter your response before sending.");
+      return;
+    }
+    try {
+      await respondToReviewMutation.mutateAsync({
+        id: bundleIdParam,
+        response: trimmed,
+        resubmit,
+      });
+    } catch (error) {
+      console.error("[bundle-editor] respondToReview failed:", error);
+    }
+  };
+
   if (loading) {
     return (
       <ScreenContainer className="items-center justify-center">
@@ -896,6 +931,17 @@ export default function BundleEditorScreen() {
             </View>
             <Text className="text-foreground mt-2 text-sm">{form.reviewComments}</Text>
             <Text className="text-muted mt-2 text-xs">Please address the feedback above and resubmit for review.</Text>
+            <View className="flex-row gap-2 mt-3">
+              <TouchableOpacity
+                className="bg-surface border border-border rounded-lg px-3 py-2"
+                onPress={() => setShowReviewResponseModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Respond to reviewer"
+                testID="bundle-review-respond"
+              >
+                <Text className="text-foreground text-sm font-medium">Respond to reviewer</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -1491,6 +1537,92 @@ export default function BundleEditorScreen() {
         />
 
         {/* Product Selection Modal */}
+        <Modal
+          visible={showReviewResponseModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowReviewResponseModal(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: 16,
+              backgroundColor: "rgba(0,0,0,0.85)",
+            }}
+          >
+            <View className="bg-surface rounded-2xl p-6 w-full max-w-md">
+              <Text className="text-xl font-bold text-foreground mb-2">
+                Respond to Review
+              </Text>
+              <Text className="text-muted mb-4">
+                Send a response to the coordinator/manager with a deep link back to this bundle.
+              </Text>
+              <TextInput
+                className="bg-background border border-border rounded-lg p-4 text-foreground min-h-[120px] mb-4"
+                placeholder="Describe what you changed or ask a clarifying question..."
+                placeholderTextColor={colors.muted}
+                value={reviewResponse}
+                onChangeText={setReviewResponse}
+                multiline
+                textAlignVertical="top"
+              />
+              <View className="flex-row gap-3">
+                <TouchableOpacity
+                  className="flex-1 bg-surface border border-border py-3 rounded-lg items-center"
+                  onPress={() => {
+                    setShowReviewResponseModal(false);
+                    setReviewResponse("");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel review response"
+                >
+                  <Text className="text-foreground font-medium">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="flex-1 bg-primary py-3 rounded-lg items-center"
+                  onPress={() => handleSendReviewResponse(false)}
+                  disabled={respondToReviewMutation.isPending || !reviewResponse.trim()}
+                  style={{
+                    opacity:
+                      respondToReviewMutation.isPending || !reviewResponse.trim()
+                        ? 0.6
+                        : 1,
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send response"
+                  testID="bundle-review-send-response"
+                >
+                  {respondToReviewMutation.isPending ? (
+                    <ActivityIndicator size="small" color={colors.background} />
+                  ) : (
+                    <Text className="text-background font-semibold">Send response</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                className="mt-3 bg-warning rounded-lg py-3 items-center"
+                onPress={() => handleSendReviewResponse(true)}
+                disabled={respondToReviewMutation.isPending || !reviewResponse.trim()}
+                style={{
+                  opacity:
+                    respondToReviewMutation.isPending || !reviewResponse.trim()
+                      ? 0.6
+                      : 1,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Send response and resubmit for review"
+                testID="bundle-review-send-and-resubmit"
+              >
+                <Text className="text-background font-semibold">
+                  Send and resubmit for review
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
         <Modal
           visible={showProductModal}
           animationType="slide"
