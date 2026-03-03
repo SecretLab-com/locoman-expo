@@ -113,7 +113,7 @@ export function ShareButton({
           onShareSuccess?.();
         } else if (typeof navigator !== "undefined" && navigator.clipboard) {
           await navigator.clipboard.writeText(shareMessage);
-          window.alert("Link copied to clipboard!");
+          Alert.alert("Copied", "Link copied to clipboard.");
           onShareSuccess?.();
         } else {
           window.prompt("Copy this link:", webLink);

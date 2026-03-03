@@ -203,6 +203,19 @@ function toDirectConversationId(userA: string, userB: string): string {
   return [userA, userB].sort().join("-");
 }
 
+function isManagerLikeRole(role: string): boolean {
+  return role === "manager" || role === "coordinator";
+}
+
+async function getCurrentUserRole(): Promise<string> {
+  try {
+    const profile = await trpcClient.profile.get.query();
+    return asCleanString((profile as any)?.role).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 function toStructuredContent(
   value: unknown,
 ): Record<string, unknown> | undefined {
@@ -675,6 +688,12 @@ export function createTrainerAssistantMcpServer(): McpServer {
     },
     async () => {
       try {
+        const role = await getCurrentUserRole();
+        if (!isManagerLikeRole(role)) {
+          return toErrorResult(
+            "List trainers requires coordinator or manager privileges.",
+          );
+        }
         const trainers = await (trpcClient as any).trainers.query();
         const rows = (trainers as any[]).map((t) => ({
           id: t.id,
@@ -706,6 +725,12 @@ export function createTrainerAssistantMcpServer(): McpServer {
     },
     async ({ limit }) => {
       try {
+        const role = await getCurrentUserRole();
+        if (!isManagerLikeRole(role)) {
+          return toErrorResult(
+            "List all users requires coordinator or manager privileges.",
+          );
+        }
         const users = await trpcClient.admin.users.query();
         const rows = (users as any[]).slice(0, limit).map((u) => ({
           id: u.id,

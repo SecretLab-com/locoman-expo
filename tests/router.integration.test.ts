@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOCO_ASSISTANT_NAME } from "../shared/const";
 import { appRouter } from "../server/routers";
 import type { TrpcContext } from "../server/_core/context";
+import * as phyllo from "../server/_core/phyllo";
 import * as trainerAssistant from "../server/_core/trainerAssistant";
 import type { User } from "../server/db";
 import * as db from "../server/db";
@@ -13,6 +14,24 @@ vi.mock("../server/_core/websocket", () => ({
 }));
 vi.mock("../server/_core/push", () => ({
   sendPushToUsers: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("../server/_core/phyllo", () => ({
+  createPhylloSdkToken: vi.fn().mockResolvedValue({
+    sdk_token: "sdk-token-1",
+    expires_at: "2099-01-01T00:00:00.000Z",
+  }),
+  createPhylloUser: vi.fn().mockResolvedValue({
+    id: "phyllo-user-1",
+  }),
+  getBootstrapPhylloUserFromEnv: vi.fn().mockReturnValue(null),
+  getBootstrapSdkTokenFromEnv: vi.fn().mockReturnValue(null),
+  decodePhylloSdkTokenClaims: vi.fn().mockReturnValue({
+    exp: Date.now() / 1000 + 3600,
+    iss: "https://api.staging.getphyllo.com",
+  }),
+  inferPhylloTokenEnvironment: vi.fn().mockReturnValue("sandbox"),
+  getPhylloAccounts: vi.fn().mockResolvedValue([]),
+  getPhylloProfiles: vi.fn().mockResolvedValue([]),
 }));
 
 function createUser(role: User["role"]): User {
@@ -520,4 +539,170 @@ describe("router integration", () => {
     });
     expect(db.createTrainerSocialInvite).toHaveBeenCalledTimes(1);
   });
+
+  it("starts phyllo connect and auto-accepts pending invite", async () => {
+    const caller = createCaller("trainer");
+
+    vi.spyOn(db, "getTrainerSocialMembership").mockResolvedValue({
+      id: "membership-1",
+      trainerId: "00000000-0000-0000-0000-000000000001",
+      status: "invited",
+      invitedBy: "manager-1",
+      invitedAt: new Date().toISOString(),
+      acceptedAt: null,
+      pausedAt: null,
+      bannedAt: null,
+      declinedAt: null,
+      reason: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(db, "getTrainerSocialInvitesByTrainer").mockResolvedValue([
+      {
+        id: "invite-1",
+        trainerId: "00000000-0000-0000-0000-000000000001",
+        invitedBy: "manager-1",
+        membershipId: "membership-1",
+        status: "pending",
+        summary: null,
+        sentInApp: true,
+        sentMessage: true,
+        sentEmail: true,
+        messageConversationId: null,
+        messageId: null,
+        emailMessageId: null,
+        expiresAt: null,
+        acceptedAt: null,
+        declinedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ] as any);
+    vi.spyOn(db, "updateTrainerSocialInvite").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "upsertTrainerSocialMembership").mockResolvedValue({
+      id: "membership-1",
+      trainerId: "00000000-0000-0000-0000-000000000001",
+      status: "active",
+      invitedBy: "manager-1",
+      invitedAt: new Date().toISOString(),
+      acceptedAt: new Date().toISOString(),
+      pausedAt: null,
+      bannedAt: null,
+      declinedAt: null,
+      reason: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(db, "getActiveTrainerSocialCommitment").mockResolvedValue({
+      id: "commitment-1",
+      trainerId: "00000000-0000-0000-0000-000000000001",
+      minimumPosts: 4,
+    } as any);
+    vi.spyOn(db, "upsertTrainerSocialCommitmentProgress").mockResolvedValue({
+      id: "progress-1",
+    } as any);
+    vi.spyOn(db, "getTrainerSocialProfile").mockResolvedValue(null as any);
+    vi.spyOn(phyllo, "getBootstrapPhylloUserFromEnv").mockReturnValue({
+      id: "phyllo-user-1",
+      name: "Trainer",
+      externalId: null,
+    } as any);
+    vi.spyOn(phyllo, "getBootstrapSdkTokenFromEnv").mockReturnValue({
+      sdkToken: "sdk-token-1",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    } as any);
+    vi.spyOn(phyllo, "decodePhylloSdkTokenClaims").mockReturnValue({
+      exp: Date.now() / 1000 + 3600,
+      iss: "https://api.staging.getphyllo.com",
+    } as any);
+    vi.spyOn(phyllo, "inferPhylloTokenEnvironment").mockReturnValue("sandbox");
+
+    const result = await caller.socialProgram.startConnect({});
+
+    expect(result.success).toBe(true);
+    expect(result.pendingInviteAccepted).toBe(true);
+    expect(result.sdkToken).toBe("sdk-token-1");
+    expect(result.phylloUserId).toBe("phyllo-user-1");
+    expect(phyllo.createPhylloUser).not.toHaveBeenCalled();
+    expect(phyllo.createPhylloSdkToken).not.toHaveBeenCalled();
+  });
+
+  it("completes phyllo connect and returns refreshed profile", async () => {
+    const caller = createCaller("trainer");
+
+    vi.spyOn(db, "getTrainerSocialMembership").mockResolvedValue({
+      id: "membership-1",
+      trainerId: "00000000-0000-0000-0000-000000000001",
+      status: "active",
+      invitedBy: "manager-1",
+      invitedAt: new Date().toISOString(),
+      acceptedAt: new Date().toISOString(),
+      pausedAt: null,
+      bannedAt: null,
+      declinedAt: null,
+      reason: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(db, "getTrainerSocialInvitesByTrainer").mockResolvedValue([] as any);
+    vi.spyOn(db, "getActiveTrainerSocialCommitment").mockResolvedValue({
+      id: "commitment-1",
+      trainerId: "00000000-0000-0000-0000-000000000001",
+      minimumPosts: 4,
+    } as any);
+    vi.spyOn(db, "upsertTrainerSocialCommitmentProgress").mockResolvedValue({
+      id: "progress-1",
+    } as any);
+    vi.spyOn(db, "getTrainerSocialProfile").mockResolvedValue({
+      id: "profile-1",
+      trainerId: "00000000-0000-0000-0000-000000000001",
+      phylloUserId: "phyllo-user-1",
+      phylloAccountIds: [],
+      platforms: [],
+      followerCount: 0,
+      avgViewsPerMonth: 0,
+      avgEngagementRate: 0,
+      avgCtr: 0,
+      metadata: {},
+      lastSyncedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(phyllo, "getBootstrapSdkTokenFromEnv").mockReturnValue({
+      sdkToken: "sdk-token-1",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    } as any);
+    vi.spyOn(phyllo, "decodePhylloSdkTokenClaims").mockReturnValue({
+      exp: Date.now() / 1000 + 3600,
+      iss: "https://api.staging.getphyllo.com",
+    } as any);
+    vi.spyOn(phyllo, "inferPhylloTokenEnvironment").mockReturnValue("sandbox");
+    vi.spyOn(db, "upsertTrainerSocialProfile").mockResolvedValue({
+      id: "profile-1",
+      trainerId: "00000000-0000-0000-0000-000000000001",
+      phylloUserId: "phyllo-user-1",
+      phylloAccountIds: [],
+      platforms: [],
+      followerCount: 0,
+      avgViewsPerMonth: 0,
+      avgEngagementRate: 0,
+      avgCtr: 0,
+      metadata: {},
+      lastSyncedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(db, "upsertTrainerSocialMembership").mockResolvedValue({} as any);
+    vi.spyOn(db, "upsertTrainerSocialMetricDaily").mockResolvedValue({
+      id: "metric-1",
+    } as any);
+
+    const result = await caller.socialProgram.completeConnect({ status: "connected" });
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("connected");
+    expect(result.profile?.phylloUserId).toBe("phyllo-user-1");
+    expect(db.upsertTrainerSocialProfile).toHaveBeenCalledTimes(1);
+  });
+
 });

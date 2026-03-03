@@ -775,14 +775,6 @@ export default function TrainerHomeScreen() {
     inputRange: [0, 1],
     outputRange: [1, 1.14],
   });
-  const socialRingScale = socialCardPulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.12],
-  });
-  const socialRingOpacity = socialCardPulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.25, 0.48],
-  });
   const socialFloatY = socialCardFloatAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -7],
@@ -805,8 +797,7 @@ export default function TrainerHomeScreen() {
       } catch (error: any) {
         setCancellingRef(null);
         const msg = error?.message || "Please try again.";
-        if (Platform.OS === "web") { window.alert("Unable to cancel: " + msg); }
-        else { Alert.alert("Unable to cancel", msg); }
+        Alert.alert("Unable to cancel", msg);
       }
     };
 
@@ -1149,6 +1140,13 @@ export default function TrainerHomeScreen() {
         )}
 
         <View className={SECTION_SPACING_CLASS}>
+          <TouchableOpacity
+            onPress={() => router.push("/(trainer)/social-program" as any)}
+            activeOpacity={0.92}
+            accessibilityRole="button"
+            accessibilityLabel="View social program"
+            testID="trainer-social-program-card"
+          >
           <SurfaceCard style={{ ...CARD_SOFT_STYLE, borderColor: DASH.borderStrong, overflow: "hidden" }}>
             <View
               pointerEvents="none"
@@ -1187,7 +1185,7 @@ export default function TrainerHomeScreen() {
                   </Text>
                 </View>
                 <Text className="text-base font-semibold" style={{ color: DASH.text }}>
-                  Get Paid for Social Posts
+                  Get Paid for Social Posts.
                 </Text>
                 <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
                   Join the social program, connect your channels, and track compliance targets.
@@ -1217,34 +1215,6 @@ export default function TrainerHomeScreen() {
                   </View>
                 ) : null}
               </View>
-              <Animated.View style={{ transform: [{ scale: socialRingScale }], opacity: socialRingOpacity }}>
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    top: -6,
-                    left: -6,
-                    right: -6,
-                    bottom: -6,
-                    borderRadius: 14,
-                    borderWidth: 2,
-                    borderColor: "rgba(96,165,250,0.55)",
-                  }}
-                />
-                <TouchableOpacity
-                  className="px-3.5 py-2.5 rounded-xl flex-row items-center"
-                  style={{ backgroundColor: DASH.primary }}
-                  onPress={() => router.push("/(trainer)/social-program" as any)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open social program"
-                  testID="trainer-social-program-cta"
-                >
-                  <Text className="font-semibold" style={{ color: "#0B1020" }}>
-                    Open
-                  </Text>
-                  <IconSymbol name="arrow.right" size={12} color="#0B1020" />
-                </TouchableOpacity>
-              </Animated.View>
             </View>
 
             {/* Twitch-style floating emoji stream */}
@@ -1266,6 +1236,7 @@ export default function TrainerHomeScreen() {
               </Animated.Text>
             ))}
           </SurfaceCard>
+          </TouchableOpacity>
         </View>
 
         <SectionHeader title="Quick actions" />

@@ -1,4 +1,5 @@
 import { NavigationHeader } from "@/components/navigation-header";
+import { RichMessageText } from "@/components/rich-message-text";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -95,12 +96,17 @@ function MessageBubble({
           isOwn ? "bg-primary" : "bg-surface border border-border"
         }`}
       >
-        <Text className={isOwn ? "text-background" : "text-foreground"}>
-          {item.content?.trim() ||
-            (item.messageType === "image"
-              ? "[Image]"
-              : item.attachmentName || "[Message]")}
-        </Text>
+        <RichMessageText
+          content={
+            item.content?.trim() ||
+            (item.messageType === "image" ? "[Image]" : item.attachmentName || "[Message]")
+          }
+          isOwn={isOwn}
+          colors={colors}
+          textClassName={isOwn ? "text-background" : "text-foreground"}
+          linkClassName={isOwn ? "text-background" : "text-primary"}
+          testIDPrefix="assistant-message-link"
+        />
       </View>
       <Text className="text-[11px] text-muted mt-1">
         {isOwn ? "You" : LOCO_ASSISTANT_NAME} • {formatTimeLabel(item.createdAt)}

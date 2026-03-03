@@ -62,8 +62,7 @@ export default function PaymentHistoryScreen() {
     onError: (err) => {
       setCancellingRef(null);
       const msg = err.message || "Please try again.";
-      if (Platform.OS === "web") window.alert("Unable to cancel: " + msg);
-      else Alert.alert("Unable to cancel", msg);
+      Alert.alert("Unable to cancel", msg);
     },
   });
 

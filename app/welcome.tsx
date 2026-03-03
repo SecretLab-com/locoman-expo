@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase-client";
 import { router } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Platform, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 type OnboardingSlide = {
   title: string;
@@ -32,6 +32,7 @@ const SLIDES: OnboardingSlide[] = [
 
 export default function WelcomeScreen() {
   const colors = useColors();
+  const { width, height } = useWindowDimensions();
   const backgroundPlayer = useVideoPlayer(require("../assets/background.m4v"), (video) => {
     video.loop = true;
     video.muted = true;
@@ -51,6 +52,49 @@ export default function WelcomeScreen() {
     }, 800);
     return () => clearTimeout(timer);
   }, [isAuthenticated, loading]);
+
+  // Web autoplay can fail on initial mount; retry when tab gains focus/visibility.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryPlay = async () => {
+      if (cancelled) return;
+      try {
+        backgroundPlayer.loop = true;
+        backgroundPlayer.muted = true;
+        await Promise.resolve((backgroundPlayer as any).play?.());
+      } catch {
+        retryTimer = setTimeout(tryPlay, 400);
+      }
+    };
+
+    const onVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      tryPlay();
+    };
+
+    tryPlay();
+    if (typeof window !== "undefined") window.addEventListener("focus", onVisible);
+    if (typeof document !== "undefined")
+      document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (typeof window !== "undefined") window.removeEventListener("focus", onVisible);
+      if (typeof document !== "undefined")
+        document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [backgroundPlayer]);
+
+  const videoAspectRatio = 1080 / 1920;
+  const viewportAspectRatio = width / Math.max(height, 1);
+  const videoWidth = viewportAspectRatio > videoAspectRatio ? width : height * videoAspectRatio;
+  const videoHeight = viewportAspectRatio > videoAspectRatio ? width / videoAspectRatio : height;
+  const videoLeft = (width - videoWidth) / 2;
+  const videoTop = (height - videoHeight) / 2;
 
   const handleQuickTestLogin = async (email: string, password: string, label: string) => {
     await haptics.light();
@@ -83,12 +127,23 @@ export default function WelcomeScreen() {
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
-      <VideoView
-        player={backgroundPlayer}
-        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
-        contentFit="cover"
-        nativeControls={false}
-      />
+      <View
+        pointerEvents="none"
+        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden" }}
+      >
+        <VideoView
+          player={backgroundPlayer}
+          style={{
+            position: "absolute",
+            left: videoLeft,
+            top: videoTop,
+            width: videoWidth,
+            height: videoHeight,
+          }}
+          contentFit="cover"
+          nativeControls={false}
+        />
+      </View>
       <View
         pointerEvents="none"
         style={{

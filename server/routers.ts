@@ -11,15 +11,17 @@ import {
   sendInviteEmail,
   sendSocialProgramInviteEmail,
 } from "./_core/email";
-import { ENV } from "./_core/env";
-import { logError } from "./_core/logger";
+import { ENV, getConfiguredPhylloEnvironment } from "./_core/env";
+import { logError, logEvent, logWarn } from "./_core/logger";
 import {
   createPhylloSdkToken,
   createPhylloUser,
+  decodePhylloSdkTokenClaims,
   getBootstrapPhylloUserFromEnv,
   getBootstrapSdkTokenFromEnv,
   getPhylloAccounts,
   getPhylloProfiles,
+  inferPhylloTokenEnvironment,
 } from "./_core/phyllo";
 import { generateImage } from "./_core/imageGeneration";
 import { sendPushToUsers } from "./_core/push";
@@ -83,6 +85,348 @@ function getBundleReviewLinks(bundleId: string) {
   const webUrl = `${webBase}/bundle-editor/${bundleId}`;
   const deepLink = `locomotivate://bundle-editor/${bundleId}`;
   return { webUrl, deepLink };
+}
+
+const PHYLLO_CONNECT_SDK_URL = "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js";
+
+function getPhylloConnectEnvironment(): "sandbox" | "production" {
+  return getConfiguredPhylloEnvironment();
+}
+
+async function ensureSocialCommitmentProgress(trainerId: string) {
+  let commitment = await db.getActiveTrainerSocialCommitment(trainerId);
+  if (!commitment) {
+    await db.upsertTrainerSocialCommitment({
+      trainerId,
+      minimumFollowers: 10000,
+      minimumPosts: 4,
+      minimumOnTimePct: 95,
+      minimumTagPct: 98,
+      minimumApprovedCreativePct: 98,
+      minimumAvgViews: 1000,
+      minimumEngagementRate: 0.03,
+      minimumCtr: 0.008,
+      minimumShareSaveRate: 0.007,
+      active: true,
+      effectiveFrom: new Date().toISOString(),
+    });
+    commitment = await db.getActiveTrainerSocialCommitment(trainerId);
+  }
+
+  const fromDate = new Date();
+  fromDate.setDate(1);
+  const toDate = new Date(fromDate);
+  toDate.setMonth(toDate.getMonth() + 1);
+  toDate.setDate(0);
+
+  await db.upsertTrainerSocialCommitmentProgress({
+    trainerId,
+    commitmentId: commitment?.id || null,
+    periodStart: fromDate.toISOString(),
+    periodEnd: toDate.toISOString(),
+    status: "on_track",
+    postsDelivered: 0,
+    postsRequired: commitment?.minimumPosts || 4,
+  });
+}
+
+async function ensureActiveSocialMembershipForConnect(params: {
+  trainerId: string;
+}): Promise<{ membership: db.TrainerSocialMembership; pendingInviteAccepted: boolean }> {
+  let membership = await db.getTrainerSocialMembership(params.trainerId);
+  const invites = await db.getTrainerSocialInvitesByTrainer(params.trainerId);
+  const pendingInvite = invites
+    .filter((row) => row.status === "pending")
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+
+  if (membership?.status === "banned") {
+    forbidden("Your social membership is banned");
+  }
+  if (membership?.status === "paused") {
+    forbidden("Your social membership is paused");
+  }
+
+  let pendingInviteAccepted = false;
+  if (pendingInvite && (!membership || membership.status === "invited")) {
+    await db.updateTrainerSocialInvite(pendingInvite.id, {
+      status: "accepted",
+      acceptedAt: new Date().toISOString(),
+    });
+    membership = await db.upsertTrainerSocialMembership({
+      trainerId: params.trainerId,
+      status: "active",
+      acceptedAt: membership?.acceptedAt || new Date().toISOString(),
+      invitedBy: pendingInvite.invitedBy,
+      reason: null,
+    });
+    pendingInviteAccepted = true;
+  }
+
+  // Support standard self-serve social onboarding: if a trainer is not yet enrolled
+  // (or still in invited status without a pending invite row), activate on first connect attempt.
+  if (!membership || membership.status === "invited") {
+    membership = await db.upsertTrainerSocialMembership({
+      trainerId: params.trainerId,
+      status: "active",
+      acceptedAt: membership?.acceptedAt || new Date().toISOString(),
+      invitedBy: membership?.invitedBy || pendingInvite?.invitedBy || null,
+      reason: null,
+    });
+  }
+
+  if (!membership || membership.status !== "active") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Social membership is not active.",
+    });
+  }
+
+  await ensureSocialCommitmentProgress(params.trainerId);
+  return { membership, pendingInviteAccepted };
+}
+
+async function preparePhylloConnectSession(params: {
+  trainerId: string;
+  trainerName: string | null;
+  forceNewUser?: boolean;
+}) {
+  const { membership, pendingInviteAccepted } = await ensureActiveSocialMembershipForConnect({
+    trainerId: params.trainerId,
+  });
+
+  const profile = await db.getTrainerSocialProfile(params.trainerId);
+  let phylloUserId = profile?.phylloUserId || null;
+  const bootstrapUser = getBootstrapPhylloUserFromEnv();
+  const sdkTokenFromEnv = getBootstrapSdkTokenFromEnv();
+  const hasPhylloAuthBasic = Boolean(ENV.phylloAuthBasic);
+  const canUseBootstrap = Boolean(bootstrapUser?.id && sdkTokenFromEnv?.sdkToken);
+  const connectEnvironment = getPhylloConnectEnvironment();
+  const createFreshPhylloUser = async () => {
+    const created = await createPhylloUser({
+      name: params.trainerName || ENV.phylloName || "LocoMotivate Trainer",
+      externalId:
+        `${params.trainerId}-${Date.now()}` || ENV.phylloExternalId || "trainer",
+    });
+    return created.id;
+  };
+
+  if (!phylloUserId || params.forceNewUser) {
+    // Prefer trainer-specific Phyllo users when API credentials are available.
+    if (hasPhylloAuthBasic) {
+      phylloUserId = await createFreshPhylloUser();
+    } else if (canUseBootstrap) {
+      // Fallback mode: shared bootstrap identity when direct Phyllo API auth is unavailable.
+      phylloUserId = bootstrapUser!.id;
+    } else {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message:
+          "Phyllo API credentials are missing. Set PHYLLO_AUTH_BASIC or provide PHYLLO_ID + PHYLLO_SDK_TOKEN bootstrap values.",
+      });
+    }
+  }
+
+  const tokenMode = hasPhylloAuthBasic ? "dynamic" : "bootstrap";
+  const sdkTokenPayload = hasPhylloAuthBasic
+    ? await (async () => {
+        try {
+          return await createPhylloSdkToken({ userId: phylloUserId });
+        } catch (tokenError: any) {
+          const tokenMessage = String(tokenError?.message || "").toLowerCase();
+          const isIncorrectUser =
+            tokenMessage.includes("incorrect_user_id") ||
+            tokenMessage.includes("requested user id does not exist");
+          if (!isIncorrectUser || params.forceNewUser) throw tokenError;
+          // Recover stale/removed sandbox users by minting a fresh user id.
+          phylloUserId = await createFreshPhylloUser();
+          return await createPhylloSdkToken({ userId: phylloUserId });
+        }
+      })()
+    : (() => {
+        if (!sdkTokenFromEnv) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message:
+              "Phyllo SDK token generation requires PHYLLO_AUTH_BASIC. Add PHYLLO_SDK_TOKEN for bootstrap mode or configure PHYLLO_AUTH_BASIC.",
+          });
+        }
+        return {
+          sdk_token: sdkTokenFromEnv.sdkToken,
+          expires_at: sdkTokenFromEnv.expiresAt || "",
+        };
+      })();
+
+  // Persist whichever Phyllo user id was used for this session so
+  // completeConnect and subsequent reconnect attempts stay in sync.
+  if (phylloUserId && phylloUserId !== profile?.phylloUserId) {
+    try {
+      await db.upsertTrainerSocialProfile({
+        trainerId: params.trainerId,
+        phylloUserId,
+      });
+    } catch (error) {
+      logWarn("phyllo.persist_user_id_failed", {
+        trainerId: params.trainerId,
+        error: String((error as any)?.message || error),
+      });
+    }
+  }
+
+  const tokenClaims = decodePhylloSdkTokenClaims(sdkTokenPayload.sdk_token);
+  const tokenEnvironment = inferPhylloTokenEnvironment(tokenClaims);
+  if (tokenEnvironment !== "unknown" && tokenEnvironment !== connectEnvironment) {
+    logWarn("phyllo.sdk_token_environment_mismatch", {
+      trainerId: params.trainerId,
+      tokenMode,
+      connectEnvironment,
+      tokenEnvironment,
+    });
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        "Phyllo token environment mismatch. Your current credentials are minting a production token while Connect is configured for sandbox. Update PHYLLO_AUTH_BASIC to sandbox app credentials (or align PHYLLO_API_BASE_URL with production).",
+    });
+  }
+
+  const tokenExpMs = tokenClaims?.exp ? Number(tokenClaims.exp) * 1000 : null;
+  if (tokenExpMs && tokenExpMs <= Date.now() + 60_000) {
+    logWarn("phyllo.sdk_token_expiring_too_soon", {
+      trainerId: params.trainerId,
+      tokenMode,
+      connectEnvironment,
+      tokenExpMs,
+    });
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        "Phyllo connect session expired. Refresh PHYLLO credentials or configure PHYLLO_AUTH_BASIC for dynamic token generation.",
+    });
+  }
+
+  logEvent("phyllo.connect_session_prepared", {
+    trainerId: params.trainerId,
+    tokenMode,
+    connectEnvironment,
+    tokenEnvironment,
+    hasPhylloAuthBasic,
+  });
+
+  return {
+    membership,
+    pendingInviteAccepted,
+    phylloUserId,
+    sdkToken: sdkTokenPayload.sdk_token,
+    sdkTokenExpiresAt: sdkTokenPayload.expires_at,
+    hasPhylloAuthBasic,
+  };
+}
+
+async function syncPhylloProfileForTrainer(params: {
+  trainerId: string;
+  membership: db.TrainerSocialMembership;
+  phylloUserId: string;
+  hasPhylloAuthBasic: boolean;
+  source: string;
+}) {
+  const [accountsRaw, profilesRaw] = params.hasPhylloAuthBasic
+    ? await Promise.all([
+        getPhylloAccounts(params.phylloUserId).catch(() => []),
+        getPhylloProfiles(params.phylloUserId).catch(() => []),
+      ])
+    : [[], []];
+
+  const normalizeRows = (value: any): any[] => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.data)) return value.data;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
+  };
+
+  const accounts = normalizeRows(accountsRaw);
+  const profiles = normalizeRows(profilesRaw);
+
+  const platformNames = Array.from(
+    new Set(
+      profiles
+        .map((row: any) => String(row?.platform || row?.platform_name || ""))
+        .filter(Boolean),
+    ),
+  );
+
+  const followerCount = profiles.reduce(
+    (sum: number, row: any) =>
+      sum + Number(row?.audience?.follower_count || row?.followers || 0),
+    0,
+  );
+
+  const avgViewsPerMonth = Math.round(
+    profiles.reduce(
+      (sum: number, row: any) =>
+        sum + Number(row?.engagement?.avg_views_per_month || row?.avg_views_per_month || 0),
+      0,
+    ),
+  );
+
+  const avgEngagementRate =
+    profiles.length > 0
+      ? profiles.reduce(
+          (sum: number, row: any) =>
+            sum + Number(row?.engagement?.engagement_rate || row?.engagement_rate || 0),
+          0,
+        ) / profiles.length
+      : 0;
+
+  const avgCtr =
+    profiles.length > 0
+      ? profiles.reduce(
+          (sum: number, row: any) =>
+            sum + Number(row?.engagement?.ctr || row?.ctr || 0),
+          0,
+        ) / profiles.length
+      : 0;
+
+  const savedProfile = await db.upsertTrainerSocialProfile({
+    trainerId: params.trainerId,
+    phylloUserId: params.phylloUserId,
+    phylloAccountIds: accounts.map((a: any) => String(a?.id)).filter(Boolean),
+    platforms: platformNames,
+    followerCount,
+    avgViewsPerMonth,
+    avgEngagementRate,
+    avgCtr,
+    metadata: {
+      rawProfiles: profiles,
+      rawAccounts: accounts,
+    },
+    lastSyncedAt: new Date().toISOString(),
+  });
+
+  await db.upsertTrainerSocialMembership({
+    trainerId: params.trainerId,
+    status: "active",
+    acceptedAt: params.membership.acceptedAt || new Date().toISOString(),
+    invitedBy: params.membership.invitedBy,
+    reason: null,
+  });
+
+  await db.upsertTrainerSocialMetricDaily({
+    trainerId: params.trainerId,
+    metricDate: new Date().toISOString(),
+    platform: "all",
+    followers: followerCount,
+    views: avgViewsPerMonth,
+    engagements: Math.round(avgViewsPerMonth * avgEngagementRate),
+    clicks: Math.round(avgViewsPerMonth * avgCtr),
+    shareSaves: Math.round(avgViewsPerMonth * 0.01),
+    postsDelivered: 0,
+    postsOnTime: 0,
+    requiredPosts: 4,
+    requiredTagPosts: 4,
+    approvedCreativePosts: 0,
+    metadata: { source: params.source },
+  });
+
+  return savedProfile;
 }
 
 async function sendBundleReviewThreadMessage(params: {
@@ -6108,159 +6452,87 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    startConnect: trainerProcedure
+      .input(z.object({ forceNewUser: z.boolean().optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+        const session = await preparePhylloConnectSession({
+          trainerId: ctx.user.id,
+          trainerName: ctx.user.name || null,
+          forceNewUser: input?.forceNewUser,
+        });
+        return {
+          success: true,
+          pendingInviteAccepted: session.pendingInviteAccepted,
+          phylloUserId: session.phylloUserId,
+          sdkToken: session.sdkToken,
+          sdkTokenExpiresAt: session.sdkTokenExpiresAt,
+          connectConfig: {
+            environment: getPhylloConnectEnvironment(),
+            scriptUrl: PHYLLO_CONNECT_SDK_URL,
+            clientDisplayName: "LocoMotivate",
+          },
+        };
+      }),
+
+    completeConnect: trainerProcedure
+      .input(
+        z
+          .object({
+            status: z.enum(["connected", "cancelled", "failed"]).optional(),
+            reason: z.string().optional(),
+          })
+          .optional(),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const status = input?.status || "connected";
+        if (status !== "connected") {
+          await ensureActiveSocialMembershipForConnect({ trainerId: ctx.user.id });
+          return {
+            success: true,
+            status,
+            reason: input?.reason || null,
+            profile: await db.getTrainerSocialProfile(ctx.user.id),
+          };
+        }
+        const session = await preparePhylloConnectSession({
+          trainerId: ctx.user.id,
+          trainerName: ctx.user.name || null,
+        });
+        const savedProfile = await syncPhylloProfileForTrainer({
+          trainerId: ctx.user.id,
+          membership: session.membership,
+          phylloUserId: session.phylloUserId,
+          hasPhylloAuthBasic: session.hasPhylloAuthBasic,
+          source: "complete_connect",
+        });
+        return {
+          success: true,
+          status,
+          reason: input?.reason || null,
+          profile: savedProfile,
+        };
+      }),
+
     connectPhyllo: trainerProcedure
       .input(z.object({ forceNewUser: z.boolean().optional() }).optional())
       .mutation(async ({ ctx, input }) => {
-        let membership = await db.getTrainerSocialMembership(ctx.user.id);
-        if (!membership) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You must accept the social invite first.",
-          });
-        }
-        if (membership.status === "banned") {
-          forbidden("Your social membership is banned");
-        }
-        if (membership.status === "paused") {
-          forbidden("Your social membership is paused");
-        }
-
-        const profile = await db.getTrainerSocialProfile(ctx.user.id);
-        let phylloUserId = profile?.phylloUserId || null;
-        const bootstrapUser = getBootstrapPhylloUserFromEnv();
-        const sdkTokenFromEnv = getBootstrapSdkTokenFromEnv();
-        const hasPhylloAuthBasic = Boolean(ENV.phylloAuthBasic);
-
-        if (!phylloUserId || input?.forceNewUser) {
-          if (bootstrapUser && !input?.forceNewUser) {
-            phylloUserId = bootstrapUser.id;
-          } else {
-            if (!hasPhylloAuthBasic) {
-              throw new TRPCError({
-                code: "INTERNAL_SERVER_ERROR",
-                message:
-                  "Phyllo API credentials are missing. Set PHYLLO_AUTH_BASIC or provide PHYLLO_ID + PHYLLO_SDK_TOKEN bootstrap values.",
-              });
-            }
-            const created = await createPhylloUser({
-              name: ctx.user.name || ENV.phylloName || "LocoMotivate Trainer",
-              externalId:
-                `${ctx.user.id}-${Date.now()}` || ENV.phylloExternalId || "trainer",
-            });
-            phylloUserId = created.id;
-          }
-        }
-
-        const sdkTokenPayload =
-          sdkTokenFromEnv && !input?.forceNewUser
-            ? {
-                sdk_token: sdkTokenFromEnv.sdkToken,
-                expires_at: sdkTokenFromEnv.expiresAt || "",
-              }
-            : await (() => {
-                if (!hasPhylloAuthBasic) {
-                  throw new TRPCError({
-                    code: "INTERNAL_SERVER_ERROR",
-                    message:
-                      "Phyllo SDK token generation requires PHYLLO_AUTH_BASIC. Add PHYLLO_SDK_TOKEN for bootstrap mode or configure PHYLLO_AUTH_BASIC.",
-                  });
-                }
-                return createPhylloSdkToken({ userId: phylloUserId });
-              })();
-
-        const [accounts, profiles] = hasPhylloAuthBasic
-          ? await Promise.all([
-              getPhylloAccounts(phylloUserId).catch(() => []),
-              getPhylloProfiles(phylloUserId).catch(() => []),
-            ])
-          : [[], []];
-
-        const platformNames = Array.from(
-          new Set(
-            (profiles || [])
-              .map((row: any) => String(row?.platform || row?.platform_name || ""))
-              .filter(Boolean),
-          ),
-        );
-
-        const followerCount = (profiles || []).reduce(
-          (sum: number, row: any) =>
-            sum + Number(row?.audience?.follower_count || row?.followers || 0),
-          0,
-        );
-
-        const avgViewsPerMonth = Math.round(
-          (profiles || []).reduce(
-            (sum: number, row: any) =>
-              sum + Number(row?.engagement?.avg_views_per_month || row?.avg_views_per_month || 0),
-            0,
-          ),
-        );
-
-        const avgEngagementRate =
-          (profiles || []).length > 0
-            ? (profiles || []).reduce(
-                (sum: number, row: any) =>
-                  sum + Number(row?.engagement?.engagement_rate || row?.engagement_rate || 0),
-                0,
-              ) / (profiles || []).length
-            : 0;
-
-        const avgCtr =
-          (profiles || []).length > 0
-            ? (profiles || []).reduce(
-                (sum: number, row: any) =>
-                  sum + Number(row?.engagement?.ctr || row?.ctr || 0),
-                0,
-              ) / (profiles || []).length
-            : 0;
-
-        const savedProfile = await db.upsertTrainerSocialProfile({
+        const session = await preparePhylloConnectSession({
           trainerId: ctx.user.id,
-          phylloUserId,
-          phylloAccountIds: (accounts || []).map((a: any) => String(a?.id)).filter(Boolean),
-          platforms: platformNames,
-          followerCount,
-          avgViewsPerMonth,
-          avgEngagementRate,
-          avgCtr,
-          metadata: {
-            rawProfiles: profiles,
-            rawAccounts: accounts,
-          },
-          lastSyncedAt: new Date().toISOString(),
+          trainerName: ctx.user.name || null,
+          forceNewUser: input?.forceNewUser,
         });
-
-        await db.upsertTrainerSocialMembership({
+        const savedProfile = await syncPhylloProfileForTrainer({
           trainerId: ctx.user.id,
-          status: "active",
-          acceptedAt: membership.acceptedAt || new Date().toISOString(),
-          invitedBy: membership.invitedBy,
-          reason: null,
+          membership: session.membership,
+          phylloUserId: session.phylloUserId,
+          hasPhylloAuthBasic: session.hasPhylloAuthBasic,
+          source: "connect_phyllo",
         });
-
-        // Snapshot current month metrics for dashboard rollups.
-        await db.upsertTrainerSocialMetricDaily({
-          trainerId: ctx.user.id,
-          metricDate: new Date().toISOString(),
-          platform: "all",
-          followers: followerCount,
-          views: avgViewsPerMonth,
-          engagements: Math.round(avgViewsPerMonth * avgEngagementRate),
-          clicks: Math.round(avgViewsPerMonth * avgCtr),
-          shareSaves: Math.round(avgViewsPerMonth * 0.01),
-          postsDelivered: 0,
-          postsOnTime: 0,
-          requiredPosts: 4,
-          requiredTagPosts: 4,
-          approvedCreativePosts: 0,
-          metadata: { source: "connect_phyllo" },
-        });
-
         return {
           success: true,
+          pendingInviteAccepted: session.pendingInviteAccepted,
           profile: savedProfile,
-          sdkTokenExpiresAt: sdkTokenPayload.expires_at,
+          sdkTokenExpiresAt: session.sdkTokenExpiresAt,
         };
       }),
 

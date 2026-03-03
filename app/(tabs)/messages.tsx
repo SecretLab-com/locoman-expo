@@ -158,7 +158,7 @@ function ConversationItem({
 
 export default function MessagesScreen() {
   const colors = useColors();
-  const { isAuthenticated, isTrainer, effectiveRole, user } = useAuthContext();
+  const { isAuthenticated, effectiveRole, user } = useAuthContext();
   const bottomNavHeight = useBottomNavHeight();
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets.bottom, 8);
@@ -173,6 +173,7 @@ export default function MessagesScreen() {
           : effectiveRole === "coordinator"
             ? "/(coordinator)"
             : "/(tabs)";
+  const showAssistant = effectiveRole === "trainer";
 
   const { connect, disconnect, subscribe } = useWebSocket();
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -292,6 +293,11 @@ export default function MessagesScreen() {
     });
   };
 
+  const showFindTrainerCta =
+    effectiveRole === "client" ||
+    effectiveRole === "shopper" ||
+    !effectiveRole;
+
   if (!isAuthenticated) {
     return (
       <ScreenContainer className="items-center justify-center px-6">
@@ -364,10 +370,10 @@ export default function MessagesScreen() {
         <View>
           <Text className="text-2xl font-bold text-foreground">Messages</Text>
           <Text className="text-sm text-muted">
-            {isTrainer ? "Chat with your clients" : "Chat with your trainers"}
+            {showAssistant ? "Chat with your clients" : "Chat with your trainers"}
           </Text>
         </View>
-        {isTrainer && (
+        {showAssistant && (
           <TouchableOpacity
             onPress={handleAssistantChat}
             className="px-3 py-2 rounded-full bg-primary/10 border border-primary/20 flex-row items-center"
@@ -407,12 +413,13 @@ export default function MessagesScreen() {
               </View>
               <Text className="text-foreground font-semibold text-lg mb-1">No messages yet</Text>
               <Text className="text-muted text-center mb-6">
-                {isTrainer 
+                {showAssistant
                   ? "Messages from your clients will appear here"
-                  : "Start a conversation with your trainer"
-                }
+                  : showFindTrainerCta
+                    ? "Start a conversation with your trainer"
+                    : "Start a new conversation"}
               </Text>
-              {!isTrainer && (
+              {showFindTrainerCta ? (
                 <TouchableOpacity
                   className="bg-primary px-6 py-3 rounded-full"
                   onPress={async () => {
@@ -421,6 +428,16 @@ export default function MessagesScreen() {
                   }}
                 >
                   <Text className="text-background font-semibold">Find a Trainer</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  className="bg-primary px-6 py-3 rounded-full"
+                  onPress={handleNewMessage}
+                  accessibilityRole="button"
+                  accessibilityLabel="Start a new message"
+                  testID="messages-empty-new-message"
+                >
+                  <Text className="text-background font-semibold">New Message</Text>
                 </TouchableOpacity>
               )}
             </View>

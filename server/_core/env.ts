@@ -24,3 +24,9 @@ export const ENV = {
   phylloSdkToken: process.env.PHYLLO_SDK_TOKEN ?? "",
   phylloSdkTokenExpiresAt: process.env.PHYLLO_SDK_TOKEN_EXPIRES_AT ?? "",
 };
+
+export function getConfiguredPhylloEnvironment(): "sandbox" | "production" {
+  const baseUrl = String(ENV.phylloApiBaseUrl || "").toLowerCase();
+  if (baseUrl.includes("staging") || baseUrl.includes("sandbox")) return "sandbox";
+  return "production";
+}

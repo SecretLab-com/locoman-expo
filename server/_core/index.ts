@@ -111,6 +111,123 @@ async function startServer() {
     });
   });
 
+  // Native Phyllo connect bridge for iOS/Android.
+  // This endpoint avoids requiring an authenticated bright.coach web session and
+  // relies on the app-minted Phyllo token scoped to the current app user.
+  app.get("/api/phyllo/connect", (req, res) => {
+    const token = String(req.query.token || "");
+    const userId = String(req.query.userId || "");
+    const environmentRaw = String(req.query.environment || "").toLowerCase();
+    const environment = environmentRaw === "production" ? "production" : "sandbox";
+    const clientDisplayName = String(req.query.clientDisplayName || "LocoMotivate");
+    const scriptUrl = String(
+      req.query.scriptUrl || "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js",
+    );
+    const returnTo = String(req.query.returnTo || "");
+
+    if (!token || !userId || !returnTo) {
+      res.status(400).type("html").send(`<!doctype html>
+<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;">
+  <h3>Phyllo connect error</h3>
+  <p>Missing required connect parameters.</p>
+</body></html>`);
+      return;
+    }
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect social platforms</title>
+  </head>
+  <body style="margin:0;background:#0b1020;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;">
+      <div>
+        <div style="font-size:18px;font-weight:600;">Opening Phyllo Connect...</div>
+        <div style="font-size:14px;opacity:0.8;margin-top:8px;">Select your social platforms to continue.</div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var TOKEN = ${JSON.stringify(token)};
+        var USER_ID = ${JSON.stringify(userId)};
+        var ENV = ${JSON.stringify(environment)};
+        var CLIENT_NAME = ${JSON.stringify(clientDisplayName)};
+        var SCRIPT_URL = ${JSON.stringify(scriptUrl)};
+        var RETURN_TO = ${JSON.stringify(returnTo)};
+        var settled = false;
+        var sawConnected = false;
+        var connectedAccountId = "";
+        var connectedWorkPlatformId = "";
+
+        function finish(status, reason, accountId, workPlatformId) {
+          if (settled) return;
+          settled = true;
+          try {
+            var url = new URL(decodeURIComponent(RETURN_TO));
+            url.searchParams.set("status", status || "failed");
+            if (reason) url.searchParams.set("reason", String(reason));
+            if (accountId) url.searchParams.set("accountId", String(accountId));
+            if (workPlatformId) url.searchParams.set("workPlatformId", String(workPlatformId));
+            window.location.replace(url.toString());
+          } catch (_) {
+            document.body.innerHTML = "<div style='padding:24px;font-family:sans-serif;'>Could not return to app callback.</div>";
+          }
+        }
+
+        function boot() {
+          if (!window.PhylloConnect || typeof window.PhylloConnect.initialize !== "function") {
+            finish("failed", "sdk_init_failed");
+            return;
+          }
+          var connect = window.PhylloConnect.initialize({
+            environment: ENV,
+            userId: USER_ID,
+            token: TOKEN,
+            clientDisplayName: CLIENT_NAME
+          });
+          connect.on("accountConnected", function (accountId, workPlatformId) {
+            sawConnected = true;
+            connectedAccountId = String(accountId || "");
+            connectedWorkPlatformId = String(workPlatformId || "");
+          });
+          connect.on("accountDisconnected", function () {});
+          connect.on("connectionFailure", function (reason) {
+            finish("failed", String(reason || "connection_failed"));
+          });
+          connect.on("tokenExpired", function () {
+            finish("failed", "token_expired");
+          });
+          connect.on("exit", function (reason) {
+            if (sawConnected) {
+              finish("connected", String(reason || "exit"), connectedAccountId, connectedWorkPlatformId);
+              return;
+            }
+            finish("cancelled", String(reason || "exit"));
+          });
+          try {
+            connect.open();
+          } catch (error) {
+            var message = error && error.message ? error.message : "open_failed";
+            finish("failed", String(message));
+          }
+        }
+
+        var script = document.createElement("script");
+        script.src = SCRIPT_URL;
+        script.async = true;
+        script.defer = true;
+        script.onload = boot;
+        script.onerror = function () { finish("failed", "sdk_load_failed"); };
+        document.head.appendChild(script);
+      })();
+    </script>
+  </body>
+</html>`;
+    res.status(200).type("html").send(html);
+  });
+
   // Adyen webhook — must be before JSON body parser for raw body access
   app.post("/api/webhooks/adyen", express.json(), async (req, res) => {
     try {

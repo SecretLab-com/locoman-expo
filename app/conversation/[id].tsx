@@ -1,4 +1,5 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { RichMessageText } from "@/components/rich-message-text";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -581,7 +582,16 @@ function MessageBubble({
       );
     }
 
-    return <Text className={isOwn ? "text-white" : "text-foreground"}>{message.content}</Text>;
+    return (
+      <RichMessageText
+        content={message.content}
+        isOwn={isOwn}
+        colors={colors}
+        textClassName={isOwn ? "text-white" : "text-foreground"}
+        linkClassName={isOwn ? "text-white" : "text-primary"}
+        testIDPrefix="conversation-message-link"
+      />
+    );
   };
 
   return (
@@ -651,7 +661,8 @@ export default function ConversationScreen() {
   const recordingOptions = useMemo(() => ({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true }), []);
   const [nativeMetering, setNativeMetering] = useState<number | undefined>(undefined);
   const recorder = useAudioRecorder(recordingOptions, (status) => {
-    if (status.metering !== undefined) setNativeMetering(status.metering);
+    const metering = (status as any)?.metering;
+    if (metering !== undefined) setNativeMetering(metering);
   });
   const recorderState = useAudioRecorderState(recorder, 100);
 
@@ -664,7 +675,6 @@ export default function ConversationScreen() {
     }
     return Array.from(ids);
   }, [user?.id, participantId, participantIds]);
-
   const utils = trpc.useUtils();
 
   const { connect, disconnect, subscribe, sendTypingStart, sendTypingStop } = useWebSocket();
@@ -680,6 +690,32 @@ export default function ConversationScreen() {
       enabled: !!id,
     }
   );
+  const conversationDerivedRecipientIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const msg of (messages || []) as any[]) {
+      const senderId = String(msg?.senderId || "");
+      const receiverId = String(msg?.receiverId || "");
+      if (senderId && senderId !== user?.id) ids.add(senderId);
+      if (receiverId && receiverId !== user?.id) ids.add(receiverId);
+    }
+    return Array.from(ids);
+  }, [messages, user?.id]);
+
+  const resolvedRecipientIds = useMemo(() => {
+    const ids = new Set<string>();
+    const fromParams = participantIds
+      ? participantIds
+          .split(",")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      : participantId
+        ? [participantId]
+        : [];
+    fromParams.forEach((value) => ids.add(value));
+    conversationDerivedRecipientIds.forEach((value) => ids.add(value));
+    if (user?.id) ids.delete(user.id);
+    return Array.from(ids);
+  }, [participantIds, participantId, conversationDerivedRecipientIds, user?.id]);
 
   const [participantList, setParticipantList] = useState<Array<{
     id: string; name: string; photoUrl: string | null; role: string | null;
@@ -833,9 +869,7 @@ export default function ConversationScreen() {
         }
 
         if (isAssistantChat) {
-          const ids = participantIds
-            ? participantIds.split(",").map((v) => v.trim()).filter(Boolean)
-            : participantId ? [participantId] : [];
+          const ids = resolvedRecipientIds;
           if (ids.length === 1) {
             sendMessage.mutate({ receiverId: ids[0], content: text, conversationId: id });
           } else if (ids.length > 1) {
@@ -1015,14 +1049,7 @@ export default function ConversationScreen() {
       return;
     }
 
-    const ids = participantIds
-      ? participantIds
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
-      : participantId
-        ? [participantId]
-        : [];
+    const ids = resolvedRecipientIds;
     if (!ids.length) return;
 
     await haptics.light();
@@ -1181,14 +1208,7 @@ export default function ConversationScreen() {
       });
 
       await haptics.light();
-      const ids = participantIds
-        ? participantIds
-          .split(",")
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0)
-        : participantId
-          ? [participantId]
-          : [];
+      const ids = resolvedRecipientIds;
       if (!ids.length) return;
       if (ids.length === 1) {
         sendWithAttachment.mutate({
@@ -1237,14 +1257,7 @@ export default function ConversationScreen() {
       });
 
       await haptics.light();
-      const ids = participantIds
-        ? participantIds
-          .split(",")
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0)
-        : participantId
-          ? [participantId]
-          : [];
+      const ids = resolvedRecipientIds;
       if (!ids.length) return;
       if (ids.length === 1) {
         sendWithAttachment.mutate({

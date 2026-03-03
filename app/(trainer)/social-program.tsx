@@ -4,12 +4,34 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
+import { getApiBaseUrl } from "@/lib/api-config";
+import {
+  hasNativePhylloConnectSdk,
+  openPhylloConnectNative,
+} from "@/lib/phyllo-connect-native";
+import { openPhylloConnectWeb } from "@/lib/phyllo-connect";
 import { trpc } from "@/lib/trpc";
-import { router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, Easing, Platform, ScrollView, Text, View } from "react-native";
+import * as Linking from "expo-linking";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+import { WebView } from "react-native-webview";
 
 export default function TrainerSocialProgramScreen() {
+  const routeParams = useLocalSearchParams<{
+    phyllo?: string;
+    reason?: string;
+  }>();
   const colors = useColors();
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.socialProgram.myStatus.useQuery();
@@ -17,32 +39,105 @@ export default function TrainerSocialProgramScreen() {
   const orbFloatAnim = useRef(new Animated.Value(0)).current;
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [nativeConnectSheet, setNativeConnectSheet] = useState<{
+    connectUrl: string;
+    callbackPrefix: string;
+  } | null>(null);
+  const lastCallbackKeyRef = useRef<string>("");
 
-  const acceptMutation = trpc.socialProgram.acceptInvite.useMutation({
-    onSuccess: async () => {
-      await utils.socialProgram.myStatus.invalidate();
-    },
-  });
+  const isNoSelectionCloseReason = (reason: string) =>
+    reason.trim().toLowerCase() === "exit_from_platform_selection";
+
   const declineMutation = trpc.socialProgram.declineInvite.useMutation({
     onSuccess: async () => {
       await utils.socialProgram.myStatus.invalidate();
     },
   });
-  const connectMutation = trpc.socialProgram.connectPhyllo.useMutation({
-    onSuccess: async () => {
-      await utils.socialProgram.myStatus.invalidate();
-      await utils.socialProgram.myProgramDashboard.invalidate();
-    },
-  });
+  const startConnectMutation = trpc.socialProgram.startConnect.useMutation();
+  const completeConnectMutation =
+    trpc.socialProgram.completeConnect.useMutation({
+      onSuccess: async () => {
+        await utils.socialProgram.myStatus.invalidate();
+        await utils.socialProgram.myProgramDashboard.invalidate();
+      },
+    });
 
   const membershipStatus = data?.membership?.status || "not_enrolled";
   const hasPendingInvite = Boolean(data?.pendingInvite?.id);
   const isConnected = Boolean(data?.profile?.phylloUserId);
-  const canAttemptConnect =
-    membershipStatus === "active" ||
-    membershipStatus === "invited" ||
-    membershipStatus === "not_enrolled";
-  const isRestrictedStatus = membershipStatus === "paused" || membershipStatus === "banned";
+  const isRestrictedStatus =
+    membershipStatus === "paused" || membershipStatus === "banned";
+  const canAttemptConnect = !isRestrictedStatus;
+  const platformStats = useMemo(() => {
+    const rawProfiles = Array.isArray(
+      (data?.profile as any)?.metadata?.rawProfiles,
+    )
+      ? ((data?.profile as any)?.metadata?.rawProfiles as any[])
+      : [];
+    const rows = new Map<
+      string,
+      { platform: string; followers: number; impressions: number }
+    >();
+    for (const row of rawProfiles) {
+      const platform =
+        String(row?.platform || row?.platform_name || "Unknown").trim() ||
+        "Unknown";
+      const followers = Number(
+        row?.audience?.follower_count || row?.followers || 0,
+      );
+      const impressions = Number(
+        row?.engagement?.impressions ||
+          row?.engagement?.avg_views_per_month ||
+          row?.avg_views_per_month ||
+          row?.impressions ||
+          0,
+      );
+      const existing = rows.get(platform);
+      if (existing) {
+        existing.followers += followers;
+        existing.impressions += impressions;
+      } else {
+        rows.set(platform, { platform, followers, impressions });
+      }
+    }
+    return Array.from(rows.values()).sort((a, b) => b.followers - a.followers);
+  }, [data?.profile]);
+
+  useEffect(() => {
+    const callbackStatus = String(routeParams.phyllo || "").toLowerCase();
+    if (!callbackStatus) return;
+    const callbackReason = String(routeParams.reason || "").trim();
+    const callbackKey = `${callbackStatus}:${callbackReason}`;
+    if (lastCallbackKeyRef.current === callbackKey) return;
+    lastCallbackKeyRef.current = callbackKey;
+    if (callbackStatus === "connected") {
+      setActionError(null);
+      setActionSuccess(
+        "Connected successfully. You can connect more platforms anytime.",
+      );
+      return;
+    }
+    if (callbackStatus === "cancelled") {
+      if (isNoSelectionCloseReason(callbackReason)) {
+        setActionSuccess(null);
+        setActionError(null);
+        return;
+      }
+      setActionSuccess(null);
+      setActionError(
+        callbackReason
+          ? `Connection closed (${callbackReason}).`
+          : "Connection was cancelled before any platform was linked.",
+      );
+      return;
+    }
+    setActionSuccess(null);
+    setActionError(
+      callbackReason
+        ? `Connection failed (${callbackReason}).`
+        : "Could not connect your social platforms.",
+    );
+  }, [routeParams.phyllo, routeParams.reason]);
 
   useEffect(() => {
     const pulseLoop = Animated.loop(
@@ -98,42 +193,291 @@ export default function TrainerSocialProgramScreen() {
     outputRange: [0, -8],
   });
 
-  const showFeedback = (title: string, message: string) => {
-    if (Platform.OS === "web") {
-      window.alert(`${title}\n\n${message}`);
-      return;
+  const appWebBase = (() => {
+    const configured = String(process.env.EXPO_PUBLIC_APP_URL || "")
+      .trim()
+      .replace(/\/+$/g, "");
+    if (configured) return configured;
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return String(window.location.origin).replace(/\/+$/g, "");
     }
-    Alert.alert(title, message);
-  };
+    return "https://bright.coach";
+  })();
+  const appApiBase = (() => {
+    const runtimeApi = String(getApiBaseUrl() || "")
+      .trim()
+      .replace(/\/+$/g, "");
+    if (runtimeApi) return runtimeApi;
+    return appWebBase;
+  })();
 
   const handleConnectPhyllo = async () => {
     setActionError(null);
     setActionSuccess(null);
     try {
-      const result = await connectMutation.mutateAsync({});
-      await Promise.all([
-        utils.socialProgram.myStatus.invalidate(),
-        utils.socialProgram.myProgramDashboard.invalidate(),
-      ]);
-      const connectedPlatforms = Number(result?.profile?.platforms?.length || 0);
-      const message =
-        connectedPlatforms > 0
-          ? `Connected successfully. ${connectedPlatforms} platform(s) linked.`
-          : "Connected successfully. If no platforms appear yet, complete account linking in your Phyllo dashboard and tap Refresh status.";
-      setActionSuccess(message);
-      showFeedback("Phyllo connected", message);
+      // Only force a fresh Phyllo user before the very first connect.
+      // Once connected, always reuse the same Phyllo user so trainers can add
+      // more platforms later without resetting their linkage context.
+      const shouldForceFreshSession = !isConnected;
+      let session;
+      try {
+        session = await startConnectMutation.mutateAsync({
+          forceNewUser: shouldForceFreshSession,
+        });
+      } catch (firstError: any) {
+        const firstMessage = String(firstError?.message || "");
+        const normalizedFirstMessage = firstMessage.toLowerCase();
+        const isIncorrectUserId =
+          normalizedFirstMessage.includes("incorrect_user_id") ||
+          normalizedFirstMessage.includes("requested user id does not exist");
+        if (!shouldForceFreshSession && isIncorrectUserId) {
+          // Recover when a previously saved Phyllo user id was removed/invalidated in sandbox.
+          session = await startConnectMutation.mutateAsync({
+            forceNewUser: true,
+          });
+        } else {
+          const shouldFallback =
+            shouldForceFreshSession &&
+            (firstMessage.includes("Phyllo API credentials are missing") ||
+              firstMessage.includes("PHYLLO_AUTH_BASIC"));
+          if (!shouldFallback) throw firstError;
+          // Graceful fallback for bootstrap environments where forceNewUser is unavailable.
+          session = await startConnectMutation.mutateAsync({});
+        }
+      }
+      if (!session?.sdkToken || !session?.phylloUserId) {
+        throw new Error("Could not create a Phyllo connect session.");
+      }
+
+      if (Platform.OS === "web") {
+        const launchWebConnect = async (connectSession: typeof session) =>
+          openPhylloConnectWeb({
+            scriptUrl:
+              connectSession.connectConfig?.scriptUrl ||
+              "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js",
+            environment:
+              connectSession.connectConfig?.environment === "production"
+                ? "production"
+                : "sandbox",
+            userId: connectSession.phylloUserId,
+            token: connectSession.sdkToken,
+            clientDisplayName:
+              connectSession.connectConfig?.clientDisplayName || "LocoMotivate",
+          });
+
+        let result = await launchWebConnect(session);
+        if (result.status === "failed" && result.reason === "token_expired") {
+          try {
+            const refreshedSession = await startConnectMutation.mutateAsync({
+              forceNewUser: true,
+            });
+            if (refreshedSession?.sdkToken && refreshedSession?.phylloUserId) {
+              result = await launchWebConnect(refreshedSession);
+            }
+          } catch {
+            // Keep original token_expired result and show a user-facing message below.
+          }
+        }
+        const finalized = await completeConnectMutation.mutateAsync({
+          status: result.status,
+          reason: result.reason,
+        });
+        const connectedPlatforms = Number(
+          finalized?.profile?.platforms?.length || 0,
+        );
+        if (result.status === "connected") {
+          const message =
+            connectedPlatforms > 0
+              ? `Connected successfully. ${connectedPlatforms} platform(s) linked.`
+              : "Connected successfully. Refresh status to load your latest platform metrics.";
+          setActionSuccess(message);
+        } else if (result.status === "cancelled") {
+          const reason = String(result.reason || "").trim();
+          if (isNoSelectionCloseReason(reason)) {
+            setActionSuccess(null);
+            setActionError(null);
+            return;
+          }
+          setActionError(
+            reason
+              ? `Connection closed (${reason}). If you already linked supported platforms, there may be no additional providers to add.`
+              : "Connection was cancelled before any platform was linked.",
+          );
+        } else {
+          const message =
+            result.reason === "token_expired"
+              ? "Phyllo connect session expired. Please retry. If it keeps happening, refresh PHYLLO credentials."
+              : result.reason || "Could not connect your social platforms.";
+          setActionError(message);
+        }
+        return;
+      }
+
+      if (hasNativePhylloConnectSdk()) {
+        const launchNativeConnect = async (connectSession: typeof session) =>
+          openPhylloConnectNative({
+            environment:
+              connectSession.connectConfig?.environment === "production"
+                ? "production"
+                : "sandbox",
+            userId: connectSession.phylloUserId,
+            token: connectSession.sdkToken,
+            clientDisplayName:
+              connectSession.connectConfig?.clientDisplayName || "LocoMotivate",
+          });
+
+        let result = await launchNativeConnect(session);
+        if (result.status === "failed" && result.reason === "token_expired") {
+          try {
+            const refreshedSession = await startConnectMutation.mutateAsync({
+              forceNewUser: true,
+            });
+            if (refreshedSession?.sdkToken && refreshedSession?.phylloUserId) {
+              result = await launchNativeConnect(refreshedSession);
+            }
+          } catch {
+            // Keep original token_expired result and show message below.
+          }
+        }
+
+        const finalized = await completeConnectMutation.mutateAsync({
+          status: result.status,
+          reason: result.reason,
+        });
+        const connectedPlatforms = Number(
+          finalized?.profile?.platforms?.length || 0,
+        );
+        if (result.status === "connected") {
+          const message =
+            connectedPlatforms > 0
+              ? `Connected successfully. ${connectedPlatforms} platform(s) linked.`
+              : "Connected successfully. Refresh status to load your latest platform metrics.";
+          setActionSuccess(message);
+        } else if (result.status === "cancelled") {
+          const reason = String(result.reason || "").trim();
+          if (isNoSelectionCloseReason(reason)) {
+            setActionSuccess(null);
+            setActionError(null);
+            return;
+          }
+          setActionError(
+            reason
+              ? `Connection closed (${reason}). If you already linked supported platforms, there may be no additional providers to add.`
+              : "Connection was cancelled before any platform was linked.",
+          );
+        } else {
+          const message =
+            result.reason === "token_expired"
+              ? "Phyllo connect session expired. Please retry. If it keeps happening, refresh PHYLLO credentials."
+              : result.reason || "Could not connect your social platforms.";
+          setActionError(message);
+        }
+        return;
+      }
+
+      const callbackUrl = Linking.createURL("/phyllo/callback", {
+        queryParams: {
+          returnTo: encodeURIComponent("/(trainer)/social-program"),
+        },
+      });
+      const connectBridgeUrl =
+        `${appApiBase}/api/phyllo/connect` +
+        `?token=${encodeURIComponent(session.sdkToken)}` +
+        `&userId=${encodeURIComponent(session.phylloUserId)}` +
+        `&environment=${encodeURIComponent(session.connectConfig?.environment || "sandbox")}` +
+        `&clientDisplayName=${encodeURIComponent(
+          session.connectConfig?.clientDisplayName || "LocoMotivate",
+        )}` +
+        `&scriptUrl=${encodeURIComponent(
+          session.connectConfig?.scriptUrl ||
+            "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js",
+        )}` +
+        `&returnTo=${encodeURIComponent(callbackUrl)}`;
+
+      setNativeConnectSheet({
+        connectUrl: connectBridgeUrl,
+        callbackPrefix: callbackUrl.split("?")[0] || callbackUrl,
+      });
+      return;
     } catch (error: any) {
-      const message = String(error?.message || "Unable to connect Phyllo right now.");
+      const message = String(
+        error?.message || "Unable to connect Phyllo right now.",
+      );
       setActionError(message);
-      showFeedback("Connection failed", message);
     }
   };
 
   return (
     <ScreenContainer>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <Modal
+        visible={Boolean(nativeConnectSheet)}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={async () => {
+          setNativeConnectSheet(null);
+          await completeConnectMutation.mutateAsync({
+            status: "cancelled",
+            reason: "user_closed_connect_flow",
+          });
+          setActionError(
+            "Connection was cancelled before any platform was linked.",
+          );
+        }}
+      >
+        <View className="flex-1 bg-background">
+          <View className="px-4 pt-14 pb-3 border-b border-border flex-row items-center justify-between">
+            <Text className="text-base font-semibold text-foreground">
+              Connect social platforms
+            </Text>
+            <Pressable
+              onPress={async () => {
+                setNativeConnectSheet(null);
+                await completeConnectMutation.mutateAsync({
+                  status: "cancelled",
+                  reason: "user_closed_connect_flow",
+                });
+                setActionError(
+                  "Connection was cancelled before any platform was linked.",
+                );
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close social platform connect modal"
+              testID="social-connect-native-close"
+              className="px-3 py-2 rounded-lg bg-surface border border-border"
+            >
+              <Text className="text-sm font-medium text-foreground">Close</Text>
+            </Pressable>
+          </View>
+          {nativeConnectSheet ? (
+            <WebView
+              source={{ uri: nativeConnectSheet.connectUrl }}
+              startInLoadingState
+              onShouldStartLoadWithRequest={(request) => {
+                const requestUrl = String(request?.url || "");
+                if (!requestUrl) return true;
+                if (!requestUrl.startsWith(nativeConnectSheet.callbackPrefix)) {
+                  return true;
+                }
+                setNativeConnectSheet(null);
+                const parsed = Linking.parse(requestUrl);
+                router.replace({
+                  pathname: "/phyllo/callback",
+                  params: parsed.queryParams as any,
+                } as any);
+                return false;
+              }}
+            />
+          ) : null}
+        </View>
+      </Modal>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingBottom: Platform.OS === "web" ? 116 : 92,
+        }}
+      >
         <ScreenHeader
-          title="Get Paid for Social Posts"
+          title="Get Paid for Social Posts."
           subtitle="Join campaigns, track compliance, and earn from approved social content."
           leftSlot={
             <ActionButton
@@ -143,15 +487,22 @@ export default function TrainerSocialProgramScreen() {
               accessibilityLabel="Go back"
               testID="social-program-back"
             >
-              <IconSymbol name="chevron.left" size={18} color={colors.primary} />
+              <IconSymbol
+                name="chevron.left"
+                size={18}
+                color={colors.primary}
+              />
             </ActionButton>
           }
         />
 
-        <View className="px-4 pb-8 gap-4">
+        <View className="px-4 pb-28 gap-4">
           {actionError ? (
             <SurfaceCard style={{ borderColor: "rgba(248,113,113,0.4)" }}>
-              <Text className="text-sm font-semibold" style={{ color: "#F87171" }}>
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: "#F87171" }}
+              >
                 Connection error
               </Text>
               <Text className="text-sm text-muted mt-1">{actionError}</Text>
@@ -159,14 +510,19 @@ export default function TrainerSocialProgramScreen() {
           ) : null}
           {actionSuccess ? (
             <SurfaceCard style={{ borderColor: "rgba(52,211,153,0.45)" }}>
-              <Text className="text-sm font-semibold" style={{ color: "#34D399" }}>
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: "#34D399" }}
+              >
                 Success
               </Text>
               <Text className="text-sm text-muted mt-1">{actionSuccess}</Text>
             </SurfaceCard>
           ) : null}
 
-          <SurfaceCard style={{ overflow: "hidden", borderColor: "rgba(96,165,250,0.5)" }}>
+          <SurfaceCard
+            style={{ overflow: "hidden", borderColor: "rgba(96,165,250,0.5)" }}
+          >
             <View
               pointerEvents="none"
               style={{
@@ -192,27 +548,81 @@ export default function TrainerSocialProgramScreen() {
                 transform: [{ translateY: orbFloatY }],
               }}
             />
-            <View className="rounded-full self-start px-2.5 py-1 mb-2 flex-row items-center" style={{ backgroundColor: "rgba(96,165,250,0.16)", borderWidth: 1, borderColor: "rgba(96,165,250,0.4)" }}>
+            <View
+              className="rounded-full self-start px-2.5 py-1 mb-2 flex-row items-center"
+              style={{
+                backgroundColor: "rgba(96,165,250,0.16)",
+                borderWidth: 1,
+                borderColor: "rgba(96,165,250,0.4)",
+              }}
+            >
               <IconSymbol name="sparkles" size={12} color={colors.primary} />
-              <Text className="text-xs font-semibold ml-1" style={{ color: colors.primary }}>
+              <Text
+                className="text-xs font-semibold ml-1"
+                style={{ color: colors.primary }}
+              >
                 Creator Rewards
               </Text>
             </View>
-            <Text className="text-lg font-bold text-foreground">Turn posts into payouts</Text>
+            <Text className="text-lg font-bold text-foreground">
+              Turn posts into payouts
+            </Text>
             <Text className="text-sm text-muted mt-1">
-              Connect Phyllo, unlock campaign invites, and track your progress in one place.
+              Connect Phyllo, unlock campaign invites, and track your progress
+              in one place.
             </Text>
             <View className="flex-row mt-3">
               {["Followers", "Views", "Compliance"].map((pill) => (
                 <View
                   key={pill}
                   className="mr-2 rounded-full px-2.5 py-1"
-                  style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: "rgba(255,255,255,0.04)" }}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                  }}
                 >
-                  <Text className="text-[10px] font-semibold text-muted">{pill}</Text>
+                  <Text className="text-[10px] font-semibold text-muted">
+                    {pill}
+                  </Text>
                 </View>
               ))}
             </View>
+          </SurfaceCard>
+
+          <SurfaceCard>
+            <Text className="text-base font-semibold text-foreground mb-2">
+              Quick connect
+            </Text>
+            <Text className="text-sm text-muted mb-3">
+              Connect now to pick platforms like YouTube and sync your metrics.
+              {"\n"}
+              You can reopen this anytime to connect additional platforms.
+            </Text>
+            <ActionButton
+              onPress={handleConnectPhyllo}
+              loading={
+                startConnectMutation.isPending ||
+                completeConnectMutation.isPending
+              }
+              loadingText="Connecting..."
+              disabled={!canAttemptConnect || isRestrictedStatus}
+              accessibilityRole="button"
+              accessibilityLabel={
+                hasPendingInvite
+                  ? "Accept invite and continue"
+                  : isConnected
+                    ? "Connect more social platforms"
+                    : "Connect Phyllo now"
+              }
+              testID="social-primary-cta-top"
+            >
+              {hasPendingInvite
+                ? "Accept invite and continue"
+                : isConnected
+                  ? "Connect more platforms"
+                  : "Connect with Phyllo"}
+            </ActionButton>
           </SurfaceCard>
 
           <SurfaceCard>
@@ -232,7 +642,8 @@ export default function TrainerSocialProgramScreen() {
               - Average views target: 1,000+ per post
             </Text>
             <Text className="text-sm text-muted">
-              - Performance metrics tracked: engagement, CTR, share/save, intent actions
+              - Performance metrics tracked: engagement, CTR, share/save, intent
+              actions
             </Text>
           </SurfaceCard>
 
@@ -240,7 +651,9 @@ export default function TrainerSocialProgramScreen() {
             <SurfaceCard>
               <View className="py-4 items-center">
                 <ActivityIndicator size="small" color={colors.primary} />
-                <Text className="text-sm text-muted mt-2">Loading social status...</Text>
+                <Text className="text-sm text-muted mt-2">
+                  Loading social status...
+                </Text>
               </View>
             </SurfaceCard>
           ) : (
@@ -260,6 +673,12 @@ export default function TrainerSocialProgramScreen() {
                   {isConnected ? "Yes" : "No"}
                 </Text>
               </Text>
+              <Text className="text-sm text-muted mt-1">
+                Linked platforms:{" "}
+                <Text className="text-foreground font-semibold">
+                  {platformStats.length}
+                </Text>
+              </Text>
               {data?.invitedBy?.name ? (
                 <Text className="text-sm text-muted mt-1">
                   Invited by:{" "}
@@ -271,17 +690,50 @@ export default function TrainerSocialProgramScreen() {
             </SurfaceCard>
           )}
 
+          {platformStats.length > 0 ? (
+            <SurfaceCard>
+              <Text className="text-base font-semibold text-foreground mb-2">
+                Authorized platforms
+              </Text>
+              <View className="gap-2">
+                {platformStats.map((row) => (
+                  <View
+                    key={row.platform}
+                    className="rounded-xl border border-border px-3 py-2 flex-row items-center justify-between"
+                  >
+                    <View className="flex-1 pr-3">
+                      <Text className="text-sm font-semibold text-foreground capitalize">
+                        {row.platform}
+                      </Text>
+                      <Text className="text-xs text-muted mt-0.5">
+                        Followers: {row.followers.toLocaleString()}
+                      </Text>
+                    </View>
+                    <View className="items-end">
+                      <Text className="text-xs text-muted">
+                        Impressions / month
+                      </Text>
+                      <Text className="text-sm font-semibold text-foreground">
+                        {row.impressions.toLocaleString()}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </SurfaceCard>
+          ) : null}
+
           <SurfaceCard style={{ overflow: "visible" }}>
             <Text className="text-base font-semibold text-foreground mb-2">
               Next step
             </Text>
             <Text className="text-sm text-muted mb-3">
               {hasPendingInvite
-                ? "Accept your invite to activate social program enrollment."
+                ? "Accept your invite and immediately connect your social platforms."
                 : isConnected
-                  ? "Your Phyllo account is connected. You can refresh the connection or view progress."
+                  ? "Your Phyllo account is connected. Reopen connect anytime to add more social platforms."
                   : canAttemptConnect
-                    ? "Connect Phyllo now to start pulling social metrics for campaign eligibility."
+                    ? "Connect Phyllo now to select your social platforms and start syncing metrics."
                     : "Your membership is restricted. Ask a coordinator or manager to reactivate you."}
             </Text>
             <Animated.View style={{ transform: [{ scale: ctaRingScale }] }}>
@@ -300,22 +752,27 @@ export default function TrainerSocialProgramScreen() {
                 }}
               />
               <ActionButton
-                onPress={() =>
-                  hasPendingInvite && data?.pendingInvite?.id
-                    ? acceptMutation.mutate({ inviteId: data.pendingInvite.id })
-                    : handleConnectPhyllo()
+                onPress={handleConnectPhyllo}
+                loading={
+                  startConnectMutation.isPending ||
+                  completeConnectMutation.isPending
                 }
-                loading={hasPendingInvite ? acceptMutation.isPending : connectMutation.isPending}
-                loadingText={hasPendingInvite ? "Accepting..." : "Connecting..."}
-                disabled={!hasPendingInvite && (!canAttemptConnect || isRestrictedStatus)}
+                loadingText="Connecting..."
+                disabled={!canAttemptConnect || isRestrictedStatus}
                 accessibilityRole="button"
-                accessibilityLabel={hasPendingInvite ? "Accept invite and continue" : "Connect Phyllo now"}
+                accessibilityLabel={
+                  hasPendingInvite
+                    ? "Accept invite and continue"
+                    : isConnected
+                      ? "Connect more social platforms"
+                      : "Connect Phyllo now"
+                }
                 testID="social-primary-cta"
               >
                 {hasPendingInvite
                   ? "Accept invite and continue"
                   : isConnected
-                    ? "Refresh Phyllo connection"
+                    ? "Connect more platforms"
                     : "Connect with Phyllo"}
               </ActionButton>
             </Animated.View>
@@ -363,11 +820,12 @@ export default function TrainerSocialProgramScreen() {
                 Invitation received
               </Text>
               <Text className="text-sm text-muted mb-3">
-                Accept in the Next step section above to join the social program and
-                start connecting your channels.
+                Accept in the Next step section above to join the social program
+                and start connecting your channels.
               </Text>
               <Text className="text-xs text-muted">
-                Tip: once accepted, tap Connect with Phyllo to start syncing your profiles.
+                Tip: once accepted, tap Connect with Phyllo to start syncing
+                your profiles.
               </Text>
             </SurfaceCard>
           ) : null}

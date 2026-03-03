@@ -73,6 +73,42 @@ export default function LoginScreen() {
     return () => clearTimeout(timer);
   }, [authLoading, isAuthenticated]);
 
+  // Web autoplay can fail on initial mount; retry when tab gains focus/visibility.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryPlay = async () => {
+      if (cancelled) return;
+      try {
+        backgroundPlayer.loop = true;
+        backgroundPlayer.muted = true;
+        await Promise.resolve((backgroundPlayer as any).play?.());
+      } catch {
+        retryTimer = setTimeout(tryPlay, 400);
+      }
+    };
+
+    const onVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      tryPlay();
+    };
+
+    tryPlay();
+    if (typeof window !== "undefined") window.addEventListener("focus", onVisible);
+    if (typeof document !== "undefined")
+      document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (typeof window !== "undefined") window.removeEventListener("focus", onVisible);
+      if (typeof document !== "undefined")
+        document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [backgroundPlayer]);
+
   const handleLogin = async (testEmail?: string | any, testPassword?: string) => {
     // Handle both direct calls with test credentials and button press events
     if (typeof testEmail !== 'string') {

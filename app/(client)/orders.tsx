@@ -210,11 +210,7 @@ export default function ClientOrdersScreen() {
       Alert.alert("Payment Pending", "Unable to generate payment link. Please try again.");
     } catch (error) {
       console.error("[Orders] Failed to create payment link:", error);
-      if (Platform.OS === "web") {
-        window.alert("Unable to create payment link. Please try again.");
-      } else {
-        Alert.alert("Error", "Unable to create payment link. Please try again.");
-      }
+      Alert.alert("Error", "Unable to create payment link. Please try again.");
     }
   };
 

@@ -14,6 +14,14 @@ type PhylloSdkTokenResponse = {
   expires_at: string;
 };
 
+export type PhylloSdkTokenClaims = {
+  iss?: string;
+  aud?: string | string[];
+  exp?: number;
+  iat?: number;
+  user_id?: string;
+};
+
 function ensurePhylloConfigured() {
   if (!ENV.phylloAuthBasic) {
     throw new Error("PHYLLO_AUTH_BASIC is required for Phyllo API calls");
@@ -113,4 +121,41 @@ export function getBootstrapSdkTokenFromEnv() {
     sdkToken: ENV.phylloSdkToken,
     expiresAt: ENV.phylloSdkTokenExpiresAt || null,
   };
+}
+
+function decodeBase64Url(input: string): string {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const paddingLength = (4 - (normalized.length % 4 || 4)) % 4;
+  const padded = `${normalized}${"=".repeat(paddingLength)}`;
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+export function decodePhylloSdkTokenClaims(token: string): PhylloSdkTokenClaims | null {
+  try {
+    const parts = String(token || "").split(".");
+    if (parts.length < 2) return null;
+    const payload = decodeBase64Url(parts[1]);
+    const parsed = JSON.parse(payload);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as PhylloSdkTokenClaims;
+  } catch {
+    return null;
+  }
+}
+
+export function inferPhylloTokenEnvironment(
+  claims: PhylloSdkTokenClaims | null,
+): "sandbox" | "production" | "unknown" {
+  if (!claims) return "unknown";
+  const targets = [
+    ...(Array.isArray(claims.aud) ? claims.aud : [claims.aud]),
+    claims.iss,
+  ]
+    .map((value) => String(value || "").toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+  if (!targets) return "unknown";
+  if (targets.includes("staging") || targets.includes("sandbox")) return "sandbox";
+  if (targets.includes("api.getphyllo.com")) return "production";
+  return "unknown";
 }

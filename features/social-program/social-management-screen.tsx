@@ -40,6 +40,11 @@ export function SocialManagementScreen({ roleLabel }: Props) {
     search,
     limit: 250,
   });
+  const allMembersQuery = trpc.socialProgram.listMembers.useQuery({
+    status: "all",
+    search: "",
+    limit: 500,
+  });
   const eligibleQuery = trpc.socialProgram.listEligibleTrainers.useQuery({
     search: inviteQuery,
     limit: 300,
@@ -79,13 +84,17 @@ export function SocialManagementScreen({ roleLabel }: Props) {
   });
 
   const eligibleRows = useMemo(() => {
+    const existingTrainerIds = new Set(
+      (allMembersQuery.data || []).map((member) => String(member.trainerId || "")).filter(Boolean),
+    );
+
     if (isEligibleProcedureMissing) {
       return (eligibleFallbackQuery.data?.users || []).map((user) => ({
         id: user.id,
         name: user.name,
         email: user.email,
         socialMembership: null,
-      }));
+      })).filter((row) => !existingTrainerIds.has(String(row.id)));
     }
     return (eligibleQuery.data || [])
       .filter((row) =>
@@ -93,13 +102,19 @@ export function SocialManagementScreen({ roleLabel }: Props) {
           String(row?.socialMembership?.status || "").toLowerCase(),
         ),
       )
+      .filter((row) => !existingTrainerIds.has(String(row.id)))
       .map((row) => ({
         id: row.id,
         name: row.name,
         email: row.email,
         socialMembership: row.socialMembership,
       }));
-  }, [isEligibleProcedureMissing, eligibleFallbackQuery.data?.users, eligibleQuery.data]);
+  }, [
+    allMembersQuery.data,
+    isEligibleProcedureMissing,
+    eligibleFallbackQuery.data?.users,
+    eligibleQuery.data,
+  ]);
 
   useEffect(() => {
     if (!showInviteModal) return;

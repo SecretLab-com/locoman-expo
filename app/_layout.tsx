@@ -21,6 +21,7 @@ import {
 } from "react-native-safe-area-context";
 
 import { ShareIntentRouter } from "@/components/share-intent-router";
+import { InAppAlertHost } from "@/components/in-app-alert-host";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
 import { MobileAppBanner } from "@/components/mobile-app-banner";
 import { IncomingMessageFAB } from "@/components/incoming-message-fab";
@@ -36,6 +37,7 @@ import { OfflineProvider } from "@/contexts/offline-context";
 import { RealtimeProvider } from "@/contexts/realtime-context";
 import { useDeepLink } from "@/hooks/use-deep-link";
 import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
+import { installWebAlertOverride } from "@/lib/in-app-alert";
 import { getHomeRoute } from "@/lib/navigation";
 import { createTRPCClient, trpc } from "@/lib/trpc";
 
@@ -279,6 +281,13 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
+    const cleanup = installWebAlertOverride();
+    return () => {
+      cleanup();
+    };
+  }, []);
+
+  useEffect(() => {
     const maybeShowUpdateAlert = async () => {
       if (__DEV__ || Platform.OS === "web" || !Updates.isEnabled) return;
 
@@ -425,6 +434,7 @@ export default function RootLayout() {
                     >
                       <ImpersonationBanner />
                       <MobileAppBanner />
+                      <InAppAlertHost />
                       <PostAuthOnboardingResolver />
                       <ShareIntentRouter />
                       <View style={{ flex: 1 }}>

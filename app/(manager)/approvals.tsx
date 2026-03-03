@@ -50,21 +50,13 @@ type Bundle = {
   };
 };
 
-const STATUS_TABS: { key: BundleStatus | "all"; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "pending_review", label: "Pending" },
-  { key: "changes_requested", label: "Changes Requested" },
-  { key: "published", label: "Published" },
-  { key: "rejected", label: "Rejected" },
-];
-
 export default function ManagerApprovalsScreen() {
   const colors = useColors();
   const { isAuthenticated, effectiveUser } = useAuthContext();
   const colorScheme = useColorScheme();
   const overlayColor = "rgba(0,0,0,0.85)";
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<BundleStatus | "all">("pending_review");
+  const [activeTab, setActiveTab] = useState<BundleStatus | "all">("all");
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
   const [comments, setComments] = useState("");
@@ -350,6 +342,7 @@ export default function ManagerApprovalsScreen() {
 
   // Stats
   const stats = {
+    all: (bundles as Bundle[]).length,
     pending: (bundles as Bundle[]).filter((b) => b.status === "pending_review").length,
     changesRequested: (bundles as Bundle[]).filter((b) => b.status === "changes_requested").length,
     published: (bundles as Bundle[]).filter((b) => b.status === "published").length,
@@ -383,48 +376,72 @@ export default function ManagerApprovalsScreen() {
         </View>
       </View>
 
-      {/* Stats */}
+      {/* Clickable status totals (summary + filter in one row) */}
       <View className="flex-row gap-2 mb-4">
-        <View className="flex-1 bg-warning/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold text-warning">{stats.pending}</Text>
-          <Text className="text-xs text-muted">Pending</Text>
-        </View>
-        <View className="flex-1 bg-orange-500/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold" style={{ color: "#F97316" }}>{stats.changesRequested}</Text>
-          <Text className="text-xs text-muted">Changes</Text>
-        </View>
-        <View className="flex-1 bg-success/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold text-success">{stats.published}</Text>
-          <Text className="text-xs text-muted">Published</Text>
-        </View>
-        <View className="flex-1 bg-error/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold text-error">{stats.rejected}</Text>
-          <Text className="text-xs text-muted">Rejected</Text>
-        </View>
-      </View>
-
-      {/* Status Tabs */}
-      <View className="mb-4">
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={STATUS_TABS}
-          keyExtractor={(item) => item.key}
-          renderItem={({ item }) => (
+        {[
+          {
+            key: "all" as const,
+            label: "All",
+            value: stats.all,
+            color: colors.primary,
+            background: `${colors.primary}10`,
+          },
+          {
+            key: "pending_review" as const,
+            label: "Pending",
+            value: stats.pending,
+            color: colors.warning,
+            background: `${colors.warning}10`,
+          },
+          {
+            key: "changes_requested" as const,
+            label: "Changes",
+            value: stats.changesRequested,
+            color: "#F97316",
+            background: "rgba(249, 115, 22, 0.10)",
+          },
+          {
+            key: "published" as const,
+            label: "Published",
+            value: stats.published,
+            color: colors.success,
+            background: `${colors.success}10`,
+          },
+          {
+            key: "rejected" as const,
+            label: "Rejected",
+            value: stats.rejected,
+            color: colors.error,
+            background: `${colors.error}10`,
+          },
+        ].map((item) => {
+          const selected = activeTab === item.key;
+          return (
             <TouchableOpacity
-              className={`px-4 py-2 mr-2 rounded-full ${activeTab === item.key ? "bg-primary" : "bg-surface border border-border"
-                }`}
+              key={item.key}
+              className="flex-1 rounded-xl p-3 items-center border"
               onPress={() => setActiveTab(item.key)}
+              style={{
+                backgroundColor: item.background,
+                borderColor: selected ? item.color : colors.border,
+                borderWidth: selected ? 2 : 1,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter approvals by ${item.label}`}
+              testID={`approvals-filter-${item.key}`}
             >
+              <Text className="text-xl font-bold" style={{ color: item.color }}>
+                {item.value}
+              </Text>
               <Text
-                className={`font-medium ${activeTab === item.key ? "text-background" : "text-foreground"
-                  }`}
+                className="text-xs"
+                style={{ color: selected ? item.color : colors.muted, fontWeight: selected ? "700" : "500" }}
               >
                 {item.label}
               </Text>
             </TouchableOpacity>
-          )}
-        />
+          );
+        })}
       </View>
 
       {/* Bundles List */}

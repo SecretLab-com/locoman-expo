@@ -183,10 +183,10 @@ export default function BundleEditorScreen() {
     if (Platform.OS === 'web') {
       if (buttons && buttons.length > 0) {
         const confirmButton = buttons.find(b => b.text !== 'Cancel') || buttons[0];
-        window.alert(`${title}\n\n${message}`);
+        Alert.alert(title, message);
         confirmButton?.onPress?.();
       } else {
-        window.alert(`${title}\n\n${message}`);
+        Alert.alert(title, message);
       }
     } else {
       Alert.alert(title, message, buttons);
@@ -672,7 +672,7 @@ export default function BundleEditorScreen() {
           confirmButton?.onPress?.();
         }
       } else {
-        window.alert(`${title}\n\n${message}`);
+        Alert.alert(title, message);
       }
     } else {
       Alert.alert(title, message, buttons);

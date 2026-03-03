@@ -502,11 +502,7 @@ export default function UsersScreen() {
         setSelectedUser((prev) => (prev ? { ...prev, active: newActive } : null));
         usersQuery.refetch();
       } catch {
-        if (Platform.OS === "web") {
-          window.alert(`Error\n\nFailed to ${action} user`);
-        } else {
-          Alert.alert("Error", `Failed to ${action} user`);
-        }
+        Alert.alert("Error", `Failed to ${action} user`);
       }
     };
 
@@ -579,11 +575,10 @@ export default function UsersScreen() {
       }, 500);
     } catch (error) {
       console.error("[Impersonate] Failed:", error);
-      if (Platform.OS === "web") {
-        window.alert(`Error\n\nFailed to start impersonation: ${error instanceof Error ? error.message : "Unknown error"}`);
-      } else {
-        Alert.alert("Error", "Failed to start impersonation");
-      }
+      Alert.alert(
+        "Error",
+        `Failed to start impersonation: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   };
 
