@@ -345,13 +345,52 @@ async function syncPhylloProfileForTrainer(params: {
   const accounts = normalizeRows(accountsRaw);
   const profiles = normalizeRows(profilesRaw);
 
+  const normalizePlatformName = (value: unknown): string => {
+    const raw = String(value || "")
+      .trim()
+      .toLowerCase();
+    if (!raw || raw === "unknown" || raw === "n/a" || raw === "na") return "";
+    if (
+      raw.includes("youtube") ||
+      raw.includes("yt ") ||
+      raw.includes("yt_") ||
+      (raw.includes("google") && raw.includes("video")) ||
+      (raw.includes("google") && raw.includes("channel"))
+    ) {
+      return "youtube";
+    }
+    if (raw.includes("instagram")) return "instagram";
+    if (raw.includes("tiktok")) return "tiktok";
+    if (raw.includes("facebook")) return "facebook";
+    if (raw === "x" || raw.includes("twitter")) return raw === "x" ? "x" : "twitter";
+    if (raw.includes("linkedin")) return "linkedin";
+    if (raw.includes("twitch")) return "twitch";
+    if (raw.includes("snapchat")) return "snapchat";
+    if (raw.includes("pinterest")) return "pinterest";
+    return raw.replace(/\s+/g, "_");
+  };
+
+  const resolvePlatform = (row: any): string =>
+    normalizePlatformName(
+      row?.platform ||
+        row?.platform_name ||
+        row?.work_platform?.name ||
+        row?.workPlatform?.name ||
+        row?.work_platform_name ||
+        row?.network ||
+        row?.name ||
+        "",
+    );
+
   const platformNames = Array.from(
     new Set(
-      profiles
-        .map((row: any) => String(row?.platform || row?.platform_name || ""))
-        .filter(Boolean),
+      [...profiles, ...accounts].map((row: any) => resolvePlatform(row)).filter(Boolean),
     ),
   );
+  const normalizedPlatformNames =
+    platformNames.length === 1 && platformNames[0] === "unknown"
+      ? ["youtube"]
+      : platformNames;
 
   const followerCount = profiles.reduce(
     (sum: number, row: any) =>
@@ -389,7 +428,7 @@ async function syncPhylloProfileForTrainer(params: {
     trainerId: params.trainerId,
     phylloUserId: params.phylloUserId,
     phylloAccountIds: accounts.map((a: any) => String(a?.id)).filter(Boolean),
-    platforms: platformNames,
+    platforms: normalizedPlatformNames,
     followerCount,
     avgViewsPerMonth,
     avgEngagementRate,

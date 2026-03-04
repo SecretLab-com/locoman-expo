@@ -2,6 +2,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
+import { getHomeRoute } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import { useShareIntentContext } from "expo-share-intent";
 import { router } from "expo-router";
@@ -29,7 +30,7 @@ type Conversation = {
 
 export default function ShareIntentScreen() {
   const colors = useColors();
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, effectiveRole } = useAuthContext();
   const { shareIntent, resetShareIntent } = useShareIntentContext();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -159,9 +160,9 @@ export default function ShareIntentScreen() {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace("/");
+      router.replace(getHomeRoute(effectiveRole) as any);
     }
-  }, [resetShareIntent]);
+  }, [effectiveRole, resetShareIntent]);
 
   if (!hasContent) {
     return (

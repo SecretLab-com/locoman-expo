@@ -1,5 +1,6 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
+import { getHomeRoute } from "@/lib/navigation";
 import { signInWithGoogle } from "@/lib/google-oauth";
 import { clearPendingOnboardingContext, savePendingOnboardingContext } from "@/lib/onboarding-context";
 import { supabase } from "@/lib/supabase-client";
@@ -92,7 +93,7 @@ export default function RegisterScreen() {
       }
 
       triggerAuthRefresh();
-      router.replace("/");
+      router.replace(getHomeRoute(null) as any);
     } catch (err) {
       await clearPendingOnboardingContext();
       setError(err instanceof Error ? err.message : "Registration failed");

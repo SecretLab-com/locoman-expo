@@ -6,6 +6,11 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { getApiBaseUrl } from "@/lib/api-config";
 import {
+  getSocialPlatformIcon,
+  inferSocialPlatformFromText,
+  normalizeSocialPlatform,
+} from "@/lib/social-platforms";
+import {
   hasNativePhylloConnectSdk,
   openPhylloConnectNative,
 } from "@/lib/phyllo-connect-native";
@@ -13,6 +18,7 @@ import { openPhylloConnectWeb } from "@/lib/phyllo-connect";
 import { trpc } from "@/lib/trpc";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -26,6 +32,7 @@ import {
   View,
 } from "react-native";
 import { WebView } from "react-native-webview";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TrainerSocialProgramScreen() {
   const routeParams = useLocalSearchParams<{
@@ -33,6 +40,7 @@ export default function TrainerSocialProgramScreen() {
     reason?: string;
   }>();
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.socialProgram.myStatus.useQuery();
   const ctaPulseAnim = useRef(new Animated.Value(0)).current;
@@ -74,14 +82,43 @@ export default function TrainerSocialProgramScreen() {
     )
       ? ((data?.profile as any)?.metadata?.rawProfiles as any[])
       : [];
+    const directPlatforms = Array.isArray((data?.profile as any)?.platforms)
+      ? ((data?.profile as any)?.platforms as any[])
+      : [];
+    const rawAccounts = Array.isArray(
+      (data?.profile as any)?.metadata?.rawAccounts,
+    )
+      ? ((data?.profile as any)?.metadata?.rawAccounts as any[])
+      : [];
     const rows = new Map<
       string,
       { platform: string; followers: number; impressions: number }
     >();
     for (const row of rawProfiles) {
-      const platform =
-        String(row?.platform || row?.platform_name || "Unknown").trim() ||
-        "Unknown";
+      const rawPlatform =
+        row?.platform ||
+        row?.platform_name ||
+        row?.work_platform?.name ||
+        row?.workPlatform?.name ||
+        row?.work_platform_name ||
+        row?.network ||
+        "";
+      const normalizedPlatform =
+        normalizeSocialPlatform(rawPlatform) ||
+        inferSocialPlatformFromText(
+          [
+            row?.url,
+            row?.profile_url,
+            row?.profileUrl,
+            row?.account_url,
+            row?.accountUrl,
+            row?.username,
+            row?.handle,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+      const platform = normalizedPlatform || "unknown";
       const followers = Number(
         row?.audience?.follower_count || row?.followers || 0,
       );
@@ -98,6 +135,60 @@ export default function TrainerSocialProgramScreen() {
         existing.impressions += impressions;
       } else {
         rows.set(platform, { platform, followers, impressions });
+      }
+    }
+    for (const platformRow of directPlatforms) {
+      const normalizedKey = normalizeSocialPlatform(
+        platformRow?.platform || platformRow?.name || platformRow,
+      );
+      if (!normalizedKey || rows.has(normalizedKey)) continue;
+      rows.set(normalizedKey, {
+        platform: normalizedKey,
+        followers: Number(platformRow?.followers || 0),
+        impressions: Number(
+          platformRow?.impressions || platformRow?.avgViewsPerMonth || 0,
+        ),
+      });
+    }
+    for (const accountRow of rawAccounts) {
+      const normalizedKey =
+        normalizeSocialPlatform(
+          accountRow?.platform ||
+            accountRow?.platform_name ||
+            accountRow?.work_platform?.name ||
+            accountRow?.workPlatform?.name ||
+            accountRow?.work_platform_name ||
+            accountRow?.network ||
+            "",
+        ) ||
+        inferSocialPlatformFromText(
+          [
+            accountRow?.url,
+            accountRow?.profile_url,
+            accountRow?.profileUrl,
+            accountRow?.account_url,
+            accountRow?.accountUrl,
+            accountRow?.username,
+            accountRow?.handle,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+      if (!normalizedKey || rows.has(normalizedKey)) continue;
+      rows.set(normalizedKey, {
+        platform: normalizedKey,
+        followers: 0,
+        impressions: 0,
+      });
+    }
+    if (rows.has("unknown") && rows.size > 1) {
+      rows.delete("unknown");
+    }
+    if (rows.size === 1 && rows.has("unknown")) {
+      const unknownRow = rows.get("unknown");
+      if (unknownRow) {
+        rows.delete("unknown");
+        rows.set("youtube", { ...unknownRow, platform: "youtube" });
       }
     }
     return Array.from(rows.values()).sort((a, b) => b.followers - a.followers);
@@ -425,33 +516,11 @@ export default function TrainerSocialProgramScreen() {
         }}
       >
         <View className="flex-1 bg-background">
-          <View className="px-4 pt-14 pb-3 border-b border-border flex-row items-center justify-between">
-            <Text className="text-base font-semibold text-foreground">
-              Connect social platforms
-            </Text>
-            <Pressable
-              onPress={async () => {
-                setNativeConnectSheet(null);
-                await completeConnectMutation.mutateAsync({
-                  status: "cancelled",
-                  reason: "user_closed_connect_flow",
-                });
-                setActionError(
-                  "Connection was cancelled before any platform was linked.",
-                );
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Close social platform connect modal"
-              testID="social-connect-native-close"
-              className="px-3 py-2 rounded-lg bg-surface border border-border"
-            >
-              <Text className="text-sm font-medium text-foreground">Close</Text>
-            </Pressable>
-          </View>
           {nativeConnectSheet ? (
             <WebView
               source={{ uri: nativeConnectSheet.connectUrl }}
               startInLoadingState
+              style={{ flex: 1 }}
               onShouldStartLoadWithRequest={(request) => {
                 const requestUrl = String(request?.url || "");
                 if (!requestUrl) return true;
@@ -468,6 +537,34 @@ export default function TrainerSocialProgramScreen() {
               }}
             />
           ) : null}
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: "absolute",
+              top: Math.max(insets.top + 8, 12),
+              right: 12,
+            }}
+          >
+            <Pressable
+              onPress={async () => {
+                setNativeConnectSheet(null);
+                await completeConnectMutation.mutateAsync({
+                  status: "cancelled",
+                  reason: "user_closed_connect_flow",
+                });
+                setActionError(
+                  "Connection was cancelled before any platform was linked.",
+                );
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close social platform connect modal"
+              testID="social-connect-native-close"
+              className="px-3 py-2 rounded-lg bg-surface border border-border"
+              style={{ opacity: 0.92 }}
+            >
+              <Text className="text-sm font-medium text-foreground">Close</Text>
+            </Pressable>
+          </View>
         </View>
       </Modal>
       <ScrollView
@@ -673,12 +770,37 @@ export default function TrainerSocialProgramScreen() {
                   {isConnected ? "Yes" : "No"}
                 </Text>
               </Text>
-              <Text className="text-sm text-muted mt-1">
-                Linked platforms:{" "}
-                <Text className="text-foreground font-semibold">
-                  {platformStats.length}
-                </Text>
-              </Text>
+              <Text className="text-sm text-muted mt-1">Linked platforms:</Text>
+              <View className="flex-row flex-wrap gap-2 mt-2">
+                {platformStats.length > 0 ? (
+                  platformStats.map((row) => {
+                    const platformIcon = getSocialPlatformIcon(row.platform);
+                    return (
+                      <View
+                        key={`status-${row.platform}`}
+                        className="flex-row items-center px-2.5 py-1 rounded-full border border-border"
+                        style={{
+                          backgroundColor:
+                            colors.background === "#0A0A14"
+                              ? "rgba(148,163,184,0.22)"
+                              : "rgba(148,163,184,0.16)",
+                        }}
+                      >
+                        <MaterialCommunityIcons
+                          name={platformIcon.icon as any}
+                          size={13}
+                          color={platformIcon.color}
+                        />
+                        <Text className="text-xs text-foreground ml-1.5">
+                          {platformIcon.label}
+                        </Text>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <Text className="text-xs text-muted">None linked yet</Text>
+                )}
+              </View>
               {data?.invitedBy?.name ? (
                 <Text className="text-sm text-muted mt-1">
                   Invited by:{" "}
@@ -696,29 +818,39 @@ export default function TrainerSocialProgramScreen() {
                 Authorized platforms
               </Text>
               <View className="gap-2">
-                {platformStats.map((row) => (
-                  <View
-                    key={row.platform}
-                    className="rounded-xl border border-border px-3 py-2 flex-row items-center justify-between"
-                  >
-                    <View className="flex-1 pr-3">
-                      <Text className="text-sm font-semibold text-foreground capitalize">
-                        {row.platform}
-                      </Text>
-                      <Text className="text-xs text-muted mt-0.5">
-                        Followers: {row.followers.toLocaleString()}
-                      </Text>
+                {platformStats.map((row) => {
+                  const platformIcon = getSocialPlatformIcon(row.platform);
+                  return (
+                    <View
+                      key={row.platform}
+                      className="rounded-xl border border-border px-3 py-2 flex-row items-center justify-between"
+                    >
+                      <View className="flex-1 pr-3">
+                        <View className="flex-row items-center">
+                          <MaterialCommunityIcons
+                            name={platformIcon.icon as any}
+                            size={16}
+                            color={platformIcon.color}
+                          />
+                          <Text className="text-sm font-semibold text-foreground ml-1.5">
+                            {platformIcon.label}
+                          </Text>
+                        </View>
+                        <Text className="text-xs text-muted mt-0.5">
+                          Followers: {row.followers.toLocaleString()}
+                        </Text>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-xs text-muted">
+                          Impressions / month
+                        </Text>
+                        <Text className="text-sm font-semibold text-foreground">
+                          {row.impressions.toLocaleString()}
+                        </Text>
+                      </View>
                     </View>
-                    <View className="items-end">
-                      <Text className="text-xs text-muted">
-                        Impressions / month
-                      </Text>
-                      <Text className="text-sm font-semibold text-foreground">
-                        {row.impressions.toLocaleString()}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             </SurfaceCard>
           ) : null}

@@ -7,6 +7,7 @@
  */
 import { ThemedView } from "@/components/themed-view";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
+import { getHomeRoute } from "@/lib/navigation";
 import { supabase } from "@/lib/supabase-client";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -29,6 +30,11 @@ export default function OAuthCallback() {
   const [status, setStatus] = useState<"processing" | "success" | "error">("processing");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const hasProcessedRef = useRef(false);
+
+  const resolveHomeRoute = (roleLike: unknown) => {
+    const normalized = typeof roleLike === "string" ? roleLike.toLowerCase() : null;
+    return getHomeRoute(normalized || null);
+  };
 
   useEffect(() => {
     if (hasProcessedRef.current) return;
@@ -55,7 +61,7 @@ export default function OAuthCallback() {
             window.location.replace("/");
           } else {
             await new Promise((resolve) => setTimeout(resolve, 300));
-            router.replace("/");
+            router.replace(resolveHomeRoute(preExistingSession.user?.user_metadata?.role) as any);
           }
           return;
         }
@@ -107,7 +113,7 @@ export default function OAuthCallback() {
             window.location.replace("/");
           } else {
             await new Promise((resolve) => setTimeout(resolve, 300));
-            router.replace("/");
+            router.replace(resolveHomeRoute(resolvedSession.user?.user_metadata?.role) as any);
           }
           return;
         }
@@ -184,7 +190,7 @@ export default function OAuthCallback() {
           setStatus("success");
           triggerAuthRefresh();
           await new Promise((resolve) => setTimeout(resolve, 300));
-          router.replace("/");
+          router.replace(resolveHomeRoute(session.user?.user_metadata?.role) as any);
         } else {
           console.warn("[OAuth Callback] No session after processing");
           setStatus("error");

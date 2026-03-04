@@ -51,6 +51,9 @@ function tryDismissAll(): void {
   try {
     // dismissAll / POP_TO_TOP is not supported on web and throws
     if (typeof window !== "undefined" && (window as any).document) return;
+    // Avoid triggering POP_TO_TOP warnings when there is no parent stack to pop.
+    const canGoBack = (router as any).canGoBack;
+    if (typeof canGoBack === "function" && !canGoBack()) return;
     const dismissAll = (router as any).dismissAll;
     if (typeof dismissAll === "function") {
       dismissAll();

@@ -4,6 +4,7 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
+import { getHomeRoute } from "@/lib/navigation";
 import { supabase } from "@/lib/supabase-client";
 import { router } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -38,7 +39,7 @@ export default function WelcomeScreen() {
     video.muted = true;
     video.play();
   });
-  const { isAuthenticated, loading } = useAuthContext();
+  const { isAuthenticated, loading, effectiveRole } = useAuthContext();
   const [index, setIndex] = useState(0);
   const [testLoginLoading, setTestLoginLoading] = useState<string | null>(null);
   const [testLoginError, setTestLoginError] = useState<string | null>(null);
@@ -48,10 +49,10 @@ export default function WelcomeScreen() {
   useEffect(() => {
     if (loading || !isAuthenticated) return;
     const timer = setTimeout(() => {
-      router.replace("/");
+      router.replace(getHomeRoute(effectiveRole) as any);
     }, 800);
     return () => clearTimeout(timer);
-  }, [isAuthenticated, loading]);
+  }, [effectiveRole, isAuthenticated, loading]);
 
   // Web autoplay can fail on initial mount; retry when tab gains focus/visibility.
   useEffect(() => {
@@ -107,7 +108,7 @@ export default function WelcomeScreen() {
       }
       triggerAuthRefresh();
       await new Promise((resolve) => setTimeout(resolve, 300));
-      router.replace("/");
+      router.replace(getHomeRoute(effectiveRole) as any);
     } catch (err) {
       await haptics.error();
       setTestLoginError(err instanceof Error ? err.message : "Test login failed");

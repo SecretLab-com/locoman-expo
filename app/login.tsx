@@ -38,7 +38,7 @@ export default function LoginScreen() {
     video.play();
   });
   const { inviteToken } = useLocalSearchParams<{ inviteToken?: string }>();
-  const { isAuthenticated, loading: authLoading } = useAuthContext();
+  const { isAuthenticated, loading: authLoading, effectiveRole } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -68,10 +68,10 @@ export default function LoginScreen() {
   useEffect(() => {
     if (authLoading || !isAuthenticated) return;
     const timer = setTimeout(() => {
-      router.replace("/");
+      router.replace(getHomeRoute(effectiveRole) as any);
     }, 800);
     return () => clearTimeout(timer);
-  }, [authLoading, isAuthenticated]);
+  }, [authLoading, effectiveRole, isAuthenticated]);
 
   // Web autoplay can fail on initial mount; retry when tab gains focus/visibility.
   useEffect(() => {
@@ -167,7 +167,7 @@ export default function LoginScreen() {
         // Small delay to allow auth state to propagate
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        router.replace("/");
+        router.replace(getHomeRoute(effectiveRole) as any);
       } else {
         await haptics.error();
         setError("Login failed — no session returned");
@@ -257,7 +257,7 @@ export default function LoginScreen() {
             {/* OAuth Buttons (Apple & Google) */}
             <OAuthButtons
               onSuccess={() => {
-                router.replace("/");
+                router.replace(getHomeRoute(effectiveRole) as any);
               }}
               onError={(err) => {
                 setError(err.message || "OAuth login failed");
