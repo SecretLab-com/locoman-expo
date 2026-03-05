@@ -419,7 +419,7 @@ export default function ManagerApprovalsScreen() {
           return (
             <TouchableOpacity
               key={item.key}
-              className="flex-1 rounded-xl p-3 items-center border"
+              className="flex-1 min-w-0 rounded-xl py-2 px-1 items-center border"
               onPress={() => setActiveTab(item.key)}
               style={{
                 backgroundColor: item.background,
@@ -436,6 +436,9 @@ export default function ManagerApprovalsScreen() {
               <Text
                 className="text-xs"
                 style={{ color: selected ? item.color : colors.muted, fontWeight: selected ? "700" : "500" }}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
               >
                 {item.label}
               </Text>

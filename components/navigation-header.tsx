@@ -75,7 +75,7 @@ export function NavigationHeader({
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const iconColor = colorScheme === "dark" ? "#F8FAFC" : colors.primary;
+  const iconColor = colors.foreground;
 
   const handleBack = () => {
     // Fire haptics without awaiting (don't block navigation)
@@ -156,6 +156,7 @@ export function NavigationHeader({
               onPress={handleBack}
               style={({ pressed }) => [
                 styles.iconButton,
+                { backgroundColor: colors.surface, borderRadius: 18 },
                 pressed && { opacity: 0.6 },
               ]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -163,7 +164,7 @@ export function NavigationHeader({
               accessibilityLabel="Go back"
               testID={backTestID || "nav-back"}
             >
-              <IconSymbol name="chevron.left" size={20} color={iconColor} />
+              <IconSymbol name="arrow.left" size={20} color={iconColor} />
             </Pressable>
           )}
         </View>

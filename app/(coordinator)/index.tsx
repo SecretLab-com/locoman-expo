@@ -9,43 +9,6 @@ import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-type QuickActionProps = {
-  icon: Parameters<typeof IconSymbol>[0]["name"];
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-  testID: string;
-};
-
-function QuickAction({ icon, title, subtitle, onPress, testID }: QuickActionProps) {
-  const colors = useColors();
-
-  return (
-    <TouchableOpacity
-      onPress={async () => {
-        await haptics.light();
-        onPress();
-      }}
-      className="bg-surface rounded-xl p-4 mb-3 border border-border"
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      testID={testID}
-    >
-      <View className="flex-row items-center">
-        <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center">
-          <IconSymbol name={icon} size={24} color={colors.primary} />
-        </View>
-        <View className="flex-1 ml-4">
-          <Text className="text-base font-semibold text-foreground">{title}</Text>
-          <Text className="text-sm text-muted mt-0.5">{subtitle}</Text>
-        </View>
-        <IconSymbol name="chevron.right" size={20} color={colors.muted} />
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 function StatPill({
   label,
   value,
@@ -130,6 +93,10 @@ export default function CoordinatorHomeScreen() {
     threshold: 5,
     limit: 50,
   });
+  const { data: campaignTemplatesData, refetch: refetchCampaignTemplates } =
+    trpc.admin.listCampaignTemplates.useQuery({ activeOnly: true });
+  const { data: campaignMetricsRows, refetch: refetchCampaignMetrics } =
+    trpc.admin.campaignMetricsSummary.useQuery();
 
   const revenueTrend = useMemo(
     () =>
@@ -175,6 +142,54 @@ export default function CoordinatorHomeScreen() {
     orders: b.orderCount,
     image: b.imageUrl
   }));
+  const latestCampaigns = useMemo(() => {
+    const templates = (campaignTemplatesData || [])
+      .filter((template: any) => Boolean(template.templateActive))
+      .slice()
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+      )
+      .slice(0, 8);
+    const metrics = campaignMetricsRows || [];
+    return templates.map((template: any) => {
+      const rows = metrics.filter((row: any) => row.bundleDraftId === template.id);
+      const totals = rows.reduce(
+        (acc: any, row: any) => {
+          acc.views += Number(row?.views || 0);
+          acc.engagements += Number(row?.engagements || 0);
+          acc.postsDelivered += Number(row?.postsDelivered || 0);
+          acc.requiredPosts += Number(row?.requiredPosts || 0);
+          if (row?.trainerId) acc.trainerIds.add(String(row.trainerId));
+          return acc;
+        },
+        {
+          views: 0,
+          engagements: 0,
+          postsDelivered: 0,
+          requiredPosts: 0,
+          trainerIds: new Set<string>(),
+        },
+      );
+      const engagementRate =
+        totals.views > 0 ? (totals.engagements / totals.views) * 100 : 0;
+      const deliveryPct =
+        totals.requiredPosts > 0
+          ? (totals.postsDelivered / totals.requiredPosts) * 100
+          : 0;
+      return {
+        id: template.id,
+        title: template.title || "Campaign",
+        brandName: template.primaryBrandName || "Unassigned brand",
+        imageUrl: template.imageUrl || null,
+        createdAt: template.createdAt,
+        trainerCount: totals.trainerIds.size,
+        views: totals.views,
+        engagementRate,
+        deliveryPct,
+      };
+    });
+  }, [campaignTemplatesData, campaignMetricsRows]);
   const pendingActions = [
     {
       label: "Approvals",
@@ -251,6 +266,8 @@ export default function CoordinatorHomeScreen() {
       refetchRevenueSummary(),
       refetchRevenueTrend(),
       refetchLowInventory(),
+      refetchCampaignTemplates(),
+      refetchCampaignMetrics(),
     ]);
     setRefreshing(false);
   }, [
@@ -263,6 +280,8 @@ export default function CoordinatorHomeScreen() {
     refetchRevenueSummary,
     refetchRevenueTrend,
     refetchLowInventory,
+    refetchCampaignTemplates,
+    refetchCampaignMetrics,
   ]);
 
   return (
@@ -537,81 +556,120 @@ export default function CoordinatorHomeScreen() {
           </View>
         </View>
 
-        {/* Actions Bar */}
-        <View className="px-4">
-          <Text className="text-lg font-semibold text-foreground mb-3">Actions</Text>
-          <View className="flex-row flex-wrap gap-3">
-            {[
-              { label: "Impersonate", icon: "person.crop.circle.badge.checkmark", route: "/(coordinator)/users", testID: "coord-action-impersonate" },
-              { label: "Manage Users", icon: "person.2.fill", route: "/(coordinator)/users", testID: "coord-action-users" },
-              { label: "Approvals", icon: "checkmark.circle.fill", route: "/(coordinator)/approvals", testID: "coord-action-approvals" },
-              { label: "Catalog", icon: "rectangle.grid.2x2.fill", route: "/(coordinator)/bundles", testID: "coord-action-catalog" },
-            ].map((action) => (
-              <TouchableOpacity
-                key={action.label}
-                onPress={async () => {
-                  await haptics.light();
-                  router.push(action.route as any);
-                }}
-                className="flex-row items-center rounded-full border border-border bg-surface px-4 py-2"
-                accessibilityRole="button"
-                accessibilityLabel={action.label}
-                testID={action.testID}
-              >
-                <IconSymbol name={action.icon as any} size={16} color={colors.primary} />
-                <Text className="text-sm font-semibold text-foreground ml-2">{action.label}</Text>
-              </TouchableOpacity>
-            ))}
+        <View className="px-4 mt-1 mb-8">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-lg font-semibold text-foreground">Latest campaigns</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/(coordinator)/templates" as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Show all campaigns"
+              testID="coord-campaigns-show-all"
+            >
+              <Text className="text-sm text-primary">Show all</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+          <View className="rounded-2xl border border-border bg-surface p-3">
+            {latestCampaigns.length === 0 ? (
+              <Text className="text-sm text-muted">No active campaigns yet.</Text>
+            ) : (
+              latestCampaigns.map((campaign) => (
+                <TouchableOpacity
+                  key={campaign.id}
+                  onPress={async () => {
+                    await haptics.light();
+                    router.push({
+                      pathname: "/(coordinator)/campaign-dashboard",
+                      params: { bundleId: campaign.id },
+                    } as any);
+                  }}
+                  className="mb-2 last:mb-0 rounded-xl border border-border bg-background/70 overflow-hidden"
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View campaign ${campaign.title}`}
+                  testID={`coord-campaign-row-${campaign.id}`}
+                >
+                  <View className="flex-row">
+                    <View
+                      className="w-20 h-20 items-center justify-center"
+                      style={{ backgroundColor: `${colors.primary}1A` }}
+                    >
+                      {campaign.imageUrl ? (
+                        <Image
+                          source={{ uri: campaign.imageUrl }}
+                          style={styles.coverImage}
+                          contentFit="cover"
+                          transition={150}
+                          cachePolicy="memory-disk"
+                        />
+                      ) : (
+                        <IconSymbol name="photo" size={18} color={colors.primary} />
+                      )}
+                    </View>
+                    <View className="flex-1 p-3">
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-1 pr-2">
+                          <Text className="text-sm font-semibold text-foreground" numberOfLines={1}>
+                            {campaign.title}
+                          </Text>
+                          <Text className="text-xs text-muted mt-0.5" numberOfLines={1}>
+                            {campaign.brandName}
+                          </Text>
+                        </View>
+                        <IconSymbol name="chevron.right" size={14} color={colors.muted} />
+                      </View>
 
-        {/* Quick Actions */}
-        <View className="px-4 mt-6">
-          <Text className="text-lg font-semibold text-foreground mb-3">Quick actions</Text>
+                      <View className="flex-row items-center gap-1.5 mt-2">
+                        <View
+                          className="px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor: `${colors.primary}1F` }}
+                        >
+                          <Text className="text-[10px] font-semibold" style={{ color: colors.primary }}>
+                            {campaign.trainerCount} trainers
+                          </Text>
+                        </View>
+                        <View
+                          className="px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor: `${colors.success}1F` }}
+                        >
+                          <Text className="text-[10px] font-semibold" style={{ color: colors.success }}>
+                            ER {campaign.engagementRate.toFixed(1)}%
+                          </Text>
+                        </View>
+                        <View
+                          className="px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor: `${colors.warning}1F` }}
+                        >
+                          <Text className="text-[10px] font-semibold" style={{ color: colors.warning }}>
+                            Delivery {campaign.deliveryPct.toFixed(0)}%
+                          </Text>
+                        </View>
+                      </View>
 
-          <QuickAction
-            icon="plus.circle.fill"
-            title="Create Bundle"
-            subtitle="Build a new wellness bundle"
-            onPress={() => router.push("/bundle-editor/new" as any)}
-            testID="coord-quick-create-bundle"
-          />
-
-          <QuickAction
-            icon="rectangle.grid.2x2.fill"
-            title="Product Catalog"
-            subtitle="Manage products and inventory"
-            onPress={() => router.push("/(coordinator)/bundles" as any)}
-            testID="coord-quick-catalog"
-          />
-
-          <QuickAction
-            icon="doc.text.fill"
-            title="System Logs"
-            subtitle="View activity and error logs"
-            onPress={() => router.push("/(coordinator)/logs" as any)}
-            testID="coord-quick-logs"
-          />
-        </View>
-
-        {/* Back to Main App */}
-        <View className="px-4 mt-6 mb-8">
-          <TouchableOpacity
-            onPress={async () => {
-              await haptics.light();
-              router.replace("/(tabs)");
-            }}
-            className="bg-surface rounded-xl p-4 border border-border"
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Back to Main App"
-            testID="coord-back-main"
-          >
-            <View className="flex-row items-center justify-center">
-              <IconSymbol name="arrow.left" size={20} color={colors.primary} />
-              <Text className="text-primary font-semibold ml-2">Back to Main App</Text>
-            </View>
-          </TouchableOpacity>
+                      <View className="mt-2">
+                        <View className="h-1.5 rounded-full bg-surface overflow-hidden">
+                          <View
+                            className="h-1.5 rounded-full"
+                            style={{
+                              width: `${Math.max(4, Math.min(100, campaign.deliveryPct))}%`,
+                              backgroundColor:
+                                campaign.deliveryPct >= 75
+                                  ? colors.success
+                                  : campaign.deliveryPct >= 45
+                                    ? colors.warning
+                                    : colors.error,
+                            }}
+                          />
+                        </View>
+                        <Text className="text-[11px] text-muted mt-1">
+                          {campaign.views.toLocaleString()} views
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
         </View>
       </ScrollView>
     </ScreenContainer>

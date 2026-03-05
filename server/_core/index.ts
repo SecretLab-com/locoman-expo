@@ -8,7 +8,10 @@ import * as db from "../db";
 import { appRouter } from "../routers";
 import * as shopify from "../shopify";
 import { createContext } from "./context";
-import { logError, logEvent } from "./logger";
+import { ENV } from "./env";
+import { logError, logEvent, logWarn } from "./logger";
+import { processPhylloWebhookPayload } from "./phyllo-webhook";
+import { verifyPhylloWebhookSignature } from "./phyllo";
 let registerTrainerAssistantMcpHttpRoutes: ((app: any) => void) | null = null;
 try {
   registerTrainerAssistantMcpHttpRoutes = require("./mcp-http").registerTrainerAssistantMcpHttpRoutes;
@@ -111,9 +114,61 @@ async function startServer() {
     });
   });
 
-  // Native Phyllo connect bridge for iOS/Android.
+  app.post("/api/webhooks/phyllo", express.raw({ type: "application/json" }), async (req, res) => {
+    const rawBody = req.body as Buffer;
+    if (!Buffer.isBuffer(rawBody)) {
+      res.status(400).json({ error: "Invalid webhook payload" });
+      return;
+    }
+    const signature =
+      req.get("x-phyllo-signature") || req.get("x-phyllo-signature-v2") || "";
+    const webhookSecret = String(ENV.phylloWebhookSecret || "").trim();
+    if (webhookSecret) {
+      const valid = verifyPhylloWebhookSignature({
+        rawBody,
+        signatureHeader: signature,
+        secret: webhookSecret,
+      });
+      if (!valid) {
+        logError("phyllo.webhook_invalid_signature", new Error("Invalid webhook signature"));
+        res.status(401).json({ error: "Invalid webhook signature" });
+        return;
+      }
+    } else {
+      logWarn("phyllo.webhook_missing_secret", {
+        path: "/api/webhooks/phyllo",
+        environment: process.env.NODE_ENV || "development",
+      });
+      if (process.env.NODE_ENV === "production") {
+        res.status(500).json({ error: "Webhook secret is not configured" });
+        return;
+      }
+    }
+
+    let payload: any = null;
+    try {
+      payload = JSON.parse(rawBody.toString("utf8"));
+    } catch {
+      res.status(400).json({ error: "Webhook body must be valid JSON" });
+      return;
+    }
+
+    res.status(200).json({ ok: true });
+
+    setImmediate(() => {
+      processPhylloWebhookPayload(payload)
+        .then((eventsCount) => {
+          logEvent("phyllo.webhook_enqueued", { eventsCount });
+        })
+        .catch((error) => {
+          logError("phyllo.webhook_processing_failed", error);
+        });
+    });
+  });
+
+  // Native social connect bridge for iOS/Android.
   // This endpoint avoids requiring an authenticated bright.coach web session and
-  // relies on the app-minted Phyllo token scoped to the current app user.
+  // relies on the app-minted social token scoped to the current app user.
   app.get("/api/phyllo/connect", (req, res) => {
     const token = String(req.query.token || "");
     const userId = String(req.query.userId || "");
@@ -128,7 +183,7 @@ async function startServer() {
     if (!token || !userId || !returnTo) {
       res.status(400).type("html").send(`<!doctype html>
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;">
-  <h3>Phyllo connect error</h3>
+  <h3>Social connect error</h3>
   <p>Missing required connect parameters.</p>
 </body></html>`);
       return;
@@ -144,7 +199,7 @@ async function startServer() {
   <body style="margin:0;background:#0b1020;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
     <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;">
       <div>
-        <div style="font-size:18px;font-weight:600;">Opening Phyllo Connect...</div>
+        <div style="font-size:18px;font-weight:600;">Opening social connect...</div>
         <div style="font-size:14px;opacity:0.8;margin-top:8px;">Select your social platforms to continue.</div>
       </div>
     </div>

@@ -11,7 +11,15 @@ type WSMessage =
   | { type: "message_read"; messageId: string; conversationId: string }
   | { type: "reaction_added"; messageId: string; reaction: string; userId: string }
   | { type: "reaction_removed"; messageId: string; reaction: string; userId: string }
-  | { type: "badge_counts_updated" };
+  | { type: "badge_counts_updated" }
+  | {
+      type: "social_alert";
+      severity: "info" | "warning" | "critical";
+      title: string;
+      body: string;
+      trainerId?: string;
+      eventType?: string;
+    };
 
 type MessageHandler = (message: WSMessage) => void;
 

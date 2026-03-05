@@ -5,11 +5,13 @@ import { signInWithGoogle } from "@/lib/google-oauth";
 import { clearPendingOnboardingContext, savePendingOnboardingContext } from "@/lib/onboarding-context";
 import { supabase } from "@/lib/supabase-client";
 import { trpc } from "@/lib/trpc";
+import { useColors } from "@/hooks/use-colors";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 export default function RegisterScreen() {
+  const colors = useColors();
   const { trainerId, inviteToken } = useLocalSearchParams<{ trainerId?: string; inviteToken?: string }>();
   const normalizedInviteToken =
     typeof inviteToken === "string" && inviteToken.trim().length > 0 ? inviteToken.trim() : undefined;
@@ -184,20 +186,30 @@ export default function RegisterScreen() {
               )}
             </TouchableOpacity>
 
-            <Text className="text-muted text-center mt-5">or</Text>
+            <View className="flex-row items-center mt-6">
+              <View className="flex-1 h-px bg-border" />
+              <Text className="text-muted text-center mx-3 text-xs">or continue with Google</Text>
+              <View className="flex-1 h-px bg-border" />
+            </View>
 
             <TouchableOpacity
-              className="bg-primary rounded-xl py-4 items-center mt-5"
+              className="flex-row items-center justify-center border border-border rounded-xl py-4 px-6 mt-5"
               onPress={handleRegister}
               disabled={googleLoading || emailLoading || (Boolean(normalizedInviteToken) && inviteContextQuery.isLoading)}
               accessibilityRole="button"
               accessibilityLabel="Continue with Google"
               testID="register-google-submit"
+              style={{ backgroundColor: colors.surface }}
             >
               {googleLoading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.foreground} />
               ) : (
-                <Text className="text-background font-semibold text-lg">Continue with Google</Text>
+                <>
+                  <View className="w-5 h-5 mr-3">
+                    <GoogleIcon />
+                  </View>
+                  <Text className="font-semibold text-base text-foreground">Continue with Google</Text>
+                </>
               )}
             </TouchableOpacity>
 
@@ -221,6 +233,25 @@ export default function RegisterScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </ScreenContainer>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <View style={{ width: 20, height: 20 }}>
+      <View
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 10,
+          backgroundColor: "#4285F4",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ color: "white", fontWeight: "bold", fontSize: 12 }}>G</Text>
+      </View>
+    </View>
   );
 }
 

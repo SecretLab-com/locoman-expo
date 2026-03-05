@@ -1322,13 +1322,13 @@ export default function ConversationScreen() {
         style={{ paddingTop: insets.top + 8 }}
       >
         <TouchableOpacity
-          className="w-10 h-10 rounded-full items-center justify-center -ml-2"
+          className="w-10 h-10 rounded-full bg-surface items-center justify-center"
           onPress={handleBack}
           accessibilityRole="button"
           accessibilityLabel="Back to home"
           testID="conversation-back"
         >
-          <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+          <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
         </TouchableOpacity>
 
         <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center ml-1">

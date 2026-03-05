@@ -96,10 +96,13 @@ export function useBadgeCounts() {
   useEffect(() => {
     const trainerDeliveries = trainerDeliveriesQuery.data?.length ?? 0;
     const clientDeliveries = clientDeliveriesQuery.data?.filter(d => d.status === "pending" || d.status === "ready")?.length ?? 0;
+    const actionableApprovals = (approvalsQuery.data || []).filter((bundle: any) =>
+      bundle?.status === "pending_review" || bundle?.status === "changes_requested",
+    ).length;
 
     setCounts({
       pendingDeliveries: isTrainer ? trainerDeliveries : clientDeliveries,
-      pendingApprovals: approvalsQuery.data?.length ?? 0,
+      pendingApprovals: actionableApprovals,
       unreadMessages: (conversationsQuery.data || []).reduce((sum: number, c: any) => sum + (c.unreadCount || 0), 0),
       pendingJoinRequests: isTrainer
         ? (trainerIncomingRequestsQuery.data?.length ?? 0)

@@ -22,13 +22,16 @@ import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Easing,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { WebView } from "react-native-webview";
@@ -42,7 +45,12 @@ export default function TrainerSocialProgramScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.socialProgram.myStatus.useQuery();
+  const { data, isLoading, refetch: refetchStatus, isRefetching: isRefetchingStatus } =
+    trpc.socialProgram.myStatus.useQuery();
+  const recentPostsQuery = trpc.socialProgram.recentPosts.useQuery(
+    { limit: 12, sparklineDays: 10 },
+    { enabled: Boolean(data?.profile?.phylloUserId) },
+  );
   const ctaPulseAnim = useRef(new Animated.Value(0)).current;
   const orbFloatAnim = useRef(new Animated.Value(0)).current;
   const [actionError, setActionError] = useState<string | null>(null);
@@ -51,10 +59,22 @@ export default function TrainerSocialProgramScreen() {
     connectUrl: string;
     callbackPrefix: string;
   } | null>(null);
+  const [showRequirementsModal, setShowRequirementsModal] = useState(false);
+  const [showFirstConnectHelpModal, setShowFirstConnectHelpModal] = useState(false);
+  const [syncDoneAt, setSyncDoneAt] = useState<number | null>(null);
   const lastCallbackKeyRef = useRef<string>("");
+  const hasShownFirstConnectHelpRef = useRef(false);
 
-  const isNoSelectionCloseReason = (reason: string) =>
-    reason.trim().toLowerCase() === "exit_from_platform_selection";
+  const isBenignCloseReason = (reason: string) => {
+    const normalized = reason.trim().toLowerCase();
+    return (
+      normalized === "exit_from_platform_selection" ||
+      normalized === "back_pressed" ||
+      normalized === "user_closed_connect_flow" ||
+      normalized === "dismissed" ||
+      normalized === "closed"
+    );
+  };
 
   const declineMutation = trpc.socialProgram.declineInvite.useMutation({
     onSuccess: async () => {
@@ -69,6 +89,21 @@ export default function TrainerSocialProgramScreen() {
         await utils.socialProgram.myProgramDashboard.invalidate();
       },
     });
+  const syncNowMutation = trpc.socialProgram.syncNow.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.socialProgram.myStatus.invalidate(),
+        utils.socialProgram.myProgramDashboard.invalidate(),
+        utils.socialProgram.recentPosts.invalidate(),
+      ]);
+      setSyncDoneAt(Date.now());
+      setActionError(null);
+    },
+    onError: (error: any) => {
+      setSyncDoneAt(null);
+      setActionError(String(error?.message || "Sync failed. Please try again."));
+    },
+  });
 
   const membershipStatus = data?.membership?.status || "not_enrolled";
   const hasPendingInvite = Boolean(data?.pendingInvite?.id);
@@ -193,6 +228,7 @@ export default function TrainerSocialProgramScreen() {
     }
     return Array.from(rows.values()).sort((a, b) => b.followers - a.followers);
   }, [data?.profile]);
+  const hasConnectedPlatform = platformStats.length > 0;
 
   useEffect(() => {
     const callbackStatus = String(routeParams.phyllo || "").toLowerCase();
@@ -209,7 +245,7 @@ export default function TrainerSocialProgramScreen() {
       return;
     }
     if (callbackStatus === "cancelled") {
-      if (isNoSelectionCloseReason(callbackReason)) {
+      if (isBenignCloseReason(callbackReason)) {
         setActionSuccess(null);
         setActionError(null);
         return;
@@ -229,6 +265,20 @@ export default function TrainerSocialProgramScreen() {
         : "Could not connect your social platforms.",
     );
   }, [routeParams.phyllo, routeParams.reason]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (isConnected) return;
+    if (hasShownFirstConnectHelpRef.current) return;
+    hasShownFirstConnectHelpRef.current = true;
+    setShowFirstConnectHelpModal(true);
+  }, [isLoading, isConnected]);
+
+  useEffect(() => {
+    if (!syncDoneAt) return;
+    const timer = setTimeout(() => setSyncDoneAt(null), 10000);
+    return () => clearTimeout(timer);
+  }, [syncDoneAt]);
 
   useEffect(() => {
     const pulseLoop = Animated.loop(
@@ -337,7 +387,7 @@ export default function TrainerSocialProgramScreen() {
         }
       }
       if (!session?.sdkToken || !session?.phylloUserId) {
-        throw new Error("Could not create a Phyllo connect session.");
+        throw new Error("Could not create a social connect session.");
       }
 
       if (Platform.OS === "web") {
@@ -384,7 +434,7 @@ export default function TrainerSocialProgramScreen() {
           setActionSuccess(message);
         } else if (result.status === "cancelled") {
           const reason = String(result.reason || "").trim();
-          if (isNoSelectionCloseReason(reason)) {
+          if (isBenignCloseReason(reason)) {
             setActionSuccess(null);
             setActionError(null);
             return;
@@ -397,7 +447,7 @@ export default function TrainerSocialProgramScreen() {
         } else {
           const message =
             result.reason === "token_expired"
-              ? "Phyllo connect session expired. Please retry. If it keeps happening, refresh PHYLLO credentials."
+              ? "Social connection session expired. Please retry."
               : result.reason || "Could not connect your social platforms.";
           setActionError(message);
         }
@@ -446,7 +496,7 @@ export default function TrainerSocialProgramScreen() {
           setActionSuccess(message);
         } else if (result.status === "cancelled") {
           const reason = String(result.reason || "").trim();
-          if (isNoSelectionCloseReason(reason)) {
+          if (isBenignCloseReason(reason)) {
             setActionSuccess(null);
             setActionError(null);
             return;
@@ -459,7 +509,7 @@ export default function TrainerSocialProgramScreen() {
         } else {
           const message =
             result.reason === "token_expired"
-              ? "Phyllo connect session expired. Please retry. If it keeps happening, refresh PHYLLO credentials."
+              ? "Social connection session expired. Please retry."
               : result.reason || "Could not connect your social platforms.";
           setActionError(message);
         }
@@ -492,10 +542,35 @@ export default function TrainerSocialProgramScreen() {
       return;
     } catch (error: any) {
       const message = String(
-        error?.message || "Unable to connect Phyllo right now.",
-      );
+        error?.message || "Unable to connect social platforms right now.",
+      ).replace(/phyllo/gi, "social");
       setActionError(message);
     }
+  };
+
+  const openRecentPost = async (post: any) => {
+    const targetUrl = String(post?.postUrl || post?.fallbackProfileUrl || "").trim();
+    if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+      Alert.alert("Link unavailable", "This item does not have a valid web link yet.");
+      return;
+    }
+    try {
+      const canOpen = await Linking.canOpenURL(targetUrl);
+      if (!canOpen) {
+        Alert.alert("Link unavailable", "Could not open this post link.");
+        return;
+      }
+      await Linking.openURL(targetUrl);
+    } catch {
+      Alert.alert("Link unavailable", "Could not open this post link.");
+    }
+  };
+
+  const handleRefresh = async () => {
+    await Promise.all([
+      refetchStatus(),
+      data?.profile?.phylloUserId ? recentPostsQuery.refetch() : Promise.resolve(),
+    ]);
   };
 
   return (
@@ -569,6 +644,13 @@ export default function TrainerSocialProgramScreen() {
       </Modal>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetchingStatus || recentPostsQuery.isRefetching}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+          />
+        }
         contentContainerStyle={{
           paddingBottom: Platform.OS === "web" ? 116 : 92,
         }}
@@ -577,19 +659,15 @@ export default function TrainerSocialProgramScreen() {
           title="Get Paid for Social Posts."
           subtitle="Join campaigns, track compliance, and earn from approved social content."
           leftSlot={
-            <ActionButton
-              onPress={() => router.back()}
-              variant="ghost"
+            <TouchableOpacity
+              onPress={() => (router.canGoBack() ? router.back() : router.replace("/(trainer)/more" as any))}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center"
               accessibilityRole="button"
               accessibilityLabel="Go back"
               testID="social-program-back"
             >
-              <IconSymbol
-                name="chevron.left"
-                size={18}
-                color={colors.primary}
-              />
-            </ActionButton>
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
           }
         />
 
@@ -665,7 +743,7 @@ export default function TrainerSocialProgramScreen() {
               Turn posts into payouts
             </Text>
             <Text className="text-sm text-muted mt-1">
-              Connect Phyllo, unlock campaign invites, and track your progress
+              Connect your social accounts, unlock campaign invites, and track your progress
               in one place.
             </Text>
             <View className="flex-row mt-3">
@@ -687,42 +765,404 @@ export default function TrainerSocialProgramScreen() {
             </View>
           </SurfaceCard>
 
-          <SurfaceCard>
-            <Text className="text-base font-semibold text-foreground mb-2">
-              Quick connect
-            </Text>
-            <Text className="text-sm text-muted mb-3">
-              Connect now to pick platforms like YouTube and sync your metrics.
-              {"\n"}
-              You can reopen this anytime to connect additional platforms.
-            </Text>
+          {!hasConnectedPlatform ? (
+            <SurfaceCard>
+              <Text className="text-base font-semibold text-foreground mb-2">
+                Program requirements
+              </Text>
+              <Text className="text-sm text-muted mb-1">
+                - Minimum 10k followers for campaign eligibility
+              </Text>
+              <Text className="text-sm text-muted mb-1">
+                - On-time posting target: 95%+
+              </Text>
+              <Text className="text-sm text-muted mb-1">
+                - Tag and approved creative compliance: 98%+
+              </Text>
+              <Text className="text-sm text-muted mb-1">
+                - Average views target: 1,000+ per post
+              </Text>
+              <Text className="text-sm text-muted">
+                - Performance metrics tracked: engagement, CTR, share/save, intent
+                actions
+              </Text>
+            </SurfaceCard>
+          ) : null}
+
+          {isLoading ? (
+            <SurfaceCard>
+              <View className="py-4 items-center">
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text className="text-sm text-muted mt-2">
+                  Loading social status...
+                </Text>
+              </View>
+            </SurfaceCard>
+          ) : (
+            <SurfaceCard style={{ position: "relative", overflow: "visible" }}>
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-base font-semibold text-foreground">
+                  Authorized platforms
+                </Text>
+                <View className="flex-row items-center gap-2">
+                  {isConnected ? (
+                    <Pressable
+                      onPress={() => syncNowMutation.mutate()}
+                      disabled={syncNowMutation.isPending}
+                      className="px-2.5 py-1 rounded-full border border-border flex-row items-center"
+                      style={{
+                        backgroundColor: colors.surface,
+                        opacity: syncNowMutation.isPending ? 0.7 : 1,
+                        borderColor: syncDoneAt ? "rgba(52,211,153,0.45)" : colors.border,
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Sync social stats now"
+                      testID="social-status-sync-now"
+                    >
+                      {syncNowMutation.isPending ? (
+                        <ActivityIndicator size="small" color={colors.muted} />
+                      ) : (
+                        <MaterialCommunityIcons
+                          name={syncDoneAt ? "check-circle" : "refresh"}
+                          size={12}
+                          color={syncDoneAt ? "#34D399" : colors.muted}
+                        />
+                      )}
+                      <Text
+                        className="text-[11px] ml-1"
+                        style={{ color: syncDoneAt ? "#34D399" : colors.muted }}
+                      >
+                        {syncNowMutation.isPending
+                          ? "Syncing..."
+                          : syncDoneAt
+                            ? "Synced"
+                            : "Sync now"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {hasConnectedPlatform ? (
+                    <Pressable
+                      onPress={() => setShowRequirementsModal(true)}
+                      className="w-7 h-7 rounded-full items-center justify-center border border-border"
+                      style={{ backgroundColor: colors.surface }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Show program requirements"
+                      testID="social-status-requirements-help"
+                    >
+                      <MaterialCommunityIcons
+                        name="help-circle-outline"
+                        size={16}
+                        color={colors.muted}
+                      />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+              <Text className="text-sm text-muted">
+                Membership:{" "}
+                <Text className="text-foreground font-semibold capitalize">
+                  {String(membershipStatus).replace(/_/g, " ")}
+                </Text>
+              </Text>
+              <Text className="text-sm text-muted mt-1">
+                Social accounts connected:{" "}
+                <Text className="text-foreground font-semibold">
+                  {isConnected ? "Yes" : "No"}
+                </Text>
+              </Text>
+              {data?.invitedBy?.name ? (
+                <Text className="text-sm text-muted mt-1">
+                  Invited by:{" "}
+                  <Text className="text-foreground font-semibold">
+                    {data.invitedBy.name}
+                  </Text>
+                </Text>
+              ) : null}
+              <View
+                className="gap-2 mt-3"
+                style={isConnected ? { paddingBottom: 56 } : undefined}
+              >
+                {platformStats.length > 0 ? (
+                  platformStats.map((row) => {
+                    const platformIcon = getSocialPlatformIcon(row.platform);
+                    return (
+                      <View
+                        key={row.platform}
+                        className="rounded-xl border border-border px-3 py-2 flex-row items-center justify-between"
+                      >
+                        <View className="flex-1 pr-3">
+                          <View className="flex-row items-center">
+                            <MaterialCommunityIcons
+                              name={platformIcon.icon as any}
+                              size={16}
+                              color={platformIcon.color}
+                            />
+                            <Text className="text-sm font-semibold text-foreground ml-1.5">
+                              {platformIcon.label}
+                            </Text>
+                          </View>
+                          <Text className="text-xs text-muted mt-0.5">
+                            Followers: {row.followers.toLocaleString()}
+                          </Text>
+                        </View>
+                        <View className="items-end">
+                          <Text className="text-xs text-muted">
+                            Impressions / month
+                          </Text>
+                          <Text className="text-sm font-semibold text-foreground">
+                            {row.impressions.toLocaleString()}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <Text className="text-xs text-muted">None linked yet</Text>
+                )}
+              </View>
+              <Pressable
+                onPress={handleConnectPhyllo}
+                style={{
+                  position: "absolute",
+                  right: 12,
+                  bottom: 12,
+                  width: 50,
+                  height: 50,
+                  borderRadius: 25,
+                  backgroundColor: colors.primary,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isConnected
+                    ? "Connect more platforms"
+                    : hasPendingInvite
+                      ? "Accept invite and connect first platform"
+                      : "Connect your first platform"
+                }
+                testID="social-connect-more-fab"
+              >
+                <MaterialCommunityIcons name="plus" size={24} color="#fff" />
+              </Pressable>
+            </SurfaceCard>
+          )}
+
+          {hasPendingInvite ? (
             <ActionButton
-              onPress={handleConnectPhyllo}
-              loading={
-                startConnectMutation.isPending ||
-                completeConnectMutation.isPending
+              variant="danger"
+              onPress={() =>
+                data?.pendingInvite?.id &&
+                declineMutation.mutate({ inviteId: data.pendingInvite.id })
               }
-              loadingText="Connecting..."
-              disabled={!canAttemptConnect || isRestrictedStatus}
+              loading={declineMutation.isPending}
+              loadingText="Declining..."
               accessibilityRole="button"
-              accessibilityLabel={
-                hasPendingInvite
-                  ? "Accept invite and continue"
-                  : isConnected
-                    ? "Connect more social platforms"
-                    : "Connect Phyllo now"
-              }
-              testID="social-primary-cta-top"
+              accessibilityLabel="Decline social invite"
+              testID="social-invite-decline"
             >
-              {hasPendingInvite
-                ? "Accept invite and continue"
-                : isConnected
-                  ? "Connect more platforms"
-                  : "Connect with Phyllo"}
+              Decline invite
             </ActionButton>
-          </SurfaceCard>
+          ) : null}
+          <ActionButton
+            variant="secondary"
+            onPress={() => router.push("/(trainer)/social-progress" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Open dashboard"
+            testID="social-open-progress"
+          >
+            Dashboard
+          </ActionButton>
+
+          {hasPendingInvite ? (
+            <SurfaceCard>
+              <Text className="text-base font-semibold text-foreground mb-2">
+                Invitation received
+              </Text>
+              <Text className="text-sm text-muted mb-3">
+                Accept in the Next step section above to join the social program
+                and start connecting your channels.
+              </Text>
+              <Text className="text-xs text-muted">
+                Tip: once accepted, tap (+) to start syncing your social profiles.
+              </Text>
+            </SurfaceCard>
+          ) : null}
 
           <SurfaceCard>
+            <Text className="text-base font-semibold text-foreground mb-2">
+              Recent posts
+            </Text>
+            {!isConnected ? (
+              <Text className="text-sm text-muted">
+                Connect your first platform to start seeing recent posts.
+              </Text>
+            ) : recentPostsQuery.isLoading ? (
+              <View className="py-3 items-center">
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text className="text-xs text-muted mt-2">Loading recent posts...</Text>
+              </View>
+            ) : (recentPostsQuery.data || []).length === 0 ? (
+              <Text className="text-sm text-muted">
+                No synced posts yet. New content will appear here after social events are received.
+              </Text>
+            ) : (
+              <View className="gap-2">
+                {(recentPostsQuery.data || []).map((post: any) => {
+                  const platformIcon = getSocialPlatformIcon(post.platform || "unknown");
+                  const linkTarget = String(
+                    post.postUrl || post.fallbackProfileUrl || "",
+                  ).trim();
+                  const hasLink = /^https?:\/\//i.test(linkTarget);
+                  const sparklineRaw = Array.isArray(post.sparkline)
+                    ? post.sparkline
+                    : [];
+                  const sparkline =
+                    sparklineRaw.length > 0
+                      ? sparklineRaw
+                      : [Number(post.latestEngagements || 0)];
+                  const sparklineMax = Math.max(1, ...sparkline.map((v: any) => Number(v || 0)));
+                  return (
+                    <Pressable
+                      key={post.id}
+                      onPress={() => hasLink && openRecentPost(post)}
+                      disabled={!hasLink}
+                      className="rounded-xl border border-border px-3 py-2"
+                      style={{ opacity: hasLink ? 1 : 0.62 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        hasLink
+                          ? `Open recent post on ${platformIcon.label}`
+                          : `Recent post on ${platformIcon.label} has no link yet`
+                      }
+                      testID={`social-recent-post-${post.id}`}
+                    >
+                      <View className="flex-row items-start justify-between">
+                        <View className="flex-1 pr-3">
+                          <View className="flex-row items-center">
+                            <MaterialCommunityIcons
+                              name={platformIcon.icon as any}
+                              size={14}
+                              color={platformIcon.color}
+                            />
+                            <Text className="text-xs text-muted ml-1.5">
+                              {platformIcon.label}
+                            </Text>
+                          </View>
+                          <Text className="text-sm text-foreground mt-1" numberOfLines={2}>
+                            {post.title ||
+                              post.caption ||
+                              "Recent social post"}
+                          </Text>
+                          <Text className="text-[11px] text-muted mt-1">
+                            {post.publishedAt
+                              ? new Date(post.publishedAt).toLocaleDateString()
+                              : "Recently synced"}
+                          </Text>
+                        </View>
+                        <View className="items-end min-w-[92px]">
+                          <View className="flex-row items-end h-8">
+                            {sparkline.slice(-10).map((point: number, idx: number) => {
+                              const h = Math.max(
+                                2,
+                                Math.round((Number(point || 0) / sparklineMax) * 26),
+                              );
+                              return (
+                                <View
+                                  key={`${post.id}-spark-${idx}`}
+                                  style={{
+                                    width: 4,
+                                    height: h,
+                                    borderRadius: 2,
+                                    marginLeft: idx === 0 ? 0 : 2,
+                                    backgroundColor: `${colors.primary}CC`,
+                                  }}
+                                />
+                              );
+                            })}
+                          </View>
+                          <Text className="text-[11px] text-muted mt-1">
+                            Eng: {Number(post.latestEngagements || 0).toLocaleString()}
+                          </Text>
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </SurfaceCard>
+        </View>
+      </ScrollView>
+      <Modal
+        visible={showFirstConnectHelpModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFirstConnectHelpModal(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.65)",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onPress={() => setShowFirstConnectHelpModal(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close connect help modal"
+          testID="social-first-connect-help-overlay"
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="rounded-xl border border-border p-4"
+            style={{ backgroundColor: colors.background }}
+            accessibilityRole="none"
+          >
+            <Text className="text-base font-semibold text-foreground mb-2">
+              Connect your first platform
+            </Text>
+            <Text className="text-sm text-muted">
+              Tap the <Text className="text-foreground font-semibold">(+)</Text>{" "}
+              button in the lower-right of the Authorized platforms card to connect
+              your first social media platform.
+            </Text>
+            <ActionButton
+              className="mt-3"
+              variant="secondary"
+              onPress={() => setShowFirstConnectHelpModal(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Got it"
+              testID="social-first-connect-help-close"
+            >
+              Got it
+            </ActionButton>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showRequirementsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRequirementsModal(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.65)",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onPress={() => setShowRequirementsModal(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close requirements modal"
+          testID="social-requirements-modal-overlay"
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            className="rounded-xl border border-border p-4"
+            style={{ backgroundColor: colors.background }}
+            accessibilityRole="none"
+          >
             <Text className="text-base font-semibold text-foreground mb-2">
               Program requirements
             </Text>
@@ -742,227 +1182,19 @@ export default function TrainerSocialProgramScreen() {
               - Performance metrics tracked: engagement, CTR, share/save, intent
               actions
             </Text>
-          </SurfaceCard>
-
-          {isLoading ? (
-            <SurfaceCard>
-              <View className="py-4 items-center">
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text className="text-sm text-muted mt-2">
-                  Loading social status...
-                </Text>
-              </View>
-            </SurfaceCard>
-          ) : (
-            <SurfaceCard>
-              <Text className="text-base font-semibold text-foreground mb-2">
-                Your status
-              </Text>
-              <Text className="text-sm text-muted">
-                Membership:{" "}
-                <Text className="text-foreground font-semibold capitalize">
-                  {String(membershipStatus).replace(/_/g, " ")}
-                </Text>
-              </Text>
-              <Text className="text-sm text-muted mt-1">
-                Phyllo connected:{" "}
-                <Text className="text-foreground font-semibold">
-                  {isConnected ? "Yes" : "No"}
-                </Text>
-              </Text>
-              <Text className="text-sm text-muted mt-1">Linked platforms:</Text>
-              <View className="flex-row flex-wrap gap-2 mt-2">
-                {platformStats.length > 0 ? (
-                  platformStats.map((row) => {
-                    const platformIcon = getSocialPlatformIcon(row.platform);
-                    return (
-                      <View
-                        key={`status-${row.platform}`}
-                        className="flex-row items-center px-2.5 py-1 rounded-full border border-border"
-                        style={{
-                          backgroundColor:
-                            colors.background === "#0A0A14"
-                              ? "rgba(148,163,184,0.22)"
-                              : "rgba(148,163,184,0.16)",
-                        }}
-                      >
-                        <MaterialCommunityIcons
-                          name={platformIcon.icon as any}
-                          size={13}
-                          color={platformIcon.color}
-                        />
-                        <Text className="text-xs text-foreground ml-1.5">
-                          {platformIcon.label}
-                        </Text>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <Text className="text-xs text-muted">None linked yet</Text>
-                )}
-              </View>
-              {data?.invitedBy?.name ? (
-                <Text className="text-sm text-muted mt-1">
-                  Invited by:{" "}
-                  <Text className="text-foreground font-semibold">
-                    {data.invitedBy.name}
-                  </Text>
-                </Text>
-              ) : null}
-            </SurfaceCard>
-          )}
-
-          {platformStats.length > 0 ? (
-            <SurfaceCard>
-              <Text className="text-base font-semibold text-foreground mb-2">
-                Authorized platforms
-              </Text>
-              <View className="gap-2">
-                {platformStats.map((row) => {
-                  const platformIcon = getSocialPlatformIcon(row.platform);
-                  return (
-                    <View
-                      key={row.platform}
-                      className="rounded-xl border border-border px-3 py-2 flex-row items-center justify-between"
-                    >
-                      <View className="flex-1 pr-3">
-                        <View className="flex-row items-center">
-                          <MaterialCommunityIcons
-                            name={platformIcon.icon as any}
-                            size={16}
-                            color={platformIcon.color}
-                          />
-                          <Text className="text-sm font-semibold text-foreground ml-1.5">
-                            {platformIcon.label}
-                          </Text>
-                        </View>
-                        <Text className="text-xs text-muted mt-0.5">
-                          Followers: {row.followers.toLocaleString()}
-                        </Text>
-                      </View>
-                      <View className="items-end">
-                        <Text className="text-xs text-muted">
-                          Impressions / month
-                        </Text>
-                        <Text className="text-sm font-semibold text-foreground">
-                          {row.impressions.toLocaleString()}
-                        </Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            </SurfaceCard>
-          ) : null}
-
-          <SurfaceCard style={{ overflow: "visible" }}>
-            <Text className="text-base font-semibold text-foreground mb-2">
-              Next step
-            </Text>
-            <Text className="text-sm text-muted mb-3">
-              {hasPendingInvite
-                ? "Accept your invite and immediately connect your social platforms."
-                : isConnected
-                  ? "Your Phyllo account is connected. Reopen connect anytime to add more social platforms."
-                  : canAttemptConnect
-                    ? "Connect Phyllo now to select your social platforms and start syncing metrics."
-                    : "Your membership is restricted. Ask a coordinator or manager to reactivate you."}
-            </Text>
-            <Animated.View style={{ transform: [{ scale: ctaRingScale }] }}>
-              <Animated.View
-                pointerEvents="none"
-                style={{
-                  position: "absolute",
-                  top: -6,
-                  left: -6,
-                  right: -6,
-                  bottom: -6,
-                  borderRadius: 14,
-                  borderWidth: 2,
-                  borderColor: "rgba(96,165,250,0.5)",
-                  opacity: ctaRingOpacity,
-                }}
-              />
-              <ActionButton
-                onPress={handleConnectPhyllo}
-                loading={
-                  startConnectMutation.isPending ||
-                  completeConnectMutation.isPending
-                }
-                loadingText="Connecting..."
-                disabled={!canAttemptConnect || isRestrictedStatus}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  hasPendingInvite
-                    ? "Accept invite and continue"
-                    : isConnected
-                      ? "Connect more social platforms"
-                      : "Connect Phyllo now"
-                }
-                testID="social-primary-cta"
-              >
-                {hasPendingInvite
-                  ? "Accept invite and continue"
-                  : isConnected
-                    ? "Connect more platforms"
-                    : "Connect with Phyllo"}
-              </ActionButton>
-            </Animated.View>
-            <View className="mt-2 gap-2">
-              {hasPendingInvite ? (
-                <ActionButton
-                  variant="danger"
-                  onPress={() =>
-                    data?.pendingInvite?.id &&
-                    declineMutation.mutate({ inviteId: data.pendingInvite.id })
-                  }
-                  loading={declineMutation.isPending}
-                  loadingText="Declining..."
-                  accessibilityRole="button"
-                  accessibilityLabel="Decline social invite"
-                  testID="social-invite-decline"
-                >
-                  Decline invite
-                </ActionButton>
-              ) : null}
-              <ActionButton
-                variant="secondary"
-                onPress={() => utils.socialProgram.myStatus.invalidate()}
-                accessibilityRole="button"
-                accessibilityLabel="Refresh social status"
-                testID="social-refresh-status"
-              >
-                Refresh status
-              </ActionButton>
-              <ActionButton
-                variant="secondary"
-                onPress={() => router.push("/(trainer)/social-progress" as any)}
-                accessibilityRole="button"
-                accessibilityLabel="Open social progress"
-                testID="social-open-progress"
-              >
-                Open progress dashboard
-              </ActionButton>
-            </View>
-          </SurfaceCard>
-
-          {hasPendingInvite ? (
-            <SurfaceCard>
-              <Text className="text-base font-semibold text-foreground mb-2">
-                Invitation received
-              </Text>
-              <Text className="text-sm text-muted mb-3">
-                Accept in the Next step section above to join the social program
-                and start connecting your channels.
-              </Text>
-              <Text className="text-xs text-muted">
-                Tip: once accepted, tap Connect with Phyllo to start syncing
-                your profiles.
-              </Text>
-            </SurfaceCard>
-          ) : null}
-        </View>
-      </ScrollView>
+            <ActionButton
+              className="mt-3"
+              variant="secondary"
+              onPress={() => setShowRequirementsModal(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close program requirements"
+              testID="social-requirements-modal-close"
+            >
+              Close
+            </ActionButton>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }

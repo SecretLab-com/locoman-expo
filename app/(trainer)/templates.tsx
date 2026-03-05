@@ -2,7 +2,9 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { useColors } from "@/hooks/use-colors";
+import { CAMPAIGN_COPY } from "@/lib/campaign-copy";
 import { trpc } from "@/lib/trpc";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { Image } from "expo-image";
 import { router, Stack } from "expo-router";
 import {
@@ -51,8 +53,8 @@ export default function TemplateGalleryScreen() {
           }
         >
           <ScreenHeader
-            title="Template Gallery"
-            subtitle="Browse ready-made offer templates."
+            title={CAMPAIGN_COPY.galleryTitle}
+            subtitle={CAMPAIGN_COPY.gallerySubtitle}
             leftSlot={
               <TouchableOpacity
                 onPress={() =>
@@ -79,10 +81,10 @@ export default function TemplateGalleryScreen() {
               <View className="bg-surface rounded-xl border border-border p-6 items-center">
                 <IconSymbol name="rectangle.grid.2x2.fill" size={36} color={colors.muted} />
                 <Text className="text-foreground font-semibold text-base mt-3">
-                  No templates available yet
+                  {CAMPAIGN_COPY.noneAvailableTitle}
                 </Text>
                 <Text className="text-sm text-muted mt-1 text-center">
-                  Templates will appear here once your manager creates them.
+                  {CAMPAIGN_COPY.noneAvailableSubtitle}
                 </Text>
                 <TouchableOpacity
                   className="flex-row items-center mt-4"
@@ -117,7 +119,7 @@ export default function TemplateGalleryScreen() {
                       } as any)
                     }
                     accessibilityRole="button"
-                    accessibilityLabel={`Use ${template.title} template`}
+                    accessibilityLabel={`Use ${template.title} campaign`}
                     testID={`template-card-${template.id}`}
                   >
                     <View className="bg-surface border border-border rounded-xl overflow-hidden">
@@ -220,8 +222,36 @@ export default function TemplateGalleryScreen() {
                       )}
 
                       <View className="flex-row items-center justify-between mt-3 pt-3 border-t border-border">
-                        <Text className="text-sm font-semibold text-primary">Use Template</Text>
-                        <IconSymbol name="arrow.right" size={16} color={colors.primary} />
+                        <Text className="text-sm font-semibold text-primary">
+                          {CAMPAIGN_COPY.useCta}
+                        </Text>
+                        <View className="flex-row items-center">
+                          <TouchableOpacity
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              router.push({
+                                pathname: "/(trainer)/social-progress",
+                                params: { templateId: String(template.id) },
+                              } as any);
+                            }}
+                            className="w-9 h-9 rounded-full items-center justify-center mr-2"
+                            style={{
+                              borderWidth: 1,
+                              borderColor: `${colors.primary}50`,
+                              backgroundColor: `${colors.primary}15`,
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Open analytics for ${template.title}`}
+                            testID={`template-analytics-${template.id}`}
+                          >
+                            <MaterialCommunityIcons
+                              name="chart-line"
+                              size={16}
+                              color={colors.primary}
+                            />
+                          </TouchableOpacity>
+                          <IconSymbol name="arrow.right" size={16} color={colors.primary} />
+                        </View>
                       </View>
                       </View>
                     </View>

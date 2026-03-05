@@ -18,6 +18,7 @@
     "ios": "expo run:ios",
     "mcp:trainer-assistant": "MCP_STDIO_MODE=1 tsx scripts/mcp-trainer-assistant.ts",
     "mcp:user-token": "node scripts/get-user-access-token.mjs",
+    "seed:campaign-demo": "tsx scripts/seed-campaign-demo.ts",
     "qr": "node scripts/generate_qr.mjs",
     "deploy:backend": "docker build --platform linux/amd64 -f Dockerfile.backend -t gcr.io/locoman-486301/locoman-backend . && docker push gcr.io/locoman-486301/locoman-backend && gcloud run deploy locoman-backend --image gcr.io/locoman-486301/locoman-backend --platform managed --region us-central1 --allow-unauthenticated",
     "deploy:web": "docker build --platform linux/amd64 -f Dockerfile.web -t gcr.io/locoman-486301/locoman-web . && docker push gcr.io/locoman-486301/locoman-web && gcloud run deploy locoman-web --image gcr.io/locoman-486301/locoman-web --platform managed --region us-central1 --allow-unauthenticated",

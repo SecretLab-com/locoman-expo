@@ -44,7 +44,6 @@ export default function WelcomeScreen() {
   const [testLoginLoading, setTestLoginLoading] = useState<string | null>(null);
   const [testLoginError, setTestLoginError] = useState<string | null>(null);
   const current = useMemo(() => SLIDES[index], [index]);
-  const isLast = index === SLIDES.length - 1;
 
   useEffect(() => {
     if (loading || !isAuthenticated) return;
@@ -53,6 +52,13 @@ export default function WelcomeScreen() {
     }, 800);
     return () => clearTimeout(timer);
   }, [effectiveRole, isAuthenticated, loading]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((value) => (value + 1) % SLIDES.length);
+    }, 20000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Web autoplay can fail on initial mount; retry when tab gains focus/visibility.
   useEffect(() => {
@@ -117,13 +123,9 @@ export default function WelcomeScreen() {
     }
   };
 
-  const next = async () => {
+  const advanceSlide = async () => {
     await haptics.light();
-    if (isLast) {
-      router.push("/register");
-      return;
-    }
-    setIndex((value) => Math.min(value + 1, SLIDES.length - 1));
+    setIndex((value) => (value + 1) % SLIDES.length);
   };
 
   return (
@@ -162,7 +164,14 @@ export default function WelcomeScreen() {
           <Text className="text-sm text-white/80 mt-2">Simple beats powerful.</Text>
         </View>
 
-        <View className="bg-surface border border-border rounded-2xl p-6">
+        <TouchableOpacity
+          className="bg-surface border border-border rounded-2xl p-6"
+          onPress={advanceSlide}
+          activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel="Show next onboarding step"
+          testID="welcome-step-card"
+        >
           <Text className="text-xs text-muted mb-2">Step {index + 1} of {SLIDES.length}</Text>
           <Text className="text-2xl font-bold text-foreground">{current.title}</Text>
           <Text className="text-base text-muted mt-2">{current.body}</Text>
@@ -174,17 +183,20 @@ export default function WelcomeScreen() {
               />
             ))}
           </View>
-        </View>
+        </TouchableOpacity>
 
         <View>
           <TouchableOpacity
             className="bg-primary rounded-xl py-4 items-center mb-3"
-            onPress={next}
+            onPress={async () => {
+              await haptics.light();
+              router.push("/register");
+            }}
             accessibilityRole="button"
-            accessibilityLabel={isLast ? "Get started" : "Next onboarding step"}
+            accessibilityLabel="Get started"
             testID="welcome-next"
           >
-            <Text className="text-background font-semibold text-lg">{isLast ? "Get Started" : "Next"}</Text>
+            <Text className="text-background font-semibold text-lg">Get Started</Text>
           </TouchableOpacity>
           <TouchableOpacity
             className="bg-surface border border-border rounded-xl py-4 items-center mb-3"

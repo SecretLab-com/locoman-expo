@@ -46,7 +46,7 @@ export default function PhylloCallbackScreen() {
           : "";
         router.replace(`${target}${separator}phyllo=${status}${reasonParam}` as any);
       } catch (error: any) {
-        setErrorMessage(String(error?.message || "Unable to finalize Phyllo connection."));
+        setErrorMessage(String(error?.message || "Unable to finalize social connection."));
       }
     };
     void run();
@@ -57,7 +57,7 @@ export default function PhylloCallbackScreen() {
       <View className="flex-1 items-center justify-center px-6">
         {errorMessage ? (
           <>
-            <Text className="text-lg font-semibold text-error">Phyllo connection failed</Text>
+            <Text className="text-lg font-semibold text-error">Social connection failed</Text>
             <Text className="text-sm text-muted mt-2 text-center">{errorMessage}</Text>
           </>
         ) : (

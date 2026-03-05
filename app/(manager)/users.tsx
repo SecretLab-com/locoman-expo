@@ -130,6 +130,8 @@ export default function UsersScreen() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [pagedUsers, setPagedUsers] = useState<User[]>([]);
+  const [stableTotalCount, setStableTotalCount] = useState(0);
   const [exporting, setExporting] = useState(false);
   
   // Bulk selection state
@@ -231,9 +233,9 @@ export default function UsersScreen() {
   const revokeInvitationMutation = trpc.admin.revokeUserInvitation.useMutation();
   const resendInvitationMutation = trpc.admin.resendUserInvitation.useMutation();
 
-  const users = usersQuery.data?.users ?? [];
-  const totalCount = usersQuery.data?.total ?? 0;
-  const hasMore = offset + PAGE_SIZE < totalCount;
+  const users = pagedUsers;
+  const totalCount = Math.max(stableTotalCount, users.length);
+  const hasMore = users.length < totalCount;
   const pendingInvites = invitationsQuery.data?.invitations ?? [];
   const filteredPendingInvites = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -304,8 +306,32 @@ export default function UsersScreen() {
   // Reset offset when filters change
   useEffect(() => {
     setOffset(0);
+    setPagedUsers([]);
     setSelectedUserIds(new Set());
   }, [searchQuery, selectedRole, selectedStatus, joinedAfter, joinedBefore]);
+
+  useEffect(() => {
+    if (!usersQuery.isSuccess) return;
+    const nextPageUsers = usersQuery.data?.users ?? [];
+    setStableTotalCount(Number(usersQuery.data?.total || 0));
+    setPagedUsers((previous) => {
+      if (offset === 0) {
+        return nextPageUsers;
+      }
+      if (!nextPageUsers.length) {
+        return previous;
+      }
+      const nextById = new Map(nextPageUsers.map((user) => [user.id, user]));
+      const merged = previous.map((user) => nextById.get(user.id) ?? user);
+      const existingIds = new Set(merged.map((user) => user.id));
+      for (const user of nextPageUsers) {
+        if (!existingIds.has(user.id)) {
+          merged.push(user);
+        }
+      }
+      return merged;
+    });
+  }, [usersQuery.isSuccess, usersQuery.data?.users, offset]);
 
   // Load more users
   const loadMore = useCallback(() => {
@@ -318,6 +344,8 @@ export default function UsersScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     setOffset(0);
+    setPagedUsers([]);
+    setStableTotalCount(0);
     await usersQuery.refetch();
     await invitationsQuery.refetch();
     setRefreshing(false);
@@ -1568,10 +1596,18 @@ export default function UsersScreen() {
                   <View style={styles.modalHeader}>
                     <TouchableOpacity
                       onPress={() => setActivityLogVisible(false)}
-                      style={{ flexDirection: "row", alignItems: "center" }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: colors.surface,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Go back"
                     >
-                      <IconSymbol name="chevron.left" size={20} color={colors.primary} />
-                      <Text style={{ color: colors.primary, marginLeft: 4 }}>Back</Text>
+                      <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
                     </TouchableOpacity>
                     <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                       Activity Log

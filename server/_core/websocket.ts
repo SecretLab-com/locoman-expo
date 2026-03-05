@@ -33,7 +33,15 @@ export type WSMessage =
   | { type: "message_read"; messageId: string; conversationId: string }
   | { type: "reaction_added"; messageId: string; reaction: string; userId: string }
   | { type: "reaction_removed"; messageId: string; reaction: string; userId: string }
-  | { type: "badge_counts_updated" };
+  | { type: "badge_counts_updated" }
+  | {
+      type: "social_alert";
+      severity: "info" | "warning" | "critical";
+      title: string;
+      body: string;
+      trainerId?: string;
+      eventType?: string;
+    };
 
 /**
  * Verify a Supabase access token and resolve to the app user ID.
@@ -297,4 +305,26 @@ export function notifyReaction(messageId: string, reaction: string, userId: stri
     ? { type: "reaction_added", messageId, reaction, userId }
     : { type: "reaction_removed", messageId, reaction, userId };
   notifyUserIds.forEach((id) => sendToUser(id, wsMessage));
+}
+
+export function notifySocialAlert(
+  userIds: string[],
+  input: {
+    severity: "info" | "warning" | "critical";
+    title: string;
+    body: string;
+    trainerId?: string;
+    eventType?: string;
+  },
+) {
+  const unique = Array.from(new Set(userIds.filter(Boolean)));
+  const payload: WSMessage = {
+    type: "social_alert",
+    severity: input.severity,
+    title: input.title,
+    body: input.body,
+    trainerId: input.trainerId,
+    eventType: input.eventType,
+  };
+  unique.forEach((userId) => sendToUser(userId, payload));
 }

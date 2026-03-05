@@ -4,6 +4,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useBadgeContext } from "@/contexts/badge-context";
 import { useColors } from "@/hooks/use-colors";
+import { CAMPAIGN_COPY } from "@/lib/campaign-copy";
 import { router, Stack } from "expo-router";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 
@@ -67,8 +68,8 @@ export default function CoordinatorMoreScreen() {
     },
     {
       icon: "rectangle.grid.2x2.fill",
-      title: "Templates",
-      subtitle: "Create and manage offer templates",
+      title: CAMPAIGN_COPY.navLabel,
+      subtitle: CAMPAIGN_COPY.navSubtitleAdmin,
       href: "/(coordinator)/templates",
     },
     {
@@ -108,6 +109,12 @@ export default function CoordinatorMoreScreen() {
       title: "Social Management",
       subtitle: "Program members, KPIs, and concerns",
       href: "/(coordinator)/social-management",
+    },
+    {
+      icon: "chart.line.uptrend.xyaxis",
+      title: "Brand Dashboard",
+      subtitle: "Campaign performance by brand and account",
+      href: "/(coordinator)/brand-dashboard",
     },
     {
       icon: "person.badge.plus",

@@ -6,10 +6,11 @@ import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { trpc } from "@/lib/trpc";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   ScrollView,
   Text,
@@ -38,12 +39,24 @@ export default function TemplateSettingsScreen() {
   const { bundleId } = useLocalSearchParams<{ bundleId: string }>();
   const utils = trpc.useUtils();
 
-  const { data: bundle, isLoading } = trpc.admin.getBundle.useQuery(
+  const bundleQuery = trpc.admin.getBundle.useQuery(
     { id: bundleId || "" },
     { enabled: Boolean(bundleId) },
   );
+  const bundle = bundleQuery.data;
+  const isLoading = bundleQuery.isLoading;
 
   const isAlreadyTemplate = bundle?.isTemplate === true;
+  const { data: brandAccounts = [] } = trpc.admin.listCampaignAccounts.useQuery({
+    accountType: "brand",
+    activeOnly: true,
+    limit: 400,
+  });
+  const { data: templateCampaignLinks = [] } =
+    trpc.admin.getTemplateCampaignAccounts.useQuery(
+      { bundleId: bundleId || "" },
+      { enabled: Boolean(bundleId && isAlreadyTemplate) },
+    );
 
   const [visibility, setVisibility] = useState<string[]>([]);
   const [discountType, setDiscountType] = useState<"percentage" | "fixed" | null>(null);
@@ -52,6 +65,23 @@ export default function TemplateSettingsScreen() {
   const [availEnd, setAvailEnd] = useState("");
   const [noEndDate, setNoEndDate] = useState(true);
   const [availableNow, setAvailableNow] = useState(true);
+  const [selectedBrandAccountId, setSelectedBrandAccountId] = useState<string | null>(
+    null,
+  );
+
+  const selectedBrandLink = useMemo(
+    () =>
+      (templateCampaignLinks || []).find(
+        (link: any) => link?.relationType === "brand" && link?.campaignAccountId,
+      ),
+    [templateCampaignLinks],
+  );
+
+  useEffect(() => {
+    if (!selectedBrandAccountId && selectedBrandLink?.campaignAccountId) {
+      setSelectedBrandAccountId(String(selectedBrandLink.campaignAccountId));
+    }
+  }, [selectedBrandAccountId, selectedBrandLink?.campaignAccountId]);
 
   // Populate from existing template settings when data loads
   const [populated, setPopulated] = useState(false);
@@ -70,43 +100,30 @@ export default function TemplateSettingsScreen() {
       setNoEndDate(false);
       setAvailEnd(bundle.availabilityEnd.slice(0, 10));
     }
+    if (selectedBrandLink?.campaignAccountId) {
+      setSelectedBrandAccountId(String(selectedBrandLink.campaignAccountId));
+    }
     setPopulated(true);
   }
 
-  const promoteMutation = trpc.admin.promoteBundleToTemplate.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.admin.promotedTemplates.invalidate(),
-        utils.bundles.templates.invalidate(),
-      ]);
-      haptics.success();
-      showAlert("Template Created", "This bundle is now available as a template for trainers.");
-      router.back();
-    },
-    onError: (err) => {
-      haptics.error();
-      showAlert("Error", err.message);
-    },
-  });
+  const promoteMutation = trpc.admin.promoteBundleToTemplate.useMutation();
 
-  const updateSettingsMutation = trpc.admin.updateTemplateSettings.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.admin.promotedTemplates.invalidate(),
-        utils.bundles.templates.invalidate(),
-        utils.admin.getBundle.invalidate({ id: bundleId }),
-      ]);
-      haptics.success();
-      showAlert("Settings Updated", "Template settings have been saved.");
-      router.back();
-    },
-    onError: (err) => {
-      haptics.error();
-      showAlert("Error", err.message);
-    },
-  });
+  const updateSettingsMutation = trpc.admin.updateTemplateSettings.useMutation();
+  const setTemplateCampaignAccountsMutation =
+    trpc.admin.setTemplateCampaignAccounts.useMutation();
+  const generateShareMutation = trpc.admin.generateCampaignShareLink.useMutation();
+  const setShareEnabledMutation = trpc.admin.setCampaignShareEnabled.useMutation();
 
-  const isSaving = promoteMutation.isPending || updateSettingsMutation.isPending;
+  const isSaving =
+    promoteMutation.isPending ||
+    updateSettingsMutation.isPending ||
+    setTemplateCampaignAccountsMutation.isPending ||
+    generateShareMutation.isPending ||
+    setShareEnabledMutation.isPending;
+
+  const shareUrl = bundle?.publicShareSlug
+    ? `${String(process.env.EXPO_PUBLIC_APP_URL || "https://bright.coach").replace(/\/+$/g, "")}/campaign/${bundle.publicShareSlug}`
+    : null;
 
   const toggleSpecialty = (value: string) => {
     setVisibility((prev) =>
@@ -121,6 +138,10 @@ export default function TemplateSettingsScreen() {
       showAlert("Missing discount", "Enter a discount value or remove the discount type.");
       return;
     }
+    if (!selectedBrandAccountId) {
+      showAlert("Missing brand", "Select a brand for this campaign.");
+      return;
+    }
 
     const payload = {
       bundleId: bundleId!,
@@ -131,10 +152,95 @@ export default function TemplateSettingsScreen() {
       availabilityEnd: noEndDate ? null : (availEnd || null),
     };
 
-    if (isAlreadyTemplate) {
-      updateSettingsMutation.mutate(payload);
-    } else {
-      promoteMutation.mutate(payload);
+    try {
+      if (isAlreadyTemplate) {
+        await updateSettingsMutation.mutateAsync(payload);
+      } else {
+        await promoteMutation.mutateAsync(payload);
+      }
+      await setTemplateCampaignAccountsMutation.mutateAsync({
+        bundleId: bundleId!,
+        links: [
+          {
+            campaignAccountId: selectedBrandAccountId,
+            relationType: "brand",
+            allocationPct: "100",
+          },
+        ],
+      });
+      if (!bundle?.publicShareSlug) {
+        await generateShareMutation.mutateAsync({ bundleId: bundleId! });
+      } else if (!bundle.publicShareEnabled) {
+        await setShareEnabledMutation.mutateAsync({
+          bundleId: bundleId!,
+          enabled: true,
+        });
+      }
+      await Promise.all([
+        utils.admin.promotedTemplates.invalidate(),
+        utils.admin.listCampaignTemplates.invalidate(),
+        utils.bundles.templates.invalidate(),
+        utils.admin.getBundle.invalidate({ id: bundleId }),
+        utils.admin.getTemplateCampaignAccounts.invalidate({ bundleId: bundleId! }),
+      ]);
+      haptics.success();
+      showAlert(
+        isAlreadyTemplate ? "Campaign Updated" : "Campaign Created",
+        "Campaign settings were saved and sharing is enabled.",
+      );
+      router.back();
+    } catch (err: any) {
+      haptics.error();
+      showAlert("Error", err?.message || "Failed to save campaign settings.");
+    }
+  };
+
+  const handleGenerateShareLink = async () => {
+    if (!bundleId) return;
+    try {
+      await haptics.light();
+      const result = await generateShareMutation.mutateAsync({ bundleId });
+      await Promise.all([
+        utils.admin.getBundle.invalidate({ id: bundleId }),
+        utils.admin.listCampaignTemplates.invalidate(),
+      ]);
+      await bundleQuery.refetch();
+      await haptics.success();
+      showAlert(
+        "Link generated",
+        result?.url
+          ? `Public link is ready:\n${result.url}`
+          : "Campaign share link generated successfully.",
+      );
+    } catch (err: any) {
+      await haptics.error();
+      showAlert("Unable to generate link", err?.message || "Please try again.");
+    }
+  };
+
+  const handleToggleShareEnabled = async () => {
+    if (!bundleId) return;
+    try {
+      await haptics.light();
+      const result = await setShareEnabledMutation.mutateAsync({
+        bundleId,
+        enabled: !bundle?.publicShareEnabled,
+      });
+      await Promise.all([
+        utils.admin.getBundle.invalidate({ id: bundleId }),
+        utils.admin.listCampaignTemplates.invalidate(),
+      ]);
+      await bundleQuery.refetch();
+      await haptics.success();
+      showAlert(
+        result.enabled ? "Link enabled" : "Link disabled",
+        result.url
+          ? `Share URL:\n${result.url}`
+          : "You can re-enable this link any time.",
+      );
+    } catch (err: any) {
+      await haptics.error();
+      showAlert("Unable to update link", err?.message || "Please try again.");
     }
   };
 
@@ -226,6 +332,37 @@ export default function TemplateSettingsScreen() {
                   <Text className="text-xs text-muted">Clear all (visible to everyone)</Text>
                 </TouchableOpacity>
               )}
+            </SurfaceCard>
+          </View>
+
+          {/* Brand selection */}
+          <View className="px-4 mb-4">
+            <SurfaceCard>
+              <Text className="text-sm font-semibold text-foreground mb-1">Brand</Text>
+              <Text className="text-xs text-muted mb-3">
+                Select a brand account for sorting, search, and reporting.
+              </Text>
+              <View className="flex-row flex-wrap gap-2">
+                {brandAccounts.map((brand: any) => {
+                  const active = selectedBrandAccountId === brand.id;
+                  return (
+                    <TouchableOpacity
+                      key={brand.id}
+                      onPress={() => setSelectedBrandAccountId(brand.id)}
+                      className={`px-3 py-2 rounded-full border ${active ? "bg-primary border-primary" : "bg-surface border-border"}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Select brand ${brand.name}`}
+                      testID={`template-brand-${brand.id}`}
+                    >
+                      <Text
+                        className={`text-xs font-medium ${active ? "text-background" : "text-foreground"}`}
+                      >
+                        {brand.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </SurfaceCard>
           </View>
 
@@ -325,6 +462,68 @@ export default function TemplateSettingsScreen() {
           </View>
 
           {/* Save button */}
+          {isAlreadyTemplate && (
+            <View className="px-4 mb-4">
+              <SurfaceCard>
+                <Text className="text-sm font-semibold text-foreground mb-1">
+                  Public Share Link
+                </Text>
+                {shareUrl ? (
+                  <>
+                    <Text className="text-xs text-muted mb-2">
+                      Share this URL with the brand customer.
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => Linking.openURL(shareUrl)}
+                      className="rounded-lg border border-border bg-background px-3 py-2 mb-2"
+                      accessibilityRole="button"
+                      accessibilityLabel="Open campaign share url"
+                      testID="template-share-url"
+                    >
+                      <Text className="text-xs text-primary">{shareUrl}</Text>
+                    </TouchableOpacity>
+                    <View className="flex-row gap-2">
+                      <TouchableOpacity
+                        onPress={handleToggleShareEnabled}
+                        className="flex-1 py-2 rounded-lg items-center bg-warning/10"
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          bundle?.publicShareEnabled
+                            ? "Disable campaign link"
+                            : "Enable campaign link"
+                        }
+                        testID="template-share-toggle"
+                      >
+                        <Text className="text-warning font-medium text-sm">
+                          {bundle?.publicShareEnabled ? "Disable" : "Enable"}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleGenerateShareLink}
+                        className="flex-1 py-2 rounded-lg items-center bg-primary/10"
+                        accessibilityRole="button"
+                        accessibilityLabel="Regenerate campaign link"
+                        testID="template-share-regenerate"
+                      >
+                        <Text className="text-primary font-medium text-sm">Regenerate Link</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    onPress={handleGenerateShareLink}
+                    className="py-2 rounded-lg items-center bg-primary/10"
+                    accessibilityRole="button"
+                    accessibilityLabel="Generate campaign share link"
+                    testID="template-share-generate"
+                  >
+                    <Text className="text-primary font-medium text-sm">Generate Link</Text>
+                  </TouchableOpacity>
+                )}
+              </SurfaceCard>
+            </View>
+          )}
+
           <View className="px-4 pb-8">
             <TouchableOpacity
               className="bg-primary rounded-xl py-4 items-center"

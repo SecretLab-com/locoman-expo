@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { createHmac, timingSafeEqual } from "crypto";
 
 type PhylloUserResponse = {
   id: string;
@@ -158,4 +159,122 @@ export function inferPhylloTokenEnvironment(
   if (targets.includes("staging") || targets.includes("sandbox")) return "sandbox";
   if (targets.includes("api.getphyllo.com")) return "production";
   return "unknown";
+}
+
+export type PhylloWebhookEvent = {
+  providerEventId: string;
+  eventType: string;
+  occurredAt: string | null;
+  phylloUserId: string | null;
+  phylloAccountId: string | null;
+  payload: any;
+};
+
+function normalizePhylloHeaderSignature(value: string): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.includes(",")) {
+    const parts = raw
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      const [k, v] = part.split("=");
+      if (String(k || "").trim().toLowerCase() === "sha256" && v) {
+        return String(v).trim();
+      }
+    }
+  }
+  if (raw.toLowerCase().startsWith("sha256=")) {
+    return raw.slice("sha256=".length).trim();
+  }
+  return raw;
+}
+
+export function verifyPhylloWebhookSignature(params: {
+  rawBody: Buffer;
+  signatureHeader: string;
+  secret: string;
+}): boolean {
+  const secret = String(params.secret || "").trim();
+  if (!secret) return false;
+  const incoming = normalizePhylloHeaderSignature(params.signatureHeader);
+  if (!incoming) return false;
+  const expected = createHmac("sha256", secret)
+    .update(params.rawBody)
+    .digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(incoming, "utf8"), Buffer.from(expected, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+function normalizeWebhookEventType(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ".")
+    .replace(/_/g, ".");
+}
+
+function resolveWebhookPayloadRow(row: any) {
+  if (!row || typeof row !== "object") return {};
+  if (row.payload && typeof row.payload === "object") return row.payload;
+  if (row.data && typeof row.data === "object") return row.data;
+  return row;
+}
+
+export function normalizePhylloWebhookEvents(payload: any): PhylloWebhookEvent[] {
+  const root = payload && typeof payload === "object" ? payload : {};
+  const rows = Array.isArray(root.events)
+    ? root.events
+    : Array.isArray(root.data)
+      ? root.data
+      : Array.isArray(root.items)
+        ? root.items
+        : [root];
+  return rows
+    .map((row: any, index: number): PhylloWebhookEvent | null => {
+      const body = resolveWebhookPayloadRow(row);
+      const eventType = normalizeWebhookEventType(
+        row?.event_type || row?.event || row?.type || body?.event_type || body?.event || body?.type,
+      );
+      const providerEventId = String(
+        row?.id ||
+          row?.event_id ||
+          row?.webhook_id ||
+          body?.id ||
+          body?.event_id ||
+          body?.webhook_id ||
+          `${eventType || "phyllo.event"}:${Date.now()}:${index}`,
+      ).trim();
+      const occurredAtRaw =
+        row?.created_at ||
+        row?.occurred_at ||
+        row?.timestamp ||
+        body?.created_at ||
+        body?.occurred_at ||
+        body?.timestamp ||
+        null;
+      const occurredAt = occurredAtRaw ? new Date(occurredAtRaw).toISOString() : null;
+      const phylloUserId = String(
+        row?.user_id || body?.user_id || body?.user?.id || "",
+      ).trim();
+      const phylloAccountId = String(
+        row?.account_id || body?.account_id || body?.account?.id || "",
+      ).trim();
+      return {
+        providerEventId,
+        eventType: eventType || "phyllo.unknown",
+        occurredAt,
+        phylloUserId: phylloUserId || null,
+        phylloAccountId: phylloAccountId || null,
+        payload: row,
+      };
+    })
+    .filter(
+      (event: PhylloWebhookEvent | null): event is PhylloWebhookEvent =>
+        Boolean(event?.providerEventId),
+    );
 }

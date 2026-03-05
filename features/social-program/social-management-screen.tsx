@@ -133,19 +133,41 @@ export function SocialManagementScreen({ roleLabel }: Props) {
           title="Social Management"
           subtitle={`${roleLabel} dashboard for social member performance and compliance.`}
           leftSlot={
-            <ActionButton
-              onPress={() => router.back()}
-              variant="ghost"
+            <TouchableOpacity
+              onPress={() =>
+                router.canGoBack()
+                  ? router.back()
+                  : router.replace(
+                      (roleLabel === "Manager" ? "/(manager)/more" : "/(coordinator)/more") as any,
+                    )
+              }
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center"
               accessibilityRole="button"
               accessibilityLabel="Go back"
               testID={`social-management-back-${roleLabel.toLowerCase()}`}
             >
-              <IconSymbol name="chevron.left" size={18} color={colors.primary} />
-            </ActionButton>
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
           }
         />
 
         <View className="px-4 pb-24 gap-4">
+          <ActionButton
+            onPress={() =>
+              router.push(
+                (roleLabel === "Manager"
+                  ? "/(manager)/brand-dashboard"
+                  : "/(coordinator)/brand-dashboard") as any,
+              )
+            }
+            variant="secondary"
+            accessibilityRole="button"
+            accessibilityLabel="Open brand dashboard"
+            testID="social-brand-dashboard-link"
+          >
+            Brand Dashboard
+          </ActionButton>
+
           <SurfaceCard>
             <Text className="text-base font-semibold text-foreground mb-3">
               Program overview

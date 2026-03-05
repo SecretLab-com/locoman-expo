@@ -4,6 +4,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useBadgeContext } from "@/contexts/badge-context";
 import { useColors } from "@/hooks/use-colors";
+import { CAMPAIGN_COPY } from "@/lib/campaign-copy";
 import { router, Stack } from "expo-router";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 
@@ -66,8 +67,8 @@ export default function TrainerMoreScreen() {
     },
     {
       icon: "rectangle.grid.2x2.fill",
-      title: "Templates",
-      subtitle: "Browse ready-made offer templates",
+      title: CAMPAIGN_COPY.navLabel,
+      subtitle: CAMPAIGN_COPY.navSubtitleTrainer,
       href: "/(trainer)/templates",
     },
     {

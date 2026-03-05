@@ -3,7 +3,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
-import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
@@ -18,6 +18,13 @@ const OFFER_STATUS_META: Record<OfferStatus, { label: string; colorKey: "success
   published: { label: "Published", colorKey: "success" },
   archived: { label: "Archived", colorKey: "error" },
 };
+
+function formatOfferType(value: string | undefined) {
+  return String(value || "offer")
+    .replaceAll("_", " ")
+    .trim()
+    .toLowerCase();
+}
 
 export default function OffersListScreen() {
   const colors = useColors();
@@ -38,7 +45,7 @@ export default function OffersListScreen() {
           <TouchableOpacity
             onPress={() => router.push("/(trainer)/templates" as any)}
             accessibilityRole="button"
-            accessibilityLabel="Browse offer templates"
+            accessibilityLabel="Browse campaigns"
             testID="offers-browse-templates"
           >
             <SurfaceCard>
@@ -47,7 +54,7 @@ export default function OffersListScreen() {
                   <IconSymbol name="rectangle.grid.2x2.fill" size={18} color={colors.primary} />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-sm font-semibold text-foreground">Browse Templates</Text>
+                  <Text className="text-sm font-semibold text-foreground">Browse Campaigns</Text>
                   <Text className="text-xs text-muted mt-0.5">Find a ready-made starting point</Text>
                 </View>
                 <IconSymbol name="chevron.right" size={16} color={colors.muted} />
@@ -94,42 +101,83 @@ export default function OffersListScreen() {
                 <SurfaceCard>
                   <View className="flex-row items-center justify-between">
                     <View className="flex-row items-center flex-1 pr-3">
-                      <View className="w-12 h-12 rounded-lg bg-surface border border-border overflow-hidden mr-3">
-                        <Image
-                          source={{ uri: normalizeAssetUrl(offer?.imageUrl) || getOfferFallbackImageUrl(offer?.title) }}
-                          style={{ width: "100%", height: "100%" }}
-                          contentFit="cover"
-                        />
+                      <View className="w-12 h-12 rounded-lg bg-surface border border-border overflow-hidden items-center justify-center mr-3">
+                        {normalizeAssetUrl(offer?.imageUrl) ? (
+                          <Image
+                            source={{ uri: normalizeAssetUrl(offer?.imageUrl) as string }}
+                            style={{ width: "100%", height: "100%" }}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <IconSymbol name="photo" size={16} color={colors.muted} />
+                        )}
                       </View>
                       <View className="flex-1">
-                        <Text className="text-foreground font-semibold">{offer.title}</Text>
-                        <Text className="text-sm text-muted mt-1">{String(offer.type || "").replaceAll("_", " ")}</Text>
-                      </View>
-                    </View>
-                    <View className="items-end">
-                      <Text className="text-foreground font-bold">{formatGBPFromMinor(offer.priceMinor || 0)}</Text>
-                      <View className="flex-row items-center mt-1">
-                        {(() => {
-                          const status = ((offer.status as OfferStatus) || "draft");
-                          const meta = OFFER_STATUS_META[status] || OFFER_STATUS_META.draft;
-                          const dotColor =
-                            meta.colorKey === "success"
-                              ? colors.success
-                              : meta.colorKey === "primary"
-                                ? colors.primary
-                                : meta.colorKey === "error"
-                                  ? colors.error
-                                  : colors.warning;
-                          return (
-                            <>
+                        <View className="flex-row items-start justify-between">
+                          <Text className="text-foreground font-semibold flex-1 pr-2" numberOfLines={2}>
+                            {offer.title}
+                          </Text>
+                          <Text className="text-foreground font-bold">
+                            {formatGBPFromMinor(offer.priceMinor || 0)}
+                          </Text>
+                        </View>
+                        <View className="flex-row items-center mt-2">
+                          <View
+                            className="px-2 py-1 rounded-full border mr-2"
+                            style={{
+                              backgroundColor: "rgba(148,163,184,0.16)",
+                              borderColor: "rgba(148,163,184,0.24)",
+                            }}
+                          >
+                            <Text className="text-[11px] text-muted">
+                              {formatOfferType(offer.type)}
+                            </Text>
+                          </View>
+                          {(() => {
+                            const status = ((offer.status as OfferStatus) || "draft");
+                            const meta = OFFER_STATUS_META[status] || OFFER_STATUS_META.draft;
+                            const tone =
+                              meta.colorKey === "success"
+                                ? {
+                                    text: colors.success,
+                                    bg: "rgba(52,211,153,0.16)",
+                                    border: "rgba(52,211,153,0.34)",
+                                  }
+                                : meta.colorKey === "primary"
+                                  ? {
+                                      text: colors.primary,
+                                      bg: "rgba(96,165,250,0.16)",
+                                      border: "rgba(96,165,250,0.34)",
+                                    }
+                                  : meta.colorKey === "error"
+                                    ? {
+                                        text: colors.error,
+                                        bg: "rgba(248,113,113,0.16)",
+                                        border: "rgba(248,113,113,0.34)",
+                                      }
+                                    : {
+                                        text: colors.warning,
+                                        bg: "rgba(245,158,11,0.16)",
+                                        border: "rgba(245,158,11,0.34)",
+                                      };
+                            return (
                               <View
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: dotColor }}
-                              />
-                              <Text className="text-xs text-muted ml-1">{meta.label}</Text>
-                            </>
-                          );
-                        })()}
+                                className="px-2 py-1 rounded-full border"
+                                style={{
+                                  backgroundColor: tone.bg,
+                                  borderColor: tone.border,
+                                }}
+                              >
+                                <Text
+                                  className="text-[11px] font-medium"
+                                  style={{ color: tone.text }}
+                                >
+                                  {meta.label}
+                                </Text>
+                              </View>
+                            );
+                          })()}
+                        </View>
                       </View>
                     </View>
                   </View>

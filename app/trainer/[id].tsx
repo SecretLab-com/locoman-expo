@@ -159,7 +159,7 @@ export default function TrainerProfileScreen() {
             onPress={() => router.back()}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center"
           >
-            <IconSymbol name="chevron.left" size={20} color={colors.foreground} />
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <Text className="flex-1 text-lg font-semibold text-foreground text-center">
             Trainer Profile

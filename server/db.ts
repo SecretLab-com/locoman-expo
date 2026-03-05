@@ -186,6 +186,8 @@ export type BundleDraft = {
   availabilityStart: string | null;
   availabilityEnd: string | null;
   templateActive: boolean;
+  publicShareSlug: string | null;
+  publicShareEnabled: boolean;
   totalTrainerBonus: string | null;
   createdAt: string;
   updatedAt: string;
@@ -202,6 +204,70 @@ export type TemplateSettings = {
   availabilityStart?: string | null;
   availabilityEnd?: string | null;
   templateActive?: boolean;
+  publicShareSlug?: string | null;
+  publicShareEnabled?: boolean;
+};
+
+export type CampaignAccountType = "brand" | "customer";
+export type CampaignAccountRelationType = "brand" | "customer" | "partner";
+
+export type CampaignAccount = {
+  id: string;
+  accountType: CampaignAccountType;
+  name: string;
+  slug: string | null;
+  websiteUrl: string | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  notes: string | null;
+  active: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertCampaignAccount = Partial<
+  Omit<CampaignAccount, "id" | "createdAt" | "updatedAt">
+> & {
+  name: string;
+  accountType: CampaignAccountType;
+};
+
+export type CampaignTemplateAccount = {
+  id: string;
+  templateBundleId: string;
+  campaignAccountId: string;
+  relationType: CampaignAccountRelationType;
+  allocationPct: string | null;
+  metadata: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertCampaignTemplateAccount = Partial<
+  Omit<CampaignTemplateAccount, "id" | "createdAt" | "updatedAt">
+> & {
+  templateBundleId: string;
+  campaignAccountId: string;
+};
+
+export type BundleCampaignAccount = {
+  id: string;
+  bundleDraftId: string;
+  campaignAccountId: string;
+  sourceTemplateBundleId: string | null;
+  relationType: CampaignAccountRelationType;
+  allocationPct: string | null;
+  metadata: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertBundleCampaignAccount = Partial<
+  Omit<BundleCampaignAccount, "id" | "createdAt" | "updatedAt">
+> & {
+  bundleDraftId: string;
+  campaignAccountId: string;
 };
 
 export type Product = {
@@ -1091,6 +1157,53 @@ export async function getBundleDraftById(id: string): Promise<BundleDraft | unde
   return mapFromDb<BundleDraft>(data);
 }
 
+export async function getCampaignSignupStats(templateBundleId: string): Promise<{
+  trainerCount: number;
+  offerCount: number;
+  publishedOfferCount: number;
+}> {
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("trainer_id,status")
+    .eq("template_id", templateBundleId)
+    .neq("is_template", true);
+  if (error) {
+    console.error("[Database] getCampaignSignupStats:", error.message);
+    return { trainerCount: 0, offerCount: 0, publishedOfferCount: 0 };
+  }
+  const rows = data || [];
+  const trainerIds = new Set(
+    rows
+      .map((row: any) => String(row?.trainer_id || "").trim())
+      .filter(Boolean),
+  );
+  const publishedOfferCount = rows.filter(
+    (row: any) => String(row?.status || "").toLowerCase() === "published",
+  ).length;
+  return {
+    trainerCount: trainerIds.size,
+    offerCount: rows.length,
+    publishedOfferCount,
+  };
+}
+
+export async function getTemplateBundleByPublicShareSlug(
+  slug: string,
+): Promise<BundleDraft | undefined> {
+  const { data, error } = await sb()
+    .from("bundle_drafts")
+    .select("*")
+    .eq("public_share_slug", slug)
+    .eq("is_template", true)
+    .eq("public_share_enabled", true)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getTemplateBundleByPublicShareSlug:", error.message);
+    return undefined;
+  }
+  return mapFromDb<BundleDraft>(data);
+}
+
 export async function createBundleDraft(data: InsertBundleDraft): Promise<string> {
   const { data: row, error } = await sb()
     .from("bundle_drafts")
@@ -1250,6 +1363,189 @@ export async function demoteTemplate(bundleId: string) {
     })
     .eq("id", bundleId);
   if (error) { console.error("[Database] demoteTemplate:", error.message); throw error; }
+}
+
+// ============================================================================
+// CAMPAIGN ACCOUNTS (Brand / Customer)
+// ============================================================================
+
+export async function listCampaignAccounts(options?: {
+  search?: string;
+  accountType?: CampaignAccountType | "all";
+  activeOnly?: boolean;
+  limit?: number;
+}): Promise<CampaignAccount[]> {
+  const limit = options?.limit || 200;
+  let query = sb().from("campaign_accounts").select("*").order("name", { ascending: true });
+  if (options?.activeOnly !== false) query = query.eq("active", true);
+  if (options?.accountType && options.accountType !== "all") {
+    query = query.eq("account_type", options.accountType);
+  }
+  const term = options?.search?.trim();
+  if (term) {
+    const safe = sanitizeSearchTerm(term);
+    if (safe) query = query.ilike("name", `%${safe}%`);
+  }
+  const { data, error } = await query.limit(limit);
+  if (error) {
+    console.error("[Database] listCampaignAccounts:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<CampaignAccount>(data || []);
+}
+
+export async function createCampaignAccount(
+  data: InsertCampaignAccount,
+): Promise<CampaignAccount | undefined> {
+  const { data: row, error } = await sb()
+    .from("campaign_accounts")
+    .insert(mapToDb(data))
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] createCampaignAccount:", error.message);
+    throw error;
+  }
+  return mapFromDb<CampaignAccount>(row);
+}
+
+export async function getCampaignAccountsByIds(
+  ids: string[],
+): Promise<CampaignAccount[]> {
+  if (!ids.length) return [];
+  const { data, error } = await sb()
+    .from("campaign_accounts")
+    .select("*")
+    .in("id", ids);
+  if (error) {
+    console.error("[Database] getCampaignAccountsByIds:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<CampaignAccount>(data || []);
+}
+
+export async function getCampaignAccountsForTemplate(
+  templateBundleId: string,
+): Promise<CampaignTemplateAccount[]> {
+  const { data, error } = await sb()
+    .from("campaign_template_accounts")
+    .select("*")
+    .eq("template_bundle_id", templateBundleId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[Database] getCampaignAccountsForTemplate:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<CampaignTemplateAccount>(data || []);
+}
+
+export async function setCampaignAccountsForTemplate(
+  templateBundleId: string,
+  links: Array<
+    Omit<InsertCampaignTemplateAccount, "templateBundleId"> & {
+      campaignAccountId: string;
+    }
+  >,
+): Promise<void> {
+  const { error: deleteError } = await sb()
+    .from("campaign_template_accounts")
+    .delete()
+    .eq("template_bundle_id", templateBundleId);
+  if (deleteError) {
+    console.error(
+      "[Database] setCampaignAccountsForTemplate delete:",
+      deleteError.message,
+    );
+    throw deleteError;
+  }
+  if (!links.length) return;
+  const payload = links.map((link) =>
+    mapToDb({
+      templateBundleId,
+      campaignAccountId: link.campaignAccountId,
+      relationType: link.relationType || "brand",
+      allocationPct: link.allocationPct ?? null,
+      metadata: link.metadata ?? null,
+    }),
+  );
+  const { error } = await sb().from("campaign_template_accounts").insert(payload);
+  if (error) {
+    console.error("[Database] setCampaignAccountsForTemplate insert:", error.message);
+    throw error;
+  }
+}
+
+export async function getCampaignAccountsForBundle(
+  bundleDraftId: string,
+): Promise<BundleCampaignAccount[]> {
+  const { data, error } = await sb()
+    .from("bundle_campaign_accounts")
+    .select("*")
+    .eq("bundle_draft_id", bundleDraftId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[Database] getCampaignAccountsForBundle:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<BundleCampaignAccount>(data || []);
+}
+
+export async function setCampaignAccountsForBundle(
+  bundleDraftId: string,
+  links: Array<
+    Omit<InsertBundleCampaignAccount, "bundleDraftId"> & {
+      campaignAccountId: string;
+    }
+  >,
+): Promise<void> {
+  const { error: deleteError } = await sb()
+    .from("bundle_campaign_accounts")
+    .delete()
+    .eq("bundle_draft_id", bundleDraftId);
+  if (deleteError) {
+    console.error(
+      "[Database] setCampaignAccountsForBundle delete:",
+      deleteError.message,
+    );
+    throw deleteError;
+  }
+  if (!links.length) return;
+  const payload = links.map((link) =>
+    mapToDb({
+      bundleDraftId,
+      campaignAccountId: link.campaignAccountId,
+      sourceTemplateBundleId: link.sourceTemplateBundleId ?? null,
+      relationType: link.relationType || "brand",
+      allocationPct: link.allocationPct ?? null,
+      metadata: link.metadata ?? null,
+    }),
+  );
+  const { error } = await sb().from("bundle_campaign_accounts").insert(payload);
+  if (error) {
+    console.error("[Database] setCampaignAccountsForBundle insert:", error.message);
+    throw error;
+  }
+}
+
+export async function copyCampaignAccountsFromTemplateToBundle(params: {
+  templateBundleId: string;
+  bundleDraftId: string;
+}): Promise<void> {
+  const templateLinks = await getCampaignAccountsForTemplate(params.templateBundleId);
+  if (!templateLinks.length) {
+    await setCampaignAccountsForBundle(params.bundleDraftId, []);
+    return;
+  }
+  await setCampaignAccountsForBundle(
+    params.bundleDraftId,
+    templateLinks.map((link) => ({
+      campaignAccountId: link.campaignAccountId,
+      relationType: link.relationType,
+      allocationPct: link.allocationPct,
+      sourceTemplateBundleId: params.templateBundleId,
+      metadata: link.metadata || null,
+    })),
+  );
 }
 
 export async function getPublishedBundlesByTrainerIds(trainerIds: string[]): Promise<BundleDraft[]> {
@@ -3398,6 +3694,163 @@ export type InsertTrainerSocialViolation = Partial<
   message: string;
 };
 
+export type TrainerCampaignMetricDaily = {
+  id: string;
+  trainerId: string;
+  bundleDraftId: string;
+  campaignAccountId: string;
+  metricDate: string;
+  platform: string | null;
+  followers: number;
+  views: number;
+  engagements: number;
+  clicks: number;
+  shareSaves: number;
+  postsDelivered: number;
+  postsOnTime: number;
+  requiredPosts: number;
+  requiredTagPosts: number;
+  approvedCreativePosts: number;
+  metadata: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerCampaignMetricDaily = Partial<
+  Omit<TrainerCampaignMetricDaily, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+  bundleDraftId: string;
+  campaignAccountId: string;
+  metricDate: string;
+};
+
+export type PhylloWebhookEventStatus =
+  | "received"
+  | "processed"
+  | "failed"
+  | "ignored";
+
+export type PhylloWebhookEvent = {
+  id: string;
+  providerEventId: string;
+  eventType: string;
+  trainerId: string | null;
+  phylloUserId: string | null;
+  phylloAccountId: string | null;
+  occurredAt: string | null;
+  receivedAt: string;
+  status: PhylloWebhookEventStatus;
+  attemptCount: number;
+  lastError: string | null;
+  payload: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertPhylloWebhookEvent = Partial<
+  Omit<PhylloWebhookEvent, "id" | "createdAt" | "updatedAt" | "receivedAt" | "attemptCount">
+> & {
+  providerEventId: string;
+  eventType: string;
+  payload: any;
+};
+
+export type SocialEventNotificationSeverity = "info" | "warning" | "critical";
+
+export type SocialEventNotification = {
+  id: string;
+  recipientUserId: string;
+  trainerId: string | null;
+  eventId: string | null;
+  severity: SocialEventNotificationSeverity;
+  category: string;
+  title: string;
+  body: string;
+  metadata: any;
+  readAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertSocialEventNotification = Partial<
+  Omit<SocialEventNotification, "id" | "createdAt" | "updatedAt" | "readAt">
+> & {
+  recipientUserId: string;
+  title: string;
+  body: string;
+};
+
+export type TrainerSocialContent = {
+  id: string;
+  trainerId: string;
+  phylloUserId: string | null;
+  phylloAccountId: string | null;
+  phylloContentId: string;
+  platform: string | null;
+  postUrl: string | null;
+  profileUrl: string | null;
+  thumbnailUrl: string | null;
+  title: string | null;
+  caption: string | null;
+  publishedAt: string | null;
+  latestViews: number;
+  latestLikes: number;
+  latestComments: number;
+  latestEngagements: number;
+  metadata: any;
+  rawPayload: any;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialContent = Partial<
+  Omit<TrainerSocialContent, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+  phylloContentId: string;
+};
+
+export type TrainerSocialContentActivityDaily = {
+  id: string;
+  trainerSocialContentId: string;
+  trainerId: string;
+  metricDate: string;
+  views: number;
+  likes: number;
+  comments: number;
+  engagements: number;
+  metadata: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialContentActivityDaily = Partial<
+  Omit<TrainerSocialContentActivityDaily, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerSocialContentId: string;
+  trainerId: string;
+  metricDate: string;
+};
+
+export type TrainerRecentSocialPost = {
+  id: string;
+  platform: string | null;
+  title: string | null;
+  caption: string | null;
+  postUrl: string | null;
+  fallbackProfileUrl: string | null;
+  thumbnailUrl: string | null;
+  publishedAt: string | null;
+  latestViews: number;
+  latestLikes: number;
+  latestComments: number;
+  latestEngagements: number;
+  sparkline: number[];
+};
+
 export async function getTrainerSocialMembership(
   trainerId: string,
 ): Promise<TrainerSocialMembership | undefined> {
@@ -3536,6 +3989,25 @@ export async function getTrainerSocialProfile(
   return mapFromDb<TrainerSocialProfile>(data);
 }
 
+export async function getTrainerSocialProfileByPhylloUserId(
+  phylloUserId: string,
+): Promise<TrainerSocialProfile | undefined> {
+  const id = String(phylloUserId || "").trim();
+  if (!id) return undefined;
+  const { data, error } = await sb()
+    .from("trainer_social_profiles")
+    .select("*")
+    .eq("phyllo_user_id", id)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getTrainerSocialProfileByPhylloUserId:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerSocialProfile>(data);
+}
+
 export async function upsertTrainerSocialProfile(
   data: InsertTrainerSocialProfile,
 ): Promise<TrainerSocialProfile | undefined> {
@@ -3597,6 +4069,476 @@ export async function getTrainerSocialMetricsRange(
     return [];
   }
   return mapRowsFromDb<TrainerSocialMetricDaily>(data || []);
+}
+
+export async function getLatestTrainerSocialMetric(
+  trainerId: string,
+): Promise<TrainerSocialMetricDaily | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_social_metrics_daily")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("metric_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getLatestTrainerSocialMetric:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerSocialMetricDaily>(data);
+}
+
+export async function upsertTrainerCampaignMetricDaily(
+  data: InsertTrainerCampaignMetricDaily,
+): Promise<TrainerCampaignMetricDaily | undefined> {
+  const metricDate = new Date(data.metricDate).toISOString().slice(0, 10);
+  const payload = mapToDb({
+    ...data,
+    metricDate,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_campaign_metrics_daily")
+    .upsert(payload, {
+      onConflict:
+        "trainer_id,bundle_draft_id,campaign_account_id,metric_date,platform",
+    })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerCampaignMetricDaily:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerCampaignMetricDaily>(row);
+}
+
+export async function insertPhylloWebhookEventIfNew(
+  data: InsertPhylloWebhookEvent,
+): Promise<{ event: PhylloWebhookEvent; isNew: boolean }> {
+  const payload = mapToDb({
+    ...data,
+    status: data.status || "received",
+    attemptCount: 1,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("phyllo_webhook_events")
+    .upsert(payload, { onConflict: "provider_event_id", ignoreDuplicates: true })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] insertPhylloWebhookEventIfNew:", error.message);
+    throw error;
+  }
+  if (row) return { event: mapFromDb<PhylloWebhookEvent>(row)!, isNew: true };
+
+  const { data: existing, error: fetchError } = await sb()
+    .from("phyllo_webhook_events")
+    .select("*")
+    .eq("provider_event_id", data.providerEventId)
+    .limit(1)
+    .maybeSingle();
+  if (fetchError || !existing) {
+    console.error(
+      "[Database] insertPhylloWebhookEventIfNew fetch existing:",
+      fetchError?.message || "Missing existing row",
+    );
+    throw fetchError || new Error("Unable to resolve webhook event row");
+  }
+  return { event: mapFromDb<PhylloWebhookEvent>(existing)!, isNew: false };
+}
+
+export async function markPhylloWebhookEventStatus(
+  id: string,
+  input: {
+    status: PhylloWebhookEventStatus;
+    lastError?: string | null;
+    incrementAttemptCount?: boolean;
+  },
+) {
+  const updates: any = {
+    status: input.status,
+    lastError: input.lastError ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+  if (input.incrementAttemptCount) {
+    const current = await sb()
+      .from("phyllo_webhook_events")
+      .select("attempt_count")
+      .eq("id", id)
+      .maybeSingle();
+    updates.attemptCount = Number(current.data?.attempt_count || 1) + 1;
+  }
+  const { error } = await sb()
+    .from("phyllo_webhook_events")
+    .update(mapToDb(updates))
+    .eq("id", id);
+  if (error) {
+    console.error("[Database] markPhylloWebhookEventStatus:", error.message);
+    throw error;
+  }
+}
+
+export async function listPhylloWebhookEvents(options?: {
+  status?: PhylloWebhookEventStatus;
+  limit?: number;
+}): Promise<PhylloWebhookEvent[]> {
+  const limit = Math.max(1, Math.min(options?.limit || 100, 500));
+  let query = sb().from("phyllo_webhook_events").select("*");
+  if (options?.status) query = query.eq("status", options.status);
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] listPhylloWebhookEvents:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<PhylloWebhookEvent>(data || []);
+}
+
+export async function getPhylloWebhookStats() {
+  const statusCounts = {
+    received: 0,
+    processed: 0,
+    failed: 0,
+    ignored: 0,
+  };
+  for (const status of Object.keys(statusCounts) as Array<PhylloWebhookEventStatus>) {
+    const { count, error } = await sb()
+      .from("phyllo_webhook_events")
+      .select("*", { head: true, count: "exact" })
+      .eq("status", status);
+    if (error) {
+      console.error("[Database] getPhylloWebhookStats count:", error.message);
+      continue;
+    }
+    statusCounts[status] = count || 0;
+  }
+  const { data: latestRows, error: latestError } = await sb()
+    .from("phyllo_webhook_events")
+    .select("received_at, event_type")
+    .order("received_at", { ascending: false })
+    .limit(1);
+  if (latestError) {
+    console.error("[Database] getPhylloWebhookStats latest:", latestError.message);
+  }
+  return {
+    ...statusCounts,
+    total:
+      statusCounts.received +
+      statusCounts.processed +
+      statusCounts.failed +
+      statusCounts.ignored,
+    latestReceivedAt: latestRows?.[0]?.received_at || null,
+    latestEventType: latestRows?.[0]?.event_type || null,
+  };
+}
+
+export async function createSocialEventNotification(
+  data: InsertSocialEventNotification,
+): Promise<SocialEventNotification | undefined> {
+  const { data: row, error } = await sb()
+    .from("social_event_notifications")
+    .insert(
+      mapToDb({
+        ...data,
+        category: data.category || "social_event",
+        severity: data.severity || "info",
+        updatedAt: new Date().toISOString(),
+      }),
+    )
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] createSocialEventNotification:", error.message);
+    throw error;
+  }
+  return mapFromDb<SocialEventNotification>(row);
+}
+
+export async function listSocialEventNotificationsForUser(options: {
+  userId: string;
+  limit?: number;
+  unreadOnly?: boolean;
+}): Promise<SocialEventNotification[]> {
+  const limit = Math.max(1, Math.min(options.limit || 100, 300));
+  let query = sb()
+    .from("social_event_notifications")
+    .select("*")
+    .eq("recipient_user_id", options.userId);
+  if (options.unreadOnly) query = query.is("read_at", null);
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] listSocialEventNotificationsForUser:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<SocialEventNotification>(data || []);
+}
+
+export async function markSocialEventNotificationRead(
+  notificationId: string,
+  userId: string,
+) {
+  const { error } = await sb()
+    .from("social_event_notifications")
+    .update(
+      mapToDb({
+        readAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+    )
+    .eq("id", notificationId)
+    .eq("recipient_user_id", userId);
+  if (error) {
+    console.error("[Database] markSocialEventNotificationRead:", error.message);
+    throw error;
+  }
+}
+
+export async function upsertTrainerSocialContent(
+  data: InsertTrainerSocialContent,
+): Promise<TrainerSocialContent | undefined> {
+  const payload = mapToDb({
+    ...data,
+    lastSeenAt: data.lastSeenAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_social_contents")
+    .upsert(payload, { onConflict: "trainer_id,phyllo_content_id" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerSocialContent:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerSocialContent>(row);
+}
+
+export async function upsertTrainerSocialContentActivityDaily(
+  data: InsertTrainerSocialContentActivityDaily,
+): Promise<TrainerSocialContentActivityDaily | undefined> {
+  const metricDate = new Date(data.metricDate).toISOString().slice(0, 10);
+  const payload = mapToDb({
+    ...data,
+    metricDate,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_social_content_activity_daily")
+    .upsert(payload, { onConflict: "trainer_social_content_id,metric_date" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerSocialContentActivityDaily:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerSocialContentActivityDaily>(row);
+}
+
+export async function getTrainerRecentSocialPosts(
+  trainerId: string,
+  options?: { limit?: number; sparklineDays?: number },
+): Promise<TrainerRecentSocialPost[]> {
+  const limit = Math.max(1, Math.min(options?.limit || 20, 50));
+  const sparklineDays = Math.max(3, Math.min(options?.sparklineDays || 10, 30));
+  const { data: postsRaw, error } = await sb()
+    .from("trainer_social_contents")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .order("last_seen_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] getTrainerRecentSocialPosts:", error.message);
+    return [];
+  }
+  const posts = mapRowsFromDb<TrainerSocialContent>(postsRaw || []);
+  const contentIds = posts.map((row) => row.id).filter(Boolean);
+  if (contentIds.length === 0) return [];
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - sparklineDays + 1);
+  const { data: activityRaw, error: activityError } = await sb()
+    .from("trainer_social_content_activity_daily")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .in("trainer_social_content_id", contentIds)
+    .gte("metric_date", fromDate.toISOString().slice(0, 10))
+    .order("metric_date", { ascending: true });
+  if (activityError) {
+    console.error(
+      "[Database] getTrainerRecentSocialPosts activity:",
+      activityError.message,
+    );
+  }
+  const activities = mapRowsFromDb<TrainerSocialContentActivityDaily>(activityRaw || []);
+  const activityByContentId = new Map<string, TrainerSocialContentActivityDaily[]>();
+  for (const row of activities) {
+    const list = activityByContentId.get(row.trainerSocialContentId) || [];
+    list.push(row);
+    activityByContentId.set(row.trainerSocialContentId, list);
+  }
+  return posts.map((post) => {
+    const activityRows = activityByContentId.get(post.id) || [];
+    const sparkline = activityRows
+      .slice(-sparklineDays)
+      .map((row) => Number(row.engagements || row.likes || row.views || 0));
+    return {
+      id: post.id,
+      platform: post.platform || null,
+      title: post.title || null,
+      caption: post.caption || null,
+      postUrl: post.postUrl || null,
+      fallbackProfileUrl: post.profileUrl || null,
+      thumbnailUrl: post.thumbnailUrl || null,
+      publishedAt: post.publishedAt || post.lastSeenAt || null,
+      latestViews: Number(post.latestViews || 0),
+      latestLikes: Number(post.latestLikes || 0),
+      latestComments: Number(post.latestComments || 0),
+      latestEngagements: Number(post.latestEngagements || 0),
+      sparkline,
+    };
+  });
+}
+
+export async function getTrainerCampaignMetricsRange(options: {
+  trainerId?: string;
+  bundleDraftId?: string;
+  campaignAccountId?: string;
+  fromDate?: string;
+  toDate?: string;
+  limit?: number;
+}): Promise<TrainerCampaignMetricDaily[]> {
+  const limit = options.limit || 180;
+  let query = sb().from("trainer_campaign_metrics_daily").select("*");
+  if (options.trainerId) query = query.eq("trainer_id", options.trainerId);
+  if (options.bundleDraftId) query = query.eq("bundle_draft_id", options.bundleDraftId);
+  if (options.campaignAccountId) {
+    query = query.eq("campaign_account_id", options.campaignAccountId);
+  }
+  if (options.fromDate) query = query.gte("metric_date", options.fromDate);
+  if (options.toDate) query = query.lte("metric_date", options.toDate);
+  const { data, error } = await query
+    .order("metric_date", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] getTrainerCampaignMetricsRange:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerCampaignMetricDaily>(data || []);
+}
+
+export async function syncTrainerCampaignMetricsFromLatestSocialSnapshot(params: {
+  trainerId: string;
+  bundleDraftId: string;
+}): Promise<number> {
+  const [snapshot, links] = await Promise.all([
+    getLatestTrainerSocialMetric(params.trainerId),
+    getCampaignAccountsForBundle(params.bundleDraftId),
+  ]);
+  if (!snapshot || links.length === 0) return 0;
+  for (const link of links) {
+    await upsertTrainerCampaignMetricDaily({
+      trainerId: params.trainerId,
+      bundleDraftId: params.bundleDraftId,
+      campaignAccountId: link.campaignAccountId,
+      metricDate: snapshot.metricDate,
+      platform: snapshot.platform || "all",
+      followers: snapshot.followers,
+      views: snapshot.views,
+      engagements: snapshot.engagements,
+      clicks: snapshot.clicks,
+      shareSaves: snapshot.shareSaves,
+      postsDelivered: snapshot.postsDelivered,
+      postsOnTime: snapshot.postsOnTime,
+      requiredPosts: snapshot.requiredPosts,
+      requiredTagPosts: snapshot.requiredTagPosts,
+      approvedCreativePosts: snapshot.approvedCreativePosts,
+      metadata: {
+        source: "trainer_social_metrics_daily",
+        sourceMetricDate: snapshot.metricDate,
+      },
+    });
+  }
+  return links.length;
+}
+
+export async function getCampaignAccountMetricsSummary(options?: {
+  campaignAccountId?: string;
+  fromDate?: string;
+  toDate?: string;
+  limit?: number;
+}): Promise<
+  Array<{
+    campaignAccountId: string;
+    bundleDraftId: string;
+    trainerId: string;
+    views: number;
+    engagements: number;
+    clicks: number;
+    shareSaves: number;
+    followers: number;
+    postsDelivered: number;
+    postsOnTime: number;
+    requiredPosts: number;
+    latestMetricDate: string | null;
+  }>
+> {
+  const rows = await getTrainerCampaignMetricsRange({
+    campaignAccountId: options?.campaignAccountId,
+    fromDate: options?.fromDate,
+    toDate: options?.toDate,
+    limit: options?.limit || 5000,
+  });
+  const byKey = new Map<
+    string,
+    {
+      campaignAccountId: string;
+      bundleDraftId: string;
+      trainerId: string;
+      views: number;
+      engagements: number;
+      clicks: number;
+      shareSaves: number;
+      followers: number;
+      postsDelivered: number;
+      postsOnTime: number;
+      requiredPosts: number;
+      latestMetricDate: string | null;
+    }
+  >();
+  for (const row of rows) {
+    const key = `${row.campaignAccountId}:${row.bundleDraftId}:${row.trainerId}`;
+    const current = byKey.get(key) || {
+      campaignAccountId: row.campaignAccountId,
+      bundleDraftId: row.bundleDraftId,
+      trainerId: row.trainerId,
+      views: 0,
+      engagements: 0,
+      clicks: 0,
+      shareSaves: 0,
+      followers: 0,
+      postsDelivered: 0,
+      postsOnTime: 0,
+      requiredPosts: 0,
+      latestMetricDate: null,
+    };
+    current.views += Number(row.views || 0);
+    current.engagements += Number(row.engagements || 0);
+    current.clicks += Number(row.clicks || 0);
+    current.shareSaves += Number(row.shareSaves || 0);
+    current.followers = Math.max(current.followers, Number(row.followers || 0));
+    current.postsDelivered += Number(row.postsDelivered || 0);
+    current.postsOnTime += Number(row.postsOnTime || 0);
+    current.requiredPosts += Number(row.requiredPosts || 0);
+    if (!current.latestMetricDate || row.metricDate > current.latestMetricDate) {
+      current.latestMetricDate = row.metricDate;
+    }
+    byKey.set(key, current);
+  }
+  return Array.from(byKey.values());
 }
 
 export async function upsertTrainerSocialCommitment(

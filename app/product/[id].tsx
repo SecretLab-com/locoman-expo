@@ -31,12 +31,18 @@ export default function ProductDetailScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
           <TouchableOpacity
             onPress={() => router.back()}
-            style={{ flexDirection: "row", alignItems: "center" }}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: colors.surface,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
-            <IconSymbol name="chevron.left" size={20} color={colors.primary} />
-            <Text style={{ fontSize: 16, color: colors.primary, marginLeft: 4 }}>Back</Text>
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <Text style={{ fontSize: 18, fontWeight: "600", color: colors.foreground }}>Product details</Text>
           <TouchableOpacity

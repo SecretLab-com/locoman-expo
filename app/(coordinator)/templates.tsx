@@ -17,7 +17,9 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Image } from "expo-image";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { useColors } from "@/hooks/use-colors";
+import { CAMPAIGN_COPY } from "@/lib/campaign-copy";
 import { trpc } from "@/lib/trpc";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 
 function showAlert(title: string, message: string) {
   Alert.alert(title, message);
@@ -33,9 +35,12 @@ export default function CoordinatorTemplatesScreen() {
   const colors = useColors();
   const [refreshing, setRefreshing] = useState(false);
   const [showBundlePicker, setShowBundlePicker] = useState(false);
+  const [showBrandFilter, setShowBrandFilter] = useState(false);
+  const [selectedBrandName, setSelectedBrandName] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const { data: promotedTemplates = [], isLoading: templatesLoading } = trpc.admin.promotedTemplates.useQuery();
+  const { data: campaignRows = [] } = trpc.admin.listCampaignTemplates.useQuery();
   const { data: legacyTemplates = [] } = trpc.admin.templates.useQuery();
   const { data: availableBundles = [], isLoading: bundlesLoading } = trpc.admin.nonTemplateBundles.useQuery();
 
@@ -46,12 +51,18 @@ export default function CoordinatorTemplatesScreen() {
         utils.admin.nonTemplateBundles.invalidate(),
         utils.bundles.templates.invalidate(),
       ]);
-      showAlert("Template Removed", "This bundle is no longer a template.");
+      showAlert(
+        CAMPAIGN_COPY.coordinatorTemplateRemovedTitle,
+        CAMPAIGN_COPY.coordinatorTemplateRemovedBody,
+      );
     },
     onError: (err) => showAlert("Error", err.message),
   });
 
   const allTemplates = useMemo(() => {
+    const promotedBrandById = new Map(
+      (campaignRows || []).map((row: any) => [String(row.id), row.primaryBrandName || null]),
+    );
     const promoted = promotedTemplates.map((t: any) => ({
       id: t.id,
       title: t.title,
@@ -66,6 +77,7 @@ export default function CoordinatorTemplatesScreen() {
       availabilityEnd: t.availabilityEnd,
       visibility: t.templateVisibility ?? [],
       createdAt: t.createdAt,
+      primaryBrandName: promotedBrandById.get(String(t.id)) || null,
     }));
     const legacy = legacyTemplates.map((t: any) => ({
       id: t.id,
@@ -81,9 +93,27 @@ export default function CoordinatorTemplatesScreen() {
       availabilityEnd: null,
       visibility: [],
       createdAt: t.createdAt,
+      primaryBrandName: null,
     }));
     return [...promoted, ...legacy];
-  }, [promotedTemplates, legacyTemplates]);
+  }, [promotedTemplates, legacyTemplates, campaignRows]);
+
+  const uniqueBrands = useMemo(() => {
+    return Array.from(
+      new Set(
+        allTemplates
+          .map((template) => String(template.primaryBrandName || "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [allTemplates]);
+
+  const filteredTemplates = useMemo(() => {
+    if (!selectedBrandName) return allTemplates;
+    return allTemplates.filter(
+      (template) => String(template.primaryBrandName || "").trim() === selectedBrandName,
+    );
+  }, [allTemplates, selectedBrandName]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -119,8 +149,8 @@ export default function CoordinatorTemplatesScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
         <ScreenHeader
-          title="Templates"
-          subtitle={`${allTemplates.length} templates`}
+          title={CAMPAIGN_COPY.coordinatorTitle}
+          subtitle={`${filteredTemplates.length} of ${allTemplates.length} campaigns`}
           leftSlot={
             <TouchableOpacity
               onPress={() => router.canGoBack() ? router.back() : router.replace("/(coordinator)/more" as any)}
@@ -135,32 +165,73 @@ export default function CoordinatorTemplatesScreen() {
         />
 
         <View className="px-4 pb-8">
+          <View className="flex-row items-center justify-end mb-3">
+            <TouchableOpacity
+              onPress={() => setShowBrandFilter(true)}
+              className="flex-row items-center px-3 py-1.5 rounded-full border"
+              style={{
+                borderColor: selectedBrandName ? colors.primary : colors.border,
+                backgroundColor: selectedBrandName ? `${colors.primary}20` : colors.surface,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Filter campaigns by brand"
+              testID="campaign-brand-filter-open"
+            >
+              <IconSymbol
+                name="line.3.horizontal.decrease"
+                size={14}
+                color={selectedBrandName ? colors.primary : colors.muted}
+              />
+              <Text
+                className="text-xs font-medium ml-1.5"
+                style={{ color: selectedBrandName ? colors.primary : colors.muted }}
+              >
+                {selectedBrandName ? selectedBrandName : "Brand"}
+              </Text>
+            </TouchableOpacity>
+          </View>
           {templatesLoading ? (
             <View className="items-center py-16">
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
-          ) : allTemplates.length === 0 ? (
+          ) : filteredTemplates.length === 0 ? (
             <View className="bg-surface rounded-xl border border-border p-6 items-center">
               <IconSymbol name="doc.text.fill" size={36} color={colors.muted} />
-              <Text className="text-foreground font-semibold text-base mt-3">No templates yet</Text>
-              <Text className="text-sm text-muted mt-1 text-center">
-                Create a bundle first, then promote it to a template.
+              <Text className="text-foreground font-semibold text-base mt-3">
+                {selectedBrandName ? "No campaigns for this brand" : "No campaigns yet"}
               </Text>
-              <TouchableOpacity
-                className="flex-row items-center mt-4"
-                onPress={() => setShowBundlePicker(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Promote a bundle"
-              >
-                <Text className="text-sm text-muted mr-2">Tap the</Text>
-                <View className="w-8 h-8 rounded-full bg-primary items-center justify-center">
-                  <IconSymbol name="plus" size={16} color="#fff" />
-                </View>
-                <Text className="text-sm text-muted ml-2">to promote a bundle</Text>
-              </TouchableOpacity>
+              <Text className="text-sm text-muted mt-1 text-center">
+                {selectedBrandName
+                  ? "Try another brand filter or clear the filter."
+                  : "Create a bundle first, then promote it to a campaign."}
+              </Text>
+              {selectedBrandName ? (
+                <TouchableOpacity
+                  className="mt-4 px-4 py-2 rounded-lg border border-border bg-surface"
+                  onPress={() => setSelectedBrandName(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear brand filter"
+                  testID="campaign-brand-filter-clear"
+                >
+                  <Text className="text-sm text-foreground font-medium">Clear brand filter</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  className="flex-row items-center mt-4"
+                  onPress={() => setShowBundlePicker(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Promote a bundle"
+                >
+                  <Text className="text-sm text-muted mr-2">Tap the</Text>
+                  <View className="w-8 h-8 rounded-full bg-primary items-center justify-center">
+                    <IconSymbol name="plus" size={16} color="#fff" />
+                  </View>
+                  <Text className="text-sm text-muted ml-2">to promote a bundle</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
-            allTemplates.map((template) => (
+            filteredTemplates.map((template) => (
               <View key={template.id} className="mb-3">
                 <View className="bg-surface border border-border rounded-xl overflow-hidden">
                   {template.imageUrl ? (
@@ -193,6 +264,11 @@ export default function CoordinatorTemplatesScreen() {
                     {template.description ? (
                       <Text className="text-sm text-muted mt-1" numberOfLines={2}>{template.description}</Text>
                     ) : null}
+                    {template.primaryBrandName ? (
+                      <Text className="text-xs text-primary mt-1">
+                        Brand: {template.primaryBrandName}
+                      </Text>
+                    ) : null}
                     <View className="flex-row items-center flex-wrap gap-x-4 gap-y-1 mt-2">
                       {template.price && (
                         <Text className="text-xs text-primary font-semibold">${template.price}</Text>
@@ -214,6 +290,24 @@ export default function CoordinatorTemplatesScreen() {
 
                   {template.isPromoted && (
                     <View className="flex-row gap-2 pt-3 mt-3 border-t border-border px-4 pb-4">
+                      <TouchableOpacity
+                        onPress={() =>
+                          router.push({
+                            pathname: "/(coordinator)/campaign-dashboard",
+                            params: { bundleId: template.id },
+                          } as any)
+                        }
+                        className="w-11 py-2 rounded-lg items-center bg-primary/10"
+                        accessibilityRole="button"
+                        accessibilityLabel="Open campaign analytics"
+                        testID={`coordinator-campaign-analytics-${template.id}`}
+                      >
+                        <MaterialCommunityIcons
+                          name="chart-line"
+                          size={16}
+                          color={colors.primary}
+                        />
+                      </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => router.push({ pathname: "/(coordinator)/template-settings", params: { bundleId: template.id } } as any)}
                         className="flex-1 py-2 rounded-lg items-center bg-primary/10"
@@ -248,7 +342,7 @@ export default function CoordinatorTemplatesScreen() {
         className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
         style={{ right: 16, bottom: 16 }}
         accessibilityRole="button"
-        accessibilityLabel="Promote a bundle to template"
+                accessibilityLabel="Promote a bundle to campaign"
         testID="templates-promote-fab"
       >
         <IconSymbol name="plus" size={24} color="#fff" />
@@ -263,7 +357,9 @@ export default function CoordinatorTemplatesScreen() {
       >
         <View className="flex-1 bg-background">
           <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-            <Text className="text-lg font-semibold text-foreground">Select a Bundle to Promote</Text>
+                <Text className="text-lg font-semibold text-foreground">
+                  Select a Bundle to Promote as Campaign
+                </Text>
             <TouchableOpacity onPress={() => setShowBundlePicker(false)}>
               <IconSymbol name="xmark" size={24} color={colors.foreground} />
             </TouchableOpacity>
@@ -317,6 +413,76 @@ export default function CoordinatorTemplatesScreen() {
               ))
             )}
           </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showBrandFilter}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowBrandFilter(false)}
+      >
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.75)" }}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setShowBrandFilter(false)}
+          />
+          <View className="bg-background rounded-t-3xl p-4" style={{ maxHeight: "70%" }}>
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-lg font-semibold text-foreground">Filter by Brand</Text>
+              <TouchableOpacity
+                onPress={() => setShowBrandFilter(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close brand filter"
+                testID="campaign-brand-filter-close"
+              >
+                <IconSymbol name="xmark" size={22} color={colors.muted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedBrandName(null);
+                  setShowBrandFilter(false);
+                }}
+                className="py-3 border-b border-border"
+                accessibilityRole="button"
+                accessibilityLabel="Show all brands"
+                testID="campaign-brand-filter-all"
+              >
+                <Text
+                  className="text-sm font-medium"
+                  style={{ color: selectedBrandName ? colors.foreground : colors.primary }}
+                >
+                  All brands
+                </Text>
+              </TouchableOpacity>
+              {uniqueBrands.map((brandName) => (
+                <TouchableOpacity
+                  key={brandName}
+                  onPress={() => {
+                    setSelectedBrandName(brandName);
+                    setShowBrandFilter(false);
+                  }}
+                  className="py-3 border-b border-border"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Filter brand ${brandName}`}
+                  testID={`campaign-brand-filter-${brandName.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  <Text
+                    className="text-sm font-medium"
+                    style={{
+                      color: selectedBrandName === brandName ? colors.primary : colors.foreground,
+                    }}
+                  >
+                    {brandName}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
         </View>
       </Modal>
     </ScreenContainer>

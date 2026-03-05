@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Text,
   View,
@@ -14,6 +14,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { haptics } from "@/hooks/use-haptics";
 import { trpc } from "@/lib/trpc";
+import { useWebSocket } from "@/hooks/use-websocket";
 
 type ActivityTab = "all" | "orders" | "deliveries" | "notifications";
 
@@ -29,6 +30,12 @@ export default function ActivityScreen() {
   const colors = useColors();
   const { isAuthenticated, effectiveRole, isTrainer, isClient } = useAuthContext();
   const [activeTab, setActiveTab] = useState<ActivityTab>("all");
+  const [liveAlert, setLiveAlert] = useState<{
+    title: string;
+    body: string;
+    severity: "info" | "warning" | "critical";
+  } | null>(null);
+  const { connect, disconnect, subscribe } = useWebSocket();
 
   // Fetch data based on role
   const { 
@@ -58,8 +65,53 @@ export default function ActivityScreen() {
     enabled: isAuthenticated && isTrainer,
   });
 
-  const isLoading = deliveriesLoading || trainerDeliveriesLoading || trainerOrdersLoading;
-  const isRefetching = isRefetchingDeliveries || isRefetchingTrainerDeliveries || isRefetchingTrainerOrders;
+  const {
+    data: socialNotifications,
+    isLoading: notificationsLoading,
+    refetch: refetchNotifications,
+    isRefetching: isRefetchingNotifications,
+  } = trpc.socialProgram.myNotifications.useQuery(
+    { limit: 100 },
+    { enabled: isAuthenticated },
+  );
+
+  const markNotificationReadMutation = trpc.socialProgram.markNotificationRead.useMutation({
+    onSuccess: () => {
+      refetchNotifications();
+    },
+  });
+
+  const isLoading =
+    deliveriesLoading ||
+    trainerDeliveriesLoading ||
+    trainerOrdersLoading ||
+    notificationsLoading;
+  const isRefetching =
+    isRefetchingDeliveries ||
+    isRefetchingTrainerDeliveries ||
+    isRefetchingTrainerOrders ||
+    isRefetchingNotifications;
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    connect();
+    const unsubscribe = subscribe((message: any) => {
+      if (message?.type !== "social_alert") return;
+      setLiveAlert({
+        title: String(message.title || "Social alert"),
+        body: String(message.body || ""),
+        severity:
+          message.severity === "critical" || message.severity === "warning"
+            ? message.severity
+            : "info",
+      });
+      refetchNotifications();
+    });
+    return () => {
+      unsubscribe();
+      disconnect();
+    };
+  }, [isAuthenticated, connect, disconnect, subscribe, refetchNotifications]);
 
   const onRefresh = async () => {
     await haptics.light();
@@ -69,6 +121,7 @@ export default function ActivityScreen() {
     if (isTrainer) {
       await Promise.all([refetchTrainerDeliveries(), refetchTrainerOrders()]);
     }
+    await refetchNotifications();
   };
 
   const handleLoginPress = async () => {
@@ -99,10 +152,15 @@ export default function ActivityScreen() {
   // Determine which data to show based on role
   const deliveries = isTrainer ? (trainerDeliveries || []) : (clientDeliveries || []);
   const orders = trainerOrders || [];
+  const notifications = socialNotifications || [];
 
   // Filter items based on active tab
-  const filteredOrders = activeTab === "deliveries" || activeTab === "notifications" ? [] : orders;
-  const filteredDeliveries = activeTab === "orders" || activeTab === "notifications" ? [] : deliveries;
+  const filteredOrders =
+    activeTab === "deliveries" || activeTab === "notifications" ? [] : orders;
+  const filteredDeliveries =
+    activeTab === "orders" || activeTab === "notifications" ? [] : deliveries;
+  const filteredNotifications =
+    activeTab === "orders" || activeTab === "deliveries" ? [] : notifications;
 
   // Format date
   const formatDate = (date: string | Date | null) => {
@@ -161,7 +219,7 @@ export default function ActivityScreen() {
         {/* Tab Selector */}
         <View className="px-4 mb-4">
           <View className="flex-row bg-surface rounded-xl p-1 border border-border">
-            {(["all", "orders", "deliveries"] as ActivityTab[]).map((tab) => (
+            {(["all", "orders", "deliveries", "notifications"] as ActivityTab[]).map((tab) => (
               <TouchableOpacity
                 key={tab}
                 className={`flex-1 py-2 rounded-lg ${activeTab === tab ? "bg-primary" : ""}`}
@@ -177,6 +235,36 @@ export default function ActivityScreen() {
             ))}
           </View>
         </View>
+
+        {liveAlert ? (
+          <View className="px-4 mb-4">
+            <TouchableOpacity
+              className="rounded-xl border p-3"
+              style={{
+                borderColor:
+                  liveAlert.severity === "critical"
+                    ? `${colors.error}66`
+                    : liveAlert.severity === "warning"
+                      ? `${colors.warning}66`
+                      : `${colors.primary}66`,
+                backgroundColor:
+                  liveAlert.severity === "critical"
+                    ? `${colors.error}14`
+                    : liveAlert.severity === "warning"
+                      ? `${colors.warning}14`
+                      : `${colors.primary}14`,
+              }}
+              onPress={() => setLiveAlert(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss social alert"
+              testID="activity-live-social-alert"
+            >
+              <Text className="text-sm font-semibold text-foreground">{liveAlert.title}</Text>
+              <Text className="text-xs text-muted mt-1">{liveAlert.body}</Text>
+              <Text className="text-[11px] text-muted mt-2">Tap to dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Quick Stats for Trainers */}
         {isTrainer && (
@@ -336,8 +424,67 @@ export default function ActivityScreen() {
           </View>
         )}
 
+        {/* Notifications Section */}
+        {filteredNotifications.length > 0 && (
+          <View className="px-4 mb-6">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-lg font-semibold text-foreground">Notifications</Text>
+            </View>
+            <View className="bg-surface rounded-xl border border-border">
+              {filteredNotifications.slice(0, 30).map((notification: any, index: number) => (
+                <TouchableOpacity
+                  key={notification.id}
+                  className={`p-4 ${
+                    index < Math.min(filteredNotifications.length, 30) - 1
+                      ? "border-b border-border"
+                      : ""
+                  }`}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (!notification.readAt) {
+                      markNotificationReadMutation.mutate({
+                        notificationId: notification.id,
+                      });
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Notification ${notification.title}`}
+                  testID={`social-notification-${notification.id}`}
+                >
+                  <View className="flex-row items-start">
+                    <View
+                      className="w-2 h-2 rounded-full mr-2 mt-1.5"
+                      style={{
+                        backgroundColor: notification.readAt
+                          ? colors.muted
+                          : notification.severity === "critical"
+                            ? colors.error
+                            : notification.severity === "warning"
+                              ? colors.warning
+                              : colors.primary,
+                      }}
+                    />
+                    <View className="flex-1">
+                      <Text className="text-sm font-semibold text-foreground">
+                        {notification.title}
+                      </Text>
+                      <Text className="text-xs text-muted mt-1">{notification.body}</Text>
+                      <Text className="text-[11px] text-muted mt-2">
+                        {formatDate(notification.createdAt)}
+                        {notification.readAt ? " • Read" : " • Unread"}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Empty State */}
-        {filteredOrders.length === 0 && filteredDeliveries.length === 0 && (
+        {filteredOrders.length === 0 &&
+          filteredDeliveries.length === 0 &&
+          filteredNotifications.length === 0 && (
           <View className="items-center py-12 px-4">
             <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
               <IconSymbol name="bell.fill" size={32} color={colors.muted} />

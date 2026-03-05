@@ -29,7 +29,7 @@ export default function PhylloConnectBridgeScreen() {
 
     const run = async () => {
       if (Platform.OS !== "web" || typeof window === "undefined") {
-        setErrorMessage("Phyllo web bridge is only available on web.");
+        setErrorMessage("Social web bridge is only available on web.");
         return;
       }
       try {
@@ -45,7 +45,7 @@ export default function PhylloConnectBridgeScreen() {
         const clientDisplayName = String(params.clientDisplayName || "LocoMotivate");
         const returnTo = decodeURIComponent(String(params.returnTo || ""));
         if (!token || !userId || !returnTo) {
-          throw new Error("Missing required Phyllo connect parameters.");
+          throw new Error("Missing required social connect parameters.");
         }
 
         const result = await openPhylloConnectWeb({
@@ -65,7 +65,7 @@ export default function PhylloConnectBridgeScreen() {
         }
         window.location.replace(callbackUrl.toString());
       } catch (error: any) {
-        setErrorMessage(String(error?.message || "Could not start Phyllo connect flow."));
+        setErrorMessage(String(error?.message || "Could not start social connect flow."));
       }
     };
     void run();
@@ -76,14 +76,14 @@ export default function PhylloConnectBridgeScreen() {
       <View className="flex-1 items-center justify-center px-6">
         {errorMessage ? (
           <>
-            <Text className="text-lg font-semibold text-error">Phyllo connect error</Text>
+            <Text className="text-lg font-semibold text-error">Social connect error</Text>
             <Text className="text-sm text-muted mt-2 text-center">{errorMessage}</Text>
           </>
         ) : (
           <>
             <ActivityIndicator size="small" />
             <Text className="text-sm text-muted mt-3 text-center">
-              Opening Phyllo platform selection...
+              Opening platform selection...
             </Text>
           </>
         )}

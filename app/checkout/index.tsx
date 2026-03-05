@@ -294,8 +294,13 @@ export default function CheckoutScreen() {
     return (
       <ScreenContainer>
         <View className="flex-row items-center px-4 py-3 border-b border-border">
-          <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-            <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <Text className="flex-1 text-lg font-semibold text-foreground ml-2">Checkout</Text>
         </View>
@@ -321,8 +326,13 @@ export default function CheckoutScreen() {
     <ScreenContainer>
       {/* Header */}
       <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-          <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
         </TouchableOpacity>
         <Text className="flex-1 text-lg font-semibold text-foreground ml-2">Checkout</Text>
         <Text className="text-muted">{items.length} items</Text>

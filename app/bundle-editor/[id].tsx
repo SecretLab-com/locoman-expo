@@ -1922,8 +1922,13 @@ export default function BundleEditorScreen() {
             <View className="flex-1 bg-background">
               {/* Header */}
               <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-                <TouchableOpacity onPress={closeProductDetail}>
-                  <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+                <TouchableOpacity
+                  onPress={closeProductDetail}
+                  className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                >
+                  <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
                 </TouchableOpacity>
                 <Text className="text-lg font-semibold text-foreground">Product Details</Text>
                 <TouchableOpacity 

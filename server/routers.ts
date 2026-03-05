@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { randomBytes } from "crypto";
 import { z } from "zod";
 import {
   COOKIE_NAME,
@@ -24,6 +25,7 @@ import {
   inferPhylloTokenEnvironment,
 } from "./_core/phyllo";
 import { generateImage } from "./_core/imageGeneration";
+import { processPhylloWebhookPayload } from "./_core/phyllo-webhook";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
 import { runTrainerAssistant } from "./_core/trainerAssistant";
@@ -85,6 +87,25 @@ function getBundleReviewLinks(bundleId: string) {
   const webUrl = `${webBase}/bundle-editor/${bundleId}`;
   const deepLink = `locomotivate://bundle-editor/${bundleId}`;
   return { webUrl, deepLink };
+}
+
+function getPublicAppBaseUrl() {
+  return String(process.env.EXPO_PUBLIC_APP_URL || "https://bright.coach")
+    .trim()
+    .replace(/\/+$/g, "");
+}
+
+function slugifyForUrl(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
+function buildCampaignShareUrl(slug: string) {
+  return `${getPublicAppBaseUrl()}/campaign/${slug}`;
 }
 
 const PHYLLO_CONNECT_SDK_URL = "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js";
@@ -1750,6 +1771,39 @@ export const appRouter = router({
         return db.getBundleDraftById(input.id);
       }),
 
+    campaignByShareSlug: publicProcedure
+      .input(z.object({ slug: z.string().min(3).max(160) }))
+      .query(async ({ input }) => {
+        const bundle = await db.getTemplateBundleByPublicShareSlug(input.slug);
+        if (!bundle) return null;
+        const links = await db.getCampaignAccountsForTemplate(bundle.id);
+        const accountIds = Array.from(
+          new Set(links.map((link) => link.campaignAccountId).filter(Boolean)),
+        );
+        const accounts = await db.getCampaignAccountsByIds(accountIds);
+        const accountById = new Map(accounts.map((account) => [account.id, account]));
+        const brands = links
+          .filter((link) => link.relationType === "brand")
+          .map((link) => accountById.get(link.campaignAccountId)?.name)
+          .filter((name): name is string => Boolean(name));
+        const customers = links
+          .filter((link) => link.relationType !== "brand")
+          .map((link) => accountById.get(link.campaignAccountId)?.name)
+          .filter((name): name is string => Boolean(name));
+        return {
+          id: bundle.id,
+          title: bundle.title,
+          description: bundle.description,
+          imageUrl: bundle.imageUrl,
+          price: bundle.price,
+          publicShareSlug: bundle.publicShareSlug,
+          publicShareEnabled: bundle.publicShareEnabled,
+          brands,
+          customers,
+          updatedAt: bundle.updatedAt,
+        };
+      }),
+
     /** All bundles including archived/draft - coordinator/manager only */
     allBundles: managerProcedure.query(async () => {
       return db.getAllBundles();
@@ -2112,7 +2166,7 @@ export const appRouter = router({
           }
         }
 
-        return db.createBundleDraft({
+        const bundleId = await db.createBundleDraft({
           trainerId: ctx.user.id,
           title: input.title,
           description,
@@ -2123,6 +2177,13 @@ export const appRouter = router({
           servicesJson,
           productsJson,
         });
+        if (input.templateId) {
+          await db.copyCampaignAccountsFromTemplateToBundle({
+            templateBundleId: input.templateId,
+            bundleDraftId: bundleId,
+          });
+        }
+        return bundleId;
       }),
 
     update: trainerProcedure
@@ -5618,9 +5679,298 @@ export const appRouter = router({
         return bundle;
       }),
 
+    publishedBundlesWithMeta: managerProcedure.query(async () => {
+      const bundles = await db.getPublishedBundles();
+      const trainerIds = Array.from(
+        new Set(bundles.map((bundle) => bundle.trainerId).filter(Boolean) as string[]),
+      );
+      const trainers = await db.getUsersByIds(trainerIds);
+      const trainerById = new Map(trainers.map((trainer) => [trainer.id, trainer]));
+
+      const linksByBundleId = new Map<
+        string,
+        Awaited<ReturnType<typeof db.getCampaignAccountsForBundle>>
+      >();
+      for (const bundle of bundles) {
+        if (!bundle.id) continue;
+        linksByBundleId.set(bundle.id, await db.getCampaignAccountsForBundle(bundle.id));
+      }
+      const accountIds = Array.from(
+        new Set(
+          Array.from(linksByBundleId.values()).flatMap((links) =>
+            links.map((link) => link.campaignAccountId),
+          ),
+        ),
+      ).filter(Boolean);
+      const accounts = await db.getCampaignAccountsByIds(accountIds);
+      const accountById = new Map(accounts.map((account) => [account.id, account]));
+
+      return bundles.map((bundle) => {
+        const links = linksByBundleId.get(bundle.id) || [];
+        const primaryBrandLink =
+          links.find((link) => link.relationType === "brand") || links[0] || null;
+        const primaryBrand = primaryBrandLink
+          ? accountById.get(primaryBrandLink.campaignAccountId)
+          : null;
+        return {
+          ...bundle,
+          trainerName: bundle.trainerId
+            ? trainerById.get(bundle.trainerId)?.name || "Trainer"
+            : "Trainer",
+          trainerPhotoUrl: bundle.trainerId
+            ? trainerById.get(bundle.trainerId)?.photoUrl || null
+            : null,
+          brandName: primaryBrand?.name || null,
+        };
+      });
+    }),
+
     promotedTemplates: managerProcedure.query(async () => {
       return db.getAllPromotedTemplates();
     }),
+
+    listCampaignTemplates: managerProcedure
+      .input(
+        z
+          .object({
+            search: z.string().optional(),
+            campaignAccountId: z.string().optional(),
+            activeOnly: z.boolean().optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const templates = await db.getAllPromotedTemplates();
+        const templateLinks = await Promise.all(
+          templates.map(async (template) => ({
+            templateId: template.id,
+            links: await db.getCampaignAccountsForTemplate(template.id),
+          })),
+        );
+        const accountIds = Array.from(
+          new Set(
+            templateLinks.flatMap((entry) =>
+              entry.links.map((link) => link.campaignAccountId),
+            ),
+          ),
+        ).filter(Boolean);
+        const accounts = await db.getCampaignAccountsByIds(accountIds);
+        const accountById = new Map(accounts.map((account) => [account.id, account]));
+        const searchTerm = String(input?.search || "").trim().toLowerCase();
+        return templates
+          .map((template) => {
+            const entry = templateLinks.find((row) => row.templateId === template.id);
+            const links = entry?.links || [];
+            const linkedAccounts = links
+              .map((link) => accountById.get(link.campaignAccountId))
+              .filter(Boolean);
+            const brandAccounts = links
+              .filter((link) => link.relationType === "brand")
+              .map((link) => accountById.get(link.campaignAccountId))
+              .filter(Boolean);
+            const primaryBrand = brandAccounts[0] || linkedAccounts[0] || null;
+            return {
+              ...template,
+              linkedAccounts,
+              primaryBrandName: primaryBrand?.name || null,
+              publicShareUrl: template.publicShareSlug
+                ? buildCampaignShareUrl(template.publicShareSlug)
+                : null,
+            };
+          })
+          .filter((template) => {
+            if (input?.activeOnly && !template.templateActive) return false;
+            if (
+              input?.campaignAccountId &&
+              !template.linkedAccounts.some(
+                (account: any) => account.id === input.campaignAccountId,
+              )
+            ) {
+              return false;
+            }
+            if (!searchTerm) return true;
+            const haystack = [
+              template.title,
+              template.description,
+              template.primaryBrandName,
+              ...(template.linkedAccounts || []).map((account: any) => account.name),
+              template.publicShareSlug,
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(searchTerm);
+          });
+      }),
+
+    listCampaignAccounts: managerProcedure
+      .input(
+        z
+          .object({
+            search: z.string().optional(),
+            accountType: z.enum(["brand", "customer", "all"]).optional(),
+            activeOnly: z.boolean().optional(),
+            limit: z.number().min(1).max(500).optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        return db.listCampaignAccounts({
+          search: input?.search,
+          accountType: input?.accountType,
+          activeOnly: input?.activeOnly,
+          limit: input?.limit,
+        });
+      }),
+
+    createCampaignAccount: managerProcedure
+      .input(
+        z.object({
+          name: z.string().min(1).max(255),
+          accountType: z.enum(["brand", "customer"]),
+          slug: z.string().max(255).optional(),
+          websiteUrl: z.string().optional(),
+          contactName: z.string().max(255).optional(),
+          contactEmail: z.string().email().optional(),
+          notes: z.string().optional(),
+          active: z.boolean().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const created = await db.createCampaignAccount({
+          name: input.name,
+          accountType: input.accountType,
+          slug: input.slug || null,
+          websiteUrl: input.websiteUrl || null,
+          contactName: input.contactName || null,
+          contactEmail: input.contactEmail || null,
+          notes: input.notes || null,
+          active: input.active ?? true,
+          createdBy: ctx.user.id,
+        });
+        return { success: true, account: created || null };
+      }),
+
+    getTemplateCampaignAccounts: managerProcedure
+      .input(z.object({ bundleId: z.string() }))
+      .query(async ({ input }) => {
+        const links = await db.getCampaignAccountsForTemplate(input.bundleId);
+        const accountIds = Array.from(
+          new Set(links.map((link) => link.campaignAccountId).filter(Boolean)),
+        );
+        const accounts = await db.getCampaignAccountsByIds(accountIds);
+        const accountById = new Map(accounts.map((account) => [account.id, account]));
+        return links.map((link) => ({
+          ...link,
+          account: accountById.get(link.campaignAccountId) || null,
+        }));
+      }),
+
+    setTemplateCampaignAccounts: managerProcedure
+      .input(
+        z.object({
+          bundleId: z.string(),
+          links: z.array(
+            z.object({
+              campaignAccountId: z.string(),
+              relationType: z.enum(["brand", "customer", "partner"]).optional(),
+              allocationPct: z.string().optional(),
+            }),
+          ),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.bundleId);
+        if (!bundle) notFound("Bundle");
+        if (!bundle.isTemplate) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This bundle is not a template.",
+          });
+        }
+        await db.setCampaignAccountsForTemplate(
+          input.bundleId,
+          input.links.map((link) => ({
+            campaignAccountId: link.campaignAccountId,
+            relationType: link.relationType || "brand",
+            allocationPct: link.allocationPct || null,
+          })),
+        );
+        return { success: true };
+      }),
+
+    generateCampaignShareLink: managerProcedure
+      .input(z.object({ bundleId: z.string() }))
+      .mutation(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.bundleId);
+        if (!bundle) notFound("Bundle");
+        if (!bundle.isTemplate) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This bundle is not a campaign template.",
+          });
+        }
+
+        const base = slugifyForUrl(bundle.title || "campaign");
+        const attempts = 8;
+        let lastError: unknown = null;
+        for (let i = 0; i < attempts; i += 1) {
+          const suffix = randomBytes(3).toString("hex");
+          const slug = `${base}-${suffix}`;
+          try {
+            await db.updateTemplateSettings(input.bundleId, {
+              publicShareSlug: slug,
+              publicShareEnabled: true,
+            });
+            return {
+              success: true,
+              slug,
+              enabled: true,
+              url: buildCampaignShareUrl(slug),
+            };
+          } catch (error: any) {
+            lastError = error;
+            const msg = String(error?.message || "").toLowerCase();
+            if (msg.includes("duplicate") || msg.includes("unique")) continue;
+            throw error;
+          }
+        }
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            (lastError as any)?.message ||
+            "Unable to generate a unique campaign share link.",
+        });
+      }),
+
+    setCampaignShareEnabled: managerProcedure
+      .input(z.object({ bundleId: z.string(), enabled: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const bundle = await db.getBundleDraftById(input.bundleId);
+        if (!bundle) notFound("Bundle");
+        if (!bundle.isTemplate) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This bundle is not a campaign template.",
+          });
+        }
+        let slug = bundle.publicShareSlug;
+        if (input.enabled && !slug) {
+          const base = slugifyForUrl(bundle.title || "campaign");
+          const generated = `${base}-${randomBytes(3).toString("hex")}`;
+          slug = generated;
+        }
+        await db.updateTemplateSettings(input.bundleId, {
+          publicShareEnabled: input.enabled,
+          publicShareSlug: slug || null,
+        });
+        return {
+          success: true,
+          enabled: input.enabled,
+          slug: slug || null,
+          url: slug ? buildCampaignShareUrl(slug) : null,
+        };
+      }),
 
     promoteBundleToTemplate: managerProcedure
       .input(
@@ -5643,6 +5993,20 @@ export const appRouter = router({
           availabilityStart: input.availabilityStart,
           availabilityEnd: input.availabilityEnd,
         });
+        const existingBundleLinks = await db.getCampaignAccountsForBundle(
+          input.bundleId,
+        );
+        if (existingBundleLinks.length > 0) {
+          await db.setCampaignAccountsForTemplate(
+            input.bundleId,
+            existingBundleLinks.map((link) => ({
+              campaignAccountId: link.campaignAccountId,
+              relationType: link.relationType,
+              allocationPct: link.allocationPct,
+              metadata: link.metadata || null,
+            })),
+          );
+        }
         return { success: true };
       }),
 
@@ -5684,7 +6048,265 @@ export const appRouter = router({
           });
         }
         await db.demoteTemplate(input.bundleId);
+        await db.setCampaignAccountsForTemplate(input.bundleId, []);
         return { success: true };
+      }),
+
+    campaignMetricsSummary: managerProcedure
+      .input(
+        z
+          .object({
+            campaignAccountId: z.string().optional(),
+            bundleDraftId: z.string().optional(),
+            fromDate: z.string().optional(),
+            toDate: z.string().optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const rowsRaw = await db.getCampaignAccountMetricsSummary({
+          campaignAccountId: input?.campaignAccountId,
+          fromDate: input?.fromDate,
+          toDate: input?.toDate,
+        });
+        const rows = input?.bundleDraftId
+          ? rowsRaw.filter((row) => row.bundleDraftId === input.bundleDraftId)
+          : rowsRaw;
+        const trainerIds = Array.from(
+          new Set(rows.map((row) => row.trainerId).filter(Boolean)),
+        );
+        const accountIds = Array.from(
+          new Set(rows.map((row) => row.campaignAccountId).filter(Boolean)),
+        );
+        const bundleIds = Array.from(
+          new Set(rows.map((row) => row.bundleDraftId).filter(Boolean)),
+        );
+        const [trainers, accounts, bundles] = await Promise.all([
+          db.getUsersByIds(trainerIds),
+          db.getCampaignAccountsByIds(accountIds),
+          Promise.all(bundleIds.map((id) => db.getBundleDraftById(id))),
+        ]);
+        const trainerById = new Map(trainers.map((trainer) => [trainer.id, trainer]));
+        const accountById = new Map(accounts.map((account) => [account.id, account]));
+        const bundleById = new Map(
+          bundles.filter(Boolean).map((bundle) => [String(bundle!.id), bundle!]),
+        );
+        return rows.map((row) => ({
+          ...row,
+          trainerName: trainerById.get(row.trainerId)?.name || "Trainer",
+          campaignAccountName:
+            accountById.get(row.campaignAccountId)?.name || "Campaign Account",
+          bundleTitle: bundleById.get(row.bundleDraftId)?.title || "Campaign Offer",
+        }));
+      }),
+
+    campaignDashboardSummary: managerProcedure
+      .input(
+        z.object({
+          bundleId: z.string(),
+          fromDate: z.string().optional(),
+          toDate: z.string().optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        const [rowsRaw, signupStats, bundle] = await Promise.all([
+          db.getCampaignAccountMetricsSummary({
+            fromDate: input?.fromDate,
+            toDate: input?.toDate,
+          }),
+          db.getCampaignSignupStats(input.bundleId),
+          db.getBundleDraftById(input.bundleId),
+        ]);
+        const rows = rowsRaw.filter((row) => row.bundleDraftId === input.bundleId);
+        const trainerIds = Array.from(
+          new Set(rows.map((row) => row.trainerId).filter(Boolean)),
+        );
+        const accountIds = Array.from(
+          new Set(rows.map((row) => row.campaignAccountId).filter(Boolean)),
+        );
+        const [trainers, accounts] = await Promise.all([
+          db.getUsersByIds(trainerIds),
+          db.getCampaignAccountsByIds(accountIds),
+        ]);
+        const trainerById = new Map(trainers.map((trainer) => [trainer.id, trainer]));
+        const accountById = new Map(accounts.map((account) => [account.id, account]));
+        const enrichedRows = rows.map((row) => ({
+          ...row,
+          trainerName: trainerById.get(row.trainerId)?.name || "Trainer",
+          campaignAccountName:
+            accountById.get(row.campaignAccountId)?.name || "Campaign Account",
+          bundleTitle: bundle?.title || "Campaign",
+        }));
+        return {
+          bundleId: input.bundleId,
+          bundleTitle: bundle?.title || "Campaign",
+          signupStats,
+          rows: enrichedRows,
+        };
+      }),
+
+    campaignReportCsv: managerProcedure
+      .input(
+        z
+          .object({
+            campaignAccountId: z.string().optional(),
+            fromDate: z.string().optional(),
+            toDate: z.string().optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const rows = await db.getCampaignAccountMetricsSummary({
+          campaignAccountId: input?.campaignAccountId,
+          fromDate: input?.fromDate,
+          toDate: input?.toDate,
+        });
+        const trainerIds = Array.from(
+          new Set(rows.map((row) => row.trainerId).filter(Boolean)),
+        );
+        const accountIds = Array.from(
+          new Set(rows.map((row) => row.campaignAccountId).filter(Boolean)),
+        );
+        const bundleIds = Array.from(
+          new Set(rows.map((row) => row.bundleDraftId).filter(Boolean)),
+        );
+        const [trainers, accounts, bundles] = await Promise.all([
+          db.getUsersByIds(trainerIds),
+          db.getCampaignAccountsByIds(accountIds),
+          Promise.all(bundleIds.map((id) => db.getBundleDraftById(id))),
+        ]);
+        const trainerById = new Map(trainers.map((trainer) => [trainer.id, trainer]));
+        const accountById = new Map(accounts.map((account) => [account.id, account]));
+        const bundleById = new Map(
+          bundles.filter(Boolean).map((bundle) => [String(bundle!.id), bundle!]),
+        );
+        const toCell = (value: unknown) => {
+          const text = String(value ?? "");
+          if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
+            return `"${text.replace(/"/g, "\"\"")}"`;
+          }
+          return text;
+        };
+        const header = [
+          "campaign_account",
+          "campaign_offer",
+          "trainer",
+          "views",
+          "engagements",
+          "clicks",
+          "ctr_pct",
+          "delivery_pct",
+          "on_time_pct",
+          "followers",
+          "latest_metric_date",
+        ];
+        const lines = [header.join(",")];
+        for (const row of rows) {
+          const ctrPct =
+            Number(row.views || 0) > 0
+              ? (Number(row.clicks || 0) / Number(row.views || 1)) * 100
+              : 0;
+          const deliveryPct =
+            Number(row.requiredPosts || 0) > 0
+              ? (Number(row.postsDelivered || 0) / Number(row.requiredPosts || 1)) *
+                100
+              : 0;
+          const onTimePct =
+            Number(row.postsDelivered || 0) > 0
+              ? (Number(row.postsOnTime || 0) / Number(row.postsDelivered || 1)) *
+                100
+              : 0;
+          lines.push(
+            [
+              accountById.get(row.campaignAccountId)?.name || "Campaign Account",
+              bundleById.get(row.bundleDraftId)?.title || "Campaign Offer",
+              trainerById.get(row.trainerId)?.name || "Trainer",
+              Number(row.views || 0),
+              Number(row.engagements || 0),
+              Number(row.clicks || 0),
+              ctrPct.toFixed(2),
+              deliveryPct.toFixed(2),
+              onTimePct.toFixed(2),
+              Number(row.followers || 0),
+              row.latestMetricDate || "",
+            ]
+              .map(toCell)
+              .join(","),
+          );
+        }
+        const csv = `${lines.join("\n")}\n`;
+        return {
+          fileName: `campaign-report-${new Date().toISOString().slice(0, 10)}.csv`,
+          mimeType: "text/csv",
+          content: csv,
+        };
+      }),
+
+    campaignReportPdf: managerProcedure
+      .input(
+        z
+          .object({
+            campaignAccountId: z.string().optional(),
+            fromDate: z.string().optional(),
+            toDate: z.string().optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const rows = await db.getCampaignAccountMetricsSummary({
+          campaignAccountId: input?.campaignAccountId,
+          fromDate: input?.fromDate,
+          toDate: input?.toDate,
+        });
+        const totals = rows.reduce(
+          (acc, row) => {
+            acc.views += Number(row.views || 0);
+            acc.engagements += Number(row.engagements || 0);
+            acc.clicks += Number(row.clicks || 0);
+            acc.postsDelivered += Number(row.postsDelivered || 0);
+            acc.requiredPosts += Number(row.requiredPosts || 0);
+            return acc;
+          },
+          {
+            views: 0,
+            engagements: 0,
+            clicks: 0,
+            postsDelivered: 0,
+            requiredPosts: 0,
+          },
+        );
+        const ctr =
+          totals.views > 0 ? (totals.clicks / Math.max(1, totals.views)) * 100 : 0;
+        const deliveryPct =
+          totals.requiredPosts > 0
+            ? (totals.postsDelivered / Math.max(1, totals.requiredPosts)) * 100
+            : 0;
+        const lines = [
+          "Campaign Performance Report",
+          `Generated: ${new Date().toISOString()}`,
+          "",
+          "Delivery",
+          `- Posts Delivered: ${totals.postsDelivered.toLocaleString()}`,
+          `- Required Posts: ${totals.requiredPosts.toLocaleString()}`,
+          `- Delivery %: ${deliveryPct.toFixed(2)}%`,
+          "",
+          "Performance",
+          `- Views: ${totals.views.toLocaleString()}`,
+          `- Engagements: ${totals.engagements.toLocaleString()}`,
+          `- Clicks: ${totals.clicks.toLocaleString()}`,
+          `- CTR: ${ctr.toFixed(2)}%`,
+          "",
+          "Business Outcomes",
+          "- Use trainer modeled assumptions for intent/conversion projections.",
+          "",
+          "Finance",
+          "- Export CSV for line-level campaign offer facts.",
+        ];
+        return {
+          fileName: `campaign-report-${new Date().toISOString().slice(0, 10)}.pdf.txt`,
+          mimeType: "text/plain",
+          content: lines.join("\n"),
+        };
       }),
 
     // User Activity Logs
@@ -5699,6 +6321,38 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getRecentActivityLogs(input.limit);
       }),
+
+    replayFailedPhylloEvents: managerProcedure
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(200).default(50),
+          })
+          .optional(),
+      )
+      .mutation(async ({ input }) => {
+        const failedRows = await db.listPhylloWebhookEvents({
+          status: "failed",
+          limit: input?.limit,
+        });
+        let replayed = 0;
+        for (const row of failedRows) {
+          try {
+            const count = await processPhylloWebhookPayload(row.payload);
+            if (count > 0) replayed += count;
+          } catch (error) {
+            logWarn("phyllo.webhook.replay_failed", {
+              eventId: row.providerEventId,
+              message: String((error as any)?.message || "Unknown replay error"),
+            });
+          }
+        }
+        return { success: true, replayed, attempted: failedRows.length };
+      }),
+
+    phylloWebhookHealth: managerProcedure.query(async () => {
+      return db.getPhylloWebhookStats();
+    }),
 
     /** Unified activity feed — combines user actions, system logs, and payment events */
     activityFeed: managerProcedure
@@ -6575,6 +7229,25 @@ export const appRouter = router({
         };
       }),
 
+    syncNow: trainerProcedure.mutation(async ({ ctx }) => {
+      const session = await preparePhylloConnectSession({
+        trainerId: ctx.user.id,
+        trainerName: ctx.user.name || null,
+      });
+      const savedProfile = await syncPhylloProfileForTrainer({
+        trainerId: ctx.user.id,
+        membership: session.membership,
+        phylloUserId: session.phylloUserId,
+        hasPhylloAuthBasic: session.hasPhylloAuthBasic,
+        source: "manual_sync",
+      });
+      return {
+        success: true,
+        profile: savedProfile,
+        syncedAt: new Date().toISOString(),
+      };
+    }),
+
     myProgramDashboard: trainerProcedure.query(async ({ ctx }) => {
       const [membership, profile, progress, commitment, violations, recentMetrics] =
         await Promise.all([
@@ -6597,6 +7270,85 @@ export const appRouter = router({
         recentMetrics,
       };
     }),
+
+    campaignMetrics: trainerProcedure
+      .input(
+        z
+          .object({
+            bundleId: z.string().optional(),
+            fromDate: z.string().optional(),
+            toDate: z.string().optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ ctx, input }) => {
+        const bundleIds: string[] = [];
+        if (input?.bundleId) {
+          const bundle = await db.getBundleDraftById(input.bundleId);
+          if (!bundle) notFound("Bundle");
+          assertTrainerOwned(ctx.user, bundle.trainerId, "bundle");
+          bundleIds.push(bundle.id);
+        } else {
+          const bundles = await db.getBundleDraftsByTrainer(ctx.user.id);
+          for (const bundle of bundles) {
+            if (!bundle.id) continue;
+            bundleIds.push(bundle.id);
+          }
+        }
+        for (const bundleId of bundleIds) {
+          await db.syncTrainerCampaignMetricsFromLatestSocialSnapshot({
+            trainerId: ctx.user.id,
+            bundleDraftId: bundleId,
+          });
+        }
+        return db.getTrainerCampaignMetricsRange({
+          trainerId: ctx.user.id,
+          bundleDraftId: input?.bundleId,
+          fromDate: input?.fromDate,
+          toDate: input?.toDate,
+          limit: 365,
+        });
+      }),
+
+    recentPosts: trainerProcedure
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(40).optional(),
+            sparklineDays: z.number().int().min(3).max(30).optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ ctx, input }) => {
+        return db.getTrainerRecentSocialPosts(ctx.user.id, {
+          limit: input?.limit,
+          sparklineDays: input?.sparklineDays,
+        });
+      }),
+
+    myNotifications: protectedProcedure
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(200).optional(),
+            unreadOnly: z.boolean().optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ ctx, input }) => {
+        return db.listSocialEventNotificationsForUser({
+          userId: ctx.user.id,
+          limit: input?.limit,
+          unreadOnly: input?.unreadOnly,
+        });
+      }),
+
+    markNotificationRead: protectedProcedure
+      .input(z.object({ notificationId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        await db.markSocialEventNotificationRead(input.notificationId, ctx.user.id);
+        return { success: true };
+      }),
 
     managementSummary: protectedProcedure.query(async ({ ctx }) => {
       if (!isManagerLikeRole(ctx.user.role)) {
