@@ -15,8 +15,8 @@ function readRuntimeExtraApiUrl(): string {
 
 function getExplicitApiUrl(): string {
   return (
-    process.env.EXPO_PUBLIC_API_BASE_URL ||
     process.env.EXPO_PUBLIC_NATIVE_API_URL ||
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
     process.env.VITE_API_BASE_URL ||
     readRuntimeExtraApiUrl() ||
     ""
@@ -25,6 +25,7 @@ function getExplicitApiUrl(): string {
 
 const FORCE_SINGLE_API_URL = process.env.EXPO_PUBLIC_FORCE_SINGLE_API_URL === "true";
 const PREFER_LOCAL_WEB_API = process.env.EXPO_PUBLIC_PREFER_LOCAL_WEB_API === "true";
+const PREFER_LOCAL_NATIVE_API = process.env.EXPO_PUBLIC_PREFER_LOCAL_NATIVE_API === "true";
 const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
 // Web API URL derivation from current hostname
@@ -70,11 +71,6 @@ function getWebApiUrl(): string {
 function getNativeApiUrl(): string {
   const explicitApiUrl = getExplicitApiUrl();
 
-  // 1. Check for explicit environment configuration first
-  if (explicitApiUrl) {
-    return explicitApiUrl;
-  }
-
   // 2. Try to derive from Metro dev server address
   const scriptURL = NativeModules?.SourceCode?.scriptURL as string | undefined;
   const expoConfigHost = (Constants?.expoConfig as { hostUri?: string } | undefined)?.hostUri;
@@ -87,6 +83,10 @@ function getNativeApiUrl(): string {
       const parsed = new URL(rawUrl);
       const hostname = parsed.hostname;
       const port = parsed.port || "8081";
+
+      if (explicitApiUrl && !PREFER_LOCAL_NATIVE_API) {
+        return explicitApiUrl;
+      }
 
       // If we're on a sandbox (e.g. 8081-xxx), the API is likely on 3002-xxx (proxy to 3000)
       if (hostname.startsWith("8081-")) {
@@ -105,6 +105,11 @@ function getNativeApiUrl(): string {
     } catch {
       // fallthrough
     }
+  }
+
+  // 1. Check for explicit environment configuration when local derivation is unavailable.
+  if (explicitApiUrl) {
+    return explicitApiUrl;
   }
 
   // 3. Fallbacks

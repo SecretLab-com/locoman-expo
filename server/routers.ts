@@ -110,7 +110,7 @@ function buildCampaignShareUrl(slug: string) {
 
 const PHYLLO_CONNECT_SDK_URL = "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js";
 
-function getPhylloConnectEnvironment(): "sandbox" | "production" {
+function getPhylloConnectEnvironment(): "sandbox" | "staging" | "production" {
   return getConfiguredPhylloEnvironment();
 }
 
@@ -302,11 +302,8 @@ async function preparePhylloConnectSession(params: {
       connectEnvironment,
       tokenEnvironment,
     });
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message:
-        "Phyllo token environment mismatch. Your current credentials are minting a production token while Connect is configured for sandbox. Update PHYLLO_AUTH_BASIC to sandbox app credentials (or align PHYLLO_API_BASE_URL with production).",
-    });
+    // Do not hard-fail on claim/env mismatch. Staging-issued tokens can
+    // present claims that look production-like while still requiring sandbox connect.
   }
 
   const tokenExpMs = tokenClaims?.exp ? Number(tokenClaims.exp) * 1000 : null;
@@ -339,6 +336,7 @@ async function preparePhylloConnectSession(params: {
     sdkToken: sdkTokenPayload.sdk_token,
     sdkTokenExpiresAt: sdkTokenPayload.expires_at,
     hasPhylloAuthBasic,
+    connectEnvironment,
   };
 }
 
@@ -7160,7 +7158,7 @@ export const appRouter = router({
           sdkToken: session.sdkToken,
           sdkTokenExpiresAt: session.sdkTokenExpiresAt,
           connectConfig: {
-            environment: getPhylloConnectEnvironment(),
+            environment: session.connectEnvironment,
             scriptUrl: PHYLLO_CONNECT_SDK_URL,
             clientDisplayName: "LocoMotivate",
           },

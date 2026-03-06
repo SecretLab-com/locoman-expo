@@ -41,7 +41,9 @@ export default function PhylloConnectBridgeScreen() {
         const environment =
           String(params.environment || "").toLowerCase() === "production"
             ? "production"
-            : "sandbox";
+            : String(params.environment || "").toLowerCase() === "staging"
+              ? "staging"
+              : "sandbox";
         const clientDisplayName = String(params.clientDisplayName || "LocoMotivate");
         const returnTo = decodeURIComponent(String(params.returnTo || ""));
         if (!token || !userId || !returnTo) {

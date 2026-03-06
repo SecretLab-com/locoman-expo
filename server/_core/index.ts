@@ -173,7 +173,12 @@ async function startServer() {
     const token = String(req.query.token || "");
     const userId = String(req.query.userId || "");
     const environmentRaw = String(req.query.environment || "").toLowerCase();
-    const environment = environmentRaw === "production" ? "production" : "sandbox";
+    const environment =
+      environmentRaw === "production"
+        ? "production"
+        : environmentRaw === "staging"
+          ? "staging"
+          : "sandbox";
     const clientDisplayName = String(req.query.clientDisplayName || "LocoMotivate");
     const scriptUrl = String(
       req.query.scriptUrl || "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js",
@@ -215,10 +220,27 @@ async function startServer() {
         var sawConnected = false;
         var connectedAccountId = "";
         var connectedWorkPlatformId = "";
+        var loadTimer = null;
+        var openTimer = null;
 
         function finish(status, reason, accountId, workPlatformId) {
           if (settled) return;
           settled = true;
+          try { if (loadTimer) clearTimeout(loadTimer); } catch (_) {}
+          try { if (openTimer) clearTimeout(openTimer); } catch (_) {}
+          try {
+            if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === "function") {
+              window.ReactNativeWebView.postMessage(
+                JSON.stringify({
+                  type: "social_connect_result",
+                  status: status || "failed",
+                  reason: reason ? String(reason) : "",
+                  accountId: accountId ? String(accountId) : "",
+                  workPlatformId: workPlatformId ? String(workPlatformId) : ""
+                })
+              );
+            }
+          } catch (_) {}
           try {
             var url = new URL(decodeURIComponent(RETURN_TO));
             url.searchParams.set("status", status || "failed");
@@ -242,19 +264,19 @@ async function startServer() {
             token: TOKEN,
             clientDisplayName: CLIENT_NAME
           });
-          connect.on("accountConnected", function (accountId, workPlatformId) {
+          connect.on("accountConnected", function (accountId, workPlatformId, _userId) {
             sawConnected = true;
             connectedAccountId = String(accountId || "");
             connectedWorkPlatformId = String(workPlatformId || "");
           });
-          connect.on("accountDisconnected", function () {});
-          connect.on("connectionFailure", function (reason) {
+          connect.on("accountDisconnected", function (_accountId, _workPlatformId, _userId) {});
+          connect.on("connectionFailure", function (reason, _workPlatformId, _userId) {
             finish("failed", String(reason || "connection_failed"));
           });
-          connect.on("tokenExpired", function () {
+          connect.on("tokenExpired", function (_userId) {
             finish("failed", "token_expired");
           });
-          connect.on("exit", function (reason) {
+          connect.on("exit", function (reason, _userId) {
             if (sawConnected) {
               finish("connected", String(reason || "exit"), connectedAccountId, connectedWorkPlatformId);
               return;
@@ -263,6 +285,10 @@ async function startServer() {
           });
           try {
             connect.open();
+            // Avoid trapping users on the loading page if the SDK silently fails to open.
+            openTimer = setTimeout(function () {
+              finish("failed", "sdk_open_timeout");
+            }, 15000);
           } catch (error) {
             var message = error && error.message ? error.message : "open_failed";
             finish("failed", String(message));
@@ -273,7 +299,13 @@ async function startServer() {
         script.src = SCRIPT_URL;
         script.async = true;
         script.defer = true;
-        script.onload = boot;
+        loadTimer = setTimeout(function () {
+          finish("failed", "sdk_load_timeout");
+        }, 15000);
+        script.onload = function () {
+          try { if (loadTimer) clearTimeout(loadTimer); } catch (_) {}
+          boot();
+        };
         script.onerror = function () { finish("failed", "sdk_load_failed"); };
         document.head.appendChild(script);
       })();

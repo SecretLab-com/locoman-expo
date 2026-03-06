@@ -146,7 +146,7 @@ export function decodePhylloSdkTokenClaims(token: string): PhylloSdkTokenClaims 
 
 export function inferPhylloTokenEnvironment(
   claims: PhylloSdkTokenClaims | null,
-): "sandbox" | "production" | "unknown" {
+): "sandbox" | "staging" | "production" | "unknown" {
   if (!claims) return "unknown";
   const targets = [
     ...(Array.isArray(claims.aud) ? claims.aud : [claims.aud]),
@@ -156,7 +156,8 @@ export function inferPhylloTokenEnvironment(
     .filter(Boolean)
     .join(" ");
   if (!targets) return "unknown";
-  if (targets.includes("staging") || targets.includes("sandbox")) return "sandbox";
+  if (targets.includes("staging")) return "staging";
+  if (targets.includes("sandbox")) return "sandbox";
   if (targets.includes("api.getphyllo.com")) return "production";
   return "unknown";
 }

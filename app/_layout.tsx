@@ -519,6 +519,7 @@ export default function RootLayout() {
                             />
                             <Stack.Screen name="welcome" options={{ headerShown: false }} />
                             <Stack.Screen name="oauth/callback" />
+                            <Stack.Screen name="phyllo/callback" options={{ presentation: "card" }} />
                           </Stack>
                         </RootAccessGate>
                         <StatusBar style="auto" />

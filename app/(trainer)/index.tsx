@@ -1610,8 +1610,12 @@ export default function TrainerHomeScreen() {
                           loading={cancellingRef === item.merchantReference}
                           variant="ghost"
                           size="sm"
-                          className="px-3 py-1 rounded-full border"
-                          style={{ borderColor: "rgba(248,113,113,0.35)", backgroundColor: "rgba(248,113,113,0.1)" }}
+                          className="px-2.5 py-1 rounded-full border"
+                          style={{
+                            minHeight: 26,
+                            borderColor: "rgba(248,113,113,0.35)",
+                            backgroundColor: "rgba(248,113,113,0.1)",
+                          }}
                           textClassName="text-[11px]"
                           accessibilityLabel={`Cancel ${item.description || "payment"}`}
                         >

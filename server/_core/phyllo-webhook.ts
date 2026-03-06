@@ -345,7 +345,7 @@ export async function processPhylloWebhookPayload(payload: any) {
 async function processSinglePhylloEvent(
   event: PhylloWebhookEvent,
   managerLikeIds: string[],
-  environment: "sandbox" | "production",
+  environment: "sandbox" | "staging" | "production",
 ) {
   const linkedProfile = event.phylloUserId
     ? await db.getTrainerSocialProfileByPhylloUserId(event.phylloUserId)

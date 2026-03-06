@@ -58,11 +58,14 @@ export default function TrainerSocialProgramScreen() {
   const [nativeConnectSheet, setNativeConnectSheet] = useState<{
     connectUrl: string;
     callbackPrefix: string;
+    returnTo: string;
   } | null>(null);
   const [showRequirementsModal, setShowRequirementsModal] = useState(false);
   const [showFirstConnectHelpModal, setShowFirstConnectHelpModal] = useState(false);
   const [syncDoneAt, setSyncDoneAt] = useState<number | null>(null);
+  const [isLaunchingConnect, setIsLaunchingConnect] = useState(false);
   const lastCallbackKeyRef = useRef<string>("");
+  const hasWebBridgeTokenRetryRef = useRef(false);
   const hasShownFirstConnectHelpRef = useRef(false);
 
   const isBenignCloseReason = (reason: string) => {
@@ -73,6 +76,15 @@ export default function TrainerSocialProgramScreen() {
       normalized === "user_closed_connect_flow" ||
       normalized === "dismissed" ||
       normalized === "closed"
+    );
+  };
+  const isTokenExpiredReason = (reason: string) => {
+    const normalized = reason.trim().toLowerCase();
+    return (
+      normalized === "token_expired" ||
+      normalized === "tokenexpired" ||
+      normalized === "token expired" ||
+      (normalized.includes("token") && normalized.includes("expired"))
     );
   };
 
@@ -258,6 +270,13 @@ export default function TrainerSocialProgramScreen() {
       );
       return;
     }
+    if (isTokenExpiredReason(callbackReason)) {
+      setActionSuccess(null);
+      setActionError(
+        "Social connection session expired. Please tap + to retry.",
+      );
+      return;
+    }
     setActionSuccess(null);
     setActionError(
       callbackReason
@@ -352,7 +371,84 @@ export default function TrainerSocialProgramScreen() {
     return appWebBase;
   })();
 
+  const buildConnectSheet = (connectSession: {
+    sdkToken: string;
+    phylloUserId: string;
+    connectConfig?: {
+      environment?: string;
+      clientDisplayName?: string;
+      scriptUrl?: string;
+    };
+  }) => {
+    const callbackUrl = Linking.createURL("/phyllo/callback", {
+      queryParams: {
+        returnTo: encodeURIComponent("/(trainer)/social-program"),
+      },
+    });
+    const connectBridgeUrl =
+      `${appApiBase}/api/phyllo/connect` +
+      `?token=${encodeURIComponent(connectSession.sdkToken)}` +
+      `&userId=${encodeURIComponent(connectSession.phylloUserId)}` +
+      `&environment=${encodeURIComponent(
+        connectSession.connectConfig?.environment || "sandbox",
+      )}` +
+      `&clientDisplayName=${encodeURIComponent(
+        connectSession.connectConfig?.clientDisplayName || "LocoMotivate",
+      )}` +
+      `&scriptUrl=${encodeURIComponent(
+        connectSession.connectConfig?.scriptUrl ||
+          "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js",
+      )}` +
+      `&returnTo=${encodeURIComponent(callbackUrl)}`;
+    return {
+      connectUrl: connectBridgeUrl,
+      callbackPrefix: callbackUrl.split("?")[0] || callbackUrl,
+      returnTo: encodeURIComponent("/(trainer)/social-program"),
+    };
+  };
+
+  const retryWebBridgeTokenOnce = async () => {
+    if (hasWebBridgeTokenRetryRef.current) {
+      setActionSuccess(null);
+      setActionError("Social connection session expired. Please tap + to retry.");
+      return;
+    }
+    hasWebBridgeTokenRetryRef.current = true;
+    setActionError(null);
+    setActionSuccess("Refreshing social session...");
+    try {
+      let refreshedSession: Awaited<
+        ReturnType<typeof startConnectMutation.mutateAsync>
+      > | null = null;
+      try {
+        refreshedSession = await startConnectMutation.mutateAsync({
+          forceNewUser: false,
+        });
+      } catch (firstError: any) {
+        const firstMessage = String(firstError?.message || "").toLowerCase();
+        const shouldForceNewUser =
+          firstMessage.includes("incorrect_user_id") ||
+          firstMessage.includes("requested user id does not exist");
+        if (!shouldForceNewUser) throw firstError;
+        refreshedSession = await startConnectMutation.mutateAsync({
+          forceNewUser: true,
+        });
+      }
+      if (refreshedSession?.sdkToken && refreshedSession?.phylloUserId) {
+        setNativeConnectSheet(buildConnectSheet(refreshedSession));
+        return;
+      }
+    } catch {
+      // Show standard retry prompt below.
+    }
+    setActionSuccess(null);
+    setActionError("Social connection session expired. Please tap + to retry.");
+  };
+
   const handleConnectPhyllo = async () => {
+    if (isLaunchingConnect) return;
+    hasWebBridgeTokenRetryRef.current = false;
+    setIsLaunchingConnect(true);
     setActionError(null);
     setActionSuccess(null);
     try {
@@ -399,7 +495,9 @@ export default function TrainerSocialProgramScreen() {
             environment:
               connectSession.connectConfig?.environment === "production"
                 ? "production"
-                : "sandbox",
+                : connectSession.connectConfig?.environment === "staging"
+                  ? "staging"
+                  : "sandbox",
             userId: connectSession.phylloUserId,
             token: connectSession.sdkToken,
             clientDisplayName:
@@ -407,7 +505,10 @@ export default function TrainerSocialProgramScreen() {
           });
 
         let result = await launchWebConnect(session);
-        if (result.status === "failed" && result.reason === "token_expired") {
+        if (
+          result.status === "failed" &&
+          isTokenExpiredReason(String(result.reason || ""))
+        ) {
           try {
             const refreshedSession = await startConnectMutation.mutateAsync({
               forceNewUser: true,
@@ -446,7 +547,7 @@ export default function TrainerSocialProgramScreen() {
           );
         } else {
           const message =
-            result.reason === "token_expired"
+            isTokenExpiredReason(String(result.reason || ""))
               ? "Social connection session expired. Please retry."
               : result.reason || "Could not connect your social platforms.";
           setActionError(message);
@@ -460,25 +561,67 @@ export default function TrainerSocialProgramScreen() {
             environment:
               connectSession.connectConfig?.environment === "production"
                 ? "production"
-                : "sandbox",
+                : connectSession.connectConfig?.environment === "staging"
+                  ? "staging"
+                  : "sandbox",
             userId: connectSession.phylloUserId,
             token: connectSession.sdkToken,
             clientDisplayName:
               connectSession.connectConfig?.clientDisplayName || "LocoMotivate",
           });
 
+        let activeSession = session;
         let result = await launchNativeConnect(session);
-        if (result.status === "failed" && result.reason === "token_expired") {
-          try {
-            const refreshedSession = await startConnectMutation.mutateAsync({
-              forceNewUser: true,
-            });
-            if (refreshedSession?.sdkToken && refreshedSession?.phylloUserId) {
-              result = await launchNativeConnect(refreshedSession);
+        if (__DEV__) {
+          console.log("[Phyllo] Native connect result:", {
+            status: result.status,
+            reason: result.reason || "",
+          });
+        }
+        if (
+          result.status === "failed" &&
+          isTokenExpiredReason(String(result.reason || ""))
+        ) {
+          const retryPlans = [false, true] as const;
+          for (const forceNewUser of retryPlans) {
+            try {
+              const refreshedSession = await startConnectMutation.mutateAsync({
+                forceNewUser,
+              });
+              if (refreshedSession?.sdkToken && refreshedSession?.phylloUserId) {
+                activeSession = refreshedSession;
+                result = await launchNativeConnect(refreshedSession);
+                if (__DEV__) {
+                  console.log("[Phyllo] Native connect retry result:", {
+                    forceNewUser,
+                    status: result.status,
+                    reason: result.reason || "",
+                  });
+                }
+                if (
+                  result.status !== "failed" ||
+                  !isTokenExpiredReason(String(result.reason || ""))
+                ) {
+                  break;
+                }
+              }
+            } catch (retryError: any) {
+              if (__DEV__) {
+                console.log("[Phyllo] Native connect retry failed:", {
+                  forceNewUser,
+                  error: String(retryError?.message || retryError || ""),
+                });
+              }
             }
-          } catch {
-            // Keep original token_expired result and show message below.
           }
+        }
+        if (
+          result.status === "failed" &&
+          isTokenExpiredReason(String(result.reason || ""))
+        ) {
+          setActionSuccess(null);
+          setActionError("Social connection session expired. Please tap + to retry.");
+          return;
         }
 
         const finalized = await completeConnectMutation.mutateAsync({
@@ -508,7 +651,7 @@ export default function TrainerSocialProgramScreen() {
           );
         } else {
           const message =
-            result.reason === "token_expired"
+            isTokenExpiredReason(String(result.reason || ""))
               ? "Social connection session expired. Please retry."
               : result.reason || "Could not connect your social platforms.";
           setActionError(message);
@@ -516,35 +659,15 @@ export default function TrainerSocialProgramScreen() {
         return;
       }
 
-      const callbackUrl = Linking.createURL("/phyllo/callback", {
-        queryParams: {
-          returnTo: encodeURIComponent("/(trainer)/social-program"),
-        },
-      });
-      const connectBridgeUrl =
-        `${appApiBase}/api/phyllo/connect` +
-        `?token=${encodeURIComponent(session.sdkToken)}` +
-        `&userId=${encodeURIComponent(session.phylloUserId)}` +
-        `&environment=${encodeURIComponent(session.connectConfig?.environment || "sandbox")}` +
-        `&clientDisplayName=${encodeURIComponent(
-          session.connectConfig?.clientDisplayName || "LocoMotivate",
-        )}` +
-        `&scriptUrl=${encodeURIComponent(
-          session.connectConfig?.scriptUrl ||
-            "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js",
-        )}` +
-        `&returnTo=${encodeURIComponent(callbackUrl)}`;
-
-      setNativeConnectSheet({
-        connectUrl: connectBridgeUrl,
-        callbackPrefix: callbackUrl.split("?")[0] || callbackUrl,
-      });
+      setNativeConnectSheet(buildConnectSheet(session));
       return;
     } catch (error: any) {
       const message = String(
         error?.message || "Unable to connect social platforms right now.",
       ).replace(/phyllo/gi, "social");
       setActionError(message);
+    } finally {
+      setIsLaunchingConnect(false);
     }
   };
 
@@ -596,14 +719,57 @@ export default function TrainerSocialProgramScreen() {
               source={{ uri: nativeConnectSheet.connectUrl }}
               startInLoadingState
               style={{ flex: 1 }}
+              onMessage={(event) => {
+                const raw = String(event?.nativeEvent?.data || "").trim();
+                if (!raw) return;
+                try {
+                  const parsed = JSON.parse(raw);
+                  if (parsed?.type !== "social_connect_result") return;
+                  const status = String(parsed?.status || "").toLowerCase();
+                  if (status !== "connected" && status !== "cancelled" && status !== "failed") {
+                    return;
+                  }
+                  const reason = String(parsed?.reason || "");
+                  if (status === "failed" && isTokenExpiredReason(reason)) {
+                    void retryWebBridgeTokenOnce();
+                    return;
+                  }
+                  setNativeConnectSheet(null);
+                  router.replace({
+                    pathname: "/phyllo/callback",
+                    params: {
+                      status,
+                      reason,
+                      returnTo: nativeConnectSheet.returnTo,
+                    },
+                  } as any);
+                } catch {
+                  // Ignore malformed bridge messages.
+                }
+              }}
               onShouldStartLoadWithRequest={(request) => {
                 const requestUrl = String(request?.url || "");
                 if (!requestUrl) return true;
-                if (!requestUrl.startsWith(nativeConnectSheet.callbackPrefix)) {
+                const parsed = Linking.parse(requestUrl);
+                const parsedPath = String(parsed.path || "").replace(/^\/+/, "");
+                const expectedPath = String(
+                  Linking.parse(nativeConnectSheet.callbackPrefix).path || "",
+                ).replace(/^\/+/, "");
+                const isPhylloCallback = Boolean(
+                  parsedPath &&
+                    expectedPath &&
+                    parsedPath.toLowerCase() === expectedPath.toLowerCase(),
+                );
+                if (!isPhylloCallback) {
                   return true;
                 }
+                const status = String(parsed.queryParams?.status || "").toLowerCase();
+                const reason = String(parsed.queryParams?.reason || "");
+                if (status === "failed" && isTokenExpiredReason(reason)) {
+                  void retryWebBridgeTokenOnce();
+                  return false;
+                }
                 setNativeConnectSheet(null);
-                const parsed = Linking.parse(requestUrl);
                 router.replace({
                   pathname: "/phyllo/callback",
                   params: parsed.queryParams as any,
@@ -922,6 +1088,7 @@ export default function TrainerSocialProgramScreen() {
               </View>
               <Pressable
                 onPress={handleConnectPhyllo}
+                disabled={isLaunchingConnect}
                 style={{
                   position: "absolute",
                   right: 12,
@@ -932,6 +1099,7 @@ export default function TrainerSocialProgramScreen() {
                   backgroundColor: colors.primary,
                   alignItems: "center",
                   justifyContent: "center",
+                  opacity: isLaunchingConnect ? 0.9 : 1,
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -943,7 +1111,11 @@ export default function TrainerSocialProgramScreen() {
                 }
                 testID="social-connect-more-fab"
               >
-                <MaterialCommunityIcons name="plus" size={24} color="#fff" />
+                {isLaunchingConnect ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <MaterialCommunityIcons name="plus" size={24} color="#fff" />
+                )}
               </Pressable>
             </SurfaceCard>
           )}

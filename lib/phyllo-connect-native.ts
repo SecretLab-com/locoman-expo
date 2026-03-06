@@ -6,7 +6,7 @@ type NativePhylloConnect = {
     clientDisplayName: string;
     token: string;
     userId: string;
-    environment: "sandbox" | "production";
+    environment: "sandbox" | "staging" | "production";
     workPlatformId?: string;
   }) => {
     on: (event: string, callback: (...args: any[]) => void) => void;
@@ -30,7 +30,7 @@ export function hasNativePhylloConnectSdk(): boolean {
 }
 
 export async function openPhylloConnectNative(input: {
-  environment: "sandbox" | "production";
+  environment: "sandbox" | "staging" | "production";
   userId: string;
   token: string;
   clientDisplayName: string;

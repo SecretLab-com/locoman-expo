@@ -2,7 +2,7 @@ export type PhylloConnectStatus = "connected" | "cancelled" | "failed";
 
 export type OpenPhylloConnectInput = {
   scriptUrl: string;
-  environment: "sandbox" | "production";
+  environment: "sandbox" | "staging" | "production";
   userId: string;
   token: string;
   clientDisplayName: string;

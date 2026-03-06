@@ -84,6 +84,15 @@ function ensureTrailingSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;
 }
 
+function getLocalPublicBaseUrl(): string {
+  const candidate =
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.PUBLIC_APP_URL ||
+    process.env.EXPO_PUBLIC_APP_URL ||
+    "http://localhost:3000";
+  return candidate.replace(/\/+$/, "");
+}
+
 function normalizeKey(relKey: string): string {
   return relKey.replace(/^\/+/, "");
 }
@@ -167,7 +176,7 @@ export async function storagePut(
     }
 
     await fs.writeFile(filePath, buffer);
-    return { key, url: `/uploads/${key}` };
+    return { key, url: `${getLocalPublicBaseUrl()}/uploads/${key}` };
   }
 
   const { baseUrl, apiKey } = getStorageConfig();
@@ -208,7 +217,7 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
 
     return {
       key,
-      url: `/uploads/${key}`,
+      url: `${getLocalPublicBaseUrl()}/uploads/${key}`,
     };
   }
 
