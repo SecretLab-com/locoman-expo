@@ -6,6 +6,7 @@ import { useAuthContext } from "@/contexts/auth-context";
 import { trackLaunchEvent } from "@/lib/analytics";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
+import { maybeShowInviteCongrats } from "@/lib/social-invite-alerts";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -103,6 +104,35 @@ function formatDateShort(value: string | Date) {
     day: "numeric",
     month: "short",
   });
+}
+
+function formatCompactNumber(value: number) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  if (Math.abs(numeric) >= 1_000_000) {
+    return `${(numeric / 1_000_000).toFixed(numeric >= 10_000_000 ? 0 : 1)}M`;
+  }
+  if (Math.abs(numeric) >= 1_000) {
+    return `${(numeric / 1_000).toFixed(numeric >= 10_000 ? 0 : 1)}k`;
+  }
+  return numeric.toLocaleString();
+}
+
+function formatRatePercent(value: number | null | undefined) {
+  const numeric = Number(value || 0);
+  return `${(numeric * 100).toFixed(1)}%`;
+}
+
+function normalizeSocialPlatformLabel(value: string) {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/_/g, " ");
+  if (!cleaned) return "";
+  if (cleaned.toLowerCase() === "x") return "X";
+  return cleaned
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function formatOfferType(value: string | undefined) {
@@ -295,6 +325,32 @@ function StepPill({
   );
 }
 
+function SocialMetricTile({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+}) {
+  return (
+    <View className="flex-1 rounded-xl border px-3 py-3" style={{ backgroundColor: "rgba(11,16,32,0.4)", borderColor: "rgba(148,163,184,0.18)" }}>
+      <Text className="text-[10px] font-semibold uppercase tracking-[0.8px]" style={{ color: "#93C5FD" }}>
+        {label}
+      </Text>
+      <Text className="text-lg font-bold mt-1" style={{ color: DASH.text }}>
+        {value}
+      </Text>
+      {helper ? (
+        <Text className="text-[10px] mt-1" style={{ color: DASH.muted }}>
+          {helper}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 export default function TrainerHomeScreen() {
   const { effectiveUser } = useAuthContext();
   const utils = trpc.useUtils();
@@ -381,6 +437,10 @@ export default function TrainerHomeScreen() {
     isRefetching: socialStatusRefetching,
     refetch: refetchSocialStatus,
   } = trpc.socialProgram.myStatus.useQuery();
+  const socialRecentPostsQuery = trpc.socialProgram.recentPosts.useQuery(
+    { limit: 6, sparklineDays: 10 },
+    { enabled: Boolean((socialStatus?.profile as any)?.phylloUserId) },
+  );
 
   const isRefetching =
     clientsRefetching ||
@@ -391,7 +451,8 @@ export default function TrainerHomeScreen() {
     activityRefetching ||
     pendingPaymentsRefetching ||
     pointsRefetching ||
-    socialStatusRefetching;
+    socialStatusRefetching ||
+    socialRecentPostsQuery.isRefetching;
 
   const hasClient = clients.length > 0;
   const hasPendingInvite = invitations.some((invite) => {
@@ -399,6 +460,7 @@ export default function TrainerHomeScreen() {
     return status === "pending";
   });
   const hasClientOrInvite = hasClient || hasPendingInvite;
+  const hasPendingSocialInvite = Boolean(socialStatus?.pendingInvite?.id);
   const hasOffer = offers.length > 0;
   const hasPayment = (paymentStats?.paid || 0) > 0 || (paymentStats?.paidOut || 0) > 0;
   const liveNextAction: NextAction = !hasClientOrInvite ? "invite" : !hasOffer ? "offer" : !hasPayment ? "pay" : "done";
@@ -462,6 +524,113 @@ export default function TrainerHomeScreen() {
   }, [products]);
 
   const productImageEntries = useMemo(() => Array.from(productImageByName.entries()), [productImageByName]);
+
+  const connectedSocialPlatforms = useMemo(() => {
+    const profile = socialStatus?.profile as any;
+    const keys = new Set<string>();
+    const direct = Array.isArray(profile?.platforms) ? profile.platforms : [];
+    for (const value of direct) {
+      const key = String(value || "").trim().toLowerCase();
+      if (key && key !== "unknown") keys.add(key);
+    }
+    const rawProfiles = Array.isArray(profile?.metadata?.rawProfiles) ? profile.metadata.rawProfiles : [];
+    for (const row of rawProfiles) {
+      const key = String(
+        row?.platform ||
+          row?.platform_name ||
+          row?.work_platform?.name ||
+          row?.workPlatform?.name ||
+          row?.work_platform_name ||
+          row?.network ||
+          "",
+      )
+        .trim()
+        .toLowerCase();
+      if (key && key !== "unknown") keys.add(key);
+    }
+    const rawAccounts = Array.isArray(profile?.metadata?.rawAccounts) ? profile.metadata.rawAccounts : [];
+    for (const row of rawAccounts) {
+      const key = String(
+        row?.platform ||
+          row?.platform_name ||
+          row?.work_platform?.name ||
+          row?.workPlatform?.name ||
+          row?.work_platform_name ||
+          row?.network ||
+          "",
+      )
+        .trim()
+        .toLowerCase();
+      if (key && key !== "unknown") keys.add(key);
+    }
+    return Array.from(keys);
+  }, [socialStatus?.profile]);
+
+  const showConnectedSocialCard = connectedSocialPlatforms.length > 0;
+  const isActiveSocialMember = String(socialStatus?.membership?.status || "").toLowerCase() === "active";
+  const socialProfile = socialStatus?.profile as any;
+  const socialCommitment = socialStatus?.commitment as any;
+  const socialFollowers = Number(socialProfile?.followerCount || 0);
+  const socialViewsPerMonth = Number(socialProfile?.avgViewsPerMonth || 0);
+  const socialEngagementRate = Number(socialProfile?.avgEngagementRate || 0);
+  const socialCtr = Number(socialProfile?.avgCtr || 0);
+  const socialFollowerTarget = Math.max(1, Number(socialCommitment?.minimumFollowers || 10000));
+  const socialViewsTarget = Math.max(1, Number(socialCommitment?.minimumAvgViews || 1000));
+  const socialFollowerProgressPct = Math.max(0, Math.min(100, Math.round((socialFollowers / socialFollowerTarget) * 100)));
+  const socialViewsProgressPct = Math.max(0, Math.min(100, Math.round((socialViewsPerMonth / socialViewsTarget) * 100)));
+  const socialReadinessPct = Math.round((socialFollowerProgressPct + socialViewsProgressPct) / 2);
+  const socialOpenViolationsCount = Array.isArray(socialStatus?.openViolations)
+    ? socialStatus.openViolations.length
+    : 0;
+  const socialFollowerGap = Math.max(0, socialFollowerTarget - socialFollowers);
+  const socialViewsGap = Math.max(0, socialViewsTarget - socialViewsPerMonth);
+  const socialReadinessColor =
+    socialOpenViolationsCount > 0
+      ? "#F59E0B"
+      : socialReadinessPct >= 100
+        ? "#34D399"
+        : DASH.primary;
+  const socialReadinessMessage = socialOpenViolationsCount > 0
+    ? `${socialOpenViolationsCount} open concern${socialOpenViolationsCount === 1 ? "" : "s"} to review`
+    : socialFollowerGap <= 0 && socialViewsGap <= 0
+      ? "Ready for campaign review"
+      : socialFollowerProgressPct <= socialViewsProgressPct
+        ? `Needs ${formatCompactNumber(socialFollowerGap)} more followers`
+        : `Needs ${formatCompactNumber(socialViewsGap)} more monthly views`;
+  const socialStatusLine = socialOpenViolationsCount > 0
+    ? "Momentum is strong, but there is a compliance issue to resolve."
+    : `Connected from ${connectedSocialPlatforms.length} platform${connectedSocialPlatforms.length === 1 ? "" : "s"} with live Phyllo sync.`;
+  const recentSocialPosts = socialRecentPostsQuery.data || [];
+  const recentSocialMomentum = useMemo(() => {
+    const rows = recentSocialPosts
+      .map((post: any) =>
+        Array.isArray(post?.sparkline)
+          ? post.sparkline.map((value: any) => Number(value || 0))
+          : [],
+      )
+      .filter((values) => values.length > 0);
+    if (rows.length === 0) return [] as number[];
+    const maxLength = Math.max(...rows.map((values) => values.length));
+    const totals = Array.from({ length: maxLength }, () => 0);
+    for (const values of rows as number[][]) {
+      const offset = maxLength - values.length;
+      values.forEach((value: number, index: number) => {
+        totals[offset + index] += value;
+      });
+    }
+    return totals.slice(-10);
+  }, [recentSocialPosts]);
+  const recentSocialMomentumMax = Math.max(1, ...recentSocialMomentum);
+  const latestSocialPost = recentSocialPosts[0] || null;
+  const latestSocialPostSummary = latestSocialPost
+    ? `Latest post: ${formatCompactNumber(Number(latestSocialPost.latestEngagements || 0))} engagements`
+    : socialRecentPostsQuery.isLoading
+      ? "Syncing first post signals..."
+      : "Syncing first post signals...";
+  const socialPlatformSummary = connectedSocialPlatforms
+    .slice(0, 2)
+    .map((platform) => normalizeSocialPlatformLabel(platform))
+    .join(" · ");
 
   const getOfferImageUrl = (offer: any): string => {
     const directImage = normalizeAssetUrl(offer?.imageUrl);
@@ -562,6 +731,7 @@ export default function TrainerHomeScreen() {
       refetchPendingPayments(),
       refetchPoints(),
       refetchSocialStatus(),
+      socialRecentPostsQuery.refetch(),
     ]);
   };
 
@@ -578,6 +748,15 @@ export default function TrainerHomeScreen() {
   const handleResetTestState = () => {
     setTestStateOverride("invite");
   };
+
+  useEffect(() => {
+    const inviteId = String(socialStatus?.pendingInvite?.id || "").trim();
+    if (!inviteId) return;
+    void maybeShowInviteCongrats({
+      inviteId,
+      coordinatorName: socialStatus?.invitedBy?.name || null,
+    });
+  }, [socialStatus?.invitedBy?.name, socialStatus?.pendingInvite?.id]);
 
   useEffect(() => {
     stepProgressAnim.setValue(heroStep - 0.4);
@@ -1141,10 +1320,14 @@ export default function TrainerHomeScreen() {
 
         <View className={SECTION_SPACING_CLASS}>
           <TouchableOpacity
-            onPress={() => router.push("/(trainer)/social-program" as any)}
+            onPress={() =>
+              router.push(
+                (showConnectedSocialCard ? "/(trainer)/social-progress" : "/(trainer)/social-program") as any,
+              )
+            }
             activeOpacity={0.92}
             accessibilityRole="button"
-            accessibilityLabel="View social program"
+            accessibilityLabel={showConnectedSocialCard ? "View social progress" : "View social program"}
             testID="trainer-social-program-card"
           >
           <SurfaceCard style={{ ...CARD_SOFT_STYLE, borderColor: DASH.borderStrong, overflow: "hidden" }}>
@@ -1181,44 +1364,165 @@ export default function TrainerHomeScreen() {
                 >
                   <IconSymbol name="sparkles" size={12} color="#BFDBFE" />
                   <Text className="text-[11px] font-semibold ml-1" style={{ color: "#BFDBFE" }}>
-                    New ways to earn
+                    {showConnectedSocialCard
+                      ? "Social momentum"
+                      : isActiveSocialMember
+                        ? "Member access"
+                        : hasPendingSocialInvite
+                          ? "Exclusive invitation"
+                          : "Invite-only program"}
                   </Text>
                 </View>
                 <Text className="text-base font-semibold" style={{ color: DASH.text }}>
-                  Get Paid for Social Posts.
+                  {showConnectedSocialCard
+                    ? "Your social progress at a glance"
+                    : isActiveSocialMember
+                      ? "You’re in Social Posts."
+                      : hasPendingSocialInvite
+                        ? "You’ve been invited to Social Posts."
+                        : "Get Paid for Social Posts."}
                 </Text>
                 <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
-                  Join the social program, connect your channels, and track compliance targets.
+                  {showConnectedSocialCard
+                    ? socialStatusLine
+                    : isActiveSocialMember
+                      ? "Connect your first social channel to unlock campaign tracking, recent posts, and progress metrics."
+                      : hasPendingSocialInvite
+                        ? `Congratulations${socialStatus?.invitedBy?.name ? `, ${socialStatus.invitedBy.name} invited you` : ""} to join this exclusive creator program.`
+                        : "This is an exclusive invite-only program for trainers selected to post and earn from social campaigns."}
                 </Text>
-                <View className="flex-row mt-3">
-                  {["Followers", "Views", "Compliance"].map((pill) => (
-                    <View
-                      key={pill}
-                      className="mr-2 rounded-full px-2.5 py-1"
-                      style={{ backgroundColor: "rgba(15,23,42,0.55)", borderWidth: 1, borderColor: "rgba(148,163,184,0.25)" }}
-                    >
-                      <Text className="text-[10px] font-semibold" style={{ color: "#C7D2FE" }}>
-                        {pill}
+                {showConnectedSocialCard ? (
+                  <>
+                    <View className="flex-row mt-3 gap-2">
+                      <SocialMetricTile
+                        label="Followers"
+                        value={formatCompactNumber(socialFollowers)}
+                        helper={`Goal ${formatCompactNumber(socialFollowerTarget)}`}
+                      />
+                      <SocialMetricTile
+                        label="Avg views/mo"
+                        value={formatCompactNumber(socialViewsPerMonth)}
+                        helper={`Goal ${formatCompactNumber(socialViewsTarget)}`}
+                      />
+                      <SocialMetricTile
+                        label="Platforms"
+                        value={String(connectedSocialPlatforms.length)}
+                        helper={socialPlatformSummary || "Connected"}
+                      />
+                    </View>
+
+                    <View className="mt-3 rounded-xl border px-3 py-3" style={{ backgroundColor: "rgba(11,16,32,0.42)", borderColor: "rgba(148,163,184,0.18)" }}>
+                      <View className="flex-row items-center justify-between">
+                        <Text className="text-[11px] font-semibold uppercase tracking-[0.8px]" style={{ color: "#93C5FD" }}>
+                          Recent engagement
+                        </Text>
+                        <Text className="text-[11px]" style={{ color: DASH.muted }}>
+                          {latestSocialPostSummary}
+                        </Text>
+                      </View>
+                      <View className="flex-row items-end mt-3 h-12">
+                        {recentSocialMomentum.length > 0 ? (
+                          recentSocialMomentum.map((value: number, index: number) => {
+                            const height = Math.max(4, Math.round((value / recentSocialMomentumMax) * 42));
+                            return (
+                              <View
+                                key={`social-momentum-${index}`}
+                                style={{
+                                  flex: 1,
+                                  height,
+                                  borderRadius: 999,
+                                  marginRight: index === recentSocialMomentum.length - 1 ? 0 : 4,
+                                  backgroundColor:
+                                    index === recentSocialMomentum.length - 1
+                                      ? "#A78BFA"
+                                      : "rgba(96,165,250,0.78)",
+                                }}
+                              />
+                            );
+                          })
+                        ) : (
+                          <View className="flex-1 items-center justify-center">
+                            {socialRecentPostsQuery.isLoading ? (
+                              <ActivityIndicator size="small" color={DASH.primary} />
+                            ) : (
+                              <Text className="text-xs" style={{ color: DASH.muted }}>
+                                Syncing first post signals...
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                      <View className="flex-row flex-wrap mt-3">
+                        {[`Engagement ${formatRatePercent(socialEngagementRate)}`, `CTR ${formatRatePercent(socialCtr)}`].map((pill) => (
+                          <View
+                            key={pill}
+                            className="mr-2 mb-2 rounded-full px-2.5 py-1"
+                            style={{ backgroundColor: "rgba(15,23,42,0.55)", borderWidth: 1, borderColor: "rgba(148,163,184,0.25)" }}
+                          >
+                            <Text className="text-[10px] font-semibold" style={{ color: "#C7D2FE" }}>
+                              {pill}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+
+                    <View className="mt-3 rounded-xl border px-3 py-3" style={{ backgroundColor: "rgba(11,16,32,0.42)", borderColor: "rgba(148,163,184,0.18)" }}>
+                      <View className="flex-row items-center justify-between mb-2">
+                        <Text className="text-[11px] font-semibold uppercase tracking-[0.8px]" style={{ color: "#93C5FD" }}>
+                          Program readiness
+                        </Text>
+                        <Text className="text-xs font-semibold" style={{ color: socialReadinessColor }}>
+                          {socialReadinessPct}%
+                        </Text>
+                      </View>
+                      <View className="h-2 rounded-full border overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.05)", borderColor: "rgba(148,163,184,0.18)" }}>
+                        <View
+                          style={{
+                            width: `${Math.max(8, socialReadinessPct)}%`,
+                            height: "100%",
+                            backgroundColor: socialReadinessColor,
+                          }}
+                        />
+                      </View>
+                      <Text className="text-xs mt-2 font-medium" style={{ color: DASH.text }}>
+                        {socialReadinessMessage}
                       </Text>
                     </View>
-                  ))}
-                </View>
-                {socialStatus?.pendingInvite ? (
-                  <View
-                    className="mt-2 self-start rounded-full px-2.5 py-1 flex-row items-center"
-                    style={{ backgroundColor: "rgba(147,197,253,0.14)", borderWidth: 1, borderColor: "rgba(147,197,253,0.4)" }}
-                  >
-                    <IconSymbol name="bell.fill" size={11} color="#93C5FD" />
-                    <Text className="text-[11px] ml-1 font-semibold" style={{ color: "#93C5FD" }}>
-                      Invite from {socialStatus.invitedBy?.name || "your coordinator"}
-                    </Text>
-                  </View>
-                ) : null}
+                  </>
+                ) : (
+                  <>
+                    <View className="flex-row mt-3">
+                      {["Followers", "Views", "Compliance"].map((pill) => (
+                        <View
+                          key={pill}
+                          className="mr-2 rounded-full px-2.5 py-1"
+                          style={{ backgroundColor: "rgba(15,23,42,0.55)", borderWidth: 1, borderColor: "rgba(148,163,184,0.25)" }}
+                        >
+                          <Text className="text-[10px] font-semibold" style={{ color: "#C7D2FE" }}>
+                            {pill}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                    {socialStatus?.pendingInvite ? (
+                      <View
+                        className="mt-2 self-start rounded-full px-2.5 py-1 flex-row items-center"
+                        style={{ backgroundColor: "rgba(147,197,253,0.14)", borderWidth: 1, borderColor: "rgba(147,197,253,0.4)" }}
+                      >
+                        <IconSymbol name="bell.fill" size={11} color="#93C5FD" />
+                        <Text className="text-[11px] ml-1 font-semibold" style={{ color: "#93C5FD" }}>
+                          Invite from {socialStatus.invitedBy?.name || "your coordinator"}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </>
+                )}
               </View>
             </View>
 
             {/* Twitch-style floating emoji stream */}
-            {emojiPool.map((slot, i) => (
+            {!showConnectedSocialCard && emojiPool.map((slot, i) => (
               <Animated.Text
                 key={i}
                 pointerEvents="none"

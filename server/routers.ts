@@ -42,6 +42,7 @@ import {
   isUserOnline,
   notifyBadgeCounts,
   notifyNewMessage,
+  notifySocialAlert,
   sendToUser,
 } from "./_core/websocket";
 import * as adyen from "./adyen";
@@ -168,7 +169,12 @@ async function ensureActiveSocialMembershipForConnect(params: {
   }
 
   let pendingInviteAccepted = false;
-  if (pendingInvite && (!membership || membership.status === "invited")) {
+  if (
+    pendingInvite &&
+    (!membership ||
+      membership.status === "invited" ||
+      membership.status === "uninvited")
+  ) {
     await db.updateTrainerSocialInvite(pendingInvite.id, {
       status: "accepted",
       acceptedAt: new Date().toISOString(),
@@ -183,22 +189,12 @@ async function ensureActiveSocialMembershipForConnect(params: {
     pendingInviteAccepted = true;
   }
 
-  // Support standard self-serve social onboarding: if a trainer is not yet enrolled
-  // (or still in invited status without a pending invite row), activate on first connect attempt.
-  if (!membership || membership.status === "invited") {
-    membership = await db.upsertTrainerSocialMembership({
-      trainerId: params.trainerId,
-      status: "active",
-      acceptedAt: membership?.acceptedAt || new Date().toISOString(),
-      invitedBy: membership?.invitedBy || pendingInvite?.invitedBy || null,
-      reason: null,
-    });
-  }
-
   if (!membership || membership.status !== "active") {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "Social membership is not active.",
+      message: pendingInvite
+        ? "Please accept your exclusive social program invite to connect."
+        : "The Social Posts program is invite-only. Please wait for a coordinator invitation.",
     });
   }
 
@@ -6404,7 +6400,11 @@ export const appRouter = router({
                 description = `${performer} changed ${target}'s role: ${log.previousValue || "?"} → ${log.newValue || "?"}`;
                 break;
               case "status_changed":
-                description = `${performer} ${log.newValue === "true" ? "activated" : "deactivated"} ${target}`;
+                if (String(log.notes || "").startsWith("social_program_invite_declined:")) {
+                  description = `${performer} declined the exclusive Social Posts invitation and reset to uninvited.`;
+                } else {
+                  description = `${performer} ${log.newValue === "true" ? "activated" : "deactivated"} ${target}`;
+                }
                 break;
               case "impersonation_started":
                 description = `${performer} started impersonating ${target}`;
@@ -7128,16 +7128,58 @@ export const appRouter = router({
         const invites = await db.getTrainerSocialInvitesByTrainer(ctx.user.id);
         const invite = invites.find((row) => row.id === input.inviteId);
         if (!invite) notFound("Social invite");
+        const previousMembership = await db.getTrainerSocialMembership(ctx.user.id);
         await db.updateTrainerSocialInvite(invite.id, {
           status: "declined",
           declinedAt: new Date().toISOString(),
         });
         await db.upsertTrainerSocialMembership({
           trainerId: ctx.user.id,
-          status: "declined",
+          status: "uninvited",
           declinedAt: new Date().toISOString(),
           invitedBy: invite.invitedBy,
-          reason: "Trainer declined invitation",
+          reason: "Trainer declined exclusive social invite",
+        });
+        const coordinator = invite.invitedBy
+          ? await db.getUserById(invite.invitedBy)
+          : null;
+        if (coordinator?.id) {
+          await db.createSocialEventNotification({
+            recipientUserId: coordinator.id,
+            trainerId: ctx.user.id,
+            severity: "warning",
+            category: "social_event",
+            title: "Social invite declined",
+            body: `${ctx.user.name || "Trainer"} declined the Social Posts invitation.`,
+            metadata: {
+              inviteId: invite.id,
+              eventType: "social_program.declined",
+            },
+          });
+          notifySocialAlert([coordinator.id], {
+            severity: "warning",
+            title: "Social invite declined",
+            body: `${ctx.user.name || "Trainer"} declined the Social Posts invitation.`,
+            trainerId: ctx.user.id,
+            eventType: "social_program.declined",
+          });
+          await sendPushToUsers([coordinator.id], {
+            title: "Social invite declined",
+            body: `${ctx.user.name || "Trainer"} declined the Social Posts invitation.`,
+            data: {
+              type: "social_program_declined",
+              inviteId: invite.id,
+              trainerId: ctx.user.id,
+            },
+          });
+        }
+        await db.logUserActivity({
+          targetUserId: ctx.user.id,
+          performedBy: ctx.user.id,
+          action: "status_changed",
+          previousValue: previousMembership?.status || "none",
+          newValue: "uninvited",
+          notes: `social_program_invite_declined:${invite.id}`,
         });
         notifyBadgeCounts(await db.getUserIdsByRoles(["manager", "coordinator"]));
         return { success: true };
@@ -7528,6 +7570,28 @@ export const appRouter = router({
           expiresAt: new Date(
             Date.now() + 14 * 24 * 60 * 60 * 1000,
           ).toISOString(),
+        });
+
+        await db.createSocialEventNotification({
+          recipientUserId: trainer.id,
+          trainerId: trainer.id,
+          severity: "info",
+          category: "social_event",
+          title: "You're invited to Social Posts",
+          body: `Congratulations! ${ctx.user.name || "Your coordinator"} invited you to join the exclusive Social Posts program.`,
+          metadata: {
+            inviteId,
+            eventType: "social_program.invited",
+            showInApp: true,
+          },
+        });
+        notifySocialAlert([trainer.id], {
+          severity: "info",
+          title: "You're invited to Social Posts",
+          body: `Congratulations! ${ctx.user.name || "Your coordinator"} invited you to join the exclusive Social Posts program.`,
+          trainerId: trainer.id,
+          eventType: "social_program.invited",
+          showInApp: true,
         });
 
         await sendPushToUsers([trainer.id], {

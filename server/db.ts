@@ -3509,7 +3509,8 @@ export type TrainerSocialMembershipStatus =
   | "active"
   | "paused"
   | "banned"
-  | "declined";
+  | "declined"
+  | "uninvited";
 
 export type TrainerSocialMembership = {
   id: string;

@@ -240,6 +240,32 @@ function buildNotificationCopy(eventType: string): { title: string; body: string
   };
 }
 
+function buildCelebrationCopy(params: {
+  eventType: string;
+  followerDelta: number;
+  newFollowerCount: number;
+  contentCount: number;
+}): { title: string; body: string } | null {
+  const type = String(params.eventType || "").toLowerCase();
+  if (params.followerDelta > 0) {
+    const followerLabel = params.followerDelta === 1 ? "follower" : "followers";
+    return {
+      title: `Congrats on ${params.followerDelta} new ${followerLabel}!`,
+      body: `Your connected audience now shows ${params.newFollowerCount.toLocaleString()} total followers.`,
+    };
+  }
+  if (type.includes("contents.added") && params.contentCount > 0) {
+    return {
+      title: "Nice work, your post is live!",
+      body:
+        params.contentCount === 1
+          ? "We picked up your latest post and synced it into your campaign metrics."
+          : `We picked up ${params.contentCount} new posts and synced them into your campaign metrics.`,
+    };
+  }
+  return null;
+}
+
 async function refreshTrainerSnapshotFromPhyllo(params: {
   trainerId: string;
   phylloUserId: string;
@@ -328,6 +354,13 @@ async function refreshTrainerSnapshotFromPhyllo(params: {
       })
       .catch(() => 0);
   }
+  return {
+    followerCount,
+    avgViewsPerMonth,
+    avgEngagementRate,
+    avgCtr,
+    platforms: normalizedPlatformNames,
+  };
 }
 
 export async function processPhylloWebhookPayload(payload: any) {
@@ -366,6 +399,7 @@ async function processSinglePhylloEvent(
 
   try {
     const severity = deriveSeverity(event.eventType);
+    const previousFollowerCount = Number(linkedProfile?.followerCount || 0);
     if (!trainerId) {
       await db.markPhylloWebhookEventStatus(ingest.event.id, {
         status: "ignored",
@@ -380,7 +414,7 @@ async function processSinglePhylloEvent(
       return;
     }
 
-    await refreshTrainerSnapshotFromPhyllo({
+    const refreshedSnapshot = await refreshTrainerSnapshotFromPhyllo({
       trainerId,
       phylloUserId: event.phylloUserId || linkedProfile?.phylloUserId || "",
       eventType: event.eventType,
@@ -448,6 +482,38 @@ async function processSinglePhylloEvent(
           phylloAccountId: event.phylloAccountId,
           environment,
         },
+      });
+    }
+
+    const celebration = buildCelebrationCopy({
+      eventType: event.eventType,
+      followerDelta: Math.max(0, Number(refreshedSnapshot?.followerCount || 0) - previousFollowerCount),
+      newFollowerCount: Number(refreshedSnapshot?.followerCount || 0),
+      contentCount: extractedContentRows.length,
+    });
+    if (celebration) {
+      await db.createSocialEventNotification({
+        recipientUserId: trainerId,
+        trainerId,
+        eventId: ingest.event.id,
+        severity: "info",
+        category: "social_event",
+        title: celebration.title,
+        body: celebration.body,
+        metadata: {
+          eventType: event.eventType,
+          providerEventId: event.providerEventId,
+          celebration: true,
+          environment,
+        },
+      });
+      notifySocialAlert([trainerId], {
+        severity: "info",
+        title: celebration.title,
+        body: celebration.body,
+        trainerId,
+        eventType: event.eventType,
+        celebratory: true,
       });
     }
 

@@ -41,6 +41,8 @@ export type WSMessage =
       body: string;
       trainerId?: string;
       eventType?: string;
+      celebratory?: boolean;
+      showInApp?: boolean;
     };
 
 /**
@@ -315,6 +317,8 @@ export function notifySocialAlert(
     body: string;
     trainerId?: string;
     eventType?: string;
+    celebratory?: boolean;
+    showInApp?: boolean;
   },
 ) {
   const unique = Array.from(new Set(userIds.filter(Boolean)));
@@ -325,6 +329,8 @@ export function notifySocialAlert(
     body: input.body,
     trainerId: input.trainerId,
     eventType: input.eventType,
+    celebratory: input.celebratory,
+    showInApp: input.showInApp,
   };
   unique.forEach((userId) => sendToUser(userId, payload));
 }

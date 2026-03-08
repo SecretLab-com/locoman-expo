@@ -3,6 +3,7 @@ import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as Application from "expo-application";
 import Constants from "expo-constants";
 import { Stack, usePathname, useRouter } from "expo-router";
 import { ShareIntentProvider } from "expo-share-intent";
@@ -29,6 +30,7 @@ import { NavigationHeader } from "@/components/navigation-header";
 import { OfflineIndicator } from "@/components/offline-indicator";
 import { PostAuthOnboardingResolver } from "@/components/post-auth-onboarding-resolver";
 import { ProfileFAB } from "@/components/profile-fab";
+import { SocialAlertListener } from "@/components/social-alert-listener";
 import { AuthProvider, useAuthContext } from "@/contexts/auth-context";
 import { BadgeProvider } from "@/contexts/badge-context";
 import { CartProvider } from "@/contexts/cart-context";
@@ -77,6 +79,25 @@ const IGNORED_WARNINGS = [
 const LAST_NOTIFIED_UPDATE_ID_KEY = "app:last_notified_update_id";
 const AUTH_REDIRECT_GRACE_MS = 5000;
 const OTA_CHECK_COOLDOWN_MS = 60_000;
+
+function getInstalledAppVersion() {
+  return (
+    Application.nativeApplicationVersion ??
+    Constants.nativeAppVersion ??
+    Constants.expoConfig?.version ??
+    "1.0.0"
+  );
+}
+
+function getInstalledBuildNumber() {
+  return (
+    Application.nativeBuildVersion ??
+    Constants.nativeBuildVersion ??
+    Constants.expoConfig?.ios?.buildNumber ??
+    Constants.expoConfig?.android?.versionCode?.toString() ??
+    null
+  );
+}
 
 function getHeaderTitle(routeName: string): string {
   if (HEADER_TITLES[routeName]) {
@@ -303,21 +324,15 @@ export default function RootLayout() {
       await AsyncStorage.setItem(LAST_NOTIFIED_UPDATE_ID_KEY, currentUpdateId);
 
       // Prefer installed native values so this always reflects the actual build on device.
-      const appVersion =
-        Constants.nativeAppVersion ??
-        Constants.expoConfig?.version ??
-        "1.0.0";
-      const buildNumber =
-        Constants.nativeBuildVersion ??
-        Constants.expoConfig?.ios?.buildNumber ??
-        Constants.expoConfig?.android?.versionCode?.toString() ??
-        "8";
+      const appVersion = getInstalledAppVersion();
+      const buildNumber = getInstalledBuildNumber();
+      const versionLabel = buildNumber ? `${appVersion} (${buildNumber})` : appVersion;
 
       const otaShortId = currentUpdateId.slice(0, 8);
       const channel = Updates.channel ?? "production";
       Alert.alert(
         "Updated",
-        `App has been updated to ${appVersion} (${buildNumber})\nOTA: ${otaShortId}\nChannel: ${channel}`,
+        `App has been updated to ${versionLabel}\nOTA: ${otaShortId}\nChannel: ${channel}`,
       );
     };
 
@@ -435,6 +450,7 @@ export default function RootLayout() {
                       <ImpersonationBanner />
                       <MobileAppBanner />
                       <InAppAlertHost />
+                      <SocialAlertListener />
                       <PostAuthOnboardingResolver />
                       <ShareIntentRouter />
                       <View style={{ flex: 1 }}>

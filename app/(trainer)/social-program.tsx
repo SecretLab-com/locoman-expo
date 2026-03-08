@@ -5,6 +5,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { getApiBaseUrl } from "@/lib/api-config";
+import { maybeShowInviteCongrats } from "@/lib/social-invite-alerts";
 import {
   getSocialPlatformIcon,
   inferSocialPlatformFromText,
@@ -122,7 +123,8 @@ export default function TrainerSocialProgramScreen() {
   const isConnected = Boolean(data?.profile?.phylloUserId);
   const isRestrictedStatus =
     membershipStatus === "paused" || membershipStatus === "banned";
-  const canAttemptConnect = !isRestrictedStatus;
+  const canAttemptConnect =
+    !isRestrictedStatus && (membershipStatus === "active" || hasPendingInvite);
   const platformStats = useMemo(() => {
     const rawProfiles = Array.isArray(
       (data?.profile as any)?.metadata?.rawProfiles,
@@ -289,9 +291,19 @@ export default function TrainerSocialProgramScreen() {
     if (isLoading) return;
     if (isConnected) return;
     if (hasShownFirstConnectHelpRef.current) return;
+    if (!canAttemptConnect) return;
     hasShownFirstConnectHelpRef.current = true;
     setShowFirstConnectHelpModal(true);
-  }, [isLoading, isConnected]);
+  }, [canAttemptConnect, isLoading, isConnected]);
+
+  useEffect(() => {
+    const inviteId = String(data?.pendingInvite?.id || "").trim();
+    if (!inviteId) return;
+    void maybeShowInviteCongrats({
+      inviteId,
+      coordinatorName: data?.invitedBy?.name || null,
+    });
+  }, [data?.invitedBy?.name, data?.pendingInvite?.id]);
 
   useEffect(() => {
     if (!syncDoneAt) return;
@@ -1046,7 +1058,7 @@ export default function TrainerSocialProgramScreen() {
               ) : null}
               <View
                 className="gap-2 mt-3"
-                style={isConnected ? { paddingBottom: 56 } : undefined}
+                style={isConnected || canAttemptConnect ? { paddingBottom: 56 } : undefined}
               >
                 {platformStats.length > 0 ? (
                   platformStats.map((row) => {
@@ -1086,37 +1098,39 @@ export default function TrainerSocialProgramScreen() {
                   <Text className="text-xs text-muted">None linked yet</Text>
                 )}
               </View>
-              <Pressable
-                onPress={handleConnectPhyllo}
-                disabled={isLaunchingConnect}
-                style={{
-                  position: "absolute",
-                  right: 12,
-                  bottom: 12,
-                  width: 50,
-                  height: 50,
-                  borderRadius: 25,
-                  backgroundColor: colors.primary,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: isLaunchingConnect ? 0.9 : 1,
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isConnected
-                    ? "Connect more platforms"
-                    : hasPendingInvite
-                      ? "Accept invite and connect first platform"
-                      : "Connect your first platform"
-                }
-                testID="social-connect-more-fab"
-              >
-                {isLaunchingConnect ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <MaterialCommunityIcons name="plus" size={24} color="#fff" />
-                )}
-              </Pressable>
+              {canAttemptConnect ? (
+                <Pressable
+                  onPress={handleConnectPhyllo}
+                  disabled={isLaunchingConnect}
+                  style={{
+                    position: "absolute",
+                    right: 12,
+                    bottom: 12,
+                    width: 50,
+                    height: 50,
+                    borderRadius: 25,
+                    backgroundColor: colors.primary,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: isLaunchingConnect ? 0.9 : 1,
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isConnected
+                      ? "Connect more platforms"
+                      : hasPendingInvite
+                        ? "Accept invite and connect first platform"
+                        : "Connect your first platform"
+                  }
+                  testID="social-connect-more-fab"
+                >
+                  {isLaunchingConnect ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <MaterialCommunityIcons name="plus" size={24} color="#fff" />
+                  )}
+                </Pressable>
+              ) : null}
             </SurfaceCard>
           )}
 
@@ -1130,10 +1144,10 @@ export default function TrainerSocialProgramScreen() {
               loading={declineMutation.isPending}
               loadingText="Declining..."
               accessibilityRole="button"
-              accessibilityLabel="Decline social invite"
+              accessibilityLabel="Decline social offer"
               testID="social-invite-decline"
             >
-              Decline invite
+              Decline offer
             </ActionButton>
           ) : null}
           <ActionButton
@@ -1149,14 +1163,26 @@ export default function TrainerSocialProgramScreen() {
           {hasPendingInvite ? (
             <SurfaceCard>
               <Text className="text-base font-semibold text-foreground mb-2">
-                Invitation received
+                Exclusive invitation received
               </Text>
               <Text className="text-sm text-muted mb-3">
-                Accept in the Next step section above to join the social program
-                and start connecting your channels.
+                Congratulations. You were selected for the invite-only Social Posts
+                program. Accept in the step above to join and connect your channels.
               </Text>
               <Text className="text-xs text-muted">
                 Tip: once accepted, tap (+) to start syncing your social profiles.
+              </Text>
+            </SurfaceCard>
+          ) : null}
+
+          {!canAttemptConnect && !hasPendingInvite && !isConnected ? (
+            <SurfaceCard>
+              <Text className="text-base font-semibold text-foreground mb-2">
+                Invite-only access
+              </Text>
+              <Text className="text-sm text-muted">
+                The Social Posts program is exclusive and invite-only. Once a
+                coordinator invites you, you will see an in-app notification here.
               </Text>
             </SurfaceCard>
           ) : null}

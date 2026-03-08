@@ -97,6 +97,7 @@ export default function ActivityScreen() {
     connect();
     const unsubscribe = subscribe((message: any) => {
       if (message?.type !== "social_alert") return;
+      if (message?.showInApp === true) return;
       setLiveAlert({
         title: String(message.title || "Social alert"),
         body: String(message.body || ""),

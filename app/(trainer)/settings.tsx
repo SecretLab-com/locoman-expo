@@ -8,6 +8,7 @@ import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
 import { trpc } from "@/lib/trpc";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
+import * as Application from "expo-application";
 import Constants from "expo-constants";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
@@ -154,12 +155,16 @@ export default function SettingsScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const appVersion =
-    Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? "1.0.0";
+    Application.nativeApplicationVersion ??
+    Constants.nativeAppVersion ??
+    Constants.expoConfig?.version ??
+    "1.0.0";
   const buildNumber =
+    Application.nativeBuildVersion ??
     Constants.nativeBuildVersion ??
     Constants.expoConfig?.ios?.buildNumber ??
     Constants.expoConfig?.android?.versionCode?.toString() ??
-    "8";
+    null;
   const otaShortId = Updates.updateId
     ? Updates.updateId.slice(0, 8)
     : "embedded";
@@ -780,7 +785,7 @@ export default function SettingsScreen() {
 
         <View className="mb-6">
           <Text className="text-center text-xs text-muted">
-            App version: {appVersion} ({buildNumber})
+            App version: {buildNumber ? `${appVersion} (${buildNumber})` : appVersion}
           </Text>
           <Text className="mt-1 text-center text-xs text-muted">
             OTA: {otaShortId} · Channel: {otaChannel}

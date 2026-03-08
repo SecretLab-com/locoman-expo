@@ -19,6 +19,8 @@ type WSMessage =
       body: string;
       trainerId?: string;
       eventType?: string;
+      celebratory?: boolean;
+      showInApp?: boolean;
     };
 
 type MessageHandler = (message: WSMessage) => void;
