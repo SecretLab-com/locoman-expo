@@ -1400,7 +1400,7 @@ export default function TrainerHomeScreen() {
                         helper={`Goal ${formatCompactNumber(socialFollowerTarget)}`}
                       />
                       <SocialMetricTile
-                        label="Avg views/mo"
+                        label="Avg vws/mo"
                         value={formatCompactNumber(socialViewsPerMonth)}
                         helper={`Goal ${formatCompactNumber(socialViewsTarget)}`}
                       />

@@ -1,4 +1,3 @@
-import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
@@ -10,9 +9,9 @@ import {
   normalizeSocialPlatform,
 } from "@/lib/social-platforms";
 import { trpc } from "@/lib/trpc";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
-import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -248,7 +247,7 @@ export default function TrainerSocialProgressScreen() {
               </Text>
             </Text>
             <Text className="text-sm text-muted mb-1">
-              Avg views/month:{" "}
+              Avg vws/mo:{" "}
               <Text className="text-foreground font-semibold">
                 {Number(profile?.avgViewsPerMonth || 0).toLocaleString()}
               </Text>
