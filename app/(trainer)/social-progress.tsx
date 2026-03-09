@@ -28,6 +28,55 @@ function pct(value: number | null | undefined) {
   return `${(numeric * 100).toFixed(1)}%`;
 }
 
+function formatPostingWindow(start?: string | null, end?: string | null) {
+  if (!start && !end) return "Any time";
+  const startLabel = start ? new Date(start).toLocaleDateString() : "Any time";
+  const endLabel = end ? new Date(end).toLocaleDateString() : "Open";
+  return `${startLabel} - ${endLabel}`;
+}
+
+function getComplianceLabel(state: string) {
+  switch (state) {
+    case "matched_post":
+      return "Matched post";
+    case "needs_review":
+      return "Needs review";
+    case "missing_hashtag":
+      return "Missing hashtag";
+    case "missing_mention":
+      return "Missing mention";
+    case "missing_link":
+      return "Missing link";
+    case "platform_mismatch":
+      return "Wrong platform";
+    case "outside_window":
+      return "Outside window";
+    case "rules_not_set":
+      return "Rules not set";
+    default:
+      return "Awaiting post";
+  }
+}
+
+function getComplianceColor(state: string) {
+  switch (state) {
+    case "matched_post":
+      return "#22C55E";
+    case "needs_review":
+      return "#F59E0B";
+    case "missing_hashtag":
+    case "missing_mention":
+    case "missing_link":
+    case "platform_mismatch":
+    case "outside_window":
+      return "#EF4444";
+    case "rules_not_set":
+      return "#94A3B8";
+    default:
+      return "#60A5FA";
+  }
+}
+
 export default function TrainerSocialProgressScreen() {
   const colors = useColors();
   const params = useLocalSearchParams<{ bundleId?: string; templateId?: string }>();
@@ -68,6 +117,48 @@ export default function TrainerSocialProgressScreen() {
     { enabled: Boolean(activeBundleId) },
   );
   const campaignRows = campaignMetricsQuery.data || [];
+  const campaignComplianceRows = useMemo(
+    () =>
+      campaignRows.map((row: any) => {
+        const metadata = row?.metadata || {};
+        const rules = metadata?.campaignPostingRules || {};
+        const statusCounts = metadata?.attributionStatusCounts || {};
+        const ruleMissCounts = metadata?.ruleMissCounts || {};
+        const complianceState = String(metadata?.complianceState || "awaiting_post");
+        return {
+          id: `${row?.campaignAccountId || "campaign"}-${row?.metricDate || "latest"}`,
+          campaignAccountName: row?.campaignAccountName || "Campaign account",
+          complianceState,
+          complianceLabel: getComplianceLabel(complianceState),
+          requiredPosts: Number(row?.requiredPosts || 0),
+          matchedPosts: Number(statusCounts?.matched || 0),
+          needsReviewPosts: Number(statusCounts?.needsReview || 0),
+          rejectedPosts: Number(statusCounts?.rejected || 0),
+          requiredHashtags: Array.isArray(rules?.requiredHashtags) ? rules.requiredHashtags : [],
+          requiredMentions: Array.isArray(rules?.requiredMentions) ? rules.requiredMentions : [],
+          allowedPlatforms: Array.isArray(rules?.allowedPlatforms) ? rules.allowedPlatforms : [],
+          requiredLinkSlug: String(rules?.requiredLinkSlug || "").trim() || null,
+          postingWindowStart: rules?.postingWindowStart || null,
+          postingWindowEnd: rules?.postingWindowEnd || null,
+          ruleMissCounts,
+        };
+      }),
+    [campaignRows],
+  );
+  const complianceTotals = useMemo(
+    () =>
+      campaignComplianceRows.reduce(
+        (acc, row) => {
+          acc.matched += row.matchedPosts;
+          acc.needsReview += row.needsReviewPosts;
+          acc.rejected += row.rejectedPosts;
+          acc.required += row.requiredPosts;
+          return acc;
+        },
+        { matched: 0, needsReview: 0, rejected: 0, required: 0 },
+      ),
+    [campaignComplianceRows],
+  );
 
   const [avgOrderValue, setAvgOrderValue] = useState("49");
   const [clickToIntentRate, setClickToIntentRate] = useState("18");
@@ -247,7 +338,7 @@ export default function TrainerSocialProgressScreen() {
               </Text>
             </Text>
             <Text className="text-sm text-muted mb-1">
-              Avg vws/mo:{" "}
+              V/MO:{" "}
               <Text className="text-foreground font-semibold">
                 {Number(profile?.avgViewsPerMonth || 0).toLocaleString()}
               </Text>
@@ -368,6 +459,123 @@ export default function TrainerSocialProgressScreen() {
                 <Text className="text-xs text-muted mt-2">
                   Source: Campaign-attributed daily facts (measured)
                 </Text>
+                <View className="flex-row mt-3">
+                  <View className="flex-1 mr-2 border border-border rounded-lg px-3 py-2">
+                    <Text className="text-xs text-muted">Matched</Text>
+                    <Text className="text-base font-semibold text-foreground">
+                      {complianceTotals.matched}
+                    </Text>
+                  </View>
+                  <View className="flex-1 mx-2 border border-border rounded-lg px-3 py-2">
+                    <Text className="text-xs text-muted">Review</Text>
+                    <Text className="text-base font-semibold text-foreground">
+                      {complianceTotals.needsReview}
+                    </Text>
+                  </View>
+                  <View className="flex-1 mx-2 border border-border rounded-lg px-3 py-2">
+                    <Text className="text-xs text-muted">Rejected</Text>
+                    <Text className="text-base font-semibold text-foreground">
+                      {complianceTotals.rejected}
+                    </Text>
+                  </View>
+                  <View className="flex-1 ml-2 border border-border rounded-lg px-3 py-2">
+                    <Text className="text-xs text-muted">Required</Text>
+                    <Text className="text-base font-semibold text-foreground">
+                      {complianceTotals.required}
+                    </Text>
+                  </View>
+                </View>
+                <View className="mt-4 gap-3">
+                  {campaignMetricsQuery.isLoading ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : campaignComplianceRows.length === 0 ? (
+                    <Text className="text-sm text-muted">
+                      No campaign posting requirements have been configured yet.
+                    </Text>
+                  ) : (
+                    campaignComplianceRows.map((row) => {
+                      const statusColor = getComplianceColor(row.complianceState);
+                      return (
+                        <View
+                          key={row.id}
+                          className="border border-border rounded-xl px-3 py-3"
+                        >
+                          <View className="flex-row items-center justify-between">
+                            <Text className="text-sm font-semibold text-foreground flex-1 pr-3">
+                              {row.campaignAccountName}
+                            </Text>
+                            <View
+                              className="rounded-full px-2.5 py-1"
+                              style={{ backgroundColor: `${statusColor}22` }}
+                            >
+                              <Text
+                                style={{
+                                  color: statusColor,
+                                  fontSize: 11,
+                                  fontWeight: "700",
+                                }}
+                              >
+                                {row.complianceLabel}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text className="text-xs text-muted mt-2">
+                            Posts: {row.matchedPosts}/{Math.max(1, row.requiredPosts)} matched
+                            {"  "}• Review {row.needsReviewPosts} • Rejected {row.rejectedPosts}
+                          </Text>
+                          <Text className="text-xs text-muted mt-2">
+                            Hashtags:{" "}
+                            {row.requiredHashtags.length > 0
+                              ? row.requiredHashtags.join(", ")
+                              : "None"}
+                          </Text>
+                          <Text className="text-xs text-muted mt-1">
+                            Mentions:{" "}
+                            {row.requiredMentions.length > 0
+                              ? row.requiredMentions.join(", ")
+                              : "None"}
+                          </Text>
+                          <Text className="text-xs text-muted mt-1">
+                            Platforms:{" "}
+                            {row.allowedPlatforms.length > 0
+                              ? row.allowedPlatforms.join(", ")
+                              : "Any"}
+                          </Text>
+                          <Text className="text-xs text-muted mt-1">
+                            Window:{" "}
+                            {formatPostingWindow(
+                              row.postingWindowStart,
+                              row.postingWindowEnd,
+                            )}
+                          </Text>
+                          {row.requiredLinkSlug ? (
+                            <Text className="text-xs text-muted mt-1">
+                              Link slug: {row.requiredLinkSlug}
+                            </Text>
+                          ) : null}
+                          {Number(row.ruleMissCounts?.missingHashtag || 0) > 0 ? (
+                            <Text className="text-xs mt-2" style={{ color: "#EF4444" }}>
+                              {Number(row.ruleMissCounts?.missingHashtag || 0)} post(s) missed the
+                              required hashtag.
+                            </Text>
+                          ) : null}
+                          {Number(row.ruleMissCounts?.missingMention || 0) > 0 ? (
+                            <Text className="text-xs mt-1" style={{ color: "#EF4444" }}>
+                              {Number(row.ruleMissCounts?.missingMention || 0)} post(s) missed the
+                              required mention.
+                            </Text>
+                          ) : null}
+                          {Number(row.ruleMissCounts?.missingLink || 0) > 0 ? (
+                            <Text className="text-xs mt-1" style={{ color: "#EF4444" }}>
+                              {Number(row.ruleMissCounts?.missingLink || 0)} post(s) missed the
+                              tracked link requirement.
+                            </Text>
+                          ) : null}
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
               </>
             )}
           </SurfaceCard>

@@ -20,8 +20,11 @@
 - **Accessibility**: MoreRow components have accessibilityRole/Label/testID (trainer + coordinator)
 - **Navigation**: Expo Router across all user roles
 - **Styling**: NativeWind with inline style fallbacks for modals on web
+- **Campaign post attribution**: Campaign posting rules are stored on campaign account metadata, Phyllo content is attributed to campaign offers via hashtag/mention/link/platform/window checks, and campaign dashboards now read attribution-backed compliance counts
+- **Trainer social card load behavior**: The trainer home screen now uses cached social membership/profile state plus a skeleton fallback so signed-up trainers do not briefly see the invite card on initial load
 
 ## What's Left
+- **Campaign attribution tooling**: No dedicated admin/manual reprocessing control yet for large historical backfills
 - **Google Calendar webhook**: Push notifications for real-time sync (currently poll-based)
 - **Partnerships**: Still using mock data
 - **Checkout flow**: Needs completion and payment processing (Adyen native integration)

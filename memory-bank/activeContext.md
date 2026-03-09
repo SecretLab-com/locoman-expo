@@ -6,6 +6,8 @@
 - **AI Assistant**: OpenRouter LLM (Gemini 2.5 Flash) with tool-calling, vision, and voice input
 - **Google Calendar integration**: Two-way sync, auto-create "Locomotivate" calendar, event deletion on cancellation
 - **Accessibility audit**: Adding `accessibilityRole`, `accessibilityLabel`, and `testID` to interactive components
+- **Campaign post attribution**: Rule-based social post matching and attribution-backed campaign compliance
+- **Trainer home social-state UX**: Cached social card state with skeleton fallback to prevent invite-state flicker for signed-up trainers
 
 ## Recent Changes
 - **Counter-propose UI**: Reschedule request alerts now include a "Suggest" button that expands an inline form for date/time/note counter-proposals
@@ -23,8 +25,11 @@
 - **MCP server**: HTTP routes with auto-refresh for expired JWT tokens, graceful skip in production builds
 - **OpenClaw MCP**: Connection endpoint, token auto-refresh, role-based visibility in settings
 - **Bundle creation from templates**: Copies template product/service/goal data, pre-populates form fields
+- **Campaign post attribution**: Added posting rules on campaign account metadata, durable post-to-campaign attribution storage, webhook-time matching, attribution-backed campaign metrics, and trainer/coordinator compliance UI
+- **Trainer home social card**: Added local `AsyncStorage` cache for `socialProgram.myStatus`, trusted stale active/connected states, and skeleton fallback when no trustworthy social status is available yet
 
 ## Next Steps / Remaining TODOs
+- **Campaign attribution backfill ops**: Consider adding an explicit admin backfill/replay action for historical posts if campaign rules change at scale
 - **Google Calendar webhook**: Real-time push notifications from Google (currently polling-based sync)
 - **Partnerships**: Still using mock data, needs real API
 - **Checkout flow**: Needs completion and payment processing integration (Adyen Drop-in requires native module setup)

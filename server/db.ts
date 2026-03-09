@@ -91,6 +91,66 @@ function isExpoPushToken(token: string): boolean {
   return /^ExponentPushToken\[[^\]]+\]$/.test(token) || /^ExpoPushToken\[[^\]]+\]$/.test(token);
 }
 
+function normalizeTag(value: unknown, prefix: "#" | "@"): string {
+  const raw = String(value || "").trim().replace(/\s+/g, "");
+  if (!raw) return "";
+  const withoutPrefix = raw.replace(/^[@#]+/, "");
+  if (!withoutPrefix) return "";
+  return `${prefix}${withoutPrefix.toLowerCase()}`;
+}
+
+export function normalizeCampaignPostingRules(
+  raw: any,
+): CampaignPostingRules {
+  const source = raw && typeof raw === "object" && raw.postingRules && typeof raw.postingRules === "object"
+    ? raw.postingRules
+    : raw && typeof raw === "object"
+      ? raw
+      : {};
+  const requiredHashtags = Array.isArray(source.requiredHashtags)
+    ? source.requiredHashtags
+        .map((value: unknown) => normalizeTag(value, "#"))
+        .filter(Boolean)
+    : [];
+  const requiredMentions = Array.isArray(source.requiredMentions)
+    ? source.requiredMentions
+        .map((value: unknown) => normalizeTag(value, "@"))
+        .filter(Boolean)
+    : [];
+  const allowedPlatforms = Array.isArray(source.allowedPlatforms)
+    ? source.allowedPlatforms
+        .map((value: unknown) => String(value || "").trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+  const postingWindowStart = source.postingWindowStart
+    ? new Date(String(source.postingWindowStart)).toISOString()
+    : null;
+  const postingWindowEnd = source.postingWindowEnd
+    ? new Date(String(source.postingWindowEnd)).toISOString()
+    : null;
+  const requiredLinkSlug = String(source.requiredLinkSlug || "").trim() || null;
+  const requiredPostsRaw = Number(source.requiredPosts || 0);
+  const requiredPosts =
+    Number.isFinite(requiredPostsRaw) && requiredPostsRaw > 0
+      ? Math.round(requiredPostsRaw)
+      : null;
+  return {
+    requiredHashtags,
+    requiredMentions,
+    allowedPlatforms,
+    postingWindowStart:
+      postingWindowStart && !Number.isNaN(new Date(postingWindowStart).getTime())
+        ? postingWindowStart
+        : null,
+    postingWindowEnd:
+      postingWindowEnd && !Number.isNaN(new Date(postingWindowEnd).getTime())
+        ? postingWindowEnd
+        : null,
+    requiredLinkSlug,
+    requiredPosts,
+  };
+}
+
 /** Shorthand for the server Supabase client */
 function sb() {
   return getServerSupabase();
@@ -268,6 +328,16 @@ export type InsertBundleCampaignAccount = Partial<
 > & {
   bundleDraftId: string;
   campaignAccountId: string;
+};
+
+export type CampaignPostingRules = {
+  requiredHashtags: string[];
+  requiredMentions: string[];
+  allowedPlatforms: string[];
+  postingWindowStart: string | null;
+  postingWindowEnd: string | null;
+  requiredLinkSlug: string | null;
+  requiredPosts: number | null;
 };
 
 export type Product = {
@@ -3814,6 +3884,37 @@ export type InsertTrainerSocialContent = Partial<
   phylloContentId: string;
 };
 
+export type TrainerSocialContentCampaignAttributionStatus =
+  | "matched"
+  | "rejected"
+  | "needs_review";
+
+export type TrainerSocialContentCampaignAttribution = {
+  id: string;
+  trainerSocialContentId: string;
+  trainerId: string;
+  bundleDraftId: string;
+  campaignAccountId: string;
+  matchedAt: string | null;
+  status: TrainerSocialContentCampaignAttributionStatus;
+  evidence: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerSocialContentCampaignAttribution = Partial<
+  Omit<
+    TrainerSocialContentCampaignAttribution,
+    "id" | "createdAt" | "updatedAt"
+  >
+> & {
+  trainerSocialContentId: string;
+  trainerId: string;
+  bundleDraftId: string;
+  campaignAccountId: string;
+  status: TrainerSocialContentCampaignAttributionStatus;
+};
+
 export type TrainerSocialContentActivityDaily = {
   id: string;
   trainerSocialContentId: string;
@@ -4318,6 +4419,342 @@ export async function upsertTrainerSocialContent(
   return mapFromDb<TrainerSocialContent>(row);
 }
 
+export async function upsertTrainerSocialContentCampaignAttribution(
+  data: InsertTrainerSocialContentCampaignAttribution,
+): Promise<TrainerSocialContentCampaignAttribution | undefined> {
+  const payload = mapToDb({
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_social_content_campaign_attributions")
+    .upsert(payload, {
+      onConflict:
+        "trainer_social_content_id,bundle_draft_id,campaign_account_id",
+    })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error(
+      "[Database] upsertTrainerSocialContentCampaignAttribution:",
+      error.message,
+    );
+    throw error;
+  }
+  return mapFromDb<TrainerSocialContentCampaignAttribution>(row);
+}
+
+export async function deleteTrainerSocialContentCampaignAttributions(options: {
+  trainerId?: string;
+  bundleDraftId?: string;
+  campaignAccountId?: string;
+  trainerSocialContentIds?: string[];
+}): Promise<number> {
+  let query = sb()
+    .from("trainer_social_content_campaign_attributions")
+    .delete({ count: "exact" });
+  if (options.trainerId) query = query.eq("trainer_id", options.trainerId);
+  if (options.bundleDraftId) query = query.eq("bundle_draft_id", options.bundleDraftId);
+  if (options.campaignAccountId) query = query.eq("campaign_account_id", options.campaignAccountId);
+  if (options.trainerSocialContentIds?.length) {
+    query = query.in("trainer_social_content_id", options.trainerSocialContentIds);
+  }
+  const { error, count } = await query;
+  if (error) {
+    console.error(
+      "[Database] deleteTrainerSocialContentCampaignAttributions:",
+      error.message,
+    );
+    throw error;
+  }
+  return Number(count || 0);
+}
+
+export async function listTrainerSocialContentCampaignAttributions(options?: {
+  trainerId?: string;
+  bundleDraftId?: string;
+  campaignAccountId?: string;
+  status?: TrainerSocialContentCampaignAttributionStatus;
+  limit?: number;
+}): Promise<TrainerSocialContentCampaignAttribution[]> {
+  const limit = Math.max(1, Math.min(options?.limit || 500, 5000));
+  let query = sb()
+    .from("trainer_social_content_campaign_attributions")
+    .select("*");
+  if (options?.trainerId) query = query.eq("trainer_id", options.trainerId);
+  if (options?.bundleDraftId) {
+    query = query.eq("bundle_draft_id", options.bundleDraftId);
+  }
+  if (options?.campaignAccountId) {
+    query = query.eq("campaign_account_id", options.campaignAccountId);
+  }
+  if (options?.status) query = query.eq("status", options.status);
+  const { data, error } = await query
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error(
+      "[Database] listTrainerSocialContentCampaignAttributions:",
+      error.message,
+    );
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialContentCampaignAttribution>(data || []);
+}
+
+export async function getTrainerSocialContentByIds(
+  ids: string[],
+): Promise<TrainerSocialContent[]> {
+  if (!ids.length) return [];
+  const { data, error } = await sb()
+    .from("trainer_social_contents")
+    .select("*")
+    .in("id", ids);
+  if (error) {
+    console.error("[Database] getTrainerSocialContentByIds:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialContent>(data || []);
+}
+
+export async function listTrainerSocialContents(options: {
+  trainerId: string;
+  limit?: number;
+}): Promise<TrainerSocialContent[]> {
+  const limit = options.limit || 5000;
+  const { data, error } = await sb()
+    .from("trainer_social_contents")
+    .select("*")
+    .eq("trainer_id", options.trainerId)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] listTrainerSocialContents:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialContent>(data || []);
+}
+
+type AttributionStatusCounts = {
+  matched: number;
+  rejected: number;
+  needsReview: number;
+};
+
+type AttributionRuleMissCounts = {
+  missingHashtag: number;
+  missingMention: number;
+  missingLink: number;
+  outsidePostingWindow: number;
+  platformMismatch: number;
+};
+
+function emptyAttributionStatusCounts(): AttributionStatusCounts {
+  return {
+    matched: 0,
+    rejected: 0,
+    needsReview: 0,
+  };
+}
+
+function emptyAttributionRuleMissCounts(): AttributionRuleMissCounts {
+  return {
+    missingHashtag: 0,
+    missingMention: 0,
+    missingLink: 0,
+    outsidePostingWindow: 0,
+    platformMismatch: 0,
+  };
+}
+
+function accumulateRuleMissCounts(
+  target: AttributionRuleMissCounts,
+  evidence: any,
+): AttributionRuleMissCounts {
+  const next = {
+    ...target,
+  };
+  if (evidence?.missingHashtag) next.missingHashtag += 1;
+  if (evidence?.missingMention) next.missingMention += 1;
+  if (evidence?.missingLink) next.missingLink += 1;
+  if (evidence?.outsidePostingWindow) next.outsidePostingWindow += 1;
+  if (evidence?.platformMismatch) next.platformMismatch += 1;
+  return next;
+}
+
+function deriveCampaignComplianceState(params: {
+  rules: CampaignPostingRules;
+  matchedPosts: number;
+  needsReviewPosts: number;
+  rejectedPosts: number;
+  requiredPosts: number;
+  ruleMissCounts: AttributionRuleMissCounts;
+}):
+  | "matched_post"
+  | "needs_review"
+  | "missing_hashtag"
+  | "missing_mention"
+  | "missing_link"
+  | "platform_mismatch"
+  | "outside_window"
+  | "awaiting_post"
+  | "rules_not_set" {
+  const hasProofRules =
+    params.rules.requiredHashtags.length > 0 ||
+    params.rules.requiredMentions.length > 0 ||
+    Boolean(params.rules.requiredLinkSlug);
+  if (!hasProofRules) return "rules_not_set";
+  if (params.matchedPosts >= Math.max(1, params.requiredPosts)) return "matched_post";
+  if (params.needsReviewPosts > 0) return "needs_review";
+  if (params.ruleMissCounts.missingHashtag > 0) return "missing_hashtag";
+  if (params.ruleMissCounts.missingMention > 0) return "missing_mention";
+  if (params.ruleMissCounts.missingLink > 0) return "missing_link";
+  if (params.ruleMissCounts.platformMismatch > 0) return "platform_mismatch";
+  if (params.ruleMissCounts.outsidePostingWindow > 0) return "outside_window";
+  if (params.rejectedPosts > 0) return "needs_review";
+  return "awaiting_post";
+}
+
+export async function clearTrainerCampaignMetricsForBundle(
+  trainerId: string,
+  bundleDraftId: string,
+): Promise<void> {
+  const { error } = await sb()
+    .from("trainer_campaign_metrics_daily")
+    .delete()
+    .eq("trainer_id", trainerId)
+    .eq("bundle_draft_id", bundleDraftId);
+  if (error) {
+    console.error("[Database] clearTrainerCampaignMetricsForBundle:", error.message);
+    throw error;
+  }
+}
+
+export async function syncTrainerCampaignMetricsFromAttributions(params: {
+  trainerId: string;
+  bundleDraftId: string;
+}): Promise<number> {
+  const [links, attributions] = await Promise.all([
+    getCampaignAccountsForBundle(params.bundleDraftId),
+    listTrainerSocialContentCampaignAttributions({
+      trainerId: params.trainerId,
+      bundleDraftId: params.bundleDraftId,
+      limit: 5000,
+    }),
+  ]);
+
+  await clearTrainerCampaignMetricsForBundle(params.trainerId, params.bundleDraftId);
+
+  if (!links.length) return 0;
+
+  const matchedRows = attributions.filter((row) => row.status === "matched");
+  const contentRows = await getTrainerSocialContentByIds(
+    matchedRows.map((row) => row.trainerSocialContentId),
+  );
+  const contentById = new Map(contentRows.map((row) => [row.id, row]));
+  const linkByAccountId = new Map(
+    links.map((link) => [link.campaignAccountId, link]),
+  );
+
+  let updatedRows = 0;
+  for (const link of links) {
+    const rules = normalizeCampaignPostingRules(link.metadata);
+    const accountMatches = matchedRows.filter(
+      (row) => row.campaignAccountId === link.campaignAccountId,
+    );
+    const views = accountMatches.reduce((sum, row) => {
+      const content = contentById.get(row.trainerSocialContentId);
+      return sum + Number(content?.latestViews || 0);
+    }, 0);
+    const engagements = accountMatches.reduce((sum, row) => {
+      const content = contentById.get(row.trainerSocialContentId);
+      return sum + Number(content?.latestEngagements || 0);
+    }, 0);
+    const clicks = accountMatches.reduce((sum, row) => {
+      const evidence = row.evidence || {};
+      return sum + Number(evidence?.clicks || 0);
+    }, 0);
+    const shareSaves = accountMatches.reduce((sum, row) => {
+      const evidence = row.evidence || {};
+      return sum + Number(evidence?.shareSaves || 0);
+    }, 0);
+    const statusCounts = attributions
+      .filter((row) => row.campaignAccountId === link.campaignAccountId)
+      .reduce<AttributionStatusCounts>((acc, row) => {
+        if (row.status === "matched") acc.matched += 1;
+        if (row.status === "rejected") acc.rejected += 1;
+        if (row.status === "needs_review") acc.needsReview += 1;
+        return acc;
+      }, emptyAttributionStatusCounts());
+    const ruleMissCounts = attributions
+      .filter((row) => row.campaignAccountId === link.campaignAccountId)
+      .reduce<AttributionRuleMissCounts>(
+        (acc, row) => accumulateRuleMissCounts(acc, row.evidence || {}),
+        emptyAttributionRuleMissCounts(),
+      );
+    const postsDelivered = accountMatches.length;
+    const postsOnTime = accountMatches.filter((row) => {
+      const evidence = row.evidence || {};
+      return evidence?.withinPostingWindow !== false;
+    }).length;
+    const requiredTagPosts = accountMatches.filter((row) => {
+      const evidence = row.evidence || {};
+      return (
+        (Array.isArray(evidence?.matchedHashtags) && evidence.matchedHashtags.length > 0) ||
+        (Array.isArray(evidence?.matchedMentions) && evidence.matchedMentions.length > 0)
+      );
+    }).length;
+    const requiredPosts = Number(rules.requiredPosts || 1);
+    const complianceState = deriveCampaignComplianceState({
+      rules,
+      matchedPosts: statusCounts.matched,
+      needsReviewPosts: statusCounts.needsReview,
+      rejectedPosts: statusCounts.rejected,
+      requiredPosts,
+      ruleMissCounts,
+    });
+    const metricDate =
+      accountMatches[0]?.matchedAt ||
+      rules.postingWindowStart ||
+      new Date().toISOString();
+
+    await upsertTrainerCampaignMetricDaily({
+      trainerId: params.trainerId,
+      bundleDraftId: params.bundleDraftId,
+      campaignAccountId: link.campaignAccountId,
+      metricDate,
+      platform: "all",
+      followers: 0,
+      views,
+      engagements,
+      clicks,
+      shareSaves,
+      postsDelivered,
+      postsOnTime,
+      requiredPosts,
+      requiredTagPosts,
+      approvedCreativePosts: 0,
+      metadata: {
+        source: "trainer_social_content_campaign_attributions",
+        attributionStatusCounts: statusCounts,
+        ruleMissCounts,
+        campaignPostingRules: rules,
+        complianceState,
+        latestMatchedAt:
+          accountMatches
+            .map((row) => row.matchedAt)
+            .filter(Boolean)
+            .sort()
+            .slice(-1)[0] || null,
+      },
+    });
+    updatedRows += 1;
+  }
+
+  return updatedRows;
+}
+
 export async function upsertTrainerSocialContentActivityDaily(
   data: InsertTrainerSocialContentActivityDaily,
 ): Promise<TrainerSocialContentActivityDaily | undefined> {
@@ -4484,6 +4921,21 @@ export async function getCampaignAccountMetricsSummary(options?: {
     postsDelivered: number;
     postsOnTime: number;
     requiredPosts: number;
+    matchedPosts: number;
+    needsReviewPosts: number;
+    rejectedPosts: number;
+    ruleMissCounts: AttributionRuleMissCounts;
+    complianceState:
+      | "matched_post"
+      | "needs_review"
+      | "missing_hashtag"
+      | "missing_mention"
+      | "missing_link"
+      | "platform_mismatch"
+      | "outside_window"
+      | "awaiting_post"
+      | "rules_not_set";
+    campaignPostingRules: CampaignPostingRules;
     latestMetricDate: string | null;
   }>
 > {
@@ -4507,10 +4959,39 @@ export async function getCampaignAccountMetricsSummary(options?: {
       postsDelivered: number;
       postsOnTime: number;
       requiredPosts: number;
+      matchedPosts: number;
+      needsReviewPosts: number;
+      rejectedPosts: number;
+      ruleMissCounts: AttributionRuleMissCounts;
+      complianceState:
+        | "matched_post"
+        | "needs_review"
+        | "missing_hashtag"
+        | "missing_mention"
+        | "missing_link"
+        | "platform_mismatch"
+        | "outside_window"
+        | "awaiting_post"
+        | "rules_not_set";
+      campaignPostingRules: CampaignPostingRules;
       latestMetricDate: string | null;
     }
   >();
   for (const row of rows) {
+    const metadata = row.metadata || {};
+    const statusCounts = {
+      matched: Number(metadata?.attributionStatusCounts?.matched || 0),
+      needsReview: Number(metadata?.attributionStatusCounts?.needsReview || 0),
+      rejected: Number(metadata?.attributionStatusCounts?.rejected || 0),
+    };
+    const rowRules = normalizeCampaignPostingRules(metadata?.campaignPostingRules || {});
+    const rowRuleMissCounts: AttributionRuleMissCounts = {
+      missingHashtag: Number(metadata?.ruleMissCounts?.missingHashtag || 0),
+      missingMention: Number(metadata?.ruleMissCounts?.missingMention || 0),
+      missingLink: Number(metadata?.ruleMissCounts?.missingLink || 0),
+      outsidePostingWindow: Number(metadata?.ruleMissCounts?.outsidePostingWindow || 0),
+      platformMismatch: Number(metadata?.ruleMissCounts?.platformMismatch || 0),
+    };
     const key = `${row.campaignAccountId}:${row.bundleDraftId}:${row.trainerId}`;
     const current = byKey.get(key) || {
       campaignAccountId: row.campaignAccountId,
@@ -4524,6 +5005,12 @@ export async function getCampaignAccountMetricsSummary(options?: {
       postsDelivered: 0,
       postsOnTime: 0,
       requiredPosts: 0,
+      matchedPosts: 0,
+      needsReviewPosts: 0,
+      rejectedPosts: 0,
+      ruleMissCounts: emptyAttributionRuleMissCounts(),
+      complianceState: "awaiting_post" as const,
+      campaignPostingRules: normalizeCampaignPostingRules({}),
       latestMetricDate: null,
     };
     current.views += Number(row.views || 0);
@@ -4534,12 +5021,77 @@ export async function getCampaignAccountMetricsSummary(options?: {
     current.postsDelivered += Number(row.postsDelivered || 0);
     current.postsOnTime += Number(row.postsOnTime || 0);
     current.requiredPosts += Number(row.requiredPosts || 0);
+    current.matchedPosts += statusCounts.matched;
+    current.needsReviewPosts += statusCounts.needsReview;
+    current.rejectedPosts += statusCounts.rejected;
+    current.ruleMissCounts = {
+      missingHashtag:
+        current.ruleMissCounts.missingHashtag + rowRuleMissCounts.missingHashtag,
+      missingMention:
+        current.ruleMissCounts.missingMention + rowRuleMissCounts.missingMention,
+      missingLink: current.ruleMissCounts.missingLink + rowRuleMissCounts.missingLink,
+      outsidePostingWindow:
+        current.ruleMissCounts.outsidePostingWindow + rowRuleMissCounts.outsidePostingWindow,
+      platformMismatch:
+        current.ruleMissCounts.platformMismatch + rowRuleMissCounts.platformMismatch,
+    };
+    current.campaignPostingRules = rowRules;
+    current.complianceState = deriveCampaignComplianceState({
+      rules: current.campaignPostingRules,
+      matchedPosts: current.matchedPosts,
+      needsReviewPosts: current.needsReviewPosts,
+      rejectedPosts: current.rejectedPosts,
+      requiredPosts: current.requiredPosts,
+      ruleMissCounts: current.ruleMissCounts,
+    });
     if (!current.latestMetricDate || row.metricDate > current.latestMetricDate) {
       current.latestMetricDate = row.metricDate;
     }
     byKey.set(key, current);
   }
   return Array.from(byKey.values());
+}
+
+export async function getCampaignPostAttributionSummary(options?: {
+  trainerId?: string;
+  bundleDraftId?: string;
+  campaignAccountId?: string;
+}) {
+  const rows = await listTrainerSocialContentCampaignAttributions({
+    trainerId: options?.trainerId,
+    bundleDraftId: options?.bundleDraftId,
+    campaignAccountId: options?.campaignAccountId,
+    limit: 5000,
+  });
+  const statusCounts = {
+    matched: 0,
+    rejected: 0,
+    needsReview: 0,
+  };
+  const matchedBundles = new Set<string>();
+  const matchedAccounts = new Set<string>();
+  for (const row of rows) {
+    if (row.status === "matched") statusCounts.matched += 1;
+    if (row.status === "rejected") statusCounts.rejected += 1;
+    if (row.status === "needs_review") statusCounts.needsReview += 1;
+    if (row.status === "matched") {
+      matchedBundles.add(row.bundleDraftId);
+      matchedAccounts.add(row.campaignAccountId);
+    }
+  }
+  return {
+    ...statusCounts,
+    total: rows.length,
+    matchedBundles: matchedBundles.size,
+    matchedAccounts: matchedAccounts.size,
+    latestMatchedAt:
+      rows
+        .map((row) => row.matchedAt)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null,
+    rows,
+  };
 }
 
 export async function upsertTrainerSocialCommitment(
@@ -4763,6 +5315,7 @@ export async function getSocialManagementSummary() {
   );
 
   const profileCount = Math.max(1, Number((profileRows || []).length || 1));
+  const attribution = await getCampaignPostAttributionSummary();
   return {
     activeMembers: Number(activeMembers || 0),
     invitedMembers: Number(invitedMembers || 0),
@@ -4772,6 +5325,9 @@ export async function getSocialManagementSummary() {
     totalFollowers: totals.followers,
     avgViewsPerMonth: Math.round(totals.views / profileCount),
     connectedPlatforms: (profileRows || []).length,
+    matchedPosts: attribution.matched,
+    postsNeedingReview: attribution.needsReview,
+    rejectedPosts: attribution.rejected,
   };
 }
 

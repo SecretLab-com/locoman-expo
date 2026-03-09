@@ -186,7 +186,7 @@ export function SocialManagementScreen({ roleLabel }: Props) {
                 },
                 {
                   key: "views",
-                  label: "Avg Views / month",
+                  label: "V/MO",
                   value: Number(summaryQuery.data?.summary?.avgViewsPerMonth || 0).toLocaleString(),
                 },
                 {
@@ -204,6 +204,21 @@ export function SocialManagementScreen({ roleLabel }: Props) {
                   label: "Open Concerns",
                   value: String(summaryQuery.data?.summary?.openViolations || 0),
                 },
+                {
+                  key: "matched-posts",
+                  label: "Matched Posts",
+                  value: String(summaryQuery.data?.summary?.matchedPosts || 0),
+                },
+                {
+                  key: "review-posts",
+                  label: "Needs Review",
+                  value: String(summaryQuery.data?.summary?.postsNeedingReview || 0),
+                },
+                {
+                  key: "rejected-posts",
+                  label: "Rejected Posts",
+                  value: String(summaryQuery.data?.summary?.rejectedPosts || 0),
+                },
               ].map((item) => (
                 <View key={item.key} className="w-1/2 px-1 mb-2">
                   <View className="border border-border rounded-lg px-3 py-2">
@@ -214,6 +229,35 @@ export function SocialManagementScreen({ roleLabel }: Props) {
                   </View>
                 </View>
               ))}
+            </View>
+          </SurfaceCard>
+
+          <SurfaceCard>
+            <Text className="text-base font-semibold text-foreground mb-2">
+              Campaign compliance snapshot
+            </Text>
+            <Text className="text-sm text-muted mb-3">
+              Attribution-backed post states across all social campaigns.
+            </Text>
+            <View className="flex-row">
+              <View className="flex-1 mr-2 border border-border rounded-lg px-3 py-2">
+                <Text className="text-xs text-muted">Matched</Text>
+                <Text className="text-base font-semibold text-foreground">
+                  {Number(summaryQuery.data?.summary?.matchedPosts || 0).toLocaleString()}
+                </Text>
+              </View>
+              <View className="flex-1 mx-2 border border-border rounded-lg px-3 py-2">
+                <Text className="text-xs text-muted">Needs review</Text>
+                <Text className="text-base font-semibold text-foreground">
+                  {Number(summaryQuery.data?.summary?.postsNeedingReview || 0).toLocaleString()}
+                </Text>
+              </View>
+              <View className="flex-1 ml-2 border border-border rounded-lg px-3 py-2">
+                <Text className="text-xs text-muted">Rejected</Text>
+                <Text className="text-base font-semibold text-foreground">
+                  {Number(summaryQuery.data?.summary?.rejectedPosts || 0).toLocaleString()}
+                </Text>
+              </View>
             </View>
           </SurfaceCard>
 

@@ -13,6 +13,48 @@ type Props = {
   roleLabel: "Coordinator" | "Manager";
 };
 
+function getComplianceLabel(state: string) {
+  switch (state) {
+    case "matched_post":
+      return "Matched";
+    case "needs_review":
+      return "Needs review";
+    case "missing_hashtag":
+      return "Missing hashtag";
+    case "missing_mention":
+      return "Missing mention";
+    case "missing_link":
+      return "Missing link";
+    case "platform_mismatch":
+      return "Wrong platform";
+    case "outside_window":
+      return "Outside window";
+    case "rules_not_set":
+      return "Rules not set";
+    default:
+      return "Awaiting post";
+  }
+}
+
+function getComplianceColor(state: string) {
+  switch (state) {
+    case "matched_post":
+      return "#22C55E";
+    case "needs_review":
+      return "#F59E0B";
+    case "missing_hashtag":
+    case "missing_mention":
+    case "missing_link":
+    case "platform_mismatch":
+    case "outside_window":
+      return "#EF4444";
+    case "rules_not_set":
+      return "#94A3B8";
+    default:
+      return "#60A5FA";
+  }
+}
+
 export function BrandDashboardScreen({ roleLabel }: Props) {
   const colors = useColors();
   const params = useLocalSearchParams<{ bundleId?: string }>();
@@ -50,6 +92,9 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
         acc.postsDelivered += Number(row?.postsDelivered || 0);
         acc.postsOnTime += Number(row?.postsOnTime || 0);
         acc.requiredPosts += Number(row?.requiredPosts || 0);
+        acc.matchedPosts += Number(row?.matchedPosts || 0);
+        acc.needsReviewPosts += Number(row?.needsReviewPosts || 0);
+        acc.rejectedPosts += Number(row?.rejectedPosts || 0);
         return acc;
       },
       {
@@ -59,6 +104,9 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
         postsDelivered: 0,
         postsOnTime: 0,
         requiredPosts: 0,
+        matchedPosts: 0,
+        needsReviewPosts: 0,
+        rejectedPosts: 0,
       },
     );
   }, [rows]);
@@ -193,6 +241,21 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
                   label: "On-Time",
                   value: `${(onTimePct * 100).toFixed(1)}%`,
                 },
+                {
+                  key: "matched",
+                  label: "Matched Posts",
+                  value: totals.matchedPosts.toLocaleString(),
+                },
+                {
+                  key: "review",
+                  label: "Needs Review",
+                  value: totals.needsReviewPosts.toLocaleString(),
+                },
+                {
+                  key: "rejected",
+                  label: "Rejected Posts",
+                  value: totals.rejectedPosts.toLocaleString(),
+                },
               ].map((item) => (
                 <View key={item.key} className="w-1/2 px-1 mb-2">
                   <View className="rounded-lg border border-border px-3 py-2">
@@ -204,6 +267,53 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
                 </View>
               ))}
             </View>
+          </SurfaceCard>
+
+          <SurfaceCard>
+            <Text className="text-base font-semibold text-foreground mb-2">
+              Compliance States
+            </Text>
+            {topRows.length === 0 ? (
+              <Text className="text-sm text-muted">No compliance data yet.</Text>
+            ) : (
+              <View className="gap-2">
+                {topRows.slice(0, 10).map((row: any, idx: number) => {
+                  const state = String(row?.complianceState || "awaiting_post");
+                  const color = getComplianceColor(state);
+                  return (
+                    <View
+                      key={`${row.campaignAccountId}-${row.bundleDraftId}-${row.trainerId}-${idx}-status`}
+                      className="border border-border rounded-lg px-3 py-2"
+                    >
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-1 pr-3">
+                          <Text className="text-sm font-semibold text-foreground">
+                            {row.campaignAccountName}
+                          </Text>
+                          <Text className="text-xs text-muted mt-0.5">
+                            {row.trainerName} • {row.bundleTitle}
+                          </Text>
+                        </View>
+                        <View
+                          className="rounded-full px-2.5 py-1"
+                          style={{ backgroundColor: `${color}22` }}
+                        >
+                          <Text style={{ color, fontSize: 11, fontWeight: "700" }}>
+                            {getComplianceLabel(state)}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text className="text-xs text-muted mt-2">
+                        Matched {Number(row?.matchedPosts || 0)} / Required{" "}
+                        {Number(row?.requiredPosts || 0)} • Review{" "}
+                        {Number(row?.needsReviewPosts || 0)} • Rejected{" "}
+                        {Number(row?.rejectedPosts || 0)}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </SurfaceCard>
 
           <SurfaceCard>

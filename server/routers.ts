@@ -25,7 +25,10 @@ import {
   inferPhylloTokenEnvironment,
 } from "./_core/phyllo";
 import { generateImage } from "./_core/imageGeneration";
-import { processPhylloWebhookPayload } from "./_core/phyllo-webhook";
+import {
+  processPhylloWebhookPayload,
+  syncTrainerCampaignPostAttributions,
+} from "./_core/phyllo-webhook";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
 import { runTrainerAssistant } from "./_core/trainerAssistant";
@@ -5869,6 +5872,22 @@ export const appRouter = router({
               campaignAccountId: z.string(),
               relationType: z.enum(["brand", "customer", "partner"]).optional(),
               allocationPct: z.string().optional(),
+              metadata: z
+                .object({
+                  postingRules: z
+                    .object({
+                      requiredHashtags: z.array(z.string()).optional(),
+                      requiredMentions: z.array(z.string()).optional(),
+                      allowedPlatforms: z.array(z.string()).optional(),
+                      postingWindowStart: z.string().nullable().optional(),
+                      postingWindowEnd: z.string().nullable().optional(),
+                      requiredLinkSlug: z.string().nullable().optional(),
+                      requiredPosts: z.number().int().min(1).nullable().optional(),
+                    })
+                    .optional(),
+                })
+                .nullable()
+                .optional(),
             }),
           ),
         }),
@@ -5888,6 +5907,7 @@ export const appRouter = router({
             campaignAccountId: link.campaignAccountId,
             relationType: link.relationType || "brand",
             allocationPct: link.allocationPct || null,
+            metadata: link.metadata || null,
           })),
         );
         return { success: true };
@@ -6103,13 +6123,19 @@ export const appRouter = router({
         }),
       )
       .query(async ({ input }) => {
-        const [rowsRaw, signupStats, bundle] = await Promise.all([
+        const bundle = await db.getBundleDraftById(input.bundleId);
+        if (bundle?.trainerId) {
+          await syncTrainerCampaignPostAttributions({
+            trainerId: bundle.trainerId,
+            bundleDraftId: bundle.id,
+          });
+        }
+        const [rowsRaw, signupStats] = await Promise.all([
           db.getCampaignAccountMetricsSummary({
             fromDate: input?.fromDate,
             toDate: input?.toDate,
           }),
           db.getCampaignSignupStats(input.bundleId),
-          db.getBundleDraftById(input.bundleId),
         ]);
         const rows = rowsRaw.filter((row) => row.bundleDraftId === input.bundleId);
         const trainerIds = Array.from(
@@ -7336,18 +7362,28 @@ export const appRouter = router({
           }
         }
         for (const bundleId of bundleIds) {
-          await db.syncTrainerCampaignMetricsFromLatestSocialSnapshot({
+          await syncTrainerCampaignPostAttributions({
             trainerId: ctx.user.id,
             bundleDraftId: bundleId,
           });
         }
-        return db.getTrainerCampaignMetricsRange({
+        const rows = await db.getTrainerCampaignMetricsRange({
           trainerId: ctx.user.id,
           bundleDraftId: input?.bundleId,
           fromDate: input?.fromDate,
           toDate: input?.toDate,
           limit: 365,
         });
+        const accountIds = Array.from(
+          new Set(rows.map((row) => row.campaignAccountId).filter(Boolean)),
+        );
+        const accounts = await db.getCampaignAccountsByIds(accountIds);
+        const accountById = new Map(accounts.map((account) => [account.id, account]));
+        return rows.map((row) => ({
+          ...row,
+          campaignAccountName:
+            accountById.get(row.campaignAccountId)?.name || "Campaign Account",
+        }));
       }),
 
     recentPosts: trainerProcedure

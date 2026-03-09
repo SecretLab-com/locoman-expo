@@ -25,6 +25,8 @@
 - **Shared Utilities**: Common utilities in `lib/` directory
 - **Type Exports**: Database types exported from `server/db.ts`
 - **Error Handling**: All DB queries wrapped with try/catch and proper error responses
+- **Attribution Pipeline**: Social post compliance uses explicit campaign posting rules stored in campaign-account metadata, durable attribution rows per post/campaign match, then derives campaign metrics from those matched facts instead of trainer-wide snapshot fan-out
+- **Trainer Home State Caching**: The trainer dashboard may hydrate sensitive UI state from local `AsyncStorage` snapshots first, then refresh with live tRPC data; stale "connected/active" social states are trusted to avoid invite flicker, while stale invite-only states are not
 
 ## Component Relationships
 - **Screens**: Organized by user role in `app/(role)/` directories

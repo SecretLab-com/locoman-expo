@@ -12,6 +12,48 @@ type Props = {
   roleLabel: "Coordinator" | "Manager";
 };
 
+function getComplianceLabel(state: string) {
+  switch (state) {
+    case "matched_post":
+      return "Matched";
+    case "needs_review":
+      return "Needs review";
+    case "missing_hashtag":
+      return "Missing hashtag";
+    case "missing_mention":
+      return "Missing mention";
+    case "missing_link":
+      return "Missing link";
+    case "platform_mismatch":
+      return "Wrong platform";
+    case "outside_window":
+      return "Outside window";
+    case "rules_not_set":
+      return "Rules not set";
+    default:
+      return "Awaiting post";
+  }
+}
+
+function getComplianceColor(state: string) {
+  switch (state) {
+    case "matched_post":
+      return "#22C55E";
+    case "needs_review":
+      return "#F59E0B";
+    case "missing_hashtag":
+    case "missing_mention":
+    case "missing_link":
+    case "platform_mismatch":
+    case "outside_window":
+      return "#EF4444";
+    case "rules_not_set":
+      return "#94A3B8";
+    default:
+      return "#60A5FA";
+  }
+}
+
 function GaugeRow({
   label,
   value,
@@ -64,6 +106,12 @@ export function CampaignDashboardScreen({ roleLabel }: Props) {
         acc.postsDelivered += Number(row?.postsDelivered || 0);
         acc.postsOnTime += Number(row?.postsOnTime || 0);
         acc.requiredPosts += Number(row?.requiredPosts || 0);
+        acc.matchedPosts += Number(row?.matchedPosts || 0);
+        acc.needsReviewPosts += Number(row?.needsReviewPosts || 0);
+        acc.rejectedPosts += Number(row?.rejectedPosts || 0);
+        acc.missingHashtag += Number(row?.ruleMissCounts?.missingHashtag || 0);
+        acc.missingMention += Number(row?.ruleMissCounts?.missingMention || 0);
+        acc.missingLink += Number(row?.ruleMissCounts?.missingLink || 0);
         return acc;
       },
       {
@@ -73,6 +121,12 @@ export function CampaignDashboardScreen({ roleLabel }: Props) {
         postsDelivered: 0,
         postsOnTime: 0,
         requiredPosts: 0,
+        matchedPosts: 0,
+        needsReviewPosts: 0,
+        rejectedPosts: 0,
+        missingHashtag: 0,
+        missingMention: 0,
+        missingLink: 0,
       },
     );
   }, [rows]);
@@ -126,6 +180,10 @@ export function CampaignDashboardScreen({ roleLabel }: Props) {
                 { label: "Offers created", value: signupStats.offerCount },
                 { label: "Published offers", value: signupStats.publishedOfferCount },
                 { label: "Active contributors", value: new Set(rows.map((r: any) => r.trainerId)).size },
+                  { label: "Matched posts", value: totals.matchedPosts },
+                  { label: "Needs review", value: totals.needsReviewPosts },
+                  { label: "Rejected posts", value: totals.rejectedPosts },
+                  { label: "Required posts", value: totals.requiredPosts },
               ].map((kpi) => (
                 <View key={kpi.label} className="w-1/2 px-1 mb-2">
                   <View className="rounded-lg border border-border px-3 py-2">
@@ -147,6 +205,29 @@ export function CampaignDashboardScreen({ roleLabel }: Props) {
             <GaugeRow label="On-time gauge" value={onTimePct} target={100} color="#34D399" />
             <GaugeRow label="CTR temperature" value={ctr} target={5} color="#F59E0B" />
             <GaugeRow label="Engagement temperature" value={engagementRate} target={8} color="#A78BFA" />
+          </SurfaceCard>
+
+          <SurfaceCard>
+            <Text className="text-base font-semibold text-foreground mb-2">
+              Compliance Misses
+            </Text>
+            <View className="flex-row flex-wrap -mx-1">
+              {[
+                { label: "Missing hashtag", value: totals.missingHashtag },
+                { label: "Missing mention", value: totals.missingMention },
+                { label: "Missing link", value: totals.missingLink },
+                { label: "Needs review", value: totals.needsReviewPosts },
+              ].map((item) => (
+                <View key={item.label} className="w-1/2 px-1 mb-2">
+                  <View className="rounded-lg border border-border px-3 py-2">
+                    <Text className="text-[11px] text-muted">{item.label}</Text>
+                    <Text className="text-base font-semibold text-foreground mt-0.5">
+                      {Number(item.value || 0).toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
           </SurfaceCard>
 
           <SurfaceCard>
@@ -181,6 +262,53 @@ export function CampaignDashboardScreen({ roleLabel }: Props) {
                           }}
                         />
                       </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </SurfaceCard>
+
+          <SurfaceCard>
+            <Text className="text-base font-semibold text-foreground mb-2">
+              Compliance Tracker
+            </Text>
+            {rows.length === 0 ? (
+              <Text className="text-sm text-muted">No campaign compliance data yet.</Text>
+            ) : (
+              <View className="gap-2">
+                {rows.map((row: any, idx: number) => {
+                  const status = String(row?.complianceState || "awaiting_post");
+                  const color = getComplianceColor(status);
+                  return (
+                    <View
+                      key={`${row.trainerId}-${row.campaignAccountId}-${idx}`}
+                      className="border border-border rounded-xl px-3 py-3"
+                    >
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-1 pr-3">
+                          <Text className="text-sm font-semibold text-foreground">
+                            {row.trainerName || "Trainer"}
+                          </Text>
+                          <Text className="text-xs text-muted mt-0.5">
+                            {row.campaignAccountName || "Campaign account"}
+                          </Text>
+                        </View>
+                        <View
+                          className="rounded-full px-2.5 py-1"
+                          style={{ backgroundColor: `${color}22` }}
+                        >
+                          <Text style={{ color, fontSize: 11, fontWeight: "700" }}>
+                            {getComplianceLabel(status)}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text className="text-xs text-muted mt-2">
+                        Matched {Number(row?.matchedPosts || 0)} / Required{" "}
+                        {Number(row?.requiredPosts || 0)} • Review{" "}
+                        {Number(row?.needsReviewPosts || 0)} • Rejected{" "}
+                        {Number(row?.rejectedPosts || 0)}
+                      </Text>
                     </View>
                   );
                 })}

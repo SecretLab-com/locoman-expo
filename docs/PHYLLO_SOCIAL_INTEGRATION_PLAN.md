@@ -110,3 +110,16 @@ flowchart TD
 - Violations are surfaced with actionable statuses.
 - Message + email + alert fire correctly on invite.
 - No secrets leak to frontend or logs.
+
+### Future limit the social platforms
+To reduce cost and hide silly connections for our product I would like to select what media platforms we allow trainers to connect to.  Let's create a screen that we show our preferred platforms and then use the work_platform_id parameter on phyllo api calls to select the propper platforms.  
+
+I would like to have the following platforms available for trainers to connect to.
+
+Youtube
+Facebook
+Intagram Lite
+twitter (X)
+tiktok
+
+make sure to mimic their screen (attached) and carefully plan out how to call the api and connect the social platforms.

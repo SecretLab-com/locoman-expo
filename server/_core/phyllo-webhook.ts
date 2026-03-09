@@ -266,6 +266,245 @@ function buildCelebrationCopy(params: {
   return null;
 }
 
+type CampaignPostingTarget = {
+  bundleDraftId: string;
+  campaignAccountId: string;
+  metadata: any;
+  rules: db.CampaignPostingRules;
+};
+
+function extractNormalizedTags(text: string, prefix: "#" | "@"): string[] {
+  const pattern =
+    prefix === "#"
+      ? /#[A-Za-z0-9_]+/g
+      : /@[A-Za-z0-9_.]+/g;
+  return Array.from(
+    new Set(
+      (text.match(pattern) || [])
+        .map((token) => token.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function extractUrls(text: string): string[] {
+  return Array.from(
+    new Set(
+      (text.match(/https?:\/\/[^\s"'<>]+/gi) || [])
+        .map((value) => value.replace(/[),.!?]+$/g, "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function collectPayloadStrings(
+  value: unknown,
+  results: Set<string>,
+  depth = 0,
+) {
+  if (depth > 5 || results.size >= 250 || value == null) return;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed) results.add(trimmed);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectPayloadStrings(entry, results, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      collectPayloadStrings(entry, results, depth + 1);
+    }
+  }
+}
+
+function buildAttributionEvidence(
+  content: db.TrainerSocialContent,
+  rules: db.CampaignPostingRules,
+) {
+  const platform = normalizePlatformName(content.platform || "");
+  const publishedAt = toIsoOrNull(content.publishedAt) || content.publishedAt || null;
+  const searchStrings = new Set<string>();
+  collectPayloadStrings(content.rawPayload, searchStrings);
+  if (content.caption) searchStrings.add(content.caption);
+  if (content.title) searchStrings.add(content.title);
+  if (content.postUrl) searchStrings.add(content.postUrl);
+  if (content.profileUrl) searchStrings.add(content.profileUrl);
+
+  const combinedText = Array.from(searchStrings).join("\n");
+  const hashtags = new Set(extractNormalizedTags(combinedText, "#"));
+  const mentions = new Set(extractNormalizedTags(combinedText, "@"));
+  const urls = new Set<string>(extractUrls(combinedText));
+  for (const directUrl of [content.postUrl, content.profileUrl]) {
+    const normalized = normalizeUrl(directUrl);
+    if (normalized) urls.add(normalized.toLowerCase());
+  }
+
+  const matchedHashtags = rules.requiredHashtags.filter((tag) => hashtags.has(tag));
+  const matchedMentions = rules.requiredMentions.filter((tag) => mentions.has(tag));
+  const matchedLinkSlug =
+    rules.requiredLinkSlug &&
+    Array.from(urls).some((url) =>
+      url.includes(String(rules.requiredLinkSlug || "").trim().toLowerCase()),
+    )
+      ? String(rules.requiredLinkSlug || "").trim()
+      : null;
+
+  const platformMatched =
+    !rules.allowedPlatforms.length || rules.allowedPlatforms.includes(platform);
+  const withinPostingWindow =
+    !rules.postingWindowStart && !rules.postingWindowEnd
+      ? true
+      : Boolean(
+          publishedAt &&
+            (!rules.postingWindowStart || publishedAt >= rules.postingWindowStart) &&
+            (!rules.postingWindowEnd || publishedAt <= rules.postingWindowEnd),
+        );
+
+  const hasProofRules =
+    rules.requiredHashtags.length > 0 ||
+    rules.requiredMentions.length > 0 ||
+    Boolean(rules.requiredLinkSlug);
+  const hashtagRequirementMet =
+    rules.requiredHashtags.length === 0 || matchedHashtags.length > 0;
+  const mentionRequirementMet =
+    rules.requiredMentions.length === 0 || matchedMentions.length > 0;
+  const linkRequirementMet = !rules.requiredLinkSlug || Boolean(matchedLinkSlug);
+  const proofRequirementMet =
+    hasProofRules &&
+    hashtagRequirementMet &&
+    mentionRequirementMet &&
+    linkRequirementMet;
+  const partialProofSignal =
+    matchedHashtags.length > 0 || matchedMentions.length > 0 || Boolean(matchedLinkSlug);
+
+  return {
+    platform,
+    publishedAt,
+    caption: content.caption || null,
+    postUrl: content.postUrl || null,
+    matchedHashtags,
+    matchedMentions,
+    matchedLinkSlug,
+    platformMatched,
+    withinPostingWindow,
+    missingHashtag: rules.requiredHashtags.length > 0 && matchedHashtags.length === 0,
+    missingMention: rules.requiredMentions.length > 0 && matchedMentions.length === 0,
+    missingLink: Boolean(rules.requiredLinkSlug) && !matchedLinkSlug,
+    outsidePostingWindow: !withinPostingWindow,
+    platformMismatch: !platformMatched,
+    proofRequirementMet,
+    partialProofSignal,
+    hasProofRules,
+  };
+}
+
+async function loadCampaignPostingTargets(params: {
+  trainerId: string;
+  bundleDraftId?: string;
+}): Promise<CampaignPostingTarget[]> {
+  const bundles = params.bundleDraftId
+    ? [await db.getBundleDraftById(params.bundleDraftId)].filter(
+        (bundle): bundle is db.BundleDraft =>
+          Boolean(bundle && bundle.trainerId === params.trainerId),
+      )
+    : await db.getBundleDraftsByTrainer(params.trainerId);
+  const bundleLinks = await Promise.all(
+    bundles.map(async (bundle) => ({
+      bundleDraftId: bundle.id,
+      links: await db.getCampaignAccountsForBundle(bundle.id),
+    })),
+  );
+  return bundleLinks.flatMap((bundle) =>
+    bundle.links.map((link) => ({
+      bundleDraftId: bundle.bundleDraftId,
+      campaignAccountId: link.campaignAccountId,
+      metadata: link.metadata || null,
+      rules: db.normalizeCampaignPostingRules(link.metadata),
+    })),
+  );
+}
+
+export async function syncTrainerCampaignPostAttributions(params: {
+  trainerId: string;
+  bundleDraftId?: string;
+  contentIds?: string[];
+}) {
+  const targets = await loadCampaignPostingTargets({
+    trainerId: params.trainerId,
+    bundleDraftId: params.bundleDraftId,
+  });
+  const bundleIds = Array.from(new Set(targets.map((target) => target.bundleDraftId)));
+  if (!bundleIds.length) {
+    return {
+      evaluatedPosts: 0,
+      updatedBundles: 0,
+    };
+  }
+
+  const contentRows = params.contentIds?.length
+    ? (await db.getTrainerSocialContentByIds(params.contentIds)).filter(
+        (row) => row.trainerId === params.trainerId,
+      )
+    : await db.listTrainerSocialContents({
+        trainerId: params.trainerId,
+        limit: 5000,
+      });
+
+  for (const target of targets) {
+    if (!target.rules.requiredHashtags.length &&
+        !target.rules.requiredMentions.length &&
+        !target.rules.requiredLinkSlug) {
+      const targetContentIds = contentRows.map((row) => row.id);
+      if (!targetContentIds.length) continue;
+      await db.deleteTrainerSocialContentCampaignAttributions({
+        trainerId: params.trainerId,
+        bundleDraftId: target.bundleDraftId,
+        campaignAccountId: target.campaignAccountId,
+        trainerSocialContentIds: targetContentIds,
+      });
+      continue;
+    }
+    for (const content of contentRows) {
+      const evidence = buildAttributionEvidence(content, target.rules);
+      let status: db.TrainerSocialContentCampaignAttributionStatus = "rejected";
+      if (!evidence.platformMatched || !evidence.withinPostingWindow) {
+        status = "rejected";
+      } else if (evidence.proofRequirementMet) {
+        status = "matched";
+      } else if (evidence.partialProofSignal) {
+        status = "needs_review";
+      }
+      await db.upsertTrainerSocialContentCampaignAttribution({
+        trainerSocialContentId: content.id,
+        trainerId: params.trainerId,
+        bundleDraftId: target.bundleDraftId,
+        campaignAccountId: target.campaignAccountId,
+        matchedAt: status === "matched" ? publishedAtOrNow(content.publishedAt) : null,
+        status,
+        evidence,
+      });
+    }
+  }
+
+  for (const bundleDraftId of bundleIds) {
+    await db.syncTrainerCampaignMetricsFromAttributions({
+      trainerId: params.trainerId,
+      bundleDraftId,
+    });
+  }
+
+  return {
+    evaluatedPosts: contentRows.length,
+    updatedBundles: bundleIds.length,
+  };
+}
+
+function publishedAtOrNow(value: string | null | undefined): string {
+  return toIsoOrNull(value) || new Date().toISOString();
+}
+
 async function refreshTrainerSnapshotFromPhyllo(params: {
   trainerId: string;
   phylloUserId: string;
@@ -344,16 +583,6 @@ async function refreshTrainerSnapshotFromPhyllo(params: {
     approvedCreativePosts: 0,
     metadata: { source: "phyllo_webhook", eventType: params.eventType },
   });
-  const bundles = await db.getBundleDraftsByTrainer(params.trainerId);
-  for (const bundle of bundles) {
-    if (!bundle?.id || !bundle?.templateId) continue;
-    await db
-      .syncTrainerCampaignMetricsFromLatestSocialSnapshot({
-        trainerId: params.trainerId,
-        bundleDraftId: bundle.id,
-      })
-      .catch(() => 0);
-  }
   return {
     followerCount,
     avgViewsPerMonth,
@@ -421,6 +650,7 @@ async function processSinglePhylloEvent(
     });
 
     const extractedContentRows = extractPhylloContentRows(event.payload);
+    const savedContentIds: string[] = [];
     for (const contentRow of extractedContentRows) {
       const savedContent = await db.upsertTrainerSocialContent({
         trainerId,
@@ -445,6 +675,7 @@ async function processSinglePhylloEvent(
         rawPayload: contentRow.rawPayload,
       });
       if (!savedContent) continue;
+      savedContentIds.push(savedContent.id);
       await db.upsertTrainerSocialContentActivityDaily({
         trainerSocialContentId: savedContent.id,
         trainerId,
@@ -457,6 +688,12 @@ async function processSinglePhylloEvent(
           sourceEventType: event.eventType,
           providerEventId: event.providerEventId,
         },
+      });
+    }
+    if (savedContentIds.length > 0) {
+      await syncTrainerCampaignPostAttributions({
+        trainerId,
+        contentIds: savedContentIds,
       });
     }
 

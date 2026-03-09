@@ -30,6 +30,15 @@ const SPECIALTIES = [
   { value: "general_fitness", label: "General Fitness" },
 ];
 
+const SOCIAL_PLATFORMS = [
+  { value: "instagram", label: "Instagram" },
+  { value: "tiktok", label: "TikTok" },
+  { value: "youtube", label: "YouTube" },
+  { value: "x", label: "X" },
+  { value: "facebook", label: "Facebook" },
+  { value: "linkedin", label: "LinkedIn" },
+];
+
 function showAlert(title: string, message: string) {
   Alert.alert(title, message);
 }
@@ -68,6 +77,13 @@ export default function TemplateSettingsScreen() {
   const [selectedBrandAccountId, setSelectedBrandAccountId] = useState<string | null>(
     null,
   );
+  const [requiredHashtags, setRequiredHashtags] = useState("");
+  const [requiredMentions, setRequiredMentions] = useState("");
+  const [allowedPlatforms, setAllowedPlatforms] = useState<string[]>([]);
+  const [postingWindowStart, setPostingWindowStart] = useState("");
+  const [postingWindowEnd, setPostingWindowEnd] = useState("");
+  const [requiredLinkSlug, setRequiredLinkSlug] = useState("");
+  const [requiredPosts, setRequiredPosts] = useState("");
 
   const selectedBrandLink = useMemo(
     () =>
@@ -82,6 +98,35 @@ export default function TemplateSettingsScreen() {
       setSelectedBrandAccountId(String(selectedBrandLink.campaignAccountId));
     }
   }, [selectedBrandAccountId, selectedBrandLink?.campaignAccountId]);
+
+  useEffect(() => {
+    const rules =
+      selectedBrandLink?.metadata?.postingRules &&
+      typeof selectedBrandLink.metadata.postingRules === "object"
+        ? selectedBrandLink.metadata.postingRules
+        : {};
+    setRequiredHashtags(
+      Array.isArray(rules.requiredHashtags) ? rules.requiredHashtags.join(", ") : "",
+    );
+    setRequiredMentions(
+      Array.isArray(rules.requiredMentions) ? rules.requiredMentions.join(", ") : "",
+    );
+    setAllowedPlatforms(
+      Array.isArray(rules.allowedPlatforms)
+        ? rules.allowedPlatforms.map((value: any) => String(value || "").trim().toLowerCase()).filter(Boolean)
+        : [],
+    );
+    setPostingWindowStart(
+      rules.postingWindowStart ? String(rules.postingWindowStart).slice(0, 10) : "",
+    );
+    setPostingWindowEnd(
+      rules.postingWindowEnd ? String(rules.postingWindowEnd).slice(0, 10) : "",
+    );
+    setRequiredLinkSlug(String(rules.requiredLinkSlug || ""));
+    setRequiredPosts(
+      rules.requiredPosts ? String(rules.requiredPosts) : "",
+    );
+  }, [selectedBrandLink?.metadata]);
 
   // Populate from existing template settings when data loads
   const [populated, setPopulated] = useState(false);
@@ -131,6 +176,12 @@ export default function TemplateSettingsScreen() {
     );
   };
 
+  const togglePlatform = (value: string) => {
+    setAllowedPlatforms((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value],
+    );
+  };
+
   const handleSave = async () => {
     await haptics.light();
 
@@ -165,6 +216,25 @@ export default function TemplateSettingsScreen() {
             campaignAccountId: selectedBrandAccountId,
             relationType: "brand",
             allocationPct: "100",
+            metadata: {
+              postingRules: {
+                requiredHashtags: requiredHashtags
+                  .split(",")
+                  .map((value) => value.trim())
+                  .filter(Boolean),
+                requiredMentions: requiredMentions
+                  .split(",")
+                  .map((value) => value.trim())
+                  .filter(Boolean),
+                allowedPlatforms,
+                postingWindowStart: postingWindowStart || null,
+                postingWindowEnd: postingWindowEnd || null,
+                requiredLinkSlug: requiredLinkSlug.trim() || null,
+                requiredPosts: requiredPosts.trim()
+                  ? Math.max(1, Number(requiredPosts.trim()) || 1)
+                  : null,
+              },
+            },
           },
         ],
       });
@@ -363,6 +433,97 @@ export default function TemplateSettingsScreen() {
                   );
                 })}
               </View>
+            </SurfaceCard>
+          </View>
+
+          <View className="px-4 mb-4">
+            <SurfaceCard>
+              <Text className="text-sm font-semibold text-foreground mb-1">
+                Post attribution rules
+              </Text>
+              <Text className="text-xs text-muted mb-3">
+                Define how trainer social posts qualify for this campaign.
+              </Text>
+
+              <Text className="text-xs text-muted mb-1">Required hashtags</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+                value={requiredHashtags}
+                onChangeText={setRequiredHashtags}
+                placeholder="#BrandTag, #CampaignTag"
+                placeholderTextColor={colors.muted}
+              />
+
+              <Text className="text-xs text-muted mb-1">Required mentions</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+                value={requiredMentions}
+                onChangeText={setRequiredMentions}
+                placeholder="@brandhandle, @partnerhandle"
+                placeholderTextColor={colors.muted}
+              />
+
+              <Text className="text-xs text-muted mb-2">Allowed platforms</Text>
+              <View className="flex-row flex-wrap gap-2 mb-3">
+                {SOCIAL_PLATFORMS.map((platform) => {
+                  const active = allowedPlatforms.includes(platform.value);
+                  return (
+                    <TouchableOpacity
+                      key={platform.value}
+                      onPress={() => togglePlatform(platform.value)}
+                      className={`px-3 py-2 rounded-full border ${active ? "bg-primary border-primary" : "bg-surface border-border"}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${active ? "Remove" : "Add"} ${platform.label}`}
+                    >
+                      <Text className={`text-xs font-medium ${active ? "text-background" : "text-foreground"}`}>
+                        {platform.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View className="flex-row gap-2 mb-3">
+                <View className="flex-1">
+                  <Text className="text-xs text-muted mb-1">Posting window start</Text>
+                  <TextInput
+                    className="bg-background border border-border rounded-xl px-4 py-3 text-foreground"
+                    value={postingWindowStart}
+                    onChangeText={setPostingWindowStart}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.muted}
+                  />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xs text-muted mb-1">Posting window end</Text>
+                  <TextInput
+                    className="bg-background border border-border rounded-xl px-4 py-3 text-foreground"
+                    value={postingWindowEnd}
+                    onChangeText={setPostingWindowEnd}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.muted}
+                  />
+                </View>
+              </View>
+
+              <Text className="text-xs text-muted mb-1">Required link slug (optional)</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+                value={requiredLinkSlug}
+                onChangeText={setRequiredLinkSlug}
+                placeholder="campaign-redbull-jb"
+                placeholderTextColor={colors.muted}
+              />
+
+              <Text className="text-xs text-muted mb-1">Required post count</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground"
+                value={requiredPosts}
+                onChangeText={setRequiredPosts}
+                placeholder="e.g. 3"
+                placeholderTextColor={colors.muted}
+                keyboardType="number-pad"
+              />
             </SurfaceCard>
           </View>
 
