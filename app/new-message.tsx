@@ -15,10 +15,11 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { haptics } from "@/hooks/use-haptics";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 
 type Contact = {
-  id: number;
+  id: string;
   name: string;
   avatar: string | null;
   role: string;
@@ -58,7 +59,7 @@ function ContactItem({ contact, onPress }: { contact: Contact; onPress: () => vo
 
 export default function NewMessageScreen() {
   const colors = useColors();
-  const { isTrainer, isClient } = useAuthContext();
+  const { isTrainer, isClient, user, effectiveRole } = useAuthContext();
   const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch contacts based on role
@@ -76,15 +77,15 @@ export default function NewMessageScreen() {
   // Build contacts list based on role
   const contacts: Contact[] = isTrainer
     ? (clients || []).map((client: any) => ({
-        id: client.id,
+        id: String(client.userId || client.id),
         name: client.name,
-        avatar: client.avatar || null,
+        avatar: client.photoUrl || client.avatar || null,
         role: "client",
       }))
     : (trainers || []).map((trainer: any) => ({
-        id: trainer.id,
+        id: String(trainer.id),
         name: trainer.name,
-        avatar: trainer.avatar || null,
+        avatar: trainer.photoUrl || trainer.avatar || null,
         role: "trainer",
       }));
 
@@ -96,13 +97,14 @@ export default function NewMessageScreen() {
 
 
   const handleContactPress = (contact: Contact) => {
+    const conversationId = [String(user?.id || ""), String(contact.id)].sort().join("-");
     // Generate conversation ID and navigate to chat
     router.replace({
-      pathname: "/conversation/[id]" as any,
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
       params: {
-        id: `new-${contact.id}`,
+        id: conversationId,
         name: contact.name,
-        participantId: contact.id.toString(),
+        participantId: contact.id,
       },
     });
   };
@@ -141,7 +143,7 @@ export default function NewMessageScreen() {
       ) : (
         <FlatList
           data={filteredContacts}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <ContactItem contact={item} onPress={() => handleContactPress(item)} />
           )}

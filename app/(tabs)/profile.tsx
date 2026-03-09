@@ -1,11 +1,12 @@
 import { router } from "expo-router";
-import { Alert, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { useThemeContext } from "@/lib/theme-provider";
 import { Image } from "expo-image";
 
@@ -90,8 +91,9 @@ function RoleBadge({ role }: { role: string }) {
 
 export default function ProfileScreen() {
   const colors = useColors();
-  const { user, isAuthenticated, logout, role, isTrainer, isClient, isManager, effectiveRole, isCoordinator } =
+  const { user, effectiveUser, isAuthenticated, logout, role, isTrainer, isClient, isManager, effectiveRole, isCoordinator } =
     useAuthContext();
+  const displayedRole = effectiveRole ?? role;
   const roleBase =
     effectiveRole === "client"
       ? "/(client)"
@@ -104,6 +106,12 @@ export default function ProfileScreen() {
             : "/(tabs)";
   const managerBase = isCoordinator ? "/(coordinator)" : "/(manager)";
   const { themePreference, setThemePreference, colorScheme } = useThemeContext();
+  const profileUser = effectiveUser ?? user;
+  const profilePhotoUrlRaw = normalizeAssetUrl(profileUser?.photoUrl);
+  const profilePhotoUrl =
+    profilePhotoUrlRaw && profileUser?.updatedAt
+      ? `${profilePhotoUrlRaw}${profilePhotoUrlRaw.includes("?") ? "&" : "?"}v=${encodeURIComponent(String(profileUser.updatedAt))}`
+      : profilePhotoUrlRaw;
 
 
   const cycleTheme = async () => {
@@ -136,12 +144,21 @@ export default function ProfileScreen() {
           style: "destructive",
           onPress: async () => {
             await logout();
-            // Navigate to welcome screen after logout
-            router.replace("/welcome");
           },
         },
       ]
     );
+  };
+
+  const handleSupport = async () => {
+    const mailtoUrl = "mailto:support@locomotivate.app?subject=LocoMotivate%20Support";
+    const fallbackUrl = "https://locomotivate.app/support";
+    try {
+      const canOpenMail = await Linking.canOpenURL(mailtoUrl);
+      await Linking.openURL(canOpenMail ? mailtoUrl : fallbackUrl);
+    } catch {
+      Alert.alert("Support", "Please contact support@locomotivate.app");
+    }
   };
 
 
@@ -183,25 +200,29 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View className="items-center py-6 px-4">
           <View className="w-24 h-24 rounded-full bg-primary items-center justify-center mb-4">
-            {user?.photoUrl ? (
+            {profilePhotoUrl ? (
               <Image
-                source={{ uri: user.photoUrl }}
-                className="w-24 h-24 rounded-full"
+                source={{ uri: profilePhotoUrl }}
+                style={{ width: "100%", height: "100%" }}
                 contentFit="cover"
               />
-            ) : user?.name ? (
+            ) : profileUser?.name ? (
               <Text className="text-4xl font-bold text-background">
-                {user.name.charAt(0).toUpperCase()}
+                {profileUser.name.charAt(0).toUpperCase()}
               </Text>
             ) : (
               <IconSymbol name="person.fill" size={48} color={colors.background} />
             )}
           </View>
           <Text className="text-xl font-bold text-foreground">
-            {user?.name || "User"}
+            {profileUser?.name || "User"}
           </Text>
-          <Text className="text-muted mt-1">{user?.email || ""}</Text>
-          <RoleBadge role={role || "shopper"} />
+          <Text className="text-muted mt-1">{profileUser?.email || ""}</Text>
+          {displayedRole ? (
+            <RoleBadge role={displayedRole} />
+          ) : (
+            <Text className="text-sm text-muted mt-2">Syncing role...</Text>
+          )}
         </View>
 
         {/* Menu Sections */}
@@ -230,26 +251,16 @@ export default function ProfileScreen() {
               icon="person.fill"
               title="Edit Profile"
               subtitle="Update your personal information"
-              onPress={() => Alert.alert("Coming Soon", "Profile editing coming soon!")}
+              onPress={() => router.push(`${roleBase}/settings` as any)}
             />
-            <MenuItem
-              icon="bag.fill"
-              title="My Orders"
-              subtitle="View your order history"
-              onPress={() => {
-                if (isClient) {
-                  router.push("/(client)/orders" as any);
-                } else {
-                  Alert.alert("Coming Soon", "Orders page coming soon!");
-                }
-              }}
-            />
-            <MenuItem
-              icon="heart.fill"
-              title="Favorites"
-              subtitle="Your saved bundles"
-              onPress={() => Alert.alert("Coming Soon", "Favorites coming soon!")}
-            />
+            {isClient && (
+              <MenuItem
+                icon="bag.fill"
+                title="My Orders"
+                subtitle="View your order history"
+                onPress={() => router.push("/(client)/orders" as any)}
+              />
+            )}
           </View>
 
           {/* Trainer Quick Actions */}
@@ -320,7 +331,7 @@ export default function ProfileScreen() {
               icon="info.circle.fill"
               title="Help & Support"
               subtitle="Get help or contact us"
-              onPress={() => Alert.alert("Coming Soon", "Help center coming soon!")}
+              onPress={handleSupport}
             />
           </View>
 

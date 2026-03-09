@@ -34,7 +34,7 @@ export default function SettingsIndexScreen() {
   const navItems: RoleNavItem[] = (() => {
     if (effectiveRole === "manager") {
       return [
-        { label: "Home", icon: "house.fill", href: "/(manager)", testID: "tab-home" },
+        { label: "Home", icon: "house.fill", href: "/(manager)/dashboard", testID: "tab-home" },
         {
           label: "Approvals",
           icon: "checkmark.circle.fill",
@@ -47,31 +47,25 @@ export default function SettingsIndexScreen() {
     }
     if (effectiveRole === "coordinator") {
       return [
-        { label: "Home", icon: "house.fill", href: "/(coordinator)", testID: "tab-home" },
+        { label: "Home", icon: "house.fill", href: "/(coordinator)/dashboard", testID: "tab-home" },
         { label: "Users", icon: "person.2.fill", href: "/(coordinator)/users", testID: "tab-users" },
         { label: "Products", icon: "storefront.fill", href: "/(coordinator)/products", testID: "tab-products" },
         {
-          label: "Alerts",
-          icon: "exclamationmark.triangle.fill",
-          href: "/(coordinator)/alerts?section=alerts",
-          testID: "tab-alerts",
+          label: "Analytics",
+          icon: "chart.bar.fill",
+          href: "/(coordinator)/analytics",
+          testID: "tab-analytics",
         },
         { label: "Messaging", icon: "message.fill", href: "/(coordinator)/messages", testID: "tab-messaging" },
       ];
     }
     if (effectiveRole === "trainer") {
       return [
-        { label: "Home", icon: "house.fill", href: "/(trainer)", testID: "tab-home" },
+        { label: "Home", icon: "house.fill", href: "/(trainer)/dashboard", testID: "tab-home" },
         { label: "Clients", icon: "person.2.fill", href: "/(trainer)/clients", testID: "tab-clients" },
-        { label: "Pay", icon: "creditcard.fill", href: "/(trainer)/pay", testID: "tab-pay" },
-        { label: "Analytics", icon: "chart.bar.fill", href: "/(trainer)/analytics", testID: "tab-analytics" },
-        {
-          label: "Alerts",
-          icon: "exclamationmark.triangle.fill",
-          href: "/(trainer)/alerts",
-          testID: "tab-alerts",
-          badge: counts.pendingDeliveries,
-        },
+        { label: "Get Paid", icon: "creditcard.fill", href: "/(trainer)/get-paid", testID: "tab-get-paid" },
+        { label: "Rewards", icon: "star.fill", href: "/(trainer)/rewards", testID: "tab-rewards" },
+        { label: "More", icon: "ellipsis.circle.fill", href: "/(trainer)/more", testID: "tab-more" },
       ];
     }
 

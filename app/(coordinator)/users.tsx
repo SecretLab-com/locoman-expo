@@ -1,4 +1,5 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -13,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -30,27 +32,27 @@ type UserStatus = "active" | "inactive";
 type UserSort = "performance" | "newest" | "active" | "alphabetical";
 
 type User = {
-  id: number;
+  id: string;
   name: string | null;
   email: string | null;
   role: UserRole;
   active: boolean;
-  createdAt: Date;
-  lastSignedIn?: Date | null;
+  createdAt: string;
+  lastSignedIn?: string | null;
   phone?: string | null;
   photoUrl?: string | null;
-  openId?: string;
+  openId?: string | null;
 };
 
 type ActivityLogEntry = {
-  id: number;
-  targetUserId: number;
-  performedBy: number;
+  id: string;
+  targetUserId: string;
+  performedBy: string;
   action: string;
   previousValue: string | null;
   newValue: string | null;
   notes: string | null;
-  createdAt: Date;
+  createdAt: string;
 };
 
 const PAGE_SIZE = 20;
@@ -74,8 +76,28 @@ const ACTION_LABELS: Record<string, string> = {
   impersonation_started: "Impersonation Started",
   impersonation_ended: "Impersonation Ended",
   profile_updated: "Profile Updated",
-  invited: "Invited",
-  deleted: "Deleted",
+  invited: "User Invited",
+  deleted: "Account Deleted",
+};
+
+const ACTION_ICONS: Record<string, string> = {
+  role_changed: "person.2.fill",
+  status_changed: "power",
+  impersonation_started: "theatermasks.fill",
+  impersonation_ended: "theatermasks",
+  profile_updated: "pencil",
+  invited: "envelope.fill",
+  deleted: "trash.fill",
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  role_changed: "#3B82F6",
+  status_changed: "#F59E0B",
+  impersonation_started: "#8B5CF6",
+  impersonation_ended: "#8B5CF6",
+  profile_updated: "#10B981",
+  invited: "#06B6D4",
+  deleted: "#EF4444",
 };
 
 export default function UsersScreen() {
@@ -109,11 +131,13 @@ export default function UsersScreen() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [pagedUsers, setPagedUsers] = useState<User[]>([]);
+  const [stableTotalCount, setStableTotalCount] = useState(0);
   const [exporting, setExporting] = useState(false);
 
   // Bulk selection state
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [bulkActionModalVisible, setBulkActionModalVisible] = useState(false);
 
   // Date filter state
@@ -132,6 +156,7 @@ export default function UsersScreen() {
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState<UserRole>("shopper");
   const [inviting, setInviting] = useState(false);
+  const [inviteKeyboardHeight, setInviteKeyboardHeight] = useState(0);
 
   // Pending invites state
   const [showInvites, setShowInvites] = useState(false);
@@ -208,11 +233,24 @@ export default function UsersScreen() {
   const logActionMutation = trpc.admin.logUserAction.useMutation();
   const createInvitationMutation = trpc.admin.createUserInvitation.useMutation();
   const revokeInvitationMutation = trpc.admin.revokeUserInvitation.useMutation();
+  const resendInvitationMutation = trpc.admin.resendUserInvitation.useMutation();
 
-  const users = usersQuery.data?.users ?? [];
-  const totalCount = usersQuery.data?.total ?? 0;
-  const hasMore = offset + PAGE_SIZE < totalCount;
+  const users = pagedUsers;
+  const totalCount = Math.max(stableTotalCount, users.length);
+  const hasMore = users.length < totalCount;
   const pendingInvites = invitationsQuery.data?.invitations ?? [];
+  const filteredPendingInvites = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return pendingInvites.filter((invite) => {
+      const roleMatch = selectedRole === "all" || invite.role === selectedRole;
+      if (!roleMatch) return false;
+      if (!query) return true;
+      const name = String(invite.name || "").toLowerCase();
+      const email = String(invite.email || "").toLowerCase();
+      const role = String(invite.role || "").toLowerCase();
+      return name.includes(query) || email.includes(query) || role.includes(query);
+    });
+  }, [pendingInvites, searchQuery, selectedRole]);
   const displayUsers = useMemo(() => {
     if (!users.length) return [];
     const ordered = [...users];
@@ -231,6 +269,16 @@ export default function UsersScreen() {
     }
     return ordered;
   }, [users, sortKey]);
+  const trainerIdsForSocial = useMemo(
+    () => displayUsers.filter((user) => user.role === "trainer").map((user) => user.id),
+    [displayUsers],
+  );
+  const socialMembershipQuery = trpc.socialProgram.membershipByTrainerIds.useQuery(
+    { trainerIds: trainerIdsForSocial },
+    {
+      enabled: isAuthenticated && canManage && trainerIdsForSocial.length > 0,
+    },
+  );
 
   useEffect(() => {
     const normalize = (value: string | string[] | undefined) =>
@@ -260,8 +308,52 @@ export default function UsersScreen() {
   // Reset offset when filters change
   useEffect(() => {
     setOffset(0);
+    setPagedUsers([]);
     setSelectedUserIds(new Set());
   }, [searchQuery, selectedRole, selectedStatus, joinedAfter, joinedBefore]);
+
+  useEffect(() => {
+    if (!usersQuery.isSuccess) return;
+    const nextPageUsers = usersQuery.data?.users ?? [];
+    setStableTotalCount(Number(usersQuery.data?.total || 0));
+    setPagedUsers((previous) => {
+      if (offset === 0) {
+        return nextPageUsers;
+      }
+      if (!nextPageUsers.length) {
+        return previous;
+      }
+      const nextById = new Map(nextPageUsers.map((user) => [user.id, user]));
+      const merged = previous.map((user) => nextById.get(user.id) ?? user);
+      const existingIds = new Set(merged.map((user) => user.id));
+      for (const user of nextPageUsers) {
+        if (!existingIds.has(user.id)) {
+          merged.push(user);
+        }
+      }
+      return merged;
+    });
+  }, [usersQuery.isSuccess, usersQuery.data?.users, offset]);
+
+  useEffect(() => {
+    if (!inviteModalVisible) {
+      setInviteKeyboardHeight(0);
+      return;
+    }
+    if (Platform.OS !== "ios") return;
+
+    const showSub = Keyboard.addListener("keyboardWillShow", (event) => {
+      setInviteKeyboardHeight(Math.max(event.endCoordinates?.height ?? 0, 0));
+    });
+    const hideSub = Keyboard.addListener("keyboardWillHide", () => {
+      setInviteKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [inviteModalVisible]);
 
   // Load more users
   const loadMore = useCallback(() => {
@@ -274,6 +366,8 @@ export default function UsersScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     setOffset(0);
+    setPagedUsers([]);
+    setStableTotalCount(0);
     await usersQuery.refetch();
     await invitationsQuery.refetch();
     setRefreshing(false);
@@ -338,12 +432,29 @@ export default function UsersScreen() {
     setActivityLogs([]);
   };
 
+  const openDirectMessage = (user: User, closeDetailModal = false) => {
+    if (!currentUser?.id || currentUser.id === user.id) return;
+    if (closeDetailModal) {
+      closeModal();
+    }
+    const conversationId = [currentUser.id, user.id].sort().join("-");
+    const name = user.name || "User";
+    router.push({
+      pathname: `${roleBase}/conversation/[id]` as any,
+      params: {
+        id: conversationId,
+        participantId: user.id,
+        name,
+      },
+    });
+  };
+
   // Load activity logs for user
-  const loadActivityLogs = async (userId: number) => {
+  const trpcUtils = trpc.useUtils();
+  const loadActivityLogs = async (userId: string) => {
     setLoadingLogs(true);
     try {
-      const utils = trpc.useUtils();
-      const logs = await utils.admin.getUserActivityLogs.fetch({ userId, limit: 50 });
+      const logs = await trpcUtils.admin.getUserActivityLogs.fetch({ userId, limit: 50 });
       setActivityLogs(logs as ActivityLogEntry[]);
       setActivityLogVisible(true);
     } catch (error) {
@@ -387,56 +498,90 @@ export default function UsersScreen() {
     }
   };
 
-  // Toggle user status
-  const toggleUserStatus = async () => {
+  // Toggle user status with confirmation
+  const toggleUserStatus = () => {
     if (!selectedUser) return;
 
     const newActive = !selectedUser.active;
+    const action = newActive ? "activate" : "deactivate";
+    const title = newActive ? "Activate User" : "Deactivate User";
+    const message = newActive
+      ? `Are you sure you want to activate ${selectedUser.name}? They will regain access to the app.`
+      : `Are you sure you want to deactivate ${selectedUser.name}? They will lose access to the app until reactivated.`;
 
-    try {
-      await updateStatusMutation.mutateAsync({
-        userId: selectedUser.id,
-        active: newActive,
-      });
+    const doToggle = async () => {
+      try {
+        await updateStatusMutation.mutateAsync({
+          userId: selectedUser.id,
+          active: newActive,
+        });
 
-      // Log the action
-      await logActionMutation.mutateAsync({
-        targetUserId: selectedUser.id,
-        action: "status_changed",
-        previousValue: selectedUser.active ? "active" : "inactive",
-        newValue: newActive ? "active" : "inactive",
-      });
+        logActionMutation.mutate({
+          targetUserId: selectedUser.id,
+          action: "status_changed",
+          previousValue: selectedUser.active ? "active" : "inactive",
+          newValue: newActive ? "active" : "inactive",
+        });
 
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (Platform.OS !== "web") {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+        setSelectedUser((prev) => (prev ? { ...prev, active: newActive } : null));
+        usersQuery.refetch();
+      } catch {
+        Alert.alert("Error", `Failed to ${action} user`);
       }
+    };
 
-      setSelectedUser((prev) => (prev ? { ...prev, active: newActive } : null));
-      usersQuery.refetch();
-
-      Alert.alert(
-        "Success",
-        `${selectedUser.name} has been ${newActive ? "activated" : "deactivated"}`
-      );
-    } catch {
-      Alert.alert("Error", "Failed to update user status");
+    if (Platform.OS === "web") {
+      if (window.confirm(`${title}\n\n${message}`)) {
+        doToggle();
+      }
+    } else {
+      Alert.alert(title, message, [
+        { text: "Cancel", style: "cancel" },
+        { text: newActive ? "Activate" : "Deactivate", style: newActive ? "default" : "destructive", onPress: doToggle },
+      ]);
     }
   };
 
   // Impersonate user
   const impersonateUser = async () => {
-    if (!selectedUser || !isCoordinator) return;
+    if (!selectedUser || !isCoordinator) {
+      console.warn("[Impersonate] Blocked: selectedUser=", !!selectedUser, "isCoordinator=", isCoordinator);
+      return;
+    }
+
+    console.log("[Impersonate] Starting for:", selectedUser.name, "role:", selectedUser.role, "id:", selectedUser.id);
 
     try {
-      // Log the impersonation
-      await logActionMutation.mutateAsync({
+      // Best-effort log -- don't block impersonation if logging fails
+      logActionMutation.mutate({
         targetUserId: selectedUser.id,
         action: "impersonation_started",
         notes: `Impersonated by ${currentUser?.name || "Manager"}`,
       });
 
-      // Start impersonation
-      startImpersonation(selectedUser as any);
+      // Build user object with all required fields for Auth.User
+      const impersonateAs = {
+        id: selectedUser.id,
+        openId: (selectedUser as any).openId || selectedUser.id,
+        name: selectedUser.name || null,
+        email: selectedUser.email || null,
+        phone: (selectedUser as any).phone || null,
+        photoUrl: (selectedUser as any).photoUrl || (selectedUser as any).avatar || null,
+        loginMethod: (selectedUser as any).loginMethod || null,
+        role: selectedUser.role as any,
+        username: (selectedUser as any).username || null,
+        bio: (selectedUser as any).bio || null,
+      };
+
+      console.log("[Impersonate] User object:", JSON.stringify(impersonateAs));
+
+      await startImpersonation(impersonateAs as any);
+
+      console.log("[Impersonate] startImpersonation completed");
 
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -444,23 +589,29 @@ export default function UsersScreen() {
 
       closeModal();
 
-      // Navigate to appropriate dashboard based on impersonated user's role
-      // Uses role-aware navigation helper for consistency
-      navigateToHome({
-        isCoordinator: selectedUser.role === "coordinator",
-        isManager: selectedUser.role === "manager",
-        isTrainer: selectedUser.role === "trainer",
-        isClient: selectedUser.role === "client",
-      });
+      const targetRoute = selectedUser.role === "coordinator" ? "/(coordinator)/dashboard"
+        : selectedUser.role === "manager" ? "/(manager)/dashboard"
+        : selectedUser.role === "trainer" ? "/(trainer)/dashboard"
+        : selectedUser.role === "client" ? "/(client)/dashboard"
+        : "/(tabs)";
 
-      Alert.alert("Impersonation Started", `You are now viewing as ${selectedUser.name}`);
-    } catch {
-      Alert.alert("Error", "Failed to start impersonation");
+      console.log("[Impersonate] Navigating to:", targetRoute);
+
+      // Delay navigation to let auth state propagate
+      setTimeout(() => {
+        router.replace(targetRoute as any);
+      }, 500);
+    } catch (error) {
+      console.error("[Impersonate] Failed:", error);
+      Alert.alert(
+        "Error",
+        `Failed to start impersonation: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   };
 
   // Toggle user selection for bulk actions
-  const toggleUserSelection = (userId: number) => {
+  const toggleUserSelection = (userId: string) => {
     setSelectedUserIds((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(userId)) {
@@ -563,16 +714,45 @@ export default function UsersScreen() {
       setInviteName("");
       setInviteRole("shopper");
 
-      Alert.alert("Success", `Invitation sent to ${inviteEmail}`);
-    } catch {
-      Alert.alert("Error", "Failed to send invitation");
+      Alert.alert("Success", `Invitation queued to ${inviteEmail}`);
+    } catch (error) {
+      const rawMessage =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "Failed to send invitation";
+      const message = rawMessage.toLowerCase().includes("network request failed")
+        ? "Unable to reach the server. Check connection and try again."
+        : rawMessage;
+      Alert.alert("Error", message);
     } finally {
       setInviting(false);
     }
   };
 
   // Revoke invitation
-  const revokeInvitation = async (inviteId: number) => {
+  const revokeInvitation = async (inviteId: string) => {
+    const performRevoke = async () => {
+      try {
+        await revokeInvitationMutation.mutateAsync({ id: inviteId });
+        await invitationsQuery.refetch();
+        Alert.alert("Success", "Invitation revoked");
+      } catch {
+        Alert.alert("Error", "Failed to revoke invitation");
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed =
+        typeof window !== "undefined"
+          ? window.confirm("Are you sure you want to revoke this invitation?")
+          : true;
+      if (!confirmed) return;
+      void performRevoke();
+      return;
+    }
+
     Alert.alert(
       "Revoke Invitation",
       "Are you sure you want to revoke this invitation?",
@@ -581,18 +761,23 @@ export default function UsersScreen() {
         {
           text: "Revoke",
           style: "destructive",
-          onPress: async () => {
-            try {
-              await revokeInvitationMutation.mutateAsync({ id: inviteId });
-              invitationsQuery.refetch();
-              Alert.alert("Success", "Invitation revoked");
-            } catch {
-              Alert.alert("Error", "Failed to revoke invitation");
-            }
+          onPress: () => {
+            void performRevoke();
           },
         },
       ]
     );
+  };
+
+  const resendInvitation = async (inviteId: string, email: string) => {
+    try {
+      await resendInvitationMutation.mutateAsync({ id: inviteId });
+      await invitationsQuery.refetch();
+      Alert.alert("Success", `Invitation re-queued to ${email}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to resend invitation";
+      Alert.alert("Error", message);
+    }
   };
 
   // Export to CSV
@@ -673,7 +858,7 @@ export default function UsersScreen() {
       router.back();
       return;
     }
-    router.replace("/(coordinator)" as any);
+    router.replace("/(coordinator)/dashboard" as any);
   };
 
   if (authLoading) {
@@ -716,7 +901,7 @@ export default function UsersScreen() {
         </View>
         <Text className="text-xl font-semibold text-foreground">Manager access required</Text>
         <Text className="text-muted text-center mt-2">
-          You don't have permission to view this page.
+          You do not have permission to view this page.
         </Text>
       </ScreenContainer>
     );
@@ -725,7 +910,7 @@ export default function UsersScreen() {
   return (
     <ScreenContainer className="flex-1">
       {/* Header with Export Button */}
-      <View className="px-4 pt-2 pb-4 flex-row items-center justify-between" style={{ paddingRight: 56 }}>
+      <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={handleBack}
@@ -743,134 +928,17 @@ export default function UsersScreen() {
             </Text>
           </View>
         </View>
-        <View style={styles.headerButtons}>
-          {selectionMode ? (
-            <>
-              <TouchableOpacity
-                onPress={exitSelectionMode}
-                style={[styles.headerButton, { backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel selection"
-                testID="users-cancel-selection"
-              >
-                <Text style={{ color: colors.foreground }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setBulkActionModalVisible(true)}
-                disabled={selectedUserIds.size === 0}
-                style={[
-                  styles.headerButton,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: selectedUserIds.size === 0 ? 0.5 : 1,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Bulk actions"
-                testID="users-bulk-actions"
-              >
-                <Text style={{ color: "#fff" }}>
-                  Actions ({selectedUserIds.size})
-                </Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                onPress={() => setInviteModalVisible(true)}
-                style={[styles.headerButton, { backgroundColor: colors.primary }]}
-                accessibilityRole="button"
-                accessibilityLabel="Invite user"
-                testID="users-invite"
-              >
-                <IconSymbol name="plus" size={16} color="#fff" />
-                <Text style={{ color: "#fff", marginLeft: 4 }}>Invite</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setSelectionMode(true)}
-                style={[styles.headerButton, { backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Select users"
-                testID="users-select"
-              >
-                <IconSymbol name="checkmark.circle.fill" size={16} color={colors.foreground} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={exportToCSV}
-                disabled={exporting}
-                style={[
-                  styles.headerButton,
-                  { backgroundColor: colors.surface, opacity: exporting ? 0.6 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Export users"
-                testID="users-export"
-              >
-                {exporting ? (
-                  <ActivityIndicator size="small" color={colors.foreground} />
-                ) : (
-                  <IconSymbol name="square.and.arrow.up" size={16} color={colors.foreground} />
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+
       </View>
 
-      {/* Pending Invites Toggle */}
-      {pendingInvites.length > 0 && (
-        <TouchableOpacity
-          onPress={() => setShowInvites(!showInvites)}
-          style={[styles.invitesToggle, { backgroundColor: colors.warning + "20", borderColor: colors.warning }]}
-        >
-          <IconSymbol name="envelope.fill" size={16} color={colors.warning} />
-          <Text style={{ color: colors.warning, marginLeft: 8, fontWeight: "600" }}>
-            {pendingInvites.length} Pending Invite{pendingInvites.length > 1 ? "s" : ""}
-          </Text>
-          <IconSymbol
-            name={showInvites ? "chevron.up" : "chevron.down"}
-            size={14}
-            color={colors.warning}
-            style={{ marginLeft: "auto" }}
-          />
-        </TouchableOpacity>
-      )}
-
-      {/* Pending Invites List */}
-      {showInvites && pendingInvites.length > 0 && (
-        <View style={[styles.invitesList, { backgroundColor: colors.surface }]}>
-          {pendingInvites.map((invite) => (
-            <View key={invite.id} style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.foreground, fontWeight: "500" }}>
-                  {invite.name || invite.email}
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {invite.email} • {invite.role}
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 11 }}>
-                  Expires {formatDate(invite.expiresAt)}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => revokeInvitation(invite.id)}
-                style={[styles.revokeButton, { backgroundColor: colors.error + "15" }]}
-              >
-                <Text style={{ color: colors.error, fontSize: 12, fontWeight: "500" }}>Revoke</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Search */}
+      {/* Search + inline actions */}
       <View className="px-4 mb-4">
         <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
           <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search users..."
+            placeholder="Search users and invites..."
             placeholderTextColor={colors.muted}
             className="flex-1 ml-2 text-foreground"
           />
@@ -878,6 +946,64 @@ export default function UsersScreen() {
             <TouchableOpacity onPress={() => setSearchQuery("")}>
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
             </TouchableOpacity>
+          )}
+
+          {selectionMode ? (
+            <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8, gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setBulkActionModalVisible(true)}
+                disabled={selectedUserIds.size === 0}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  backgroundColor: colors.primary,
+                  opacity: selectedUserIds.size === 0 ? 0.5 : 1,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Bulk actions"
+                testID="users-bulk-actions"
+              >
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                  Actions ({selectedUserIds.size})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={exitSelectionMode}
+                style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.surface }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel selection"
+                testID="users-cancel-selection"
+              >
+                <IconSymbol name="xmark" size={14} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8, gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setSelectionMode(true)}
+                style={{ padding: 6, borderRadius: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Select users"
+                testID="users-select"
+              >
+                <IconSymbol name="checkmark.circle.fill" size={18} color={colors.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={exportToCSV}
+                disabled={exporting}
+                style={{ padding: 6, borderRadius: 8, opacity: exporting ? 0.6 : 1 }}
+                accessibilityRole="button"
+                accessibilityLabel="Export users"
+                testID="users-export"
+              >
+                {exporting ? (
+                  <ActivityIndicator size="small" color={colors.muted} />
+                ) : (
+                  <IconSymbol name="square.and.arrow.up" size={18} color={colors.muted} />
+                )}
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -1007,6 +1133,80 @@ export default function UsersScreen() {
           </View>
         )}
       </View>
+
+      {/* Pending Invites Toggle */}
+      {pendingInvites.length > 0 && (
+        <TouchableOpacity
+          onPress={() => setShowInvites(!showInvites)}
+          style={[styles.invitesToggle, { backgroundColor: colors.warning + "20", borderColor: colors.warning }]}
+        >
+          <IconSymbol name="envelope.fill" size={16} color={colors.warning} />
+          <Text style={{ color: colors.warning, marginLeft: 8, fontWeight: "600" }}>
+            {filteredPendingInvites.length}
+            {filteredPendingInvites.length !== pendingInvites.length ? ` of ${pendingInvites.length}` : ""} Pending Invite
+            {filteredPendingInvites.length !== 1 ? "s" : ""}
+          </Text>
+          <IconSymbol
+            name={showInvites ? "chevron.up" : "chevron.down"}
+            size={14}
+            color={colors.warning}
+            style={{ marginLeft: "auto" }}
+          />
+        </TouchableOpacity>
+      )}
+
+      {/* Pending Invites List */}
+      {showInvites && pendingInvites.length > 0 && (
+        <View style={[styles.invitesList, { backgroundColor: colors.surface }]}>
+          {filteredPendingInvites.length === 0 ? (
+            <View style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>
+                No pending invites match the current search/filter.
+              </Text>
+            </View>
+          ) : (
+            filteredPendingInvites.map((invite) => (
+              <View key={invite.id} style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.foreground, fontWeight: "500" }}>
+                    {invite.name || invite.email}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    {invite.email} • {invite.role}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Expires {formatDate(invite.expiresAt)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => resendInvitation(invite.id, invite.email)}
+                    disabled={resendInvitationMutation.isPending}
+                    style={[
+                      styles.revokeButton,
+                      { backgroundColor: colors.primary + "15", opacity: resendInvitationMutation.isPending ? 0.6 : 1 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Resend invitation to ${invite.email}`}
+                    testID={`invite-resend-${invite.id}`}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "500" }}>Resend</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => revokeInvitation(invite.id)}
+                    style={[styles.revokeButton, { backgroundColor: colors.error + "15" }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Revoke invitation for ${invite.email}`}
+                    testID={`invite-revoke-${invite.id}`}
+                  >
+                    <Text style={{ color: colors.error, fontSize: 12, fontWeight: "500" }}>Revoke</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      )}
 
       {/* Selection Mode Header */}
       {selectionMode && (
@@ -1152,20 +1352,26 @@ export default function UsersScreen() {
                   <Text className="text-xs text-muted mt-1">
                     Joined {formatDate(user.createdAt)}
                   </Text>
+                  {user.role === "trainer" ? (
+                    <View
+                      className="mt-1 self-start px-2 py-0.5 rounded"
+                      style={{ backgroundColor: `${colors.primary}22` }}
+                    >
+                      <Text className="text-[10px] font-semibold" style={{ color: colors.primary }}>
+                        Social:{" "}
+                        {String(
+                          socialMembershipQuery.data?.[user.id]?.status || "not enrolled",
+                        ).replace(/_/g, " ")}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Role Badge */}
                 <View className="flex-row items-center gap-2">
-                  {!selectionMode && (
+                  {!selectionMode && currentUser?.id && currentUser.id !== user.id && (
                     <TouchableOpacity
-                      onPress={() => {
-                        if (!currentUser?.id) return;
-                        const conversationId = [currentUser.id, user.id].sort().join("-");
-                        const name = user.name || "User";
-                        router.push(
-                          `${roleBase}/messages/${conversationId}?participantId=${user.id}&name=${encodeURIComponent(name)}` as any
-                        );
-                      }}
+                      onPress={() => openDirectMessage(user)}
                       className="w-8 h-8 rounded-full items-center justify-center bg-surface border border-border"
                       accessibilityRole="button"
                       accessibilityLabel={`Message ${user.name || "user"}`}
@@ -1220,145 +1426,158 @@ export default function UsersScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <SwipeDownSheet
+              visible={modalVisible}
+              onClose={closeModal}
+              style={[styles.modalContent, { backgroundColor: colors.background }]}
+            >
+              <ScrollView showsVerticalScrollIndicator={false}>
               {selectedUser && !activityLogVisible && (
                 <>
-                  {/* Modal Header */}
-                  <View style={styles.modalHeader}>
-                    <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                      User Details
-                    </Text>
-                    <TouchableOpacity onPress={closeModal}>
-                      <IconSymbol name="xmark" size={24} color={colors.muted} />
+                  {/* Compact header with avatar + name + close */}
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}>
+                    <View
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 24,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: `${ROLE_COLORS[selectedUser.role]}20`,
+                        marginRight: 12,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {selectedUser.photoUrl ? (
+                        <Image
+                          source={{ uri: selectedUser.photoUrl }}
+                          style={{ width: 48, height: 48 }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <Text style={{ fontSize: 18, fontWeight: "700", color: ROLE_COLORS[selectedUser.role] }}>
+                          {getInitials(selectedUser.name)}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground }}>
+                        {selectedUser.name || "Unknown"}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` }}>
+                          <Text style={{ color: ROLE_COLORS[selectedUser.role], fontWeight: "600", fontSize: 11 }}>
+                            {selectedUser.role.charAt(0).toUpperCase() + selectedUser.role.slice(1)}
+                          </Text>
+                        </View>
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: `${STATUS_COLORS[selectedUser.active ? "active" : "inactive"]}20` }}>
+                          <Text style={{ color: STATUS_COLORS[selectedUser.active ? "active" : "inactive"], fontWeight: "600", fontSize: 11 }}>
+                            {selectedUser.active ? "Active" : "Inactive"}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={closeModal} style={{ padding: 4 }}>
+                      <IconSymbol name="xmark" size={20} color={colors.muted} />
                     </TouchableOpacity>
                   </View>
 
-                  {/* User Profile */}
-                  <View style={styles.profileSection}>
-                    <View
-                      style={[
-                        styles.largeAvatar,
-                        { backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.largeAvatarText, { color: ROLE_COLORS[selectedUser.role] }]}
-                      >
-                        {getInitials(selectedUser.name)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.userName, { color: colors.foreground }]}>
-                      {selectedUser.name || "Unknown"}
-                    </Text>
-                    <View style={styles.statusRow}>
-                      <View
-                        style={[
-                          styles.roleBadge,
-                          { backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` },
-                        ]}
-                      >
-                        <Text style={{ color: ROLE_COLORS[selectedUser.role], fontWeight: "600" }}>
-                          {selectedUser.role.charAt(0).toUpperCase() + selectedUser.role.slice(1)}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.statusBadge,
-                          { backgroundColor: `${STATUS_COLORS[selectedUser.active ? "active" : "inactive"]}20` },
-                        ]}
-                      >
-                        <Text style={{ color: STATUS_COLORS[selectedUser.active ? "active" : "inactive"], fontWeight: "600" }}>
-                          {selectedUser.active ? "Active" : "Inactive"}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* User Info */}
-                  <View style={[styles.infoSection, { borderColor: colors.border }]}>
-                    <View style={styles.infoRow}>
-                      <IconSymbol name="envelope.fill" size={18} color={colors.muted} />
-                      <Text style={[styles.infoText, { color: colors.foreground }]}>
+                  {/* Contact info - compact row */}
+                  <View style={{ backgroundColor: colors.surface, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                      <IconSymbol name="envelope.fill" size={14} color={colors.muted} />
+                      <Text style={{ fontSize: 13, color: colors.foreground, marginLeft: 8 }}>
                         {selectedUser.email || "No email"}
                       </Text>
                     </View>
-                    {selectedUser.phone && (
-                      <View style={styles.infoRow}>
-                        <IconSymbol name="phone.fill" size={18} color={colors.muted} />
-                        <Text style={[styles.infoText, { color: colors.foreground }]}>
-                          {selectedUser.phone}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <IconSymbol name="calendar" size={14} color={colors.muted} />
+                        <Text style={{ fontSize: 12, color: colors.muted, marginLeft: 6 }}>
+                          Joined {formatDate(selectedUser.createdAt)}
                         </Text>
                       </View>
-                    )}
-                    <View style={styles.infoRow}>
-                      <IconSymbol name="calendar" size={18} color={colors.muted} />
-                      <Text style={[styles.infoText, { color: colors.foreground }]}>
-                        Joined {formatDate(selectedUser.createdAt)}
-                      </Text>
+                      {selectedUser.lastSignedIn && (
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          <IconSymbol name="clock.fill" size={14} color={colors.muted} />
+                          <Text style={{ fontSize: 12, color: colors.muted, marginLeft: 6 }}>
+                            {formatRelativeTime(selectedUser.lastSignedIn)}
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                    {selectedUser.lastSignedIn && (
-                      <View style={styles.infoRow}>
-                        <IconSymbol name="clock.fill" size={18} color={colors.muted} />
-                        <Text style={[styles.infoText, { color: colors.foreground }]}>
-                          Last active {formatRelativeTime(selectedUser.lastSignedIn)}
-                        </Text>
-                      </View>
+                  </View>
+
+                  {/* Quick actions row */}
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                    <TouchableOpacity
+                      onPress={() => loadActivityLogs(selectedUser.id)}
+                      disabled={loadingLogs}
+                      style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}
+                    >
+                      {loadingLogs ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <>
+                          <IconSymbol name="clock.arrow.circlepath" size={14} color={colors.primary} />
+                          <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 12, marginLeft: 6 }}>Activity</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    {currentUser?.id && currentUser.id !== selectedUser.id && (
+                      <TouchableOpacity
+                        onPress={() => openDirectMessage(selectedUser, true)}
+                        style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: `${colors.primary}12` }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Message ${selectedUser.name || "user"}`}
+                        testID="user-detail-message-btn"
+                      >
+                        <IconSymbol name="message.fill" size={14} color={colors.primary} />
+                        <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 12, marginLeft: 6 }}>Message</Text>
+                      </TouchableOpacity>
+                    )}
+                    {isCoordinator && (
+                      <TouchableOpacity
+                        onPress={impersonateUser}
+                        style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: `${ROLE_COLORS.coordinator}12` }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Impersonate this user"
+                        testID="impersonate-user-btn"
+                      >
+                        <IconSymbol name="person.crop.circle.badge.checkmark" size={14} color={ROLE_COLORS.coordinator} />
+                        <Text style={{ color: ROLE_COLORS.coordinator, fontWeight: "600", fontSize: 12, marginLeft: 6 }}>Impersonate</Text>
+                      </TouchableOpacity>
                     )}
                   </View>
 
-                  {/* Activity Log Button */}
-                  <TouchableOpacity
-                    onPress={() => loadActivityLogs(selectedUser.id)}
-                    disabled={loadingLogs}
-                    style={[styles.activityLogButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                  >
-                    {loadingLogs ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <>
-                        <IconSymbol name="clock.arrow.circlepath" size={18} color={colors.primary} />
-                        <Text style={{ color: colors.primary, fontWeight: "600", marginLeft: 8 }}>
-                          View Activity Log
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Change Role Section */}
-                  <View style={[styles.actionSection, { borderColor: colors.border }]}>
-                    <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-                      Change Role
+                  {/* Role selector - compact inline */}
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: colors.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      Role
                     </Text>
-                    <View style={styles.roleGrid}>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                       {allRoles.map((role) => (
                         <TouchableOpacity
                           key={role}
                           onPress={() => changeUserRole(role)}
                           disabled={updateRoleMutation.isPending}
-                          style={[
-                            styles.roleOption,
-                            {
-                              backgroundColor:
-                                selectedUser.role === role
-                                  ? `${ROLE_COLORS[role]}20`
-                                  : colors.surface,
-                              borderColor:
-                                selectedUser.role === role ? ROLE_COLORS[role] : colors.border,
-                              opacity: updateRoleMutation.isPending ? 0.5 : 1,
-                            },
-                          ]}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            backgroundColor: selectedUser.role === role ? `${ROLE_COLORS[role]}20` : colors.surface,
+                            borderColor: selectedUser.role === role ? ROLE_COLORS[role] : colors.border,
+                            opacity: updateRoleMutation.isPending ? 0.5 : 1,
+                          }}
                         >
-                          <Text
-                            style={{
-                              color:
-                                selectedUser.role === role ? ROLE_COLORS[role] : colors.foreground,
-                              fontWeight: selectedUser.role === role ? "600" : "400",
-                              fontSize: 13,
-                            }}
-                          >
+                          <Text style={{
+                            color: selectedUser.role === role ? ROLE_COLORS[role] : colors.foreground,
+                            fontWeight: selectedUser.role === role ? "600" : "400",
+                            fontSize: 12,
+                          }}>
                             {role.charAt(0).toUpperCase() + role.slice(1)}
                           </Text>
                         </TouchableOpacity>
@@ -1366,64 +1585,38 @@ export default function UsersScreen() {
                     </View>
                   </View>
 
-                  {/* Action Buttons */}
-                  <View style={styles.buttonSection}>
-                    {/* Impersonate Button (Coordinator only) */}
-                    {isCoordinator && (
-                      <TouchableOpacity
-                        onPress={impersonateUser}
-                        style={[
-                          styles.actionButton,
-                          { backgroundColor: `${ROLE_COLORS.coordinator}15`, marginBottom: 12 },
-                        ]}
-                      >
-                        <IconSymbol name="person.crop.circle.badge.checkmark" size={20} color={ROLE_COLORS.coordinator} />
-                        <Text style={{ color: ROLE_COLORS.coordinator, fontWeight: "600", marginLeft: 8 }}>
-                          Impersonate User
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-
+                  {/* Status toggle - prominent with separator */}
+                  <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, marginTop: 4 }}>
                     <TouchableOpacity
                       onPress={toggleUserStatus}
                       disabled={updateStatusMutation.isPending}
-                      style={[
-                        styles.actionButton,
-                        {
-                          backgroundColor:
-                            selectedUser.active
-                              ? `${STATUS_COLORS.inactive}15`
-                              : `${STATUS_COLORS.active}15`,
-                          opacity: updateStatusMutation.isPending ? 0.5 : 1,
-                        },
-                      ]}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingVertical: 12,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active,
+                        backgroundColor: selectedUser.active ? `${STATUS_COLORS.inactive}10` : `${STATUS_COLORS.active}10`,
+                        opacity: updateStatusMutation.isPending ? 0.5 : 1,
+                      }}
                     >
                       {updateStatusMutation.isPending ? (
-                        <ActivityIndicator
-                          size="small"
-                          color={selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active}
-                        />
+                        <ActivityIndicator size="small" color={selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active} />
                       ) : (
                         <>
                           <IconSymbol
                             name={selectedUser.active ? "xmark.circle.fill" : "checkmark.circle.fill"}
-                            size={20}
-                            color={
-                              selectedUser.active
-                                ? STATUS_COLORS.inactive
-                                : STATUS_COLORS.active
-                            }
+                            size={16}
+                            color={selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active}
                           />
-                          <Text
-                            style={{
-                              color:
-                                selectedUser.active
-                                  ? STATUS_COLORS.inactive
-                                  : STATUS_COLORS.active,
-                              fontWeight: "600",
-                              marginLeft: 8,
-                            }}
-                          >
+                          <Text style={{
+                            color: selectedUser.active ? STATUS_COLORS.inactive : STATUS_COLORS.active,
+                            fontWeight: "600",
+                            fontSize: 13,
+                            marginLeft: 8,
+                          }}>
                             {selectedUser.active ? "Deactivate User" : "Activate User"}
                           </Text>
                         </>
@@ -1439,10 +1632,18 @@ export default function UsersScreen() {
                   <View style={styles.modalHeader}>
                     <TouchableOpacity
                       onPress={() => setActivityLogVisible(false)}
-                      style={{ flexDirection: "row", alignItems: "center" }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: colors.surface,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Go back"
                     >
-                      <IconSymbol name="chevron.left" size={20} color={colors.primary} />
-                      <Text style={{ color: colors.primary, marginLeft: 4 }}>Back</Text>
+                      <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
                     </TouchableOpacity>
                     <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                       Activity Log
@@ -1457,39 +1658,62 @@ export default function UsersScreen() {
                   {activityLogs.length === 0 ? (
                     <View style={styles.emptyLogs}>
                       <IconSymbol name="clock" size={48} color={colors.muted} />
-                      <Text style={{ color: colors.muted, marginTop: 12 }}>No activity recorded</Text>
+                      <Text style={{ color: colors.muted, marginTop: 12, fontSize: 16 }}>No activity recorded</Text>
+                      <Text style={{ color: colors.muted, marginTop: 4, fontSize: 13, textAlign: "center" }}>
+                        Actions like role changes, status updates, and impersonations will appear here.
+                      </Text>
                     </View>
                   ) : (
-                    activityLogs.map((log) => (
-                      <View
-                        key={log.id}
-                        style={[styles.logItem, { borderBottomColor: colors.border }]}
-                      >
-                        <View style={[styles.logIcon, { backgroundColor: colors.primary + "20" }]}>
-                          <IconSymbol name="clock.fill" size={16} color={colors.primary} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.foreground, fontWeight: "500" }}>
-                            {ACTION_LABELS[log.action] || log.action}
-                          </Text>
-                          {log.previousValue && log.newValue && (
-                            <Text style={{ color: colors.muted, fontSize: 13 }}>
-                              {log.previousValue} → {log.newValue}
+                    activityLogs.map((log) => {
+                      const actionColor = ACTION_COLORS[log.action] || colors.primary;
+                      const actionIcon = ACTION_ICONS[log.action] || "clock.fill";
+                      // Find performer name from users list
+                      const performer = (usersQuery.data?.users || []).find((u: User) => u.id === log.performedBy);
+                      const performerName = performer?.name || "System";
+
+                      return (
+                        <View
+                          key={log.id}
+                          style={[styles.logItem, { borderBottomColor: colors.border }]}
+                        >
+                          <View style={[styles.logIcon, { backgroundColor: actionColor + "15" }]}>
+                            <IconSymbol name={actionIcon as any} size={16} color={actionColor} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 14 }}>
+                              {ACTION_LABELS[log.action] || log.action}
                             </Text>
-                          )}
-                          {log.notes && (
-                            <Text style={{ color: colors.muted, fontSize: 13 }}>{log.notes}</Text>
-                          )}
-                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-                            {formatRelativeTime(log.createdAt)}
-                          </Text>
+                            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
+                              by {performerName}
+                            </Text>
+                            {log.previousValue && log.newValue && (
+                              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                                <View style={{ backgroundColor: colors.error + "15", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                  <Text style={{ color: colors.error, fontSize: 12 }}>{log.previousValue}</Text>
+                                </View>
+                                <Text style={{ color: colors.muted, marginHorizontal: 6, fontSize: 12 }}>→</Text>
+                                <View style={{ backgroundColor: colors.success + "15", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                  <Text style={{ color: colors.success, fontSize: 12 }}>{log.newValue}</Text>
+                                </View>
+                              </View>
+                            )}
+                            {log.notes && (
+                              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4, fontStyle: "italic" }}>
+                                {log.notes}
+                              </Text>
+                            )}
+                            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                              {formatRelativeTime(log.createdAt)}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
-                    ))
+                      );
+                    })
                   )}
                 </>
               )}
-            </ScrollView>
+              </ScrollView>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1506,10 +1730,14 @@ export default function UsersScreen() {
           onPress={() => setBulkActionModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
+            <SwipeDownSheet
+              visible={bulkActionModalVisible}
+              onClose={() => setBulkActionModalVisible(false)}
+              style={[styles.modalContent, { backgroundColor: colors.background }]}
+            >
+              <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                 Bulk Actions ({selectedUserIds.size} users)
               </Text>
@@ -1580,6 +1808,7 @@ export default function UsersScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1596,103 +1825,137 @@ export default function UsersScreen() {
           onPress={() => setInviteModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                Invite New User
-              </Text>
-              <TouchableOpacity onPress={() => setInviteModalVisible(false)}>
-                <IconSymbol name="xmark" size={24} color={colors.muted} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.inviteForm}>
-              <Text style={[styles.inputLabel, { color: colors.foreground }]}>Email *</Text>
-              <TextInput
-                value={inviteEmail}
-                onChangeText={setInviteEmail}
-                placeholder="user@example.com"
-                placeholderTextColor={colors.muted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                style={[
-                  styles.inviteInput,
-                  { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
-                ]}
-              />
-
-              <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
-                Name (optional)
-              </Text>
-              <TextInput
-                value={inviteName}
-                onChangeText={setInviteName}
-                placeholder="John Doe"
-                placeholderTextColor={colors.muted}
-                style={[
-                  styles.inviteInput,
-                  { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
-                ]}
-              />
-
-              <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
-                Assign Role
-              </Text>
-              <View style={styles.roleGrid}>
-                {allRoles.map((role) => (
-                  <TouchableOpacity
-                    key={role}
-                    onPress={() => setInviteRole(role)}
-                    style={[
-                      styles.roleOption,
-                      {
-                        backgroundColor:
-                          inviteRole === role ? `${ROLE_COLORS[role]}20` : colors.surface,
-                        borderColor: inviteRole === role ? ROLE_COLORS[role] : colors.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: inviteRole === role ? ROLE_COLORS[role] : colors.foreground,
-                        fontWeight: inviteRole === role ? "600" : "400",
-                        fontSize: 13,
-                      }}
-                    >
-                      {role.charAt(0).toUpperCase() + role.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <TouchableOpacity
-                onPress={sendInvitation}
-                disabled={inviting || !inviteEmail.trim()}
-                style={[
-                  styles.sendInviteButton,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: inviting || !inviteEmail.trim() ? 0.5 : 1,
-                  },
+            <SwipeDownSheet
+              visible={inviteModalVisible}
+              onClose={() => setInviteModalVisible(false)}
+              style={[
+                styles.modalContent,
+                { backgroundColor: colors.background },
+                Platform.OS === "ios" && inviteKeyboardHeight > 0
+                  ? { marginBottom: Math.max(inviteKeyboardHeight - 12, 0) }
+                  : null,
+              ]}
+            >
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={[
+                  styles.inviteScrollContent,
+                  inviteKeyboardHeight > 0 ? { paddingBottom: 16 } : null,
                 ]}
               >
-                {inviting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <IconSymbol name="paperplane.fill" size={18} color="#fff" />
-                    <Text style={{ color: "#fff", fontWeight: "600", marginLeft: 8 }}>
-                      Send Invitation
+                  <View style={styles.modalHeader}>
+                    <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                      Invite New User
                     </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
+                    <TouchableOpacity onPress={() => setInviteModalVisible(false)}>
+                      <IconSymbol name="xmark" size={24} color={colors.muted} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.inviteForm}>
+                    <Text style={[styles.inputLabel, { color: colors.foreground }]}>Email *</Text>
+                    <TextInput
+                      value={inviteEmail}
+                      onChangeText={setInviteEmail}
+                      placeholder="user@example.com"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      style={[
+                        styles.inviteInput,
+                        { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
+                      ]}
+                    />
+
+                    <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
+                      Name (optional)
+                    </Text>
+                    <TextInput
+                      value={inviteName}
+                      onChangeText={setInviteName}
+                      placeholder="John Doe"
+                      placeholderTextColor={colors.muted}
+                      style={[
+                        styles.inviteInput,
+                        { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground },
+                      ]}
+                    />
+
+                    <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>
+                      Assign Role
+                    </Text>
+                    <View style={styles.roleGrid}>
+                      {allRoles.map((role) => (
+                        <TouchableOpacity
+                          key={role}
+                          onPress={() => setInviteRole(role)}
+                          style={[
+                            styles.roleOption,
+                            {
+                              backgroundColor:
+                                inviteRole === role ? `${ROLE_COLORS[role]}20` : colors.surface,
+                              borderColor: inviteRole === role ? ROLE_COLORS[role] : colors.border,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: inviteRole === role ? ROLE_COLORS[role] : colors.foreground,
+                              fontWeight: inviteRole === role ? "600" : "400",
+                              fontSize: 13,
+                            }}
+                          >
+                            {role.charAt(0).toUpperCase() + role.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={sendInvitation}
+                      disabled={inviting || !inviteEmail.trim()}
+                      style={[
+                        styles.sendInviteButton,
+                        {
+                          backgroundColor: colors.primary,
+                          opacity: inviting || !inviteEmail.trim() ? 0.5 : 1,
+                        },
+                      ]}
+                    >
+                      {inviting ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <IconSymbol name="paperplane.fill" size={18} color="#fff" />
+                          <Text style={{ color: "#fff", fontWeight: "600", marginLeft: 8 }}>
+                            Send Invitation
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+              </ScrollView>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Invite FAB */}
+      {!selectionMode && (
+        <TouchableOpacity
+          onPress={() => setInviteModalVisible(true)}
+          className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+          style={{ right: 16, bottom: 16 }}
+          accessibilityRole="button"
+          accessibilityLabel="Invite user"
+          testID="users-invite-fab"
+        >
+          <IconSymbol name="plus" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
     </ScreenContainer>
   );
 }
@@ -1701,8 +1964,12 @@ const styles = StyleSheet.create({
   avatarImage: {
     ...StyleSheet.absoluteFillObject,
   },
-  headerButtons: {
+  headerButtonsRow: {
     flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    rowGap: 8,
+    marginTop: 12,
     gap: 8,
   },
   headerButton: {
@@ -1837,7 +2104,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.85)",
     justifyContent: "flex-end",
   },
   modalContent: {
@@ -1970,6 +2237,9 @@ const styles = StyleSheet.create({
   },
   inviteForm: {
     paddingTop: 8,
+  },
+  inviteScrollContent: {
+    paddingBottom: 24,
   },
   inputLabel: {
     fontSize: 14,

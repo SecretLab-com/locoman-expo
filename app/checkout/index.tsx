@@ -6,6 +6,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Linking,
   Platform,
 } from "react-native";
 import { router } from "expo-router";
@@ -16,6 +17,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useCart, CartItem } from "@/contexts/cart-context";
 import { useAuthContext } from "@/contexts/auth-context";
 import { navigateToHome } from "@/lib/navigation";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 
 const FULFILLMENT_OPTIONS = [
@@ -154,6 +156,16 @@ export default function CheckoutScreen() {
   const { isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
   const { items, subtotal, updateQuantity, updateFulfillment, removeItem, clearCart } = useCart();
   const [processing, setProcessing] = useState(false);
+  const utils = trpc.useUtils();
+  const createOrder = trpc.orders.create.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.orders.myOrders.invalidate(),
+        utils.orders.list.invalidate(),
+        utils.deliveries.myDeliveries.invalidate(),
+      ]);
+    },
+  });
 
   const shippingFee = items.some((i) => i.fulfillment === "home_ship") ? 5.99 : 0;
   const tax = subtotal * 0.08; // 8% tax
@@ -167,7 +179,7 @@ export default function CheckoutScreen() {
 
     Alert.alert(
       "Confirm Order",
-      `Place order for $${total.toFixed(2)}?`,
+      `Submit order for $${total.toFixed(2)}? Payment status will be pending until confirmed.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -180,23 +192,66 @@ export default function CheckoutScreen() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               }
 
-              // TODO: Replace with actual API call
-              // await trpc.orders.create.mutate({
-              //   items: items.map(item => ({
-              //     bundleId: item.bundleId,
-              //     quantity: item.quantity,
-              //     fulfillment: item.fulfillment,
-              //   })),
-              // });
+              const result = await createOrder.mutateAsync({
+                items: items.map((item) => ({
+                  title: item.title,
+                  quantity: item.quantity,
+                  bundleId: item.bundleId,
+                  productId: item.productId,
+                  trainerId: item.trainerId,
+                  unitPrice: item.price,
+                  fulfillment: item.fulfillment,
+                })),
+                subtotalAmount: subtotal,
+                shippingAmount: shippingFee,
+                taxAmount: tax,
+                totalAmount: total,
+              });
 
-              await new Promise((resolve) => setTimeout(resolve, 2000));
+              if (result.payment?.required) {
+                const paymentLink = result.payment.paymentLink;
+                if (paymentLink) {
+                  if (Platform.OS === "web") {
+                    if (window.confirm("Order submitted. Open payment page now?")) {
+                      await Linking.openURL(paymentLink);
+                    }
+                  } else {
+                    Alert.alert(
+                      "Complete Payment",
+                      "Your order was submitted. Complete payment now to confirm it.",
+                      [
+                        { text: "Later", style: "cancel" },
+                        {
+                          text: "Pay Now",
+                          onPress: () => {
+                            void Linking.openURL(paymentLink);
+                          },
+                        },
+                      ]
+                    );
+                  }
+                } else if (!result.payment.configured) {
+                  Alert.alert(
+                    "Payment Pending",
+                    "Order submitted, but the payment provider is not configured. Payment remains pending.",
+                  );
+                } else {
+                  Alert.alert(
+                    "Payment Pending",
+                    "Order submitted. Payment link generation failed; you can retry from order confirmation.",
+                  );
+                }
+              }
 
               if (Platform.OS !== "web") {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               }
 
               clearCart();
-              router.replace("/checkout/confirmation" as any);
+              router.replace({
+                pathname: "/checkout/confirmation",
+                params: { orderId: result.orderId },
+              } as any);
             } catch (error) {
               console.error("Failed to place order:", error);
               if (Platform.OS !== "web") {
@@ -239,8 +294,13 @@ export default function CheckoutScreen() {
     return (
       <ScreenContainer>
         <View className="flex-row items-center px-4 py-3 border-b border-border">
-          <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-            <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <Text className="flex-1 text-lg font-semibold text-foreground ml-2">Checkout</Text>
         </View>
@@ -266,8 +326,13 @@ export default function CheckoutScreen() {
     <ScreenContainer>
       {/* Header */}
       <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2">
-          <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
         </TouchableOpacity>
         <Text className="flex-1 text-lg font-semibold text-foreground ml-2">Checkout</Text>
         <Text className="text-muted">{items.length} items</Text>

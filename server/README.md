@@ -10,7 +10,7 @@ This guide covers server-side features including authentication, database, tRPC 
 |----------|-----------------|---------------------|----------|
 | Data stays on device only | No | No | Use `AsyncStorage` |
 | Data syncs across devices | Yes | Yes | Database + tRPC |
-| User accounts / login | Yes | Yes | Manus OAuth |
+| User accounts / login | Yes | Yes | Supabase Auth |
 | AI-powered features | Yes | **Optional** | LLM Integration |
 | User uploads files | Yes | **Optional** | S3 Storage |
 | Server-side validation | Yes | **Optional** | tRPC procedures |
@@ -27,10 +27,8 @@ server/
   routers.ts         ← tRPC procedures (add API routes here)
   storage.ts         ← S3 storage helpers (can extend)
   _core/             ← Framework-level code (don't modify)
-drizzle/
-  schema.ts          ← Database tables & types (add your tables here)
-  relations.ts       ← Table relationships
-  migrations/        ← Auto-generated migrations
+supabase/
+  migrations/        ← SQL schema migrations (add/extend tables here)
 shared/
   types.ts           ← Shared TypeScript types
   const.ts           ← Shared constants
@@ -52,12 +50,12 @@ Only touch the files with "←" markers. Anything under `_core/` directories is 
 
 ### Overview
 
-The template uses **Manus OAuth** for user authentication. It works differently on native and web:
+The template uses **Supabase Auth** for user authentication:
 
 | Platform | Auth Method | Token Storage |
 |----------|-------------|---------------|
-| iOS/Android | Bearer token | expo-secure-store |
-| Web | HTTP-only cookie | Browser cookie |
+| iOS/Android | Supabase session (JWT) | AsyncStorage (via Supabase client) |
+| Web | Supabase session (JWT) | Browser storage + URL/session hydration |
 
 ### Using the Auth Hook
 
@@ -88,34 +86,32 @@ The `user` object contains:
 
 ```tsx
 interface User {
-  id: number;
-  openId: string;        // Manus OAuth ID
+  id: string;
+  openId: string | null; // App-level stable identifier
   name: string | null;
   email: string | null;
-  loginMethod: string;
-  role: "user" | "admin";
-  lastSignedIn: Date;
+  loginMethod: string | null;
+  role: "shopper" | "client" | "trainer" | "manager" | "coordinator";
+  lastSignedIn: string;
 }
 ```
 
 ### Login Flow (Native)
 
 1. User taps Login button
-2. `startOAuthLogin()` calls `Linking.openURL()` which opens Manus OAuth in the system browser
-3. User authenticates
-4. OAuth redirects to the app's deep link (`/oauth/callback`) with code/state params
-5. App opens the callback handler
-6. Callback exchanges code for session token
-7. Token stored in SecureStore
-8. User redirected to home
+2. App calls Supabase OAuth (`supabase.auth.signInWithOAuth`)
+3. User authenticates with provider (for example Google)
+4. Supabase redirects to app callback/deep link
+5. Supabase client stores and refreshes session token automatically
+6. App calls backend `/api/auth/me` to hydrate app-level user profile
 
 ### Login Flow (Web)
 
 1. User clicks Login button
-2. Browser redirects to Manus OAuth
+2. Browser redirects to Supabase hosted auth flow
 3. User authenticates
-4. Redirect back with session cookie
-5. Cookie automatically sent with requests
+4. Redirect back with Supabase session
+5. Frontend sends `Authorization: Bearer <token>` for protected requests
 
 ### Protected Routes
 
@@ -155,84 +151,56 @@ try {
 
 ### Schema Definition
 
-Define your tables in `drizzle/schema.ts`:
+Define and evolve your schema with SQL migrations in `supabase/migrations/`:
 
-```tsx
-import { int, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
-
-// Users table (already exists)
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
-  name: text("name"),
-  email: varchar("email", { length: 320 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-// Add your tables
-export const items = mysqlTable("items", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull(),
-  title: varchar("title", { length: 255 }).notNull(),
-  description: text("description"),
-  completed: boolean("completed").default(false).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
-// Export types
-export type User = typeof users.$inferSelect;
-export type Item = typeof items.$inferSelect;
-export type InsertItem = typeof items.$inferInsert;
+```sql
+-- supabase/migrations/003_items.sql
+CREATE TABLE IF NOT EXISTS items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id),
+  title varchar(255) NOT NULL,
+  description text,
+  completed boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 ```
 
 ### Running Migrations
 
-After editing the schema, push changes to the database:
+After adding or editing migrations, apply them to your linked Supabase project:
 
 ```bash
-pnpm db:push
+supabase db push
 ```
 
-This runs `drizzle-kit generate` and `drizzle-kit migrate`.
+If you are not using the CLI, execute migration SQL files in the Supabase SQL Editor in filename order.
 
 ### Query Helpers
 
 Add database queries in `server/db.ts`:
 
 ```tsx
-import { eq } from "drizzle-orm";
-import { getDb } from "./_core/db";
-import { items, InsertItem } from "../drizzle/schema";
+import { getServerSupabase } from "../lib/supabase";
 
-export async function getUserItems(userId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  
-  return db.select().from(items).where(eq(items.userId, userId));
+export async function getUserItems(userId: string) {
+  const { data, error } = await getServerSupabase()
+    .from("items")
+    .select("*")
+    .eq("user_id", userId);
+
+  if (error) throw error;
+  return data ?? [];
 }
 
-export async function createItem(data: InsertItem) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  
-  const result = await db.insert(items).values(data);
-  return result.insertId;
-}
+export async function createItem(userId: string, title: string) {
+  const { data, error } = await getServerSupabase()
+    .from("items")
+    .insert({ user_id: userId, title })
+    .select("id")
+    .single();
 
-export async function updateItem(id: number, data: Partial<InsertItem>) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  
-  await db.update(items).set(data).where(eq(items.id, id));
-}
-
-export async function deleteItem(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  
-  await db.delete(items).where(eq(items.id, id));
+  if (error) throw error;
+  return data.id;
 }
 ```
 
@@ -576,23 +544,23 @@ Available environment variables:
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | MySQL/TiDB connection string |
-| `JWT_SECRET` | Session signing secret |
-| `VITE_APP_ID` | Manus OAuth app ID |
-| `OAUTH_SERVER_URL` | Manus OAuth backend URL |
-| `VITE_OAUTH_PORTAL_URL` | Manus login portal URL |
-| `OWNER_OPEN_ID` | Owner's Manus ID |
-| `OWNER_NAME` | Owner's display name |
-| `BUILT_IN_FORGE_API_URL` | Manus API endpoint |
-| `BUILT_IN_FORGE_API_KEY` | Manus API key |
+| `SUPABASE_URL` | Supabase project URL (server) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (server secret) |
+| `SUPABASE_ANON_KEY` | Supabase anon key (optional server user-scoped client) |
+| `OWNER_OPEN_ID` | Optional owner ID override for manager promotion logic |
+| `BUILT_IN_FORGE_API_URL` | Platform API endpoint for LLM/image/storage helpers |
+| `BUILT_IN_FORGE_API_KEY` | Platform API key |
+| `OAUTH_NATIVE_RETURN_TO` | Optional native callback deep link fallback |
 
 Expo runtime variables (prefixed with `EXPO_PUBLIC_`):
 
 | Variable | Description |
 |----------|-------------|
-| `EXPO_PUBLIC_APP_ID` | App ID for OAuth |
+| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL (client) |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (client) |
+| `EXPO_PUBLIC_SUPABASE_KEY` | Legacy alias for anon key (fallback) |
 | `EXPO_PUBLIC_API_BASE_URL` | API server URL |
-| `EXPO_PUBLIC_OAUTH_PORTAL_URL` | Login portal URL |
+| `EXPO_PUBLIC_NATIVE_API_URL` | Optional native-specific API URL override |
 
 ---
 
@@ -632,132 +600,48 @@ pnpm test
 
 ## Core File References
 
-`drizzle/schema.ts`
-```ts
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
-
-/**
- * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
- */
-export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
-  id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
-  name: text("name"),
-  email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
-
-export type User = typeof users.$inferSelect;
-export type InsertUser = typeof users.$inferInsert;
-
-// TODO: Add your tables here
+`supabase/migrations/001_initial_schema.sql`
+```sql
+CREATE TABLE users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_id uuid UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
+  open_id varchar(64) UNIQUE,
+  name text,
+  email varchar(320),
+  role user_role NOT NULL DEFAULT 'shopper',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 ```
 
 `server/db.ts`
 ```ts
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from "./_core/env";
+import { getServerSupabase } from "../lib/supabase";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+export async function getUserById(id: string) {
+  const { data, error } = await getServerSupabase()
+    .from("users")
+    .select("*")
+    .eq("id", id)
+    .single();
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
-  return _db;
+  if (error) throw error;
+  return data;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
+export async function upsertUser(user: { authId?: string; email?: string; role?: string }) {
+  const payload = {
+    auth_id: user.authId ?? null,
+    email: user.email ?? null,
+    role: user.role ?? "shopper",
+  };
 
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
+  const { error } = await getServerSupabase().from("users").upsert(payload, {
+    onConflict: "auth_id",
+  });
 
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+  if (error) throw error;
 }
-
-export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
-}
-
-// TODO: add feature queries here as your schema grows.
 ```
 
 `server/routers.ts`
@@ -1228,8 +1112,8 @@ const { data, fetchNextPage, hasNextPage } = trpc.items.list.useInfiniteQuery(
 
 | Issue | Solution |
 |-------|----------|
-| "Database not available" | Check `DATABASE_URL` is set |
-| Auth not working | Verify OAuth callback URL matches |
+| "Database not available" | Check `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set |
+| Auth not working | Verify Supabase Auth redirect URLs and API auth headers |
 | tRPC type errors | Run `pnpm check` to verify types |
 | Mutations fail silently | Check browser console for errors |
-| Session expired | User needs to login again |
+| Session expired | User needs to sign in again (Supabase token refresh may have failed) |

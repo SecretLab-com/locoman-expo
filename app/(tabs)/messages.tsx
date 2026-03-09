@@ -1,16 +1,23 @@
 import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LOCO_ASSISTANT_NAME, LOCO_ASSISTANT_USER_ID } from "@/shared/const";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { useWebSocket } from "@/hooks/use-websocket";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
-import { router } from "expo-router";
-import { useCallback } from "react";
+import { router, Stack } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
     FlatList,
+    Modal,
+    Pressable,
     RefreshControl,
     Text,
     TouchableOpacity,
@@ -20,7 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Conversation = {
   id: string;
-  participantId: number;
+  participantId: string;
   participantName: string;
   participantAvatar: string | null;
   participantRole: string;
@@ -31,7 +38,15 @@ type Conversation = {
   lastMessageIsRead: boolean;
 };
 
-function ConversationItem({ conversation, onPress }: { conversation: Conversation; onPress: () => void }) {
+function ConversationItem({
+  conversation,
+  onPress,
+  onLongPress,
+}: {
+  conversation: Conversation;
+  onPress: () => void;
+  onLongPress?: () => void;
+}) {
   const colors = useColors();
 
   const handlePress = async () => {
@@ -61,10 +76,15 @@ function ConversationItem({ conversation, onPress }: { conversation: Conversatio
     <TouchableOpacity
       className="flex-row items-center p-4 bg-surface border-b border-border"
       onPress={handlePress}
+      onLongPress={onLongPress}
       activeOpacity={0.7}
     >
       {/* Avatar */}
-      {conversation.participantAvatar ? (
+      {conversation.participantRole === "group" ? (
+        <View className="w-12 h-12 rounded-full bg-primary/10 items-center justify-center">
+          <IconSymbol name="person.2.fill" size={22} color={colors.primary} />
+        </View>
+      ) : conversation.participantAvatar ? (
         <Image
           source={{ uri: conversation.participantAvatar }}
           className="w-12 h-12 rounded-full"
@@ -86,11 +106,15 @@ function ConversationItem({ conversation, onPress }: { conversation: Conversatio
             >
               {conversation.participantName}
             </Text>
-            {conversation.participantRole === "trainer" && (
+            {conversation.participantRole === "group" ? (
+              <View className="ml-2 px-2 py-0.5 bg-primary/10 rounded-full">
+                <Text className="text-xs text-primary font-medium">Group</Text>
+              </View>
+            ) : conversation.participantRole === "trainer" ? (
               <View className="ml-2 px-2 py-0.5 bg-primary/10 rounded-full">
                 <Text className="text-xs text-primary font-medium">Trainer</Text>
               </View>
-            )}
+            ) : null}
           </View>
           <Text className={`text-xs ml-2 ${conversation.unreadCount > 0 ? "text-primary" : "text-muted"}`}>
             {formatTimestamp(conversation.lastMessageAt)}
@@ -134,7 +158,7 @@ function ConversationItem({ conversation, onPress }: { conversation: Conversatio
 
 export default function MessagesScreen() {
   const colors = useColors();
-  const { isAuthenticated, isTrainer, effectiveRole } = useAuthContext();
+  const { isAuthenticated, effectiveRole, user } = useAuthContext();
   const bottomNavHeight = useBottomNavHeight();
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets.bottom, 8);
@@ -149,6 +173,31 @@ export default function MessagesScreen() {
           : effectiveRole === "coordinator"
             ? "/(coordinator)"
             : "/(tabs)";
+  const showAssistant = effectiveRole === "trainer";
+
+  const { connect, disconnect, subscribe } = useWebSocket();
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [groupNames, setGroupNames] = useState<Record<string, string>>({});
+
+  // Load group names from AsyncStorage
+  useEffect(() => {
+    if (!user?.id) return;
+    const loadGroupNames = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(`messageGroups:${user.id}`);
+        if (!stored) return;
+        const groups = JSON.parse(stored) as Array<{ id: string; name: string }>;
+        const map: Record<string, string> = {};
+        for (const g of groups) {
+          if (g.id && g.name) map[g.id] = g.name;
+        }
+        setGroupNames(map);
+      } catch {
+        // Ignore parse errors
+      }
+    };
+    void loadGroupNames();
+  }, [user?.id]);
 
   // Fetch conversations from API
   const {
@@ -159,6 +208,26 @@ export default function MessagesScreen() {
   } = trpc.messages.conversations.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+  const deleteConversation = trpc.messages.deleteConversation.useMutation({
+    onSuccess: async () => {
+      await refetch();
+    },
+  });
+
+  // Real-time conversation updates via WebSocket
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    connect();
+    const unsubscribe = subscribe((msg) => {
+      if (msg.type === "new_message" || msg.type === "badge_counts_updated") {
+        refetch();
+      }
+    });
+    return () => {
+      unsubscribe();
+      disconnect();
+    };
+  }, [isAuthenticated, connect, disconnect, subscribe, refetch]);
 
   const onRefresh = useCallback(async () => {
     await haptics.light();
@@ -173,13 +242,29 @@ export default function MessagesScreen() {
   const handleConversationPress = (conversation: Conversation) => {
     // Navigate to conversation detail
     router.push({
-      pathname: "/conversation/[id]" as any,
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
       params: { 
         id: conversation.id,
         name: conversation.participantName,
-        participantId: conversation.participantId.toString(),
+        participantId: conversation.participantId,
       },
     });
+  };
+
+  const handleConversationLongPress = async (conversation: Conversation) => {
+    await haptics.medium();
+    setSelectedConversation(conversation);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!selectedConversation) return;
+    try {
+      await deleteConversation.mutateAsync({ conversationId: selectedConversation.id });
+      setSelectedConversation(null);
+      Alert.alert("Conversation deleted", "This conversation has been removed.");
+    } catch (error: any) {
+      Alert.alert("Delete failed", error?.message || "Unable to delete conversation.");
+    }
   };
 
   const handleNewMessage = async () => {
@@ -190,6 +275,28 @@ export default function MessagesScreen() {
     }
     router.push(`${roleBase}/messages/new` as any);
   };
+
+  const handleAssistantChat = async () => {
+    if (!user?.id) return;
+    await haptics.light();
+    if (effectiveRole === "trainer") {
+      router.push("/(trainer)/assistant" as any);
+      return;
+    }
+    router.push({
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
+      params: {
+        id: `bot-${user.id}`,
+        participantId: LOCO_ASSISTANT_USER_ID,
+        name: LOCO_ASSISTANT_NAME,
+      },
+    });
+  };
+
+  const showFindTrainerCta =
+    effectiveRole === "client" ||
+    effectiveRole === "shopper" ||
+    !effectiveRole;
 
   if (!isAuthenticated) {
     return (
@@ -222,30 +329,62 @@ export default function MessagesScreen() {
     );
   }
 
-  // Transform API data to match our component interface
-  const conversationList: Conversation[] = (conversations || []).map((conv: any) => ({
-    id: conv.id || conv.conversationId,
-    participantId: conv.participantId || conv.otherUserId,
-    participantName: conv.participantName || conv.otherUserName || "Unknown",
-    participantAvatar: conv.participantAvatar || conv.otherUserAvatar || null,
-    participantRole: conv.participantRole || conv.otherUserRole || "user",
-    lastMessage: conv.lastMessage || conv.lastMessageContent || null,
-    lastMessageAt: conv.lastMessageAt || conv.updatedAt || null,
-    unreadCount: conv.unreadCount || 0,
-    lastMessageIsOwn: conv.lastMessageIsOwn || conv.lastMessageSenderId === conv.currentUserId || false,
-    lastMessageIsRead: conv.lastMessageIsRead || false,
-  }));
+  // Transform API data to match our component interface, sorted by most recent
+  const conversationList: Conversation[] = (conversations || [])
+    .map((conv: any) => {
+      const convId = conv.id || conv.conversationId;
+      const isGroup = conv.isGroup || convId.startsWith("group-");
+      const storedGroupName = groupNames[convId];
+      let displayName: string;
+      if (isGroup && storedGroupName) {
+        displayName = storedGroupName;
+      } else if (isGroup && conv.participantNames?.length > 0) {
+        displayName = conv.participantNames.join(", ");
+      } else {
+        displayName = conv.participantName || conv.otherUserName || "Unknown";
+      }
+      return {
+        id: convId,
+        participantId: conv.participantId || conv.otherUserId,
+        participantName: displayName,
+        participantAvatar: isGroup ? null : (conv.participantAvatar || conv.otherUserAvatar || null),
+        participantRole: isGroup ? "group" : (conv.participantRole || conv.otherUserRole || "user"),
+        lastMessage: conv.lastMessage || conv.lastMessageContent || null,
+        lastMessageAt: conv.lastMessageAt || conv.updatedAt || null,
+        unreadCount: conv.unreadCount || 0,
+        lastMessageIsOwn: conv.lastMessageIsOwn || conv.lastMessageSenderId === conv.currentUserId || false,
+        lastMessageIsRead: conv.lastMessageIsRead || false,
+      };
+    })
+    .sort((a, b) => {
+      const dateA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const dateB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return dateB - dateA; // newest first
+    });
 
   return (
     <ScreenContainer className="flex-1 relative">
+      <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
       {/* Header */}
       <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
         <View>
           <Text className="text-2xl font-bold text-foreground">Messages</Text>
           <Text className="text-sm text-muted">
-            {isTrainer ? "Chat with your clients" : "Chat with your trainers"}
+            {showAssistant ? "Chat with your clients" : "Chat with your trainers"}
           </Text>
         </View>
+        {showAssistant && (
+          <TouchableOpacity
+            onPress={handleAssistantChat}
+            className="px-3 py-2 rounded-full bg-primary/10 border border-primary/20 flex-row items-center"
+            accessibilityRole="button"
+            accessibilityLabel="Open Loco Assistant chat"
+            testID="messages-open-assistant"
+          >
+            <IconSymbol name="sparkles" size={14} color={colors.primary} />
+            <Text className="text-xs font-semibold text-primary ml-1.5">Assistant</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View className="flex-1">
@@ -257,6 +396,7 @@ export default function MessagesScreen() {
             <ConversationItem
               conversation={item}
               onPress={() => handleConversationPress(item)}
+              onLongPress={() => handleConversationLongPress(item)}
             />
           )}
           refreshControl={
@@ -273,12 +413,13 @@ export default function MessagesScreen() {
               </View>
               <Text className="text-foreground font-semibold text-lg mb-1">No messages yet</Text>
               <Text className="text-muted text-center mb-6">
-                {isTrainer 
+                {showAssistant
                   ? "Messages from your clients will appear here"
-                  : "Start a conversation with your trainer"
-                }
+                  : showFindTrainerCta
+                    ? "Start a conversation with your trainer"
+                    : "Start a new conversation"}
               </Text>
-              {!isTrainer && (
+              {showFindTrainerCta ? (
                 <TouchableOpacity
                   className="bg-primary px-6 py-3 rounded-full"
                   onPress={async () => {
@@ -287,6 +428,16 @@ export default function MessagesScreen() {
                   }}
                 >
                   <Text className="text-background font-semibold">Find a Trainer</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  className="bg-primary px-6 py-3 rounded-full"
+                  onPress={handleNewMessage}
+                  accessibilityRole="button"
+                  accessibilityLabel="Start a new message"
+                  testID="messages-empty-new-message"
+                >
+                  <Text className="text-background font-semibold">New Message</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -306,6 +457,50 @@ export default function MessagesScreen() {
       >
         <IconSymbol name="plus" size={24} color={colors.background} />
       </TouchableOpacity>
+
+      <Modal
+        visible={Boolean(selectedConversation)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedConversation(null)}
+      >
+        <Pressable
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}
+          onPress={() => setSelectedConversation(null)}
+        >
+          <Pressable className="bg-surface rounded-t-2xl p-5 border-t border-border">
+            <Text className="text-foreground text-lg font-semibold mb-1">
+              Conversation options
+            </Text>
+            <Text className="text-muted mb-4">
+              {selectedConversation?.participantName || "Conversation"}
+            </Text>
+            <TouchableOpacity
+              className="rounded-xl bg-error/15 px-4 py-3 mb-2"
+              onPress={confirmDeleteConversation}
+              disabled={deleteConversation.isPending}
+              accessibilityRole="button"
+              accessibilityLabel="Delete this conversation"
+              testID="conversation-delete"
+            >
+              {deleteConversation.isPending ? (
+                <ActivityIndicator size="small" color={colors.error} />
+              ) : (
+                <Text className="text-error font-semibold">Delete conversation</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="rounded-xl bg-background border border-border px-4 py-3"
+              onPress={() => setSelectedConversation(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel conversation options"
+              testID="conversation-options-cancel"
+            >
+              <Text className="text-foreground font-semibold text-center">Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }

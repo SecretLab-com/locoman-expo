@@ -1,184 +1,252 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { TEST_LOGIN_ACCOUNTS } from "@/constants/test-login-accounts";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
-import { Asset } from "expo-asset";
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
+import { getHomeRoute } from "@/lib/navigation";
+import { supabase } from "@/lib/supabase-client";
 import { router } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useEffect, useMemo, useRef } from "react";
-import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Platform, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
+
+type OnboardingSlide = {
+  title: string;
+  body: string;
+};
+
+const SLIDES: OnboardingSlide[] = [
+  {
+    title: "Get paid by clients — without chasing invoices",
+    body: "Fast payments, simple setup, zero finance jargon.",
+  },
+  {
+    title: "Invite → Offer → Get paid",
+    body: "Everything is built around the shortest path to earnings.",
+  },
+  {
+    title: "Invite your first client",
+    body: "Start now. You can add advanced settings later under More.",
+  },
+];
 
 export default function WelcomeScreen() {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const { isAuthenticated, loading, isCoordinator, isManager, isTrainer, isClient } = useAuthContext();
-
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (!loading && isAuthenticated) {
-      router.replace("/(tabs)");
-    }
-  }, [isAuthenticated, loading]);
-
-  // Initialize the video player with CDN URL (local file moved to reduce bundle size)
-  const videoSource = { uri: 'https://files.manuscdn.com/user_upload_by_module/session_file/310519663073371114/hCQKGlQChdngsHrv.mp4' };
-  const player = useVideoPlayer(videoSource, (player) => {
-    player.loop = true;
-    player.muted = true;
-    player.playbackRate = 0.7; // Updated from 0.5 to 0.7 as requested
-    player.play();
+  const { width, height } = useWindowDimensions();
+  const backgroundPlayer = useVideoPlayer(require("../assets/background.m4v"), (video) => {
+    video.loop = true;
+    video.muted = true;
+    video.play();
   });
-
-  // For web fallback, use the CDN URL directly
-  const webVideoUri = useMemo(() => {
-    if (Platform.OS !== 'web') return null;
-    return videoSource.uri;
-  }, [videoSource]);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const { isAuthenticated, loading, effectiveRole } = useAuthContext();
+  const [index, setIndex] = useState(0);
+  const [testLoginLoading, setTestLoginLoading] = useState<string | null>(null);
+  const [testLoginError, setTestLoginError] = useState<string | null>(null);
+  const current = useMemo(() => SLIDES[index], [index]);
 
   useEffect(() => {
-    if (Platform.OS === 'web' && videoRef.current) {
-      videoRef.current.playbackRate = 0.7;
+    if (loading || !isAuthenticated) return;
+    const timer = setTimeout(() => {
+      router.replace(getHomeRoute(effectiveRole) as any);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [effectiveRole, isAuthenticated, loading]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((value) => (value + 1) % SLIDES.length);
+    }, 20000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Web autoplay can fail on initial mount; retry when tab gains focus/visibility.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryPlay = async () => {
+      if (cancelled) return;
+      try {
+        backgroundPlayer.loop = true;
+        backgroundPlayer.muted = true;
+        await Promise.resolve((backgroundPlayer as any).play?.());
+      } catch {
+        retryTimer = setTimeout(tryPlay, 400);
+      }
+    };
+
+    const onVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      tryPlay();
+    };
+
+    tryPlay();
+    if (typeof window !== "undefined") window.addEventListener("focus", onVisible);
+    if (typeof document !== "undefined")
+      document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (typeof window !== "undefined") window.removeEventListener("focus", onVisible);
+      if (typeof document !== "undefined")
+        document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [backgroundPlayer]);
+
+  const videoAspectRatio = 1080 / 1920;
+  const viewportAspectRatio = width / Math.max(height, 1);
+  const videoWidth = viewportAspectRatio > videoAspectRatio ? width : height * videoAspectRatio;
+  const videoHeight = viewportAspectRatio > videoAspectRatio ? width / videoAspectRatio : height;
+  const videoLeft = (width - videoWidth) / 2;
+  const videoTop = (height - videoHeight) / 2;
+
+  const handleQuickTestLogin = async (email: string, password: string, label: string) => {
+    await haptics.light();
+    setTestLoginError(null);
+    setTestLoginLoading(label);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.session) {
+        throw new Error(error?.message || "Test login failed");
+      }
+      triggerAuthRefresh();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      router.replace(getHomeRoute(effectiveRole) as any);
+    } catch (err) {
+      await haptics.error();
+      setTestLoginError(err instanceof Error ? err.message : "Test login failed");
+    } finally {
+      setTestLoginLoading(null);
     }
-  }, [webVideoUri]);
-
-  const handleGetStarted = async () => {
-    await haptics.light();
-    router.push("/register");
   };
 
-  const handleSignIn = async () => {
+  const advanceSlide = async () => {
     await haptics.light();
-    router.push("/login");
+    setIndex((value) => (value + 1) % SLIDES.length);
   };
-
-  const handleBrowse = async () => {
-    await haptics.light();
-    // Navigate to the main tabs as a guest
-    router.replace("/(tabs)?guest=true");
-  };
-
-  if (loading && !isAuthenticated) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      {/* Video Background */}
-      {Platform.OS === 'web' ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          loop
-          playsInline
-          style={{
-            position: 'absolute',
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            backgroundColor: 'black',
-          }}
-          onCanPlay={(e) => {
-            // Force playback rate on web
-            e.currentTarget.playbackRate = 0.7;
-          }}
-        >
-          {webVideoUri && <source src={webVideoUri} type="video/mp4" />}
-        </video>
-      ) : (
+    <ScreenContainer edges={["top", "bottom", "left", "right"]}>
+      <View
+        pointerEvents="none"
+        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden" }}
+      >
         <VideoView
-          player={player}
-          style={StyleSheet.absoluteFill}
+          player={backgroundPlayer}
+          style={{
+            position: "absolute",
+            left: videoLeft,
+            top: videoTop,
+            width: videoWidth,
+            height: videoHeight,
+          }}
           contentFit="cover"
           nativeControls={false}
         />
-      )}
-
-      {/* Dark Overlay with Gradient for text legibility */}
-      <LinearGradient
-        colors={["rgba(0,0,0,0.3)", "rgba(0,0,0,0.6)", "rgba(0,0,0,0.9)"]}
-        style={StyleSheet.absoluteFill}
+      </View>
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          backgroundColor: "rgba(0,0,0,0.45)",
+        }}
       />
+      <View className="flex-1 px-6 justify-between py-8">
+        <View className="items-center pt-8">
+          <Text className="text-3xl font-black text-white">LocoMotivate</Text>
+          <Text className="text-sm text-white/80 mt-2">Simple beats powerful.</Text>
+        </View>
 
-      <ScreenContainer
-        edges={["top", "bottom", "left", "right"]}
-        className="flex-1 px-6 justify-between"
-        containerClassName="bg-transparent"
-        style={{ backgroundColor: "transparent" }}
-      >
-        {/* Top Section: Logo & Brand */}
-        <View style={{ marginTop: Math.max(insets.top, 40) }} className="items-center">
-          <View className="w-24 h-24 bg-primary/20 rounded-3xl items-center justify-center mb-6 overflow-hidden border border-primary/30">
-            <Image
-              source={require("../assets/images/icon.png")}
-              style={{ width: "60%", height: "60%" }}
-              contentFit="contain"
-            />
+        <TouchableOpacity
+          className="bg-surface border border-border rounded-2xl p-6"
+          onPress={advanceSlide}
+          activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel="Show next onboarding step"
+          testID="welcome-step-card"
+        >
+          <Text className="text-xs text-muted mb-2">Step {index + 1} of {SLIDES.length}</Text>
+          <Text className="text-2xl font-bold text-foreground">{current.title}</Text>
+          <Text className="text-base text-muted mt-2">{current.body}</Text>
+          <View className="flex-row mt-4">
+            {SLIDES.map((_, slideIndex) => (
+              <View
+                key={slideIndex}
+                className={`h-1.5 rounded-full mr-2 ${slideIndex === index ? "bg-primary w-8" : "bg-border w-4"}`}
+              />
+            ))}
           </View>
-          <Text className="text-4xl font-black text-white text-center tracking-tight">
-            LOCO<Text className="text-primary">MOTIVATE</Text>
-          </Text>
-          <Text className="text-lg text-white/70 text-center mt-2 font-medium">
-            Trainer-Powered Wellness Marketplace
-          </Text>
+        </TouchableOpacity>
+
+        <View>
+          <TouchableOpacity
+            className="bg-primary rounded-xl py-4 items-center mb-3"
+            onPress={async () => {
+              await haptics.light();
+              router.push("/register");
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Get started"
+            testID="welcome-next"
+          >
+            <Text className="text-background font-semibold text-lg">Get Started</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="bg-surface border border-border rounded-xl py-4 items-center mb-3"
+            onPress={async () => {
+              await haptics.light();
+              router.push("/login");
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Open sign in screen"
+            testID="welcome-sign-in"
+          >
+            <Text className="text-foreground font-semibold">Sign In</Text>
+          </TouchableOpacity>
+          <View className="mt-6 pt-4 border-t border-border/70">
+            <Text className="text-center text-xs text-muted mb-3">Test logins</Text>
+            <View className="flex-row flex-wrap justify-center gap-2">
+              {TEST_LOGIN_ACCOUNTS.map((account) => {
+                const isCurrentLoading = testLoginLoading === account.label;
+                return (
+                  <TouchableOpacity
+                    key={`welcome-${account.testID}`}
+                    className="bg-surface border border-border rounded-full px-3 py-2"
+                    onPress={() =>
+                      handleQuickTestLogin(account.email, account.password, account.label)
+                    }
+                    disabled={Boolean(testLoginLoading)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Sign in as ${account.label} test account`}
+                    testID={`welcome-${account.testID}`}
+                  >
+                    <View className="flex-row items-center">
+                      {isCurrentLoading ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : null}
+                      <Text className={`text-xs font-medium text-foreground ${isCurrentLoading ? "ml-2" : ""}`}>
+                        {account.label}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {testLoginError ? (
+              <Text className="text-center text-xs text-error mt-3">{testLoginError}</Text>
+            ) : null}
+          </View>
         </View>
-
-        {/* Bottom Section: Actions */}
-        <View style={{ marginBottom: Math.max(insets.bottom, 40) }}>
-          <Text className="text-white/60 text-center mb-8 px-8">
-            Experience the next generation of personal training and wellness tracking.
-          </Text>
-
-          <TouchableOpacity
-            className="bg-primary py-5 rounded-2xl items-center mb-4 shadow-xl shadow-primary/30"
-            onPress={handleGetStarted}
-            activeOpacity={0.9}
-          >
-            <Text className="text-black font-bold text-xl">Get Started</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            className="bg-white/10 py-5 rounded-2xl items-center mb-6 border border-white/20"
-            onPress={handleSignIn}
-            activeOpacity={0.8}
-            style={Platform.OS === 'ios' ? {
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-            } : {}}
-          >
-            <Text className="text-white font-semibold text-lg">Sign In</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleBrowse}
-            className="items-center"
-            activeOpacity={0.7}
-          >
-            <Text className="text-white/50 font-medium">
-              Just browsing? <Text className="text-white/80">Continue as guest</Text>
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScreenContainer>
-    </View>
+      </View>
+    </ScreenContainer>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-});

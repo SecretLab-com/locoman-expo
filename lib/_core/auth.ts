@@ -1,11 +1,26 @@
-import * as SecureStore from "expo-secure-store";
+/**
+ * Auth module — Supabase Auth integration.
+ *
+ * Session tokens are managed entirely by the Supabase client library.
+ * We only cache the app-level user profile (from public.users) locally
+ * for fast initial renders.
+ */
+import { supabase } from "@/lib/supabase-client";
 import { Platform } from "react-native";
-import { SESSION_TOKEN_KEY, USER_INFO_KEY } from "@/constants/oauth";
+
+const USER_INFO_KEY = "loco-runtime-user-info";
+const TOKEN_FALLBACK_TTL_MS = 60_000;
+const TOKEN_REFRESH_DEBOUNCE_MS = 60_000;
+let lastKnownSessionToken: string | null = null;
+let lastKnownSessionTokenExpiresAt = 0;
+let lastKnownSessionTokenSeenAt = 0;
+let sessionTokenInFlight: Promise<string | null> | null = null;
+let lastAuthDesyncHandledAt = 0;
 
 export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 
 export type User = {
-  id: number;
+  id: string;
   openId: string;
   name: string | null;
   email: string | null;
@@ -17,91 +32,131 @@ export type User = {
   bio: string | null;
   specialties: unknown;
   socialLinks: unknown;
-  trainerId: number | null;
+  trainerId: string | null;
   active: boolean;
   metadata: unknown;
-  createdAt: Date;
-  updatedAt: Date;
-  lastSignedIn: Date;
+  createdAt: string;
+  updatedAt: string;
+  lastSignedIn: string;
 };
 
-export async function getSessionToken(): Promise<string | null> {
-  try {
-    // Web platform uses cookie-based auth, no manual token management needed
-    if (Platform.OS === "web") {
-      console.log("[Auth] Web platform uses cookie-based auth, skipping token retrieval");
-      return null;
-    }
+// ---------------------------------------------------------------------------
+// Supabase session helpers
+// ---------------------------------------------------------------------------
 
-    // Use SecureStore for native
-    console.log("[Auth] Getting session token...");
-    const token = await SecureStore.getItemAsync(SESSION_TOKEN_KEY);
-    console.log(
-      "[Auth] Session token retrieved from SecureStore:",
-      token ? `present (${token.substring(0, 20)}...)` : "missing",
-    );
-    return token;
+/** Get the current Supabase access token (JWT). Null if not signed in. */
+export async function getSessionToken(): Promise<string | null> {
+  const now = Date.now();
+  const tokenStillValid = lastKnownSessionTokenExpiresAt === 0 || now < lastKnownSessionTokenExpiresAt;
+  const recentlySeen = now - lastKnownSessionTokenSeenAt < TOKEN_FALLBACK_TTL_MS;
+  const canReuseWithoutRefresh = now - lastKnownSessionTokenSeenAt < TOKEN_REFRESH_DEBOUNCE_MS;
+
+  // Debounce hot-path token reads (e.g. many tRPC headers in parallel on web startup)
+  // to avoid auth lock contention inside supabase.auth.getSession().
+  if (lastKnownSessionToken && tokenStillValid && recentlySeen && canReuseWithoutRefresh) {
+    return lastKnownSessionToken;
+  }
+
+  if (sessionTokenInFlight) {
+    return sessionTokenInFlight;
+  }
+
+  const tokenRequest = (async () => {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token ?? null;
+    if (token) {
+      const expiresAtSec = data.session?.expires_at ?? 0;
+      lastKnownSessionToken = token;
+      lastKnownSessionTokenSeenAt = Date.now();
+      lastKnownSessionTokenExpiresAt = expiresAtSec > 0 ? expiresAtSec * 1000 : 0;
+      return token;
+    }
+    // Avoid transient unauth races during token refresh/hydration.
+    const fallbackNow = Date.now();
+    const fallbackTokenStillValid =
+      lastKnownSessionTokenExpiresAt === 0 || fallbackNow < lastKnownSessionTokenExpiresAt;
+    const fallbackRecentlySeen = fallbackNow - lastKnownSessionTokenSeenAt < TOKEN_FALLBACK_TTL_MS;
+    if (lastKnownSessionToken && fallbackTokenStillValid && fallbackRecentlySeen) {
+      return lastKnownSessionToken;
+    }
+    return null;
   } catch (error) {
     console.error("[Auth] Failed to get session token:", error);
+    const fallbackNow = Date.now();
+    const fallbackTokenStillValid =
+      lastKnownSessionTokenExpiresAt === 0 || fallbackNow < lastKnownSessionTokenExpiresAt;
+    const fallbackRecentlySeen = fallbackNow - lastKnownSessionTokenSeenAt < TOKEN_FALLBACK_TTL_MS;
+    if (lastKnownSessionToken && fallbackTokenStillValid && fallbackRecentlySeen) {
+      return lastKnownSessionToken;
+    }
     return null;
   }
-}
+  })();
 
-export async function setSessionToken(token: string): Promise<void> {
+  sessionTokenInFlight = tokenRequest;
   try {
-    // Web platform uses cookie-based auth, no manual token management needed
-    if (Platform.OS === "web") {
-      console.log("[Auth] Web platform uses cookie-based auth, skipping token storage");
-      return;
+    return await tokenRequest;
+  } finally {
+    if (sessionTokenInFlight === tokenRequest) {
+      sessionTokenInFlight = null;
     }
-
-    // Use SecureStore for native
-    console.log("[Auth] Setting session token...", token.substring(0, 20) + "...");
-    await SecureStore.setItemAsync(SESSION_TOKEN_KEY, token);
-    console.log("[Auth] Session token stored in SecureStore successfully");
-  } catch (error) {
-    console.error("[Auth] Failed to set session token:", error);
-    throw error;
   }
 }
 
-export async function removeSessionToken(): Promise<void> {
-  try {
-    // Web platform uses cookie-based auth, logout is handled by server clearing cookie
-    if (Platform.OS === "web") {
-      console.log("[Auth] Web platform uses cookie-based auth, skipping token removal");
-      return;
-    }
+/** Sign out from Supabase. */
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
+  lastKnownSessionToken = null;
+  lastKnownSessionTokenExpiresAt = 0;
+  lastKnownSessionTokenSeenAt = 0;
+  await clearUserInfo();
+}
 
-    // Use SecureStore for native
-    console.log("[Auth] Removing session token...");
-    await SecureStore.deleteItemAsync(SESSION_TOKEN_KEY);
-    console.log("[Auth] Session token removed from SecureStore successfully");
+/**
+ * Resolve frontend/backend auth desync:
+ * - backend returns unauthorized while frontend still has stale session cache
+ * - force local sign out so app state converges quickly without manual relogin
+ */
+export async function handleAuthDesync(reason = "unknown"): Promise<void> {
+  const now = Date.now();
+  if (now - lastAuthDesyncHandledAt < 5000) return;
+  lastAuthDesyncHandledAt = now;
+
+  console.warn(`[Auth] Handling auth desync: ${reason}`);
+
+  try {
+    await supabase.auth.signOut({ scope: "local" });
   } catch (error) {
-    console.error("[Auth] Failed to remove session token:", error);
+    // Continue cleanup even if local signout throws.
+    console.warn("[Auth] Local signOut failed during desync recovery:", error);
+  } finally {
+    lastKnownSessionToken = null;
+    lastKnownSessionTokenExpiresAt = 0;
+    lastKnownSessionTokenSeenAt = 0;
+    sessionTokenInFlight = null;
+    await clearUserInfo();
   }
 }
+
+/** @deprecated Use signOut() instead. Kept for backward compatibility. */
+export const removeSessionToken = signOut;
+
+// ---------------------------------------------------------------------------
+// Cached user profile (public.users)
+// ---------------------------------------------------------------------------
 
 export async function getUserInfo(): Promise<User | null> {
   try {
-    console.log("[Auth] Getting user info...");
-
     let info: string | null = null;
     if (Platform.OS === "web") {
-      // Use localStorage for web
       info = window.localStorage.getItem(USER_INFO_KEY);
     } else {
-      // Use SecureStore for native
+      const SecureStore = await import("expo-secure-store");
       info = await SecureStore.getItemAsync(USER_INFO_KEY);
     }
-
-    if (!info) {
-      console.log("[Auth] No user info found");
-      return null;
-    }
-    const user = JSON.parse(info);
-    console.log("[Auth] User info retrieved:", user);
-    return user;
+    if (!info) return null;
+    return JSON.parse(info);
   } catch (error) {
     console.error("[Auth] Failed to get user info:", error);
     return null;
@@ -110,18 +165,12 @@ export async function getUserInfo(): Promise<User | null> {
 
 export async function setUserInfo(user: User): Promise<void> {
   try {
-    console.log("[Auth] Setting user info...", user);
-
     if (Platform.OS === "web") {
-      // Use localStorage for web
       window.localStorage.setItem(USER_INFO_KEY, JSON.stringify(user));
-      console.log("[Auth] User info stored in localStorage successfully");
-      return;
+    } else {
+      const SecureStore = await import("expo-secure-store");
+      await SecureStore.setItemAsync(USER_INFO_KEY, JSON.stringify(user));
     }
-
-    // Use SecureStore for native
-    await SecureStore.setItemAsync(USER_INFO_KEY, JSON.stringify(user));
-    console.log("[Auth] User info stored in SecureStore successfully");
   } catch (error) {
     console.error("[Auth] Failed to set user info:", error);
   }
@@ -130,13 +179,11 @@ export async function setUserInfo(user: User): Promise<void> {
 export async function clearUserInfo(): Promise<void> {
   try {
     if (Platform.OS === "web") {
-      // Use localStorage for web
       window.localStorage.removeItem(USER_INFO_KEY);
-      return;
+    } else {
+      const SecureStore = await import("expo-secure-store");
+      await SecureStore.deleteItemAsync(USER_INFO_KEY);
     }
-
-    // Use SecureStore for native
-    await SecureStore.deleteItemAsync(USER_INFO_KEY);
   } catch (error) {
     console.error("[Auth] Failed to clear user info:", error);
   }

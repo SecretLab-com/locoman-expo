@@ -1,5 +1,5 @@
 import * as Auth from "@/lib/_core/auth";
-import { getApiBaseUrl, getTrpcUrl } from "@/lib/api-config";
+import { getApiBaseUrl, getTrpcFallbackUrls, getTrpcUrl } from "@/lib/api-config";
 import type { AppRouter } from "@/server/routers";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { httpBatchLink } from "@trpc/client";
@@ -14,6 +14,7 @@ import superjson from "superjson";
  * use the same serialization format (superjson).
  */
 export const trpc = createTRPCReact<AppRouter>();
+const DEBUG_TRPC = process.env.EXPO_PUBLIC_DEBUG_TRPC === "true";
 
 /**
  * Creates the tRPC client with proper configuration.
@@ -21,9 +22,11 @@ export const trpc = createTRPCReact<AppRouter>();
  */
 export function createTRPCClient() {
   const trpcUrl = getTrpcUrl();
+  const trpcFallbackUrls = getTrpcFallbackUrls();
 
-  // Debug logging to help diagnose connection issues
-  console.log("[tRPC] Full tRPC URL:", trpcUrl);
+  if (DEBUG_TRPC) {
+    console.log("[tRPC] Full tRPC URL:", trpcUrl);
+  }
 
   return trpc.createClient({
     links: [
@@ -52,13 +55,70 @@ export function createTRPCClient() {
         },
         // Custom fetch to include credentials for cookie-based auth
         fetch(url, options) {
-          console.log("[tRPC] Fetching:", url);
-          return fetch(url, {
-            ...options,
-            credentials: "include",
-          }).catch((error) => {
-            console.error("[tRPC] Fetch error:", error);
-            throw error;
+          if (DEBUG_TRPC) {
+            console.log("[tRPC] Fetching:", url);
+          }
+          const fetchWithCredentials = (targetUrl: RequestInfo | URL) =>
+            fetch(targetUrl, {
+              ...options,
+              credentials: "include",
+            });
+
+          return fetchWithCredentials(url)
+            .catch(async (error) => {
+              const message = String(error?.message || error || "");
+              const isNetworkFailure =
+                message.includes("Network request failed") ||
+                message.includes("Failed to fetch") ||
+                message.includes("Load failed");
+
+              if (!isNetworkFailure || !trpcFallbackUrls.length) {
+                throw error;
+              }
+
+              const originalUrl = String(url);
+              for (const fallbackBase of trpcFallbackUrls) {
+                try {
+                  const original = new URL(originalUrl);
+                  const fallback = new URL(fallbackBase);
+                  original.protocol = fallback.protocol;
+                  original.host = fallback.host;
+                  const fallbackUrl = original.toString();
+                  if (DEBUG_TRPC) {
+                    console.warn("[tRPC] Primary fetch failed, retrying fallback:", fallbackUrl);
+                  }
+                  return await fetchWithCredentials(fallbackUrl);
+                } catch (fallbackError) {
+                  if (DEBUG_TRPC) {
+                    console.warn("[tRPC] Fallback fetch attempt failed:", fallbackError);
+                  }
+                }
+              }
+
+              throw error;
+            })
+            .then(async (response) => {
+              if (response.status !== 401) return response;
+              // One-shot retry to survive transient auth/session desync.
+              const refreshedToken = await Auth.getSessionToken();
+              if (!refreshedToken) return response;
+
+              const headers = new Headers(options?.headers ?? undefined);
+              headers.set("Authorization", `Bearer ${refreshedToken}`);
+              const retryTargetUrl = response.url || String(url);
+              const retriedResponse = await fetch(retryTargetUrl, {
+                ...options,
+                headers,
+                credentials: "include",
+              });
+              if (retriedResponse.status === 401) {
+                await Auth.handleAuthDesync("trpc_retry_401");
+              }
+              return retriedResponse;
+            })
+            .catch((error) => {
+              console.error("[tRPC] Fetch error:", error);
+              throw error;
           });
         },
       }),

@@ -61,7 +61,7 @@ async function main() {
         brand: product.vendor || null,
         category,
         inventoryQuantity: variant?.inventory_quantity || 0,
-        syncedAt: new Date(),
+        syncedAt: new Date().toISOString(),
       });
       synced++;
       process.stdout.write(`\r  Synced: ${synced}/${products.length}`);

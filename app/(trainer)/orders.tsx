@@ -9,81 +9,39 @@ import {
   Modal,
   Pressable,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { trpc } from "@/lib/trpc";
 
 type OrderStatus = "pending" | "processing" | "ready" | "delivered" | "cancelled";
 
 type Order = {
-  id: number;
-  clientId: number;
-  clientName: string;
+  id: string;
+  clientId?: string;
+  clientName?: string;
   clientPhoto?: string;
-  bundleId: number;
-  bundleTitle: string;
-  status: OrderStatus;
-  total: string;
-  items: {
+  bundleId?: string;
+  bundleTitle?: string;
+  status: string;
+  total?: string;
+  totalAmount?: string;
+  items?: {
     name: string;
     quantity: number;
     price: string;
   }[];
-  fulfillment: string;
-  createdAt: Date;
+  fulfillment?: string;
+  fulfillmentMethod?: string;
+  createdAt: string;
   notes?: string;
 };
-
-// Mock data
-const MOCK_ORDERS: Order[] = [
-  {
-    id: 1,
-    clientId: 1,
-    clientName: "John Smith",
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    status: "pending",
-    total: "149.99",
-    items: [
-      { name: "Protein Powder", quantity: 2, price: "49.99" },
-      { name: "Pre-Workout", quantity: 1, price: "29.99" },
-    ],
-    fulfillment: "trainer_delivery",
-    createdAt: new Date(Date.now() - 3600000),
-  },
-  {
-    id: 2,
-    clientId: 2,
-    clientName: "Sarah Johnson",
-    bundleId: 2,
-    bundleTitle: "Strength Training",
-    status: "processing",
-    total: "89.99",
-    items: [
-      { name: "Creatine", quantity: 1, price: "39.99" },
-      { name: "BCAAs", quantity: 1, price: "34.99" },
-    ],
-    fulfillment: "home_ship",
-    createdAt: new Date(Date.now() - 86400000),
-  },
-  {
-    id: 3,
-    clientId: 3,
-    clientName: "Mike Davis",
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    status: "ready",
-    total: "199.99",
-    items: [
-      { name: "Meal Replacement Shake", quantity: 3, price: "59.99" },
-    ],
-    fulfillment: "trainer_delivery",
-    createdAt: new Date(Date.now() - 172800000),
-  },
-];
 
 const STATUS_TABS: { value: OrderStatus | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -96,14 +54,27 @@ const STATUS_TABS: { value: OrderStatus | "all"; label: string }[] = [
 export default function OrdersScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const [activeTab, setActiveTab] = useState<OrderStatus | "all">("all");
-  const [orders] = useState<Order[]>(MOCK_ORDERS);
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+
+  // Fetch orders from tRPC
+  const { data: ordersData, isLoading, refetch, isRefetching } = trpc.orders.list.useQuery();
+  const updateStatus = trpc.orders.updateStatus.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+  });
+  const orders: Order[] = (ordersData || []).map((o: any) => ({
+    ...o,
+    id: String(o.id),
+    status: o.status === "shipped" ? "ready" : o.status,
+    total: o.total || o.totalAmount || "0.00",
+    fulfillment: o.fulfillment || o.fulfillmentMethod || "trainer_delivery",
+    items: o.items || [],
+    createdAt: o.createdAt || new Date().toISOString(),
+  }));
 
   // Filter orders by status
   const filteredOrders = useMemo(() => {
@@ -113,14 +84,11 @@ export default function OrdersScreen() {
 
   // Pull to refresh
   const onRefresh = async () => {
-    setRefreshing(true);
-    // TODO: Refetch orders
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
+    await refetch();
   };
 
   // Get status color
-  const getStatusColor = (status: OrderStatus) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case "pending":
         return "#F59E0B";
@@ -154,7 +122,8 @@ export default function OrdersScreen() {
   };
 
   // Format date
-  const formatDate = (date: Date) => {
+  const formatDate = (dateInput: string | Date) => {
+    const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const hours = Math.floor(diff / 3600000);
@@ -175,9 +144,14 @@ export default function OrdersScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Process",
-          onPress: () => {
-            // TODO: Update order status via tRPC
-            setShowDetailModal(false);
+          onPress: async () => {
+            try {
+              await updateStatus.mutateAsync({ id: order.id, status: "processing" });
+              setShowDetailModal(false);
+            } catch (error) {
+              console.error("Failed to update order status:", error);
+              Alert.alert("Error", "Could not process order. Please try again.");
+            }
           },
         },
       ]
@@ -192,9 +166,14 @@ export default function OrdersScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Mark Ready",
-          onPress: () => {
-            // TODO: Update order status via tRPC
-            setShowDetailModal(false);
+          onPress: async () => {
+            try {
+              await updateStatus.mutateAsync({ id: order.id, status: "shipped" });
+              setShowDetailModal(false);
+            } catch (error) {
+              console.error("Failed to update order status:", error);
+              Alert.alert("Error", "Could not mark order ready. Please try again.");
+            }
           },
         },
       ]
@@ -209,9 +188,14 @@ export default function OrdersScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Delivered",
-          onPress: () => {
-            // TODO: Update order status via tRPC
-            setShowDetailModal(false);
+          onPress: async () => {
+            try {
+              await updateStatus.mutateAsync({ id: order.id, status: "delivered" });
+              setShowDetailModal(false);
+            } catch (error) {
+              console.error("Failed to update order status:", error);
+              Alert.alert("Error", "Could not mark order delivered. Please try again.");
+            }
           },
         },
       ]
@@ -292,10 +276,14 @@ export default function OrdersScreen() {
         className="flex-1 px-4"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {filteredOrders.length === 0 ? (
+        {isLoading ? (
+          <View className="items-center py-20">
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : filteredOrders.length === 0 ? (
           <View className="bg-surface rounded-xl p-6 items-center">
             <IconSymbol name="bag.fill" size={32} color={colors.muted} />
             <Text className="text-muted mt-2">No orders found</Text>
@@ -353,14 +341,16 @@ export default function OrdersScreen() {
 
                     {/* Fulfillment */}
                     <Text className="text-xs text-muted">
-                      {getFulfillmentLabel(order.fulfillment)}
+                      {getFulfillmentLabel(order.fulfillment || "")}
                     </Text>
                   </View>
 
                   {/* Items Preview */}
+                  {(order.items || []).length > 0 && (
                   <Text className="text-xs text-muted mt-2">
-                    {order.items.map((i) => `${i.quantity}x ${i.name}`).join(", ")}
+                    {(order.items || []).map((i) => `${i.quantity}x ${i.name}`).join(", ")}
                   </Text>
+                  )}
 
                   {/* Time */}
                   <Text className="text-xs text-muted mt-1">
@@ -384,11 +374,14 @@ export default function OrdersScreen() {
         onRequestClose={() => setShowDetailModal(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
           onPress={() => setShowDetailModal(false)}
-          style={{ backgroundColor: overlayColor }}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
         >
-          <View className="bg-background rounded-t-3xl max-h-[85%]">
+          <SwipeDownSheet
+            visible={showDetailModal}
+            onClose={() => setShowDetailModal(false)}
+            className="bg-background rounded-t-3xl max-h-[85%]"
+          >
             {selectedOrder && (
               <ScrollView>
                 <View className="p-6">
@@ -434,7 +427,7 @@ export default function OrdersScreen() {
                   {/* Items */}
                   <View className="bg-surface rounded-xl p-4 mb-4">
                     <Text className="text-sm font-semibold text-foreground mb-3">Items</Text>
-                    {selectedOrder.items.map((item, index) => (
+                    {(selectedOrder.items || []).map((item, index) => (
                       <View
                         key={index}
                         className="flex-row items-center justify-between py-2 border-b border-border last:border-0"
@@ -458,37 +451,58 @@ export default function OrdersScreen() {
                     <View className="flex-row items-center">
                       <IconSymbol name="shippingbox.fill" size={20} color={colors.primary} />
                       <Text className="text-foreground ml-2">
-                        {getFulfillmentLabel(selectedOrder.fulfillment)}
+                        {getFulfillmentLabel(selectedOrder.fulfillment || "")}
                       </Text>
                     </View>
                   </View>
 
                   {/* Actions */}
                   {selectedOrder.status === "pending" && (
-                    <TouchableOpacity
+                    <ActionButton
                       onPress={() => handleProcessOrder(selectedOrder)}
-                      className="bg-primary py-4 rounded-xl items-center mb-3"
+                      loading={updateStatus.isPending}
+                      loadingText="Processing..."
+                      variant="primary"
+                      size="lg"
+                      fullWidth
+                      className="py-4 mb-3"
+                      accessibilityLabel="Start processing order"
+                      testID="order-process"
                     >
-                      <Text className="text-white font-semibold">Start Processing</Text>
-                    </TouchableOpacity>
+                      Start Processing
+                    </ActionButton>
                   )}
 
                   {selectedOrder.status === "processing" && (
-                    <TouchableOpacity
+                    <ActionButton
                       onPress={() => handleMarkReady(selectedOrder)}
-                      className="bg-success py-4 rounded-xl items-center mb-3"
+                      loading={updateStatus.isPending}
+                      loadingText="Marking ready..."
+                      variant="primary"
+                      size="lg"
+                      fullWidth
+                      className="bg-success py-4 mb-3"
+                      accessibilityLabel="Mark order as ready"
+                      testID="order-mark-ready"
                     >
-                      <Text className="text-white font-semibold">Mark as Ready</Text>
-                    </TouchableOpacity>
+                      Mark as Ready
+                    </ActionButton>
                   )}
 
                   {selectedOrder.status === "ready" && (
-                    <TouchableOpacity
+                    <ActionButton
                       onPress={() => handleMarkDelivered(selectedOrder)}
-                      className="bg-success py-4 rounded-xl items-center mb-3"
+                      loading={updateStatus.isPending}
+                      loadingText="Marking delivered..."
+                      variant="primary"
+                      size="lg"
+                      fullWidth
+                      className="bg-success py-4 mb-3"
+                      accessibilityLabel="Mark order as delivered"
+                      testID="order-mark-delivered"
                     >
-                      <Text className="text-white font-semibold">Mark as Delivered</Text>
-                    </TouchableOpacity>
+                      Mark as Delivered
+                    </ActionButton>
                   )}
 
                   <TouchableOpacity
@@ -500,7 +514,7 @@ export default function OrdersScreen() {
                 </View>
               </ScrollView>
             )}
-          </View>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
     </ScreenContainer>

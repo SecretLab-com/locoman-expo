@@ -1,44 +1,43 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Text,
   View,
   TouchableOpacity,
   ScrollView,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { trpc } from "@/lib/trpc";
 
-// Mock earnings data
-const MOCK_EARNINGS = {
-  totalEarnings: 12450.0,
-  thisMonth: 2340.0,
-  lastMonth: 1890.0,
-  pending: 450.0,
-  monthlyGrowth: 23.8,
+type Transaction = {
+  id: string | number;
+  type: string;
+  description: string;
+  amount: number;
+  date: string;
+  status: string;
 };
 
-const MOCK_TRANSACTIONS = [
-  { id: 1, type: "sale", description: "Full Body Transformation", amount: 149.99, date: "2024-03-20", status: "completed" },
-  { id: 2, type: "sale", description: "HIIT Cardio Blast", amount: 79.99, date: "2024-03-19", status: "completed" },
-  { id: 3, type: "payout", description: "Weekly Payout", amount: -850.0, date: "2024-03-18", status: "completed" },
-  { id: 4, type: "sale", description: "Yoga for Beginners", amount: 59.99, date: "2024-03-17", status: "pending" },
-  { id: 5, type: "sale", description: "Full Body Transformation", amount: 149.99, date: "2024-03-16", status: "completed" },
-  { id: 6, type: "sale", description: "Strength Training 101", amount: 99.99, date: "2024-03-15", status: "completed" },
-];
+type EarningsSummary = {
+  totalEarnings: number;
+  thisMonth: number;
+  lastMonth: number;
+  pending: number;
+  monthlyGrowth: number;
+  monthlyData?: { month: string; earnings: number }[];
+};
 
-const MOCK_MONTHLY_DATA = [
-  { month: "Oct", earnings: 1200 },
-  { month: "Nov", earnings: 1450 },
-  { month: "Dec", earnings: 1680 },
-  { month: "Jan", earnings: 1890 },
-  { month: "Feb", earnings: 2100 },
-  { month: "Mar", earnings: 2340 },
-];
-
-type Transaction = (typeof MOCK_TRANSACTIONS)[0];
+const DEFAULT_SUMMARY: EarningsSummary = {
+  totalEarnings: 0,
+  thisMonth: 0,
+  lastMonth: 0,
+  pending: 0,
+  monthlyGrowth: 0,
+};
 
 function EarningsCard({ title, value, subtitle, icon, color }: {
   title: string;
@@ -74,7 +73,7 @@ function EarningsCard({ title, value, subtitle, icon, color }: {
   );
 }
 
-function SimpleBarChart({ data }: { data: typeof MOCK_MONTHLY_DATA }) {
+function SimpleBarChart({ data }: { data: { month: string; earnings: number }[] }) {
   const maxValue = Math.max(...data.map((d) => d.earnings));
 
   return (
@@ -144,13 +143,42 @@ function TransactionItem({ transaction }: { transaction: Transaction }) {
 
 export default function TrainerEarningsScreen() {
   const colors = useColors();
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"week" | "month" | "year">("month");
 
+  // Fetch earnings data from tRPC
+  const { data: earningsData, isLoading: isLoadingEarnings, refetch: refetchEarnings, isRefetching: isRefetchingEarnings } = trpc.earnings.list.useQuery();
+  const { data: summaryData, isLoading: isLoadingSummary, refetch: refetchSummary, isRefetching: isRefetchingSummary } = trpc.earnings.summary.useQuery();
+
+  const isLoading = isLoadingEarnings || isLoadingSummary;
+  const isRefetching = isRefetchingEarnings || isRefetchingSummary;
+
+  const earnings: EarningsSummary = useMemo(() => {
+    if (!summaryData) return DEFAULT_SUMMARY;
+    return {
+      totalEarnings: Number((summaryData as any).totalEarnings || 0),
+      thisMonth: Number((summaryData as any).thisMonth || 0),
+      lastMonth: Number((summaryData as any).lastMonth || 0),
+      pending: Number((summaryData as any).pending || 0),
+      monthlyGrowth: Number((summaryData as any).monthlyGrowth || 0),
+      monthlyData: (summaryData as any).monthlyData,
+    };
+  }, [summaryData]);
+
+  const transactions: Transaction[] = useMemo(() => {
+    return (earningsData || []).map((e: any) => ({
+      id: e.id,
+      type: e.type || "sale",
+      description: e.description || e.bundleTitle || "Earning",
+      amount: Number(e.amount || 0),
+      date: e.date || e.createdAt || "",
+      status: e.status || "completed",
+    }));
+  }, [earningsData]);
+
+  const monthlyData = earnings.monthlyData || [];
+
   const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
+    await Promise.all([refetchEarnings(), refetchSummary()]);
   };
 
   return (
@@ -164,23 +192,28 @@ export default function TrainerEarningsScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-
+        {isLoading ? (
+          <View className="items-center py-20">
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : (
+        <>
         {/* Stats Cards */}
         <View className="px-4 mb-6">
           <View className="flex-row gap-3 mb-3">
             <EarningsCard
               title="Total Earnings"
-              value={`$${MOCK_EARNINGS.totalEarnings.toLocaleString()}`}
+              value={`$${earnings.totalEarnings.toLocaleString()}`}
               icon="dollarsign.circle.fill"
               color={colors.success}
             />
             <EarningsCard
               title="This Month"
-              value={`$${MOCK_EARNINGS.thisMonth.toLocaleString()}`}
-              subtitle={`+${MOCK_EARNINGS.monthlyGrowth}%`}
+              value={`$${earnings.thisMonth.toLocaleString()}`}
+              subtitle={earnings.monthlyGrowth ? `+${earnings.monthlyGrowth}%` : undefined}
               icon="chart.bar.fill"
               color={colors.primary}
             />
@@ -188,13 +221,13 @@ export default function TrainerEarningsScreen() {
           <View className="flex-row gap-3">
             <EarningsCard
               title="Last Month"
-              value={`$${MOCK_EARNINGS.lastMonth.toLocaleString()}`}
+              value={`$${earnings.lastMonth.toLocaleString()}`}
               icon="calendar"
               color={colors.muted}
             />
             <EarningsCard
               title="Pending"
-              value={`$${MOCK_EARNINGS.pending.toLocaleString()}`}
+              value={`$${earnings.pending.toLocaleString()}`}
               icon="clock.fill"
               color={colors.warning}
             />
@@ -223,9 +256,15 @@ export default function TrainerEarningsScreen() {
               ))}
             </View>
           </View>
+          {monthlyData.length > 0 ? (
           <View className="bg-surface rounded-xl p-4 border border-border">
-            <SimpleBarChart data={MOCK_MONTHLY_DATA} />
+            <SimpleBarChart data={monthlyData} />
           </View>
+          ) : (
+          <View className="bg-surface rounded-xl p-6 items-center border border-border">
+            <Text className="text-muted">No chart data available yet</Text>
+          </View>
+          )}
         </View>
 
         {/* Transactions */}
@@ -236,11 +275,18 @@ export default function TrainerEarningsScreen() {
               <Text className="text-primary font-medium">View All</Text>
             </TouchableOpacity>
           </View>
+          {transactions.length > 0 ? (
           <View className="bg-surface rounded-xl px-4 border border-border">
-            {MOCK_TRANSACTIONS.map((transaction) => (
+            {transactions.map((transaction) => (
               <TransactionItem key={transaction.id} transaction={transaction} />
             ))}
           </View>
+          ) : (
+          <View className="bg-surface rounded-xl p-6 items-center border border-border">
+            <IconSymbol name="dollarsign.circle.fill" size={32} color={colors.muted} />
+            <Text className="text-muted mt-2">No transactions yet</Text>
+          </View>
+          )}
         </View>
 
         {/* Request Payout Button */}
@@ -252,6 +298,8 @@ export default function TrainerEarningsScreen() {
             <Text className="text-background font-semibold text-lg">Request Payout</Text>
           </TouchableOpacity>
         </View>
+        </>
+        )}
       </ScrollView>
     </ScreenContainer>
   );

@@ -21,6 +21,16 @@ type DeepLinkRoute = {
  * Add new routes here as the app grows.
  */
 const DEEP_LINK_ROUTES: DeepLinkRoute[] = [
+  // Trainer social program: /social-program -> /(trainer)/social-program
+  {
+    pattern: "social-program",
+    routerPath: "/(trainer)/social-program",
+  },
+  // Phyllo callback bridge: /phyllo/callback -> /phyllo/callback
+  {
+    pattern: "phyllo/callback",
+    routerPath: "/phyllo/callback",
+  },
   // Bundle detail: /bundle/123 -> /bundle/[id]
   {
     pattern: "bundle/:id",
@@ -153,6 +163,15 @@ function handleDeepLink(url: string): boolean {
     if (!match) {
       console.log("[DeepLink] No matching route for path:", path);
       return false;
+    }
+
+    const normalizedPath = String(path).replace(/^\/+|\/+$/g, "").toLowerCase();
+    // Ignore bridge callbacks in the global deep-link hook.
+    // Phyllo callback handling is managed by the in-flow router navigation inside
+    // the social connect modal, and allowing global handling here causes loops.
+    if (normalizedPath === "phyllo/callback") {
+      console.log("[DeepLink] Ignoring phyllo callback in global handler");
+      return true;
     }
 
     console.log("[DeepLink] Navigating to:", match.route.routerPath, "with params:", match.params);

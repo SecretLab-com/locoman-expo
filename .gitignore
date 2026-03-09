@@ -63,4 +63,5 @@ Thumbs.db
 *.tgz
 *.tar.gz
 .cache/
-.env
+.env*
+.tmp/

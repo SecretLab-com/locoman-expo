@@ -59,10 +59,30 @@ export function useBadgeCounts() {
     }
   );
 
-  // Fetch pending join requests (for trainers) - uses myTrainers.pendingRequests
-  // Note: This shows requests the user has sent, not received
-  // For trainers to see incoming requests, we'd need a separate endpoint
+  // Fetch unread messages count
+  const conversationsQuery = trpc.messages.conversations.useQuery(
+    undefined,
+    {
+      enabled: isAuthenticated,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Fetch outgoing join requests (for non-trainers)
   const joinRequestsQuery = trpc.myTrainers.pendingRequests.useQuery(
+    undefined,
+    {
+      enabled: isAuthenticated && !isTrainer,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Fetch incoming join requests (trainer alerts)
+  const trainerIncomingRequestsQuery = trpc.myTrainers.forTrainerPendingRequests.useQuery(
     undefined,
     {
       enabled: isAuthenticated && isTrainer,
@@ -76,14 +96,27 @@ export function useBadgeCounts() {
   useEffect(() => {
     const trainerDeliveries = trainerDeliveriesQuery.data?.length ?? 0;
     const clientDeliveries = clientDeliveriesQuery.data?.filter(d => d.status === "pending" || d.status === "ready")?.length ?? 0;
+    const actionableApprovals = (approvalsQuery.data || []).filter((bundle: any) =>
+      bundle?.status === "pending_review" || bundle?.status === "changes_requested",
+    ).length;
 
     setCounts({
       pendingDeliveries: isTrainer ? trainerDeliveries : clientDeliveries,
-      pendingApprovals: approvalsQuery.data?.length ?? 0,
-      unreadMessages: 0, // TODO: Implement unread messages count
-      pendingJoinRequests: joinRequestsQuery.data?.length ?? 0,
+      pendingApprovals: actionableApprovals,
+      unreadMessages: (conversationsQuery.data || []).reduce((sum: number, c: any) => sum + (c.unreadCount || 0), 0),
+      pendingJoinRequests: isTrainer
+        ? (trainerIncomingRequestsQuery.data?.length ?? 0)
+        : (joinRequestsQuery.data?.length ?? 0),
     });
-  }, [trainerDeliveriesQuery.data, clientDeliveriesQuery.data, approvalsQuery.data, joinRequestsQuery.data, isTrainer]);
+  }, [
+    trainerDeliveriesQuery.data,
+    clientDeliveriesQuery.data,
+    approvalsQuery.data,
+    joinRequestsQuery.data,
+    trainerIncomingRequestsQuery.data,
+    conversationsQuery.data,
+    isTrainer,
+  ]);
 
   const refetch = useCallback(async () => {
     setIsLoading(true);
@@ -92,9 +125,11 @@ export function useBadgeCounts() {
       clientDeliveriesQuery.refetch(),
       approvalsQuery.refetch(),
       joinRequestsQuery.refetch(),
+      trainerIncomingRequestsQuery.refetch(),
+      conversationsQuery.refetch(),
     ]);
     setIsLoading(false);
-  }, [trainerDeliveriesQuery, clientDeliveriesQuery, approvalsQuery, joinRequestsQuery]);
+  }, [trainerDeliveriesQuery, clientDeliveriesQuery, approvalsQuery, joinRequestsQuery, trainerIncomingRequestsQuery, conversationsQuery]);
 
   useEffect(() => {
     if (!isAuthenticated) return;

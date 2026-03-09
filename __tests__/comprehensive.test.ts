@@ -83,11 +83,12 @@ describe("LocoMotivate Expo App - Comprehensive Feature Tests", () => {
   });
 
   describe("Trainer Features", () => {
-    it("should have trainer dashboard", () => {
+    it("should have trainer home with money-first copy", () => {
       const screenPath = path.join(PROJECT_ROOT, "app/(trainer)/index.tsx");
       expect(fs.existsSync(screenPath)).toBe(true);
       const content = fs.readFileSync(screenPath, "utf-8");
-      expect(content).toContain("Dashboard");
+      expect(content).toContain("Let’s get you paid.");
+      expect(content).toContain("Progress");
     });
 
     it("should have bundles management screen", () => {
@@ -125,12 +126,15 @@ describe("LocoMotivate Expo App - Comprehensive Feature Tests", () => {
       expect(content).toContain("bio");
     });
 
-    it("should have points/status screen", () => {
+    it("should have rewards/status screen", () => {
       const screenPath = path.join(PROJECT_ROOT, "app/(trainer)/points.tsx");
       expect(fs.existsSync(screenPath)).toBe(true);
-      const content = fs.readFileSync(screenPath, "utf-8");
-      expect(content).toContain("Points");
-      expect(content).toContain("tier");
+      const pointsContent = fs.readFileSync(screenPath, "utf-8");
+      const rewardsPath = path.join(PROJECT_ROOT, "app/(trainer)/rewards.tsx");
+      const rewardsContent = fs.readFileSync(rewardsPath, "utf-8");
+      expect(pointsContent).toContain("./rewards");
+      expect(rewardsContent).toContain("Rewards");
+      expect(rewardsContent).toContain("How points work");
     });
 
     it("should have invite screen", () => {
@@ -145,12 +149,12 @@ describe("LocoMotivate Expo App - Comprehensive Feature Tests", () => {
       expect(fs.existsSync(screenPath)).toBe(true);
     });
 
-    it("should have client detail screen with session tracking", () => {
+    it("should have client detail screen with active offers and payment history", () => {
       const screenPath = path.join(PROJECT_ROOT, "app/client-detail/[id].tsx");
       expect(fs.existsSync(screenPath)).toBe(true);
       const content = fs.readFileSync(screenPath, "utf-8");
-      expect(content).toContain("session");
-      expect(content).toContain("remaining");
+      expect(content).toContain("Active offers");
+      expect(content).toContain("Payment history");
     });
   });
 
@@ -340,30 +344,30 @@ describe("LocoMotivate Expo App - Comprehensive Feature Tests", () => {
 
   describe("Database Schema", () => {
     it("should have all required tables", () => {
-      const schemaPath = path.join(PROJECT_ROOT, "drizzle/schema.ts");
-      const content = fs.readFileSync(schemaPath, "utf-8");
+      const migrationPath = path.join(PROJECT_ROOT, "supabase/migrations/001_initial_schema.sql");
+      const content = fs.readFileSync(migrationPath, "utf-8");
       
       const requiredTables = [
         "users",
-        "bundleDrafts",
+        "bundle_drafts",
         "products",
         "subscriptions",
         "orders",
-        "deliveries",
+        "product_deliveries",
         "messages",
         "invitations",
       ];
       
       requiredTables.forEach((table) => {
-        expect(content, `Missing table: ${table}`).toContain(table);
+        expect(content, `Missing table: ${table}`).toContain(`CREATE TABLE ${table}`);
       });
     });
 
     it("should have session tracking fields in subscriptions", () => {
-      const schemaPath = path.join(PROJECT_ROOT, "drizzle/schema.ts");
-      const content = fs.readFileSync(schemaPath, "utf-8");
-      expect(content).toContain("sessionsIncluded");
-      expect(content).toContain("sessionsUsed");
+      const migrationPath = path.join(PROJECT_ROOT, "supabase/migrations/001_initial_schema.sql");
+      const content = fs.readFileSync(migrationPath, "utf-8");
+      expect(content).toContain("sessions_included");
+      expect(content).toContain("sessions_used");
     });
   });
 

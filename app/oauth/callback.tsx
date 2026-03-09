@@ -1,271 +1,203 @@
+/**
+ * OAuth callback screen.
+ *
+ * After Supabase completes the OAuth flow, the user is redirected here
+ * via the exp:// deep link. We extract the tokens or auth code from the
+ * URL and establish the Supabase session.
+ */
 import { ThemedView } from "@/components/themed-view";
-import { useAuthContext } from "@/contexts/auth-context";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
-import * as Api from "@/lib/_core/api";
-import * as Auth from "@/lib/_core/auth";
+import { getHomeRoute } from "@/lib/navigation";
+import { supabase } from "@/lib/supabase-client";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// Helper to normalize user data from various sources to full User type
-function normalizeUserData(userData: Record<string, unknown>): Auth.User {
-  return {
-    id: userData.id as number,
-    openId: userData.openId as string,
-    name: (userData.name as string | null) ?? null,
-    email: (userData.email as string | null) ?? null,
-    phone: (userData.phone as string | null) ?? null,
-    photoUrl: (userData.photoUrl as string | null) ?? null,
-    loginMethod: (userData.loginMethod as string | null) ?? null,
-    role: (userData.role as Auth.UserRole) ?? "shopper",
-    username: (userData.username as string | null) ?? null,
-    bio: (userData.bio as string | null) ?? null,
-    specialties: userData.specialties ?? null,
-    socialLinks: userData.socialLinks ?? null,
-    trainerId: (userData.trainerId as number | null) ?? null,
-    active: (userData.active as boolean) ?? true,
-    metadata: userData.metadata ?? null,
-    createdAt: userData.createdAt ? new Date(userData.createdAt as string) : new Date(),
-    updatedAt: userData.updatedAt ? new Date(userData.updatedAt as string) : new Date(),
-    lastSignedIn: userData.lastSignedIn ? new Date(userData.lastSignedIn as string) : new Date(),
-  };
+function isMissingCodeVerifierError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = (error.message || "").toLowerCase();
+  return (
+    message.includes("code verifier") ||
+    message.includes("both auth code and code verifier should be non-empty")
+  );
 }
 
 export default function OAuthCallback() {
   const router = useRouter();
-  const { refresh } = useAuthContext();
-  const params = useLocalSearchParams<{
-    code?: string;
-    state?: string;
-    error?: string;
-    sessionToken?: string;
-    user?: string;
-  }>();
+  const params = useLocalSearchParams();
   const [status, setStatus] = useState<"processing" | "success" | "error">("processing");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const hasProcessedRef = useRef(false);
+
+  const resolveHomeRoute = (roleLike: unknown) => {
+    const normalized = typeof roleLike === "string" ? roleLike.toLowerCase() : null;
+    return getHomeRoute(normalized || null);
+  };
 
   useEffect(() => {
+    if (hasProcessedRef.current) return;
+    hasProcessedRef.current = true;
+
     const handleCallback = async () => {
-      console.log("[OAuth] Callback handler triggered");
-      console.log("[OAuth] Params received:", {
-        code: params.code,
-        state: params.state,
-        error: params.error,
-        sessionToken: params.sessionToken ? "present" : "missing",
-        user: params.user ? "present" : "missing",
-      });
       try {
-        // Check for sessionToken in params first (web OAuth callback from server redirect)
-        if (params.sessionToken) {
-          console.log("[OAuth] Session token found in params (direct token flow)");
-          await Auth.setSessionToken(params.sessionToken);
+        console.log("[OAuth Callback] Processing...", {
+          hasCode: !!params.code,
+          hasAccessToken: !!params.access_token,
+          platform: Platform.OS,
+        });
 
-          // Web platform: establish session cookie on backend if needed
-          if (Platform.OS === "web") {
-            console.log("[OAuth] Web: establishing backend session cookie...");
-            await Api.establishSession(params.sessionToken);
-          }
-
-          // Decode and store user info if available
-          if (params.user) {
-            try {
-              // Use atob for base64 decoding (works in both web and React Native)
-              const userJson =
-                typeof atob !== "undefined"
-                  ? atob(params.user)
-                  : Buffer.from(params.user, "base64").toString("utf-8");
-              const userData = JSON.parse(userJson);
-              const userInfo = normalizeUserData(userData);
-              await Auth.setUserInfo(userInfo);
-              console.log("[OAuth] User info stored:", userInfo);
-              triggerAuthRefresh();
-            } catch (err) {
-              console.error("[OAuth] Failed to parse user data:", err);
-            }
-          }
-
+        // If a session already exists, this callback has already been processed
+        // (common on iOS when deep-link handoff completes and callback route re-renders).
+        const {
+          data: { session: preExistingSession },
+        } = await supabase.auth.getSession();
+        if (preExistingSession) {
+          console.log("[OAuth Callback] Session already present:", preExistingSession.user.email);
           setStatus("success");
-          console.log("[OAuth] Authentication successful, refreshing context state...");
-
-          await refresh();
-
-          // Small delay to ensure React state has propagated through context to all components
-          await new Promise((resolve) => setTimeout(resolve, 300));
-
-          console.log("[OAuth] State refreshed, redirecting to home...");
-          router.replace("/(tabs)");
-          return;
-        }
-
-        // Get URL from params or Linking
-        let url: string | null = null;
-
-        // Try to get from local search params first (works with expo-router)
-        if (params.code || params.state || params.error) {
-          console.log("[OAuth] Found params in route params");
-          // Extract from params
-          const urlParams = new URLSearchParams();
-          if (params.code) urlParams.set("code", params.code);
-          if (params.state) urlParams.set("state", params.state);
-          if (params.error) urlParams.set("error", params.error);
-          url = `?${urlParams.toString()}`;
-          console.log("[OAuth] Constructed URL from params:", url);
-        } else {
-          console.log("[OAuth] No params found, checking Linking.getInitialURL()...");
-          // Fallback: try to get from Linking
-          const initialUrl = await Linking.getInitialURL();
-          console.log("[OAuth] Linking.getInitialURL():", initialUrl);
-          if (initialUrl) {
-            url = initialUrl;
-          }
-        }
-
-        // Check for error
-        const error =
-          params.error || (url ? new URL(url, "http://dummy").searchParams.get("error") : null);
-        if (error) {
-          console.error("[OAuth] Error parameter found:", error);
-          setStatus("error");
-          setErrorMessage(error || "OAuth error occurred");
-          return;
-        }
-
-        // Check for code and state
-        let code: string | null = null;
-        let state: string | null = null;
-        let sessionToken: string | null = null;
-
-        // Try to get from params first
-        if (params.code && params.state) {
-          console.log("[OAuth] Using code and state from route params");
-          code = params.code;
-          state = params.state;
-        } else if (url) {
-          console.log("[OAuth] Parsing code and state from URL:", url);
-          // Parse from URL
-          try {
-            const urlObj = new URL(url);
-            code = urlObj.searchParams.get("code");
-            state = urlObj.searchParams.get("state");
-            sessionToken = urlObj.searchParams.get("sessionToken");
-            console.log("[OAuth] Extracted from URL:", {
-              code: code?.substring(0, 20) + "...",
-              state: state?.substring(0, 20) + "...",
-              sessionToken: sessionToken ? "present" : "missing",
-            });
-          } catch (e) {
-            console.log("[OAuth] Failed to parse as full URL, trying regex:", e);
-            // Try parsing as relative URL with query params
-            const match = url.match(/[?&](code|state|sessionToken)=([^&]+)/g);
-            if (match) {
-              match.forEach((param) => {
-                const [key, value] = param.substring(1).split("=");
-                if (key === "code") code = decodeURIComponent(value);
-                if (key === "state") state = decodeURIComponent(value);
-                if (key === "sessionToken") sessionToken = decodeURIComponent(value);
-              });
-              console.log("[OAuth] Extracted from regex:", {
-                code: code?.substring(0, 20) + "...",
-                state: state?.substring(0, 20) + "...",
-                sessionToken: sessionToken ? "present" : "missing",
-              });
-            }
-          }
-        }
-
-        console.log("[OAuth] Final extracted values:", {
-          hasCode: !!code,
-          hasState: !!state,
-          hasSessionToken: !!sessionToken,
-        });
-
-        // If we have sessionToken directly from URL, use it
-        if (sessionToken) {
-          console.log("[OAuth] Session token found in URL, storing...");
-          await Auth.setSessionToken(sessionToken);
-
-          // Web platform: establish session cookie on backend if needed
-          if (Platform.OS === "web") {
-            console.log("[OAuth] Web: establishing backend session cookie...");
-            await Api.establishSession(sessionToken);
-          }
-          console.log("[OAuth] Session token stored successfully");
-          // User info is already in the OAuth callback response
-          // No need to fetch from API
-          setStatus("success");
-          console.log("[OAuth] User data already in URL params, refreshing state...");
-          await refresh();
-          console.log("[OAuth] State refreshed, redirecting to home...");
-          router.replace("/(tabs)");
-          return;
-        }
-
-        // Otherwise, exchange code for session token
-        if (!code || !state) {
-          console.error("[OAuth] Missing code or state parameter", {
-            hasCode: !!code,
-            hasState: !!state,
-          });
-          setStatus("error");
-          setErrorMessage("Missing code or state parameter");
-          return;
-        }
-
-        // Exchange code for session token
-        console.log("[OAuth] Exchanging code for session token...", {
-          code: code.substring(0, 20) + "...",
-          state: state.substring(0, 20) + "...",
-        });
-        const result = await Api.exchangeOAuthCode(code, state);
-        console.log("[OAuth] Exchange result:", {
-          hasSessionToken: !!result.sessionToken,
-          hasUser: !!result.user,
-        });
-
-        if (result.sessionToken) {
-          console.log("[OAuth] Session token received, storing...");
-          // Store session token
-          await Auth.setSessionToken(result.sessionToken);
-
-          // Web platform: establish session cookie on backend if needed
-          if (Platform.OS === "web") {
-            console.log("[OAuth] Web: establishing backend session cookie...");
-            await Api.establishSession(result.sessionToken);
-          }
-          console.log("[OAuth] Session token stored successfully");
-
-          // Store user info if available
-          if (result.user) {
-            console.log("[OAuth] User data received:", result.user);
-            const userInfo = normalizeUserData(result.user as Record<string, unknown>);
-            await Auth.setUserInfo(userInfo);
-            console.log("[OAuth] User info stored:", userInfo);
-            triggerAuthRefresh();
+          triggerAuthRefresh();
+          if (Platform.OS === "web" && typeof window !== "undefined") {
+            window.location.replace("/");
           } else {
-            console.log("[OAuth] No user data in result, triggering refresh anyway...");
-            triggerAuthRefresh();
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            router.replace(resolveHomeRoute(preExistingSession.user?.user_metadata?.role) as any);
+          }
+          return;
+        }
+
+        if (Platform.OS === "web") {
+          let resolvedSession = (await supabase.auth.getSession()).data.session ?? null;
+
+          // Web callbacks may include tokens in hash/query; set them directly so we can
+          // deterministically escape /oauth/callback even if detectSessionInUrl races.
+          if (!resolvedSession && typeof window !== "undefined") {
+            const currentUrl = new URL(window.location.href);
+            const hashParams = new URLSearchParams(currentUrl.hash.replace(/^#/, ""));
+            const queryParams = currentUrl.searchParams;
+
+            const accessToken = hashParams.get("access_token") ?? queryParams.get("access_token");
+            const refreshToken = hashParams.get("refresh_token") ?? queryParams.get("refresh_token");
+            const code = queryParams.get("code");
+
+            // Strip large OAuth payload from the URL immediately to avoid reprocessing loops.
+            if (currentUrl.hash || currentUrl.search) {
+              window.history.replaceState({}, "", "/oauth/callback");
+            }
+
+            if (accessToken && refreshToken) {
+              const { error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              });
+              if (error) throw error;
+            } else if (code) {
+              const { error } = await supabase.auth.exchangeCodeForSession(code);
+              if (error) throw error;
+            }
+
+            resolvedSession = (await supabase.auth.getSession()).data.session ?? null;
           }
 
+          if (!resolvedSession) {
+            setStatus("error");
+            setErrorMessage("Authentication did not complete. Please try again.");
+            return;
+          }
+
+          console.log("[OAuth Callback] Session established for:", resolvedSession.user.email);
           setStatus("success");
-          console.log("[OAuth] Authentication successful, refreshing context state...");
+          triggerAuthRefresh();
+          // Use a hard navigation on web to guarantee we leave /oauth/callback.
+          if (typeof window !== "undefined") {
+            window.location.replace("/");
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            router.replace(resolveHomeRoute(resolvedSession.user?.user_metadata?.role) as any);
+          }
+          return;
+        }
 
-          // CRITICAL: Await context to sync before navigation
-          await refresh();
+        // 1. Prefer token params first.
+        // Native callback bridges may include code/state and tokens together.
+        if (params.access_token && params.refresh_token) {
+          console.log("[OAuth Callback] Setting session from token params...");
+          const { error } = await supabase.auth.setSession({
+            access_token: params.access_token as string,
+            refresh_token: params.refresh_token as string,
+          });
+          if (error) throw error;
+        }
 
-          // Small delay to ensure React state has propagated through context to all components
+        // 2. On native, also check the full URL for hash fragment tokens
+        if (!params.access_token) {
+          const url = await Linking.getInitialURL();
+          console.log("[OAuth Callback] Checking initial URL:", url?.substring(0, 80));
+
+          if (url) {
+            const hashIndex = url.indexOf("#");
+            if (hashIndex !== -1) {
+              const fragment = new URLSearchParams(url.substring(hashIndex + 1));
+              const accessToken = fragment.get("access_token");
+              const refreshToken = fragment.get("refresh_token");
+
+              if (accessToken && refreshToken) {
+                console.log("[OAuth Callback] Setting session from hash fragment...");
+                const { error } = await supabase.auth.setSession({
+                  access_token: accessToken,
+                  refresh_token: refreshToken,
+                });
+                if (error) throw error;
+              }
+            }
+
+            // Also check query string in the full URL for tokens
+            const queryStart = url.indexOf("?");
+            if (queryStart !== -1) {
+              const query = new URLSearchParams(url.substring(queryStart + 1).split("#")[0]);
+              const accessToken = query.get("access_token");
+              const refreshToken = query.get("refresh_token");
+              if (accessToken && refreshToken) {
+                console.log("[OAuth Callback] Setting session from URL query tokens...");
+                const { error } = await supabase.auth.setSession({
+                  access_token: accessToken,
+                  refresh_token: refreshToken,
+                });
+                if (error) throw error;
+              }
+            }
+          }
+        }
+
+        // 3. Code exchange fallback (mainly web/PKCE-only callbacks).
+        // Run after token handling so malformed code responses can't mask valid tokens.
+        if (!params.access_token && params.code) {
+          console.log("[OAuth Callback] Exchanging code for session...");
+          const { error } = await supabase.auth.exchangeCodeForSession(params.code as string);
+          if (error) {
+            // On iOS redirect handoffs, a prior successful exchange can consume the
+            // verifier before this screen runs. In that case, continue by checking session.
+            if (!isMissingCodeVerifierError(error)) throw error;
+            console.warn("[OAuth Callback] Code verifier unavailable; checking existing session...");
+          }
+        }
+
+        // 4. Check if we now have a valid session
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session) {
+          console.log("[OAuth Callback] Session established for:", session.user.email);
+          setStatus("success");
+          triggerAuthRefresh();
           await new Promise((resolve) => setTimeout(resolve, 300));
-
-          console.log("[OAuth] State synchronized, navigating to main tabs...");
-          router.replace("/(tabs)");
+          router.replace(resolveHomeRoute(session.user?.user_metadata?.role) as any);
         } else {
-          console.error("[OAuth] No session token in result:", result);
+          console.warn("[OAuth Callback] No session after processing");
           setStatus("error");
-          setErrorMessage("No session token received");
+          setErrorMessage("Authentication did not complete. Please try again.");
         }
       } catch (error) {
-        console.error("[OAuth] Callback error:", error);
+        console.error("[OAuth Callback] Error:", error);
         setStatus("error");
         setErrorMessage(
           error instanceof Error ? error.message : "Failed to complete authentication",
@@ -274,7 +206,7 @@ export default function OAuthCallback() {
     };
 
     handleCallback();
-  }, [params.code, params.state, params.error, params.sessionToken, params.user, router]);
+  }, []);
 
   return (
     <SafeAreaView className="flex-1" edges={["top", "bottom", "left", "right"]}>
@@ -288,14 +220,9 @@ export default function OAuthCallback() {
           </>
         )}
         {status === "success" && (
-          <>
-            <Text className="text-base leading-6 text-center text-foreground">
-              Authentication successful!
-            </Text>
-            <Text className="text-base leading-6 text-center text-foreground">
-              Redirecting...
-            </Text>
-          </>
+          <Text className="text-base leading-6 text-center text-foreground">
+            Authentication successful! Redirecting...
+          </Text>
         )}
         {status === "error" && (
           <>

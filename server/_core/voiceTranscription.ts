@@ -80,18 +80,11 @@ export async function transcribeAudio(
 ): Promise<TranscriptionResponse | TranscriptionError> {
   try {
     // Step 1: Validate environment configuration
-    if (!ENV.forgeApiUrl) {
+    if (!ENV.whisperApiKey) {
       return {
         error: "Voice transcription service is not configured",
         code: "SERVICE_ERROR",
-        details: "BUILT_IN_FORGE_API_URL is not set",
-      };
-    }
-    if (!ENV.forgeApiKey) {
-      return {
-        error: "Voice transcription service authentication is missing",
-        code: "SERVICE_ERROR",
-        details: "BUILT_IN_FORGE_API_KEY is not set",
+        details: "WHISPER_API_KEY (or GROQ_API_KEY) is not set",
       };
     }
 
@@ -136,7 +129,7 @@ export async function transcribeAudio(
     const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: mimeType });
     formData.append("file", audioBlob, filename);
 
-    formData.append("model", "whisper-1");
+    formData.append("model", "whisper-large-v3");
     formData.append("response_format", "verbose_json");
 
     // Add prompt - use custom prompt if provided, otherwise generate based on language
@@ -148,14 +141,10 @@ export async function transcribeAudio(
     formData.append("prompt", prompt);
 
     // Step 4: Call the transcription service
-    const baseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
-
-    const fullUrl = new URL("v1/audio/transcriptions", baseUrl).toString();
-
-    const response = await fetch(fullUrl, {
+    const response = await fetch(ENV.whisperApiUrl, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${ENV.forgeApiKey}`,
+        authorization: `Bearer ${ENV.whisperApiKey}`,
         "Accept-Encoding": "identity",
       },
       body: formData,

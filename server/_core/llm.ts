@@ -1,6 +1,7 @@
 import { ENV } from "./env";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
+export type LLMProvider = "auto" | "chatgpt" | "claude" | "gemini";
 
 export type TextContent = {
   type: "text";
@@ -25,11 +26,21 @@ export type FileContent = {
 
 export type MessageContent = string | TextContent | ImageContent | FileContent;
 
+export type ToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
+
 export type Message = {
   role: Role;
   content: MessageContent | MessageContent[];
   name?: string;
   tool_call_id?: string;
+  tool_calls?: ToolCall[];
 };
 
 export type Tool = {
@@ -54,6 +65,8 @@ export type ToolChoice = ToolChoicePrimitive | ToolChoiceByName | ToolChoiceExpl
 
 export type InvokeParams = {
   messages: Message[];
+  provider?: LLMProvider;
+  model?: string;
   tools?: Tool[];
   toolChoice?: ToolChoice;
   tool_choice?: ToolChoice;
@@ -65,19 +78,11 @@ export type InvokeParams = {
   response_format?: ResponseFormat;
 };
 
-export type ToolCall = {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
-};
-
 export type InvokeResult = {
   id: string;
   created: number;
   model: string;
+  provider?: Exclude<LLMProvider, "auto">;
   choices: Array<{
     index: number;
     message: {
@@ -110,6 +115,14 @@ export type ResponseFormat =
 const ensureArray = (value: MessageContent | MessageContent[]): MessageContent[] =>
   Array.isArray(value) ? value : [value];
 
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+const DEFAULT_MODELS: Record<Exclude<LLMProvider, "auto">, string> = {
+  chatgpt: "openai/gpt-4.1-mini",
+  claude: "anthropic/claude-sonnet-4",
+  gemini: "google/gemini-2.5-flash",
+};
+
 const normalizeContentPart = (part: MessageContent): TextContent | ImageContent | FileContent => {
   if (typeof part === "string") {
     return { type: "text", text: part };
@@ -131,7 +144,7 @@ const normalizeContentPart = (part: MessageContent): TextContent | ImageContent 
 };
 
 const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
+  const { role, name, tool_call_id, tool_calls } = message;
 
   if (role === "tool" || role === "function") {
     const content = ensureArray(message.content)
@@ -146,20 +159,33 @@ const normalizeMessage = (message: Message) => {
     };
   }
 
+  const normalizedBase: Record<string, unknown> = {
+    role,
+    name,
+  };
+  if (tool_calls && tool_calls.length > 0) {
+    normalizedBase.tool_calls = tool_calls;
+  }
+
   const contentParts = ensureArray(message.content).map(normalizeContentPart);
+
+  if (contentParts.length === 0) {
+    return {
+      ...normalizedBase,
+      content: "",
+    };
+  }
 
   // If there's only text content, collapse to a single string for compatibility
   if (contentParts.length === 1 && contentParts[0].type === "text") {
     return {
-      role,
-      name,
+      ...normalizedBase,
       content: contentParts[0].text,
     };
   }
 
   return {
-    role,
-    name,
+    ...normalizedBase,
     content: contentParts,
   };
 };
@@ -201,15 +227,48 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
-
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!ENV.openrouterApiKey) {
+    throw new Error("OPENROUTER_API_KEY is not configured");
   }
+};
+
+const parseProvider = (value: string | undefined): Exclude<LLMProvider, "auto"> | null => {
+  if (value === "chatgpt" || value === "claude" || value === "gemini") {
+    return value;
+  }
+  return null;
+};
+
+const resolveProvider = (provider: LLMProvider | undefined): Exclude<LLMProvider, "auto"> => {
+  const requested = provider && provider !== "auto" ? parseProvider(provider) : null;
+  if (requested) return requested;
+
+  const configured = parseProvider((ENV.llmDefaultProvider || "").toLowerCase());
+  if (configured) return configured;
+  return "gemini";
+};
+
+const resolveModel = (provider: Exclude<LLMProvider, "auto">, explicitModel?: string): string => {
+  if (explicitModel && explicitModel.trim()) {
+    return explicitModel.trim();
+  }
+
+  if (ENV.llmDefaultModel && ENV.llmDefaultModel.trim()) {
+    return ENV.llmDefaultModel.trim();
+  }
+
+  if (provider === "chatgpt" && ENV.llmChatgptModel.trim()) {
+    return ENV.llmChatgptModel.trim();
+  }
+  if (provider === "claude" && ENV.llmClaudeModel.trim()) {
+    return ENV.llmClaudeModel.trim();
+  }
+  if (provider === "gemini" && ENV.llmGeminiModel.trim()) {
+    return ENV.llmGeminiModel.trim();
+  }
+
+  return DEFAULT_MODELS[provider];
 };
 
 const normalizeResponseFormat = ({
@@ -257,18 +316,29 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   const {
     messages,
+    provider,
+    model,
     tools,
     toolChoice,
     tool_choice,
+    maxTokens,
+    max_tokens,
     outputSchema,
     output_schema,
     responseFormat,
     response_format,
   } = params;
+  const resolvedProvider = resolveProvider(provider);
+  const resolvedModel = resolveModel(resolvedProvider, model);
+  const resolvedMaxTokens =
+    (typeof maxTokens === "number" ? maxTokens : undefined) ??
+    (typeof max_tokens === "number" ? max_tokens : undefined) ??
+    4096;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: resolvedModel,
     messages: messages.map(normalizeMessage),
+    max_tokens: resolvedMaxTokens,
   };
 
   if (tools && tools.length > 0) {
@@ -279,11 +349,6 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   if (normalizedToolChoice) {
     payload.tool_choice = normalizedToolChoice;
   }
-
-  payload.max_tokens = 32768;
-  payload.thinking = {
-    budget_tokens: 128,
-  };
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
@@ -296,11 +361,12 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  const response = await fetch(OPENROUTER_API_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${ENV.openrouterApiKey}`,
+      "x-title": "Locomotivate",
     },
     body: JSON.stringify(payload),
   });
@@ -310,5 +376,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     throw new Error(`LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`);
   }
 
-  return (await response.json()) as InvokeResult;
+  const parsed = (await response.json()) as InvokeResult;
+  return {
+    ...parsed,
+    model: parsed.model || resolvedModel,
+    provider: parsed.provider || resolvedProvider,
+  };
 }

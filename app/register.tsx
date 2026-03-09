@@ -1,316 +1,257 @@
 import { ScreenContainer } from "@/components/screen-container";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import { startOAuthLogin } from "@/constants/oauth";
-import { useColors } from "@/hooks/use-colors";
-import { haptics } from "@/hooks/use-haptics";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
+import { getHomeRoute } from "@/lib/navigation";
+import { signInWithGoogle } from "@/lib/google-oauth";
+import { clearPendingOnboardingContext, savePendingOnboardingContext } from "@/lib/onboarding-context";
+import { supabase } from "@/lib/supabase-client";
 import { trpc } from "@/lib/trpc";
-import { Image } from "expo-image";
+import { useColors } from "@/hooks/use-colors";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 export default function RegisterScreen() {
   const colors = useColors();
-  const { trainerId, inviteToken } = useLocalSearchParams<{ trainerId: string; inviteToken: string }>();
-
-  const [step, setStep] = useState(1); // 1: Account, 2: Trainer Selection
-  const [name, setName] = useState("");
+  const { trainerId, inviteToken } = useLocalSearchParams<{ trainerId?: string; inviteToken?: string }>();
+  const normalizedInviteToken =
+    typeof inviteToken === "string" && inviteToken.trim().length > 0 ? inviteToken.trim() : undefined;
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [selectedTrainerId, setSelectedTrainerId] = useState<number | null>(trainerId ? parseInt(trainerId) : null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [fullName, setFullName] = useState("");
+  const inviteContextQuery = trpc.auth.inviteRegistrationContext.useQuery(
+    { token: normalizedInviteToken || "" },
+    { enabled: Boolean(normalizedInviteToken) },
+  );
+  const inviteContext = inviteContextQuery.data;
+  const hasInviteEmailLock =
+    Boolean(normalizedInviteToken) && typeof inviteContext?.email === "string" && inviteContext.email.length > 0;
 
-  const { data: trainers, isLoading: trainersLoading } = trpc.catalog.trainers.useQuery(undefined, {
-    enabled: step === 2 && !trainerId
-  });
-
-  const validateCredentials = () => {
-    if (!name.trim()) {
-      setError("Please enter your name");
-      return false;
+  useEffect(() => {
+    if (!inviteContext) return;
+    if (inviteContext.email) {
+      setEmail(inviteContext.email);
     }
-    if (!email.trim()) {
-      setError("Please enter your email");
-      return false;
+    if (inviteContext.name) {
+      setFullName((prev) => (prev.trim().length > 0 ? prev : inviteContext.name || ""));
     }
-    if (!email.includes("@")) {
-      setError("Please enter a valid email");
-      return false;
-    }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return false;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return false;
-    }
-    return true;
-  };
-
-  const handleNextStep = async () => {
-    await haptics.light();
-    if (validateCredentials()) {
-      if (trainerId) {
-        handleRegister();
-      } else {
-        setStep(2);
-      }
-    }
-  };
+  }, [inviteContext]);
 
   const handleRegister = async () => {
-    if (!validateCredentials()) return;
-
-    setLoading(true);
+    setGoogleLoading(true);
     setError(null);
-
     try {
-      // Use OAuth login flow for registration as well
-      await startOAuthLogin(selectedTrainerId?.toString());
+      await savePendingOnboardingContext({
+        trainerId: trainerId || null,
+        inviteToken: normalizedInviteToken || null,
+      });
+      await signInWithGoogle();
     } catch (err) {
+      await clearPendingOnboardingContext();
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
-      setLoading(false);
+      setGoogleLoading(false);
     }
   };
 
-  const handleOAuthRegister = async () => {
-    setLoading(true);
-    setError(null);
+  const handleEmailRegister = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !password) {
+      setError("Please enter email and password");
+      return;
+    }
 
+    setEmailLoading(true);
+    setError(null);
     try {
-      await startOAuthLogin(selectedTrainerId?.toString());
+      await savePendingOnboardingContext({
+        trainerId: trainerId || null,
+        inviteToken: normalizedInviteToken || null,
+      });
+
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim() || undefined,
+            invite_token: normalizedInviteToken || undefined,
+          },
+        },
+      });
+
+      if (signUpError) {
+        await clearPendingOnboardingContext();
+        setError(signUpError.message || "Registration failed");
+        return;
+      }
+
+      if (!data.session) {
+        await clearPendingOnboardingContext();
+        setError("Check your email to confirm your account, then sign in.");
+        return;
+      }
+
+      triggerAuthRefresh();
+      router.replace(getHomeRoute(null) as any);
     } catch (err) {
+      await clearPendingOnboardingContext();
       setError(err instanceof Error ? err.message : "Registration failed");
-      setLoading(false);
+    } finally {
+      setEmailLoading(false);
     }
   };
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
-      >
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
-          keyboardShouldPersistTaps="handled"
-        >
-          {step === 1 ? (
-            <View className="flex-1 justify-center px-6 py-8">
-              {/* Header */}
-              <View className="items-center mb-8">
-                <Text className="text-3xl font-bold text-foreground">Create Account</Text>
-                <Text className="text-base text-muted mt-2">
-                  {trainerId ? "Join your trainer on LocoMotivate" : "Join LocoMotivate today"}
-                </Text>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1">
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }} keyboardShouldPersistTaps="handled">
+          <View className="flex-1 justify-center px-6 py-8">
+            <Text className="text-3xl font-bold text-foreground text-center">Create Account</Text>
+            <Text className="text-base text-muted text-center mt-3">
+              Get paid by clients - without chasing invoices.
+            </Text>
+            <Text className="text-base text-muted text-center mt-1">
+              Invite to Offer to Get paid.
+            </Text>
+
+            {error ? (
+              <View className="bg-error/10 border border-error rounded-lg p-3 mt-6">
+                <Text className="text-error text-center">{error}</Text>
               </View>
+            ) : null}
 
-              {/* Error Message */}
-              {error && (
-                <View className="bg-error/10 border border-error rounded-lg p-3 mb-4">
-                  <Text className="text-error text-center">{error}</Text>
-                </View>
-              )}
-
-              {/* Name Input */}
-              <View className="mb-4">
-                <Text className="text-sm font-medium text-foreground mb-2">Full Name</Text>
-                <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Enter your name"
-                  placeholderTextColor={colors.muted}
-                  value={name}
-                  onChangeText={setName}
-                  autoCapitalize="words"
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Email Input */}
-              <View className="mb-4">
-                <Text className="text-sm font-medium text-foreground mb-2">Email</Text>
-                <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Enter your email"
-                  placeholderTextColor={colors.muted}
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Password Input */}
-              <View className="mb-4">
-                <Text className="text-sm font-medium text-foreground mb-2">Password</Text>
-                <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="At least 8 characters"
-                  placeholderTextColor={colors.muted}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  editable={!loading}
-                />
-              </View>
-
-              {/* Confirm Password Input */}
-              <View className="mb-6">
-                <Text className="text-sm font-medium text-foreground mb-2">Confirm Password</Text>
-                <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Confirm your password"
-                  placeholderTextColor={colors.muted}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  editable={!loading}
-                  returnKeyType="done"
-                  onSubmitEditing={handleNextStep}
-                />
-              </View>
-
-              {/* Next/Register Button */}
-              <TouchableOpacity
-                className="bg-primary rounded-xl py-4 items-center mb-4"
-                onPress={handleNextStep}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading ? (
-                  <ActivityIndicator color={colors.background} />
-                ) : (
-                  <Text className="text-background font-semibold text-lg">
-                    {trainerId ? "Create Account" : "Next: Pick a Trainer"}
-                  </Text>
-                )}
-              </TouchableOpacity>
-
-              {/* Divider */}
-              <View className="flex-row items-center my-6">
-                <View className="flex-1 h-px bg-border" />
-                <Text className="mx-4 text-muted">or</Text>
-                <View className="flex-1 h-px bg-border" />
-              </View>
-
-              {/* OAuth Register Button */}
-              <TouchableOpacity
-                className="bg-surface border border-border rounded-xl py-4 items-center mb-6"
-                onPress={handleOAuthRegister}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                <Text className="text-foreground font-semibold">Continue with Google</Text>
-              </TouchableOpacity>
-
-              {/* Login Link */}
-              <View className="flex-row justify-center">
-                <Text className="text-muted">Already have an account? </Text>
-                <TouchableOpacity onPress={() => router.back()}>
-                  <Text className="text-primary font-semibold">Sign In</Text>
-                </TouchableOpacity>
-              </View>
+            <View className="mt-8">
+              <Text className="text-sm font-medium text-foreground mb-2">Full name (optional)</Text>
+              <TextInput
+                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                placeholder="Enter your full name"
+                placeholderTextColor="#94A3B8"
+                value={fullName}
+                onChangeText={setFullName}
+                autoCapitalize="words"
+                editable={!googleLoading && !emailLoading}
+              />
             </View>
-          ) : (
-            <View className="flex-1 px-6 py-8">
-              {/* Header */}
-              <View className="mb-8 items-center">
-                <Text className="text-3xl font-bold text-foreground">Find a Trainer</Text>
-                <Text className="text-base text-muted mt-2 text-center">
-                  Choose the fitness professional you'd like to work with.
-                </Text>
-              </View>
 
-              {trainersLoading ? (
-                <View className="flex-1 items-center justify-center py-12">
-                  <ActivityIndicator color={colors.primary} />
-                </View>
+            <View className="mt-4">
+              <Text className="text-sm font-medium text-foreground mb-2">Email</Text>
+              <TextInput
+                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                placeholder="Enter your email"
+                placeholderTextColor="#94A3B8"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!googleLoading && !emailLoading && !hasInviteEmailLock}
+              />
+              {hasInviteEmailLock ? (
+                <Text className="text-xs text-muted mt-2">
+                  Email is locked to your invite.
+                </Text>
+              ) : null}
+            </View>
+
+            <View className="mt-4">
+              <Text className="text-sm font-medium text-foreground mb-2">Password</Text>
+              <TextInput
+                className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                placeholder="Create a password"
+                placeholderTextColor="#94A3B8"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!googleLoading && !emailLoading}
+              />
+            </View>
+
+            <TouchableOpacity
+              className="bg-primary rounded-xl py-4 items-center mt-6"
+              onPress={handleEmailRegister}
+              disabled={googleLoading || emailLoading || (Boolean(normalizedInviteToken) && inviteContextQuery.isLoading)}
+              accessibilityRole="button"
+              accessibilityLabel="Create account with email and password"
+              testID="register-email-submit"
+            >
+              {emailLoading ? (
+                <ActivityIndicator color="#fff" />
               ) : (
-                <View className="flex-1">
-                  {trainers?.map((trainer) => (
-                    <TouchableOpacity
-                      key={trainer.id}
-                      onPress={() => {
-                        haptics.light();
-                        setSelectedTrainerId(trainer.id);
-                      }}
-                      className={`flex-row items-center p-4 rounded-2xl mb-4 border ${selectedTrainerId === trainer.id
-                        ? "bg-primary/5 border-primary"
-                        : "bg-surface border-border"
-                        }`}
-                    >
-                      <View className="w-12 h-12 rounded-full bg-muted/20 items-center justify-center overflow-hidden">
-                        {trainer.photoUrl ? (
-                          <Image
-                            source={{ uri: trainer.photoUrl }}
-                            className="w-full h-full"
-                          />
-                        ) : (
-                          <Text className="text-lg font-bold text-muted">
-                            {trainer.name?.[0] || "?"}
-                          </Text>
-                        )}
-                      </View>
-                      <View className="flex-1 ml-4">
-                        <Text className="text-lg font-semibold text-foreground">
-                          {trainer.name}
-                        </Text>
-                        <Text className="text-sm text-muted" numberOfLines={1}>
-                          {trainer.bio || "Fitness Professional"}
-                        </Text>
-                      </View>
-                      {selectedTrainerId === trainer.id && (
-                        <IconSymbol
-                          name="checkmark.circle.fill"
-                          size={24}
-                          color={colors.primary}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-
-                  <TouchableOpacity
-                    className={`rounded-xl py-4 items-center mt-6 ${selectedTrainerId ? "bg-primary" : "bg-muted"
-                      }`}
-                    onPress={handleRegister}
-                    disabled={!selectedTrainerId || loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color={colors.background} />
-                    ) : (
-                      <Text className="text-background font-semibold text-lg">
-                        Complete Registration
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => setStep(1)}
-                    className="py-4 items-center mt-2"
-                  >
-                    <Text className="text-muted">Back to Account info</Text>
-                  </TouchableOpacity>
-                </View>
+                <Text className="text-background font-semibold text-lg">Create account</Text>
               )}
+            </TouchableOpacity>
+
+            <View className="flex-row items-center mt-6">
+              <View className="flex-1 h-px bg-border" />
+              <Text className="text-muted text-center mx-3 text-xs">or continue with Google</Text>
+              <View className="flex-1 h-px bg-border" />
             </View>
-          )}
+
+            <TouchableOpacity
+              className="flex-row items-center justify-center border border-border rounded-xl py-4 px-6 mt-5"
+              onPress={handleRegister}
+              disabled={googleLoading || emailLoading || (Boolean(normalizedInviteToken) && inviteContextQuery.isLoading)}
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Google"
+              testID="register-google-submit"
+              style={{ backgroundColor: colors.surface }}
+            >
+              {googleLoading ? (
+                <ActivityIndicator color={colors.foreground} />
+              ) : (
+                <>
+                  <View className="w-5 h-5 mr-3">
+                    <GoogleIcon />
+                  </View>
+                  <Text className="font-semibold text-base text-foreground">Continue with Google</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              className="items-center mt-5"
+              onPress={() =>
+                router.push({
+                  pathname: "/login",
+                  params: normalizedInviteToken ? { inviteToken: normalizedInviteToken } : undefined,
+                } as any)
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Open sign in screen"
+              testID="register-open-login"
+            >
+              <Text className="text-muted">
+                Already have an account? <Text className="text-primary font-semibold">Sign In</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </ScreenContainer>
   );
 }
+
+function GoogleIcon() {
+  return (
+    <View style={{ width: 20, height: 20 }}>
+      <View
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 10,
+          backgroundColor: "#4285F4",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ color: "white", fontWeight: "bold", fontSize: 12 }}>G</Text>
+      </View>
+    </View>
+  );
+}
+

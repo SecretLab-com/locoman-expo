@@ -6,83 +6,15 @@ import {
   TouchableOpacity,
   TextInput,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 
 type TrainerStatus = "active" | "pending" | "inactive";
-
-type Trainer = {
-  id: number;
-  name: string;
-  email: string;
-  username: string;
-  status: TrainerStatus;
-  clientCount: number;
-  bundleCount: number;
-  totalEarnings: number;
-  rating: number;
-  specialties: string[];
-  joinedAt: Date;
-};
-
-// Mock data
-const MOCK_TRAINERS: Trainer[] = [
-  {
-    id: 1,
-    name: "Coach Mike",
-    email: "mike@example.com",
-    username: "coachmike",
-    status: "active",
-    clientCount: 24,
-    bundleCount: 5,
-    totalEarnings: 12450,
-    rating: 4.8,
-    specialties: ["Weight Loss", "HIIT"],
-    joinedAt: new Date(Date.now() - 86400000 * 180),
-  },
-  {
-    id: 2,
-    name: "Coach Sarah",
-    email: "sarah@example.com",
-    username: "coachsarah",
-    status: "active",
-    clientCount: 18,
-    bundleCount: 3,
-    totalEarnings: 8900,
-    rating: 4.9,
-    specialties: ["Yoga", "Nutrition"],
-    joinedAt: new Date(Date.now() - 86400000 * 120),
-  },
-  {
-    id: 3,
-    name: "Coach Alex",
-    email: "alex@example.com",
-    username: "coachalex",
-    status: "pending",
-    clientCount: 0,
-    bundleCount: 1,
-    totalEarnings: 0,
-    rating: 0,
-    specialties: ["Strength Training"],
-    joinedAt: new Date(Date.now() - 86400000 * 5),
-  },
-  {
-    id: 4,
-    name: "Coach Emma",
-    email: "emma@example.com",
-    username: "coachemma",
-    status: "inactive",
-    clientCount: 12,
-    bundleCount: 2,
-    totalEarnings: 5600,
-    rating: 4.5,
-    specialties: ["Pilates", "Flexibility"],
-    joinedAt: new Date(Date.now() - 86400000 * 300),
-  },
-];
 
 const STATUS_COLORS: Record<TrainerStatus, string> = {
   active: "#22C55E",
@@ -96,9 +28,34 @@ export default function TrainersScreen() {
   const [selectedStatus, setSelectedStatus] = useState<TrainerStatus | "all">("all");
   const [refreshing, setRefreshing] = useState(false);
 
+  const utils = trpc.useUtils();
+  const trainersQuery = trpc.catalog.trainers.useQuery();
+  const trainers = trainersQuery.data ?? [];
+
+  // Map API data to the expected format for the UI
+  const mappedTrainers = useMemo(() => {
+    return trainers.map((trainer) => {
+      const specialties = Array.isArray(trainer.specialties) ? trainer.specialties : [];
+      const status: TrainerStatus = trainer.active === false ? "inactive" : "active";
+      return {
+        id: trainer.id,
+        name: trainer.name ?? "Unknown",
+        email: trainer.email ?? "",
+        username: trainer.username ?? "",
+        status,
+        clientCount: 0, // Not available from catalog.trainers
+        bundleCount: 0, // Not available from catalog.trainers
+        totalEarnings: 0, // Not available from catalog.trainers
+        rating: 0, // Not available from catalog.trainers
+        specialties: specialties as string[],
+        joinedAt: new Date(trainer.createdAt),
+      };
+    });
+  }, [trainers]);
+
   // Filter trainers
   const filteredTrainers = useMemo(() => {
-    return MOCK_TRAINERS.filter((trainer) => {
+    return mappedTrainers.filter((trainer) => {
       const matchesSearch =
         trainer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         trainer.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -106,12 +63,12 @@ export default function TrainersScreen() {
       const matchesStatus = selectedStatus === "all" || trainer.status === selectedStatus;
       return matchesSearch && matchesStatus;
     });
-  }, [searchQuery, selectedStatus]);
+  }, [mappedTrainers, searchQuery, selectedStatus]);
 
   // Pull to refresh
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await utils.catalog.trainers.invalidate();
     setRefreshing(false);
   };
 
@@ -125,6 +82,63 @@ export default function TrainersScreen() {
       .slice(0, 2);
   };
 
+  if (trainersQuery.isLoading) {
+    return (
+      <ScreenContainer className="flex-1">
+        <View className="px-4 pt-2 pb-4">
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <Text className="text-2xl font-bold text-foreground">Trainers</Text>
+          </View>
+        </View>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading trainers...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (trainersQuery.isError) {
+    return (
+      <ScreenContainer className="flex-1">
+        <View className="px-4 pt-2 pb-4">
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={() => router.back()}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+            >
+              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <Text className="text-2xl font-bold text-foreground">Trainers</Text>
+          </View>
+        </View>
+        <View className="flex-1 items-center justify-center px-8">
+          <IconSymbol name="exclamationmark.triangle.fill" size={48} color={colors.error} />
+          <Text className="text-foreground font-semibold mt-4 text-center">Failed to load trainers</Text>
+          <Text className="text-muted text-sm mt-2 text-center">{trainersQuery.error.message}</Text>
+          <TouchableOpacity
+            onPress={() => trainersQuery.refetch()}
+            className="mt-4 bg-primary px-6 py-3 rounded-xl"
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading trainers"
+          >
+            <Text className="text-white font-semibold">Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer className="flex-1">
       {/* Header */}
@@ -133,6 +147,8 @@ export default function TrainersScreen() {
           <TouchableOpacity
             onPress={() => router.back()}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
@@ -157,7 +173,11 @@ export default function TrainersScreen() {
             className="flex-1 ml-2 text-foreground"
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
             </TouchableOpacity>
           )}
@@ -186,6 +206,8 @@ export default function TrainersScreen() {
                 flexDirection: 'row',
                 alignItems: 'center',
               }}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter by ${status === "all" ? "all statuses" : status}`}
             >
               <Text
                 style={{
@@ -206,7 +228,7 @@ export default function TrainersScreen() {
         className="flex-1 px-4"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
         {filteredTrainers.length === 0 ? (
@@ -220,6 +242,8 @@ export default function TrainersScreen() {
               key={trainer.id}
               onPress={() => router.push(`/trainer/${trainer.id}` as any)}
               className="bg-surface rounded-xl p-4 mb-3 border border-border"
+              accessibilityRole="button"
+              accessibilityLabel={`View ${trainer.name}'s profile`}
             >
               {/* Header */}
               <View className="flex-row items-center mb-3">
@@ -259,13 +283,15 @@ export default function TrainersScreen() {
               </View>
 
               {/* Specialties */}
-              <View className="flex-row flex-wrap gap-2 mb-3">
-                {trainer.specialties.map((specialty, index) => (
-                  <View key={index} className="bg-background px-2 py-1 rounded">
-                    <Text className="text-xs text-muted">{specialty}</Text>
-                  </View>
-                ))}
-              </View>
+              {trainer.specialties.length > 0 && (
+                <View className="flex-row flex-wrap gap-2 mb-3">
+                  {trainer.specialties.map((specialty, index) => (
+                    <View key={index} className="bg-background px-2 py-1 rounded">
+                      <Text className="text-xs text-muted">{specialty}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
 
               {/* Stats */}
               <View className="flex-row border-t border-border pt-3">

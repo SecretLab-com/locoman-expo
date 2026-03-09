@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "locomotivate-trainer": {
+      "command": "node",
+      "args": ["./scripts/run-cursor-mcp.mjs"]
+    }
+  }
+}

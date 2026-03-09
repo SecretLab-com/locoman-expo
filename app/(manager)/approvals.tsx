@@ -1,3 +1,4 @@
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -24,8 +25,8 @@ import {
 type BundleStatus = "draft" | "pending_review" | "changes_requested" | "published" | "rejected";
 
 type Bundle = {
-  id: number;
-  trainerId: number;
+  id: string;
+  trainerId: string;
   title: string;
   description: string | null;
   imageUrl: string | null;
@@ -35,37 +36,27 @@ type Bundle = {
   productsJson: any;
   servicesJson: any;
   goalsJson: any;
-  submittedForReviewAt: Date | null;
-  reviewedAt: Date | null;
-  reviewedBy: number | null;
+  submittedForReviewAt: string | null;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
   reviewComments: string | null;
   rejectionReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
   trainer?: {
-    id: number;
+    id: string;
     name: string | null;
     photoUrl: string | null;
   };
 };
 
-const STATUS_TABS: { key: BundleStatus | "all"; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "pending_review", label: "Pending" },
-  { key: "changes_requested", label: "Changes Requested" },
-  { key: "published", label: "Published" },
-  { key: "rejected", label: "Rejected" },
-];
-
 export default function ManagerApprovalsScreen() {
   const colors = useColors();
   const { isAuthenticated, effectiveUser } = useAuthContext();
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<BundleStatus | "all">("pending_review");
+  const [activeTab, setActiveTab] = useState<BundleStatus | "all">("all");
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
   const [comments, setComments] = useState("");
@@ -221,7 +212,7 @@ export default function ManagerApprovalsScreen() {
     }
   };
 
-  const formatDate = (date: Date | null) => {
+  const formatDate = (date: string | null) => {
     if (!date) return "N/A";
     return new Date(date).toLocaleDateString();
   };
@@ -316,17 +307,16 @@ export default function ManagerApprovalsScreen() {
       {/* Action Buttons */}
       {(item.status === "pending_review" || item.status === "changes_requested") && (
         <View className="flex-row gap-2">
-          <TouchableOpacity
+          <ActionButton
             className="flex-1 bg-success py-3 rounded-lg items-center"
             onPress={() => handleApprove(item)}
-            disabled={approveMutation.isPending}
+            loading={approveMutation.isPending}
+            loadingText="Approving..."
+            accessibilityLabel="Approve bundle"
+            testID="approvals-approve"
           >
-            {approveMutation.isPending ? (
-              <ActivityIndicator color={colors.background} size="small" />
-            ) : (
-              <Text className="text-background font-semibold">Approve</Text>
-            )}
-          </TouchableOpacity>
+            Approve
+          </ActionButton>
           <TouchableOpacity
             className="flex-1 bg-warning py-3 rounded-lg items-center"
             onPress={() => handleRequestChanges(item)}
@@ -334,13 +324,17 @@ export default function ManagerApprovalsScreen() {
           >
             <Text className="text-background font-semibold">Request Changes</Text>
           </TouchableOpacity>
-          <TouchableOpacity
+          <ActionButton
             className="flex-1 bg-error py-3 rounded-lg items-center"
             onPress={() => handleReject(item)}
-            disabled={rejectMutation.isPending}
+            loading={rejectMutation.isPending}
+            loadingText="Rejecting..."
+            variant="danger"
+            accessibilityLabel="Reject bundle"
+            testID="approvals-reject"
           >
-            <Text className="text-background font-semibold">Reject</Text>
-          </TouchableOpacity>
+            Reject
+          </ActionButton>
         </View>
       )}
     </TouchableOpacity>
@@ -348,6 +342,7 @@ export default function ManagerApprovalsScreen() {
 
   // Stats
   const stats = {
+    all: (bundles as Bundle[]).length,
     pending: (bundles as Bundle[]).filter((b) => b.status === "pending_review").length,
     changesRequested: (bundles as Bundle[]).filter((b) => b.status === "changes_requested").length,
     published: (bundles as Bundle[]).filter((b) => b.status === "published").length,
@@ -381,54 +376,81 @@ export default function ManagerApprovalsScreen() {
         </View>
       </View>
 
-      {/* Stats */}
+      {/* Clickable status totals (summary + filter in one row) */}
       <View className="flex-row gap-2 mb-4">
-        <View className="flex-1 bg-warning/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold text-warning">{stats.pending}</Text>
-          <Text className="text-xs text-muted">Pending</Text>
-        </View>
-        <View className="flex-1 bg-orange-500/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold" style={{ color: "#F97316" }}>{stats.changesRequested}</Text>
-          <Text className="text-xs text-muted">Changes</Text>
-        </View>
-        <View className="flex-1 bg-success/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold text-success">{stats.published}</Text>
-          <Text className="text-xs text-muted">Published</Text>
-        </View>
-        <View className="flex-1 bg-error/10 rounded-xl p-3 items-center">
-          <Text className="text-xl font-bold text-error">{stats.rejected}</Text>
-          <Text className="text-xs text-muted">Rejected</Text>
-        </View>
-      </View>
-
-      {/* Status Tabs */}
-      <View className="mb-4">
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={STATUS_TABS}
-          keyExtractor={(item) => item.key}
-          renderItem={({ item }) => (
+        {[
+          {
+            key: "all" as const,
+            label: "All",
+            value: stats.all,
+            color: colors.primary,
+            background: `${colors.primary}10`,
+          },
+          {
+            key: "pending_review" as const,
+            label: "Pending",
+            value: stats.pending,
+            color: colors.warning,
+            background: `${colors.warning}10`,
+          },
+          {
+            key: "changes_requested" as const,
+            label: "Changes",
+            value: stats.changesRequested,
+            color: "#F97316",
+            background: "rgba(249, 115, 22, 0.10)",
+          },
+          {
+            key: "published" as const,
+            label: "Published",
+            value: stats.published,
+            color: colors.success,
+            background: `${colors.success}10`,
+          },
+          {
+            key: "rejected" as const,
+            label: "Rejected",
+            value: stats.rejected,
+            color: colors.error,
+            background: `${colors.error}10`,
+          },
+        ].map((item) => {
+          const selected = activeTab === item.key;
+          return (
             <TouchableOpacity
-              className={`px-4 py-2 mr-2 rounded-full ${activeTab === item.key ? "bg-primary" : "bg-surface border border-border"
-                }`}
+              key={item.key}
+              className="flex-1 min-w-0 rounded-xl py-2 px-1 items-center border"
               onPress={() => setActiveTab(item.key)}
+              style={{
+                backgroundColor: item.background,
+                borderColor: selected ? item.color : colors.border,
+                borderWidth: selected ? 2 : 1,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter approvals by ${item.label}`}
+              testID={`approvals-filter-${item.key}`}
             >
+              <Text className="text-xl font-bold" style={{ color: item.color }}>
+                {item.value}
+              </Text>
               <Text
-                className={`font-medium ${activeTab === item.key ? "text-background" : "text-foreground"
-                  }`}
+                className="text-xs"
+                style={{ color: selected ? item.color : colors.muted, fontWeight: selected ? "700" : "500" }}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
               >
                 {item.label}
               </Text>
             </TouchableOpacity>
-          )}
-        />
+          );
+        })}
       </View>
 
       {/* Bundles List */}
       <FlatList
         data={filteredBundles}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={renderBundle}
         contentContainerStyle={{ paddingBottom: 100 }}
         refreshControl={
@@ -458,7 +480,7 @@ export default function ManagerApprovalsScreen() {
         animationType="fade"
         onRequestClose={() => setCommentModalVisible(false)}
       >
-        <View className="flex-1 items-center justify-center p-4" style={{ backgroundColor: overlayColor }}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, backgroundColor: overlayColor }}>
           <View className="bg-surface rounded-2xl p-6 w-full max-w-md">
             <Text className="text-xl font-bold text-foreground mb-2">Request Changes</Text>
             <Text className="text-muted mb-4">
@@ -486,17 +508,17 @@ export default function ManagerApprovalsScreen() {
               >
                 <Text className="text-foreground font-medium">Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <ActionButton
                 className="flex-1 bg-warning py-3 rounded-lg items-center"
                 onPress={submitRequestChanges}
-                disabled={!comments.trim() || requestChangesMutation.isPending}
+                loading={requestChangesMutation.isPending}
+                loadingText="Sending..."
+                disabled={!comments.trim()}
+                accessibilityLabel="Send feedback"
+                testID="approvals-send-feedback"
               >
-                {requestChangesMutation.isPending ? (
-                  <ActivityIndicator color={colors.background} size="small" />
-                ) : (
-                  <Text className="text-background font-semibold">Send Feedback</Text>
-                )}
-              </TouchableOpacity>
+                Send Feedback
+              </ActionButton>
             </View>
           </View>
         </View>

@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -21,25 +22,25 @@ type DeliveryStatus = "pending" | "ready" | "scheduled" | "out_for_delivery" | "
 type DeliveryMethod = "in_person" | "locker" | "front_desk" | "shipped";
 
 type Delivery = {
-  id: number;
-  orderId: number | null;
-  orderItemId: number | null;
-  trainerId: number;
-  clientId: number;
-  productId: number | null;
+  id: string;
+  orderId: string | null;
+  orderItemId: string | null;
+  trainerId: string;
+  clientId: string;
+  productId: string | null;
   productName: string;
   quantity: number;
   status: DeliveryStatus | null;
-  scheduledDate: Date | null;
-  deliveredAt: Date | null;
-  confirmedAt: Date | null;
+  scheduledDate: string | null;
+  deliveredAt: string | null;
+  confirmedAt: string | null;
   deliveryMethod: DeliveryMethod | null;
   trackingNumber: string | null;
   notes: string | null;
   clientNotes: string | null;
   disputeReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
@@ -56,6 +57,44 @@ const METHOD_LABELS: Record<DeliveryMethod, string> = {
   front_desk: "Front Desk",
   shipped: "Shipped",
 };
+
+const RESCHEDULE_REQUEST_PREFIX = "reschedule_request_v1:";
+
+type RescheduleRequest = {
+  requestedDate: string | null;
+  reason: string | null;
+  requestedAt: string | null;
+};
+
+function toIsoDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function parseRescheduleRequest(clientNotes: string | null): RescheduleRequest | null {
+  if (!clientNotes) return null;
+  if (clientNotes.startsWith(RESCHEDULE_REQUEST_PREFIX)) {
+    try {
+      const payload = JSON.parse(clientNotes.slice(RESCHEDULE_REQUEST_PREFIX.length)) as Partial<RescheduleRequest>;
+      return {
+        requestedDate: toIsoDate(payload.requestedDate ?? null),
+        reason: payload.reason?.trim() || null,
+        requestedAt: toIsoDate(payload.requestedAt ?? null),
+      };
+    } catch {
+      return null;
+    }
+  }
+  if (!clientNotes.toLowerCase().includes("reschedule requested")) return null;
+  const [, reason] = clientNotes.split(":");
+  return {
+    requestedDate: null,
+    reason: reason?.trim() || null,
+    requestedAt: null,
+  };
+}
 
 const ISSUE_REASONS = [
   "Product damaged",
@@ -228,13 +267,15 @@ export default function ClientDeliveriesScreen() {
     }
   };
 
-  const formatDate = (date: Date | null) => {
+  const formatDate = (date: string | null) => {
     if (!date) return "Not scheduled";
     return new Date(date).toLocaleDateString();
   };
 
-  const renderDelivery = ({ item }: { item: Delivery }) => (
-    <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
+  const renderDelivery = ({ item }: { item: Delivery }) => {
+    const rescheduleRequest = parseRescheduleRequest(item.clientNotes);
+    return (
+      <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
       {/* Header */}
       <View className="flex-row justify-between items-start mb-3">
         <View className="flex-1">
@@ -286,10 +327,16 @@ export default function ClientDeliveriesScreen() {
       )}
 
       {/* Reschedule Request Pending */}
-      {item.clientNotes?.includes("Reschedule requested") && (
+      {rescheduleRequest && (
         <View className="bg-warning/10 border border-warning/30 rounded-lg p-3 mb-3">
           <Text className="text-warning font-medium">Reschedule Requested</Text>
-          <Text className="text-muted text-sm">Waiting for trainer approval</Text>
+          <Text className="text-muted text-sm">
+            Requested date: {formatDate(rescheduleRequest.requestedDate)}
+          </Text>
+          {rescheduleRequest.reason && (
+            <Text className="text-muted text-sm mt-1">Reason: {rescheduleRequest.reason}</Text>
+          )}
+          <Text className="text-muted text-sm mt-1">Waiting for trainer approval</Text>
         </View>
       )}
 
@@ -305,43 +352,41 @@ export default function ClientDeliveriesScreen() {
       <View className="flex-row gap-2">
         {item.status === "delivered" && (
           <>
-            <TouchableOpacity
+            <ActionButton
+              variant="primary"
               className="flex-1 bg-success py-3 rounded-lg items-center"
+              textClassName="text-background"
               onPress={() => handleConfirmReceipt(item)}
-              disabled={confirmReceiptMutation.isPending}
+              loading={confirmReceiptMutation.isPending}
+              accessibilityLabel="Confirm Receipt"
+              testID="delivery-confirm-receipt"
             >
-              {confirmReceiptMutation.isPending ? (
-                <ActivityIndicator color={colors.background} size="small" />
-              ) : (
-                <Text className="text-background font-semibold">Confirm Receipt</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="flex-1 bg-error py-3 rounded-lg items-center"
+              Confirm Receipt
+            </ActionButton>
+            <ActionButton
+              variant="danger"
+              className="flex-1 py-3 rounded-lg items-center"
               onPress={() => handleReportIssue(item)}
-              disabled={reportIssueMutation.isPending}
+              loading={reportIssueMutation.isPending}
+              accessibilityLabel="Report Issue"
+              testID="delivery-report-issue"
             >
-              {reportIssueMutation.isPending ? (
-                <ActivityIndicator color={colors.background} size="small" />
-              ) : (
-                <Text className="text-background font-semibold">Report Issue</Text>
-              )}
-            </TouchableOpacity>
+              Report Issue
+            </ActionButton>
           </>
         )}
         {(item.status === "pending" || item.status === "ready" || item.status === "scheduled") && 
-         !item.clientNotes?.includes("Reschedule requested") && (
-          <TouchableOpacity
-            className="flex-1 bg-surface border border-border py-3 rounded-lg items-center"
+         !rescheduleRequest && (
+          <ActionButton
+            variant="secondary"
+            className="flex-1 py-3 rounded-lg items-center"
             onPress={() => handleRequestReschedule(item)}
-            disabled={requestRescheduleMutation.isPending}
+            loading={requestRescheduleMutation.isPending}
+            accessibilityLabel="Request Reschedule"
+            testID="delivery-request-reschedule"
           >
-            {requestRescheduleMutation.isPending ? (
-              <ActivityIndicator color={colors.foreground} size="small" />
-            ) : (
-              <Text className="text-foreground font-medium">Request Reschedule</Text>
-            )}
-          </TouchableOpacity>
+            Request Reschedule
+          </ActionButton>
         )}
         {item.status === "confirmed" && (
           <View className="flex-1 bg-success/10 border border-success/30 py-3 rounded-lg items-center">
@@ -350,7 +395,8 @@ export default function ClientDeliveriesScreen() {
         )}
       </View>
     </View>
-  );
+    );
+  };
 
   if (isLoading) {
     return (
@@ -408,7 +454,7 @@ export default function ClientDeliveriesScreen() {
       {/* Deliveries List */}
       <FlatList
         data={filteredDeliveries}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={renderDelivery}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         refreshControl={

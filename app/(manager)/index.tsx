@@ -2,10 +2,12 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
+    ActivityIndicator,
     Alert,
     RefreshControl,
     ScrollView,
@@ -13,29 +15,6 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-
-// Mock data
-const MOCK_STATS = {
-  totalUsers: 1245,
-  activeTrainers: 48,
-  totalOrders: 3567,
-  monthlyRevenue: 45890,
-  pendingOrders: 23,
-  lowInventoryItems: 5,
-};
-
-const MOCK_LOW_INVENTORY = [
-  { id: 1, productName: "Protein Powder - Vanilla", currentStock: 3, trainerId: 1, trainerName: "Coach Mike" },
-  { id: 2, productName: "Resistance Bands Set", currentStock: 2, trainerId: 2, trainerName: "Coach Sarah" },
-  { id: 3, productName: "Pre-Workout Mix", currentStock: 1, trainerId: 1, trainerName: "Coach Mike" },
-];
-
-const MOCK_RECENT_ACTIVITY = [
-  { id: 1, type: "new_user", description: "John Doe signed up", time: "5 min ago" },
-  { id: 2, type: "order", description: "New order #3567 placed", time: "12 min ago" },
-  { id: 3, type: "trainer", description: "Coach Sarah updated bundle", time: "1 hour ago" },
-  { id: 4, type: "delivery", description: "Delivery #2345 completed", time: "2 hours ago" },
-];
 
 type StatCardProps = {
   title: string;
@@ -102,32 +81,51 @@ export default function ManagerDashboardScreen() {
   const warningGradient = isLight
     ? ["#FEF3C7", "#FFFBEB"] as const
     : ["#4A3728", "#2D2118"] as const;
+
+  const utils = trpc.useUtils();
+
+  const statsQuery = trpc.coordinator.stats.useQuery();
+  const lowInventoryQuery = trpc.admin.lowInventory.useQuery({ threshold: 5, limit: 10 });
+  const activityFeedQuery = trpc.admin.activityFeed.useQuery({ limit: 10, category: "all" });
+  const stats = statsQuery.data;
+
   const [refreshing, setRefreshing] = useState(false);
-  const [lowInventory, setLowInventory] = useState(MOCK_LOW_INVENTORY);
+  const [dismissedInventoryIds, setDismissedInventoryIds] = useState<Set<string>>(new Set());
+
+  const lowInventory = (lowInventoryQuery.data || []).filter(
+    (item: any) => !dismissedInventoryIds.has(String(item.id))
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await Promise.all([
+      utils.coordinator.stats.invalidate(),
+      utils.admin.lowInventory.invalidate(),
+      utils.admin.activityFeed.invalidate(),
+    ]);
     setRefreshing(false);
   };
 
   // Dismiss low inventory alert
-  const handleDismissAlert = (itemId: number) => {
-    setLowInventory((prev) => prev.filter((item) => item.id !== itemId));
+  const handleDismissAlert = (itemId: string) => {
+    setDismissedInventoryIds((prev) => {
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
   };
 
   // Alert trainer about low inventory
-  const handleAlertTrainer = (item: typeof MOCK_LOW_INVENTORY[0]) => {
+  const handleAlertTrainer = (item: { id: string; productName: string }) => {
     Alert.alert(
-      "Alert Trainer",
-      `Send low inventory alert to ${item.trainerName} about "${item.productName}"?`,
+      "Inventory Alert",
+      `Mark "${item.productName}" as acknowledged?`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Send Alert",
+          text: "Acknowledge",
           onPress: () => {
-            // TODO: Send alert via tRPC
-            Alert.alert("Alert Sent", `${item.trainerName} has been notified.`);
+            Alert.alert("Acknowledged", "Inventory alert has been marked as reviewed.");
             handleDismissAlert(item.id);
           },
         },
@@ -137,7 +135,20 @@ export default function ManagerDashboardScreen() {
 
   // Get activity icon
   const getActivityIcon = (type: string): Parameters<typeof IconSymbol>[0]["name"] => {
-    switch (type) {
+    const normalized = type.toLowerCase();
+    if (normalized.includes("role") || normalized.includes("status") || normalized.includes("impersonation")) {
+      return "person.badge.key.fill";
+    }
+    if (normalized.includes("bundle")) {
+      return "bag.fill";
+    }
+    if (normalized.includes("delivery")) {
+      return "shippingbox.fill";
+    }
+    if (normalized.includes("payment")) {
+      return "creditcard.fill";
+    }
+    switch (normalized) {
       case "new_user":
         return "person.badge.plus";
       case "order":
@@ -150,6 +161,52 @@ export default function ManagerDashboardScreen() {
         return "bell.fill";
     }
   };
+
+  const formatRelativeTime = (value: string) => {
+    const date = new Date(value);
+    const diffMs = Date.now() - date.getTime();
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return "Just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  // Loading state
+  if (statsQuery.isLoading) {
+    return (
+      <ScreenContainer>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading dashboard...</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  // Error state
+  if (statsQuery.isError) {
+    return (
+      <ScreenContainer>
+        <View className="flex-1 items-center justify-center px-8">
+          <IconSymbol name="exclamationmark.triangle.fill" size={48} color={colors.error} />
+          <Text className="text-foreground font-semibold mt-4 text-center">Failed to load dashboard</Text>
+          <Text className="text-muted text-sm mt-2 text-center">{statsQuery.error.message}</Text>
+          <TouchableOpacity
+            onPress={() => statsQuery.refetch()}
+            className="mt-4 bg-primary px-6 py-3 rounded-xl"
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading dashboard"
+          >
+            <Text className="text-white font-semibold">Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer>
@@ -170,13 +227,13 @@ export default function ManagerDashboardScreen() {
           <View className="flex-row gap-3 mb-3">
             <StatCard
               title="Total Users"
-              value={MOCK_STATS.totalUsers.toLocaleString()}
+              value={stats?.totalUsers?.toLocaleString() ?? "—"}
               icon="person.2.fill"
               onPress={() => router.push("/(manager)/users" as any)}
             />
             <StatCard
-              title="Active Trainers"
-              value={MOCK_STATS.activeTrainers}
+              title="New This Month"
+              value={stats?.newUsersThisMonth?.toLocaleString() ?? "—"}
               icon="figure.run"
               color={colors.success}
               onPress={() => router.push("/(manager)/trainers" as any)}
@@ -184,16 +241,16 @@ export default function ManagerDashboardScreen() {
           </View>
           <View className="flex-row gap-3 mb-3">
             <StatCard
-              title="Total Orders"
-              value={MOCK_STATS.totalOrders.toLocaleString()}
+              title="Published Bundles"
+              value={stats?.totalBundles?.toLocaleString() ?? "—"}
               icon="bag.fill"
             />
             <StatCard
-              title="Monthly Revenue"
-              value={`$${MOCK_STATS.monthlyRevenue.toLocaleString()}`}
-              icon="dollarsign.circle.fill"
+              title="Pending Approvals"
+              value={stats?.pendingApprovals?.toLocaleString() ?? "—"}
+              icon="checkmark.circle.fill"
               color={colors.success}
-              onPress={() => router.push("/(manager)/analytics" as any)}
+              onPress={() => router.push("/(manager)/approvals" as any)}
             />
           </View>
         </View>
@@ -202,6 +259,25 @@ export default function ManagerDashboardScreen() {
         <View className="px-4 mb-6">
           <Text className="text-lg font-semibold text-foreground mb-3">Quick Actions</Text>
           <View className="flex-row gap-3 mb-3">
+            <TouchableOpacity
+              onPress={() => router.push("/bundle-editor/new" as any)}
+              className="flex-1 rounded-xl overflow-hidden border-2 border-border"
+              accessibilityRole="button"
+              accessibilityLabel="Create new bundle"
+              testID="manager-create-bundle"
+            >
+              <LinearGradient
+                colors={quickActionGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                className="p-4 items-center"
+              >
+                <View className="w-12 h-12 rounded-full bg-primary/20 items-center justify-center mb-2">
+                  <IconSymbol name="plus" size={24} color={colors.primary} />
+                </View>
+                <Text className="text-sm font-medium text-primary">Create Bundle</Text>
+              </LinearGradient>
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push("/(manager)/templates" as any)}
               className="flex-1 rounded-xl overflow-hidden border-2 border-border"
@@ -218,6 +294,8 @@ export default function ManagerDashboardScreen() {
                 <Text className="text-sm font-medium text-primary">Templates</Text>
               </LinearGradient>
             </TouchableOpacity>
+          </View>
+          <View className="flex-row gap-3 mb-3">
             <TouchableOpacity
               onPress={() => router.push("/(manager)/invitations" as any)}
               className="flex-1 rounded-xl overflow-hidden border-2 border-border"
@@ -318,31 +396,31 @@ export default function ManagerDashboardScreen() {
               </View>
             </View>
 
-            {lowInventory.map((item) => (
+            {lowInventory.map((item: any) => (
               <View
-                key={item.id}
+                key={String(item.id)}
                 className="bg-warning/10 rounded-xl p-4 mb-2 border border-warning/30"
               >
                 <View className="flex-row items-start justify-between">
                   <View className="flex-1">
                     <Text className="text-foreground font-semibold">{item.productName}</Text>
                     <Text className="text-sm text-muted mt-1">
-                      {item.trainerName} • Only {item.currentStock} left
+                      Only {item.currentStock} left
                     </Text>
                   </View>
                 </View>
                 <View className="flex-row gap-2 mt-3">
                   <TouchableOpacity
-                    onPress={() => handleDismissAlert(item.id)}
+                    onPress={() => handleDismissAlert(String(item.id))}
                     className="flex-1 bg-surface py-2 rounded-lg items-center"
                   >
                     <Text className="text-muted font-medium">Dismiss</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => handleAlertTrainer(item)}
+                    onPress={() => handleAlertTrainer({ id: String(item.id), productName: item.productName })}
                     className="flex-1 bg-gradient-to-r from-warning to-warning/80 py-2.5 rounded-full items-center shadow-sm"
                   >
-                    <Text className="text-white font-medium">Alert Trainer</Text>
+                    <Text className="text-white font-medium">Acknowledge</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -350,25 +428,28 @@ export default function ManagerDashboardScreen() {
           </View>
         )}
 
-        {/* Pending Orders */}
+        {/* Pending Approvals */}
         <View className="px-4 mb-6">
           <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-foreground">Pending Orders</Text>
+            <Text className="text-lg font-semibold text-foreground">Pending Approvals</Text>
             <View className="bg-primary/20 px-3 py-1 rounded-full">
-              <Text className="text-primary text-sm font-semibold">{MOCK_STATS.pendingOrders}</Text>
+              <Text className="text-primary text-sm font-semibold">{stats?.pendingApprovals ?? 0}</Text>
             </View>
           </View>
           <TouchableOpacity
             className="bg-surface rounded-xl p-4 border border-border flex-row items-center justify-between"
             activeOpacity={0.8}
+            onPress={() => router.push("/(manager)/approvals" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="View pending approvals"
           >
             <View className="flex-row items-center">
               <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
-                <IconSymbol name="bag.fill" size={20} color={colors.primary} />
+                <IconSymbol name="checkmark.circle.fill" size={20} color={colors.primary} />
               </View>
               <View className="ml-3">
                 <Text className="text-foreground font-semibold">
-                  {MOCK_STATS.pendingOrders} orders awaiting processing
+                  {stats?.pendingApprovals ?? 0} bundles awaiting review
                 </Text>
                 <Text className="text-sm text-muted">Tap to view and manage</Text>
               </View>
@@ -381,17 +462,27 @@ export default function ManagerDashboardScreen() {
         <View className="px-4 mb-6">
           <Text className="text-lg font-semibold text-foreground mb-3">Recent Activity</Text>
           <View className="bg-surface rounded-xl divide-y divide-border">
-            {MOCK_RECENT_ACTIVITY.map((activity) => (
-              <View key={activity.id} className="flex-row items-center p-4">
-                <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
-                  <IconSymbol name={getActivityIcon(activity.type)} size={20} color={colors.primary} />
-                </View>
-                <View className="flex-1 ml-3">
-                  <Text className="text-foreground">{activity.description}</Text>
-                  <Text className="text-sm text-muted">{activity.time}</Text>
-                </View>
+            {activityFeedQuery.isLoading ? (
+              <View className="p-4">
+                <Text className="text-muted">Loading activity...</Text>
               </View>
-            ))}
+            ) : (activityFeedQuery.data || []).length === 0 ? (
+              <View className="p-4">
+                <Text className="text-muted">No recent activity</Text>
+              </View>
+            ) : (
+              (activityFeedQuery.data || []).map((activity: any) => (
+                <View key={activity.id} className="flex-row items-center p-4">
+                  <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
+                    <IconSymbol name={getActivityIcon(activity.action || activity.category || "other")} size={20} color={colors.primary} />
+                  </View>
+                  <View className="flex-1 ml-3">
+                    <Text className="text-foreground">{activity.description || activity.action}</Text>
+                    <Text className="text-sm text-muted">{formatRelativeTime(activity.createdAt)}</Text>
+                  </View>
+                </View>
+              ))
+            )}
           </View>
         </View>
 

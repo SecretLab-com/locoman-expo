@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Text, View, TouchableOpacity, FlatList, Alert, Platform, RefreshControl } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
-import { navigateToHome } from "@/lib/navigation";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { haptics } from "@/hooks/use-haptics";
@@ -12,7 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuthContext } from "@/contexts/auth-context";
 
 type MyTrainer = {
-  id: number;
+  id: string;
   name: string | null;
   photoUrl: string | null;
   specialties: string[] | null;
@@ -20,7 +21,7 @@ type MyTrainer = {
   activeBundles: number;
   joinedDate: Date | null;
   isPrimary: boolean;
-  relationshipId: number;
+  relationshipId: string;
   relationshipStatus: string;
 };
 
@@ -29,11 +30,13 @@ function TrainerCard({
   onPress, 
   onMessage,
   onRemove,
+  removeLoading,
 }: { 
   trainer: MyTrainer; 
   onPress: () => void;
   onMessage: () => void;
   onRemove: () => void;
+  removeLoading?: boolean;
 }) {
   const colors = useColors();
   const [showActions, setShowActions] = useState(false);
@@ -113,16 +116,21 @@ function TrainerCard({
         {/* Expanded actions */}
         {showActions && (
           <View className="mt-3 pt-3 border-t border-border">
-            <TouchableOpacity
-              className="flex-row items-center py-2"
+            <ActionButton
+              variant="ghost"
+              size="sm"
+              className="flex-row items-center justify-start py-2"
               onPress={() => {
                 setShowActions(false);
                 onRemove();
               }}
+              loading={removeLoading}
+              loadingText="Removing..."
+              accessibilityLabel="Remove trainer"
             >
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.error} />
               <Text className="text-error ml-3">Remove Trainer</Text>
-            </TouchableOpacity>
+            </ActionButton>
           </View>
         )}
       </View>
@@ -133,11 +141,12 @@ function TrainerCard({
 function PendingRequestCard({
   request,
   onCancel,
+  cancelLoading,
 }: {
   request: {
-    id: number;
+    id: string;
     trainer?: {
-      id: number;
+      id: string;
       name: string | null;
       photoUrl: string | null;
       specialties: string[] | null;
@@ -145,6 +154,7 @@ function PendingRequestCard({
     createdAt: Date;
   };
   onCancel: () => void;
+  cancelLoading?: boolean;
 }) {
   const trainer = request.trainer;
 
@@ -171,12 +181,18 @@ function PendingRequestCard({
         </View>
       </View>
       <View className="flex-row mt-3 gap-2">
-        <TouchableOpacity
-          className="flex-1 bg-surface border border-border py-2 rounded-lg"
+        <ActionButton
+          variant="secondary"
+          size="sm"
+          className="flex-1 py-2 rounded-lg"
+          textClassName="text-muted font-medium"
           onPress={onCancel}
+          loading={cancelLoading}
+          loadingText="Cancelling..."
+          accessibilityLabel="Cancel request"
         >
-          <Text className="text-muted text-center font-medium">Cancel Request</Text>
-        </TouchableOpacity>
+          Cancel Request
+        </ActionButton>
         <TouchableOpacity
           className="flex-1 bg-primary py-2 rounded-lg"
           onPress={() => router.push(`/trainer/${trainer.id}` as any)}
@@ -190,17 +206,7 @@ function PendingRequestCard({
 
 export default function MyTrainersScreen() {
   const colors = useColors();
-  const { effectiveRole } = useAuthContext();
-  const roleBase =
-    effectiveRole === "client"
-      ? "/(client)"
-      : effectiveRole === "trainer"
-        ? "/(trainer)"
-        : effectiveRole === "manager"
-          ? "/(manager)"
-          : effectiveRole === "coordinator"
-            ? "/(coordinator)"
-            : "/(tabs)";
+  const { user, effectiveRole } = useAuthContext();
   
   // Fetch trainers from API
   const { 
@@ -242,7 +248,19 @@ export default function MyTrainersScreen() {
 
   const handleMessageTrainer = async (trainer: MyTrainer) => {
     await haptics.light();
-    router.push(`${roleBase}/messages/${trainer.id}` as any);
+    if (!user?.id) {
+      router.push("/login" as any);
+      return;
+    }
+    const conversationId = [String(user?.id || ""), String(trainer.id)].sort().join("-");
+    router.push({
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
+      params: {
+        id: conversationId,
+        participantId: String(trainer.id),
+        name: trainer.name || "Trainer",
+      },
+    });
   };
 
   const handleRemoveTrainer = (trainer: MyTrainer) => {
@@ -267,7 +285,7 @@ export default function MyTrainersScreen() {
     }
   };
 
-  const handleCancelRequest = (requestId: number) => {
+  const handleCancelRequest = (requestId: string) => {
     const confirmCancel = () => {
       cancelMutation.mutate({ requestId });
     };
@@ -305,6 +323,7 @@ export default function MyTrainersScreen() {
               key={request.id}
               request={request}
               onCancel={() => handleCancelRequest(request.id)}
+              cancelLoading={cancelMutation.isPending && cancelMutation.variables?.requestId === request.id}
             />
           ))}
         </View>
@@ -369,18 +388,18 @@ export default function MyTrainersScreen() {
         title="My Trainers" 
         showBack
         showHome
-        onBack={() => navigateToHome()}
       />
       
       <FlatList
         data={trainers as MyTrainer[]}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TrainerCard 
             trainer={item} 
             onPress={() => handleTrainerPress(item)}
             onMessage={() => handleMessageTrainer(item)}
             onRemove={() => handleRemoveTrainer(item)}
+            removeLoading={removeMutation.isPending && removeMutation.variables?.trainerId === item.id}
           />
         )}
         contentContainerStyle={{ padding: 16, flexGrow: 1 }}

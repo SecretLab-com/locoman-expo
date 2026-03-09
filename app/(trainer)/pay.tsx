@@ -1,1 +1,2 @@
-export { default } from "./earnings";
+export { default } from "./get-paid";
+

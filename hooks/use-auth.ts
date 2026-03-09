@@ -1,208 +1,402 @@
-import * as Api from "@/lib/_core/api";
+/**
+ * useAuth hook — Supabase Auth integration.
+ *
+ * Listens for Supabase auth state changes and fetches the full app-level
+ * user profile (public.users) from the tRPC `auth.me` endpoint.
+ */
 import * as Auth from "@/lib/_core/auth";
+import { supabase } from "@/lib/supabase-client";
 import { logError, logEvent } from "@/lib/logger";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform } from "react-native";
 
-type UseAuthOptions = {
-  autoFetch?: boolean;
-};
+const VALID_ROLES: Auth.UserRole[] = ["shopper", "client", "trainer", "manager", "coordinator"];
+
+function hasValidRole(user: Auth.User | null | undefined): user is Auth.User {
+  return Boolean(user?.role && VALID_ROLES.includes(user.role));
+}
+
+function normalizeRole(value: unknown): Auth.UserRole {
+  if (typeof value !== "string") return "shopper";
+  const role = value.trim().toLowerCase();
+  return VALID_ROLES.includes(role as Auth.UserRole) ? (role as Auth.UserRole) : "shopper";
+}
+
+function inferFallbackRoleFromSession(sessionUser: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown>;
+  app_metadata?: Record<string, unknown>;
+}): Auth.UserRole {
+  const metadata = sessionUser.user_metadata ?? {};
+  const appMetadata = sessionUser.app_metadata ?? {};
+  const roleCandidates = [
+    metadata.role,
+    metadata.user_role,
+    appMetadata.role,
+    appMetadata.user_role,
+  ];
+
+  for (const candidate of roleCandidates) {
+    const normalized = normalizeRole(candidate);
+    if (normalized !== "shopper") {
+      return normalized;
+    }
+  }
+
+  const email = (sessionUser.email || "").toLowerCase().trim();
+  if (email === "trainer@secretlab.com" || email.startsWith("trainer+")) return "trainer";
+  if (email === "client@secretlab.com" || email.startsWith("client+")) return "client";
+  if (email === "manager@secretlab.com" || email.startsWith("manager+")) return "manager";
+  if (email === "coordinator@secretlab.com" || email.startsWith("coordinator+")) return "coordinator";
+  if (email === "jason@secretlab.com") return "coordinator";
+
+  return "shopper";
+}
 
 // Helper to convert API response to full User type with defaults
 function normalizeUser(apiUser: Record<string, unknown>): Auth.User {
   return {
-    id: apiUser.id as number,
+    id: apiUser.id as string,
     openId: apiUser.openId as string,
     name: (apiUser.name as string | null) ?? null,
     email: (apiUser.email as string | null) ?? null,
     phone: (apiUser.phone as string | null) ?? null,
     photoUrl: (apiUser.photoUrl as string | null) ?? null,
     loginMethod: (apiUser.loginMethod as string | null) ?? null,
-    role: (apiUser.role as Auth.UserRole) ?? "shopper",
+    role: normalizeRole(apiUser.role),
     username: (apiUser.username as string | null) ?? null,
     bio: (apiUser.bio as string | null) ?? null,
     specialties: apiUser.specialties ?? null,
     socialLinks: apiUser.socialLinks ?? null,
-    trainerId: (apiUser.trainerId as number | null) ?? null,
+    trainerId: (apiUser.trainerId as string | null) ?? null,
     active: (apiUser.active as boolean) ?? true,
     metadata: apiUser.metadata ?? null,
-    createdAt: apiUser.createdAt ? new Date(apiUser.createdAt as string) : new Date(),
-    updatedAt: apiUser.updatedAt ? new Date(apiUser.updatedAt as string) : new Date(),
-    lastSignedIn: apiUser.lastSignedIn ? new Date(apiUser.lastSignedIn as string) : new Date(),
+    createdAt: (apiUser.createdAt as string) ?? new Date().toISOString(),
+    updatedAt: (apiUser.updatedAt as string) ?? new Date().toISOString(),
+    lastSignedIn: (apiUser.lastSignedIn as string) ?? new Date().toISOString(),
   };
 }
 
-// Global state to allow login screen to trigger auth refresh
+function buildFallbackUserFromSession(sessionUser: {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown>;
+  app_metadata?: Record<string, unknown>;
+}): Auth.User {
+  const now = new Date().toISOString();
+  const metadata = sessionUser.user_metadata ?? {};
+  const name =
+    (metadata.full_name as string | undefined) ||
+    (metadata.name as string | undefined) ||
+    sessionUser.email?.split("@")[0] ||
+    "User";
+  const photoUrl = (metadata.avatar_url as string | undefined) ?? null;
+  // Use best-effort role inference so role dashboards remain stable when profile
+  // hydration is temporarily unavailable (for example, CORS/network during web dev).
+  const resolvedRole: Auth.UserRole = inferFallbackRoleFromSession(sessionUser);
+
+  return {
+    id: sessionUser.id,
+    openId: sessionUser.id,
+    name,
+    email: sessionUser.email ?? null,
+    phone: null,
+    photoUrl,
+    loginMethod: "oauth",
+    role: resolvedRole,
+    username: null,
+    bio: null,
+    specialties: null,
+    socialLinks: null,
+    trainerId: null,
+    active: true,
+    metadata,
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now,
+  };
+}
+
+// Global refresh callback so the login screen can trigger a re-fetch
 let globalRefreshCallback: (() => void) | null = null;
 
 export function triggerAuthRefresh() {
-  console.log("[useAuth] triggerAuthRefresh called, callback exists:", !!globalRefreshCallback);
   if (globalRefreshCallback) {
     globalRefreshCallback();
   }
 }
 
+type UseAuthOptions = {
+  autoFetch?: boolean;
+};
+
 export function useAuth(options?: UseAuthOptions) {
   const { autoFetch = true } = options ?? {};
   const [user, setUser] = useState<Auth.User | null>(null);
+  const [hasSession, setHasSession] = useState(false);
+  const [profileHydrated, setProfileHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const prevUserIdRef = useRef<number | null>(null);
+  const prevUserIdRef = useRef<string | null>(null);
+  const fetchUserInFlightRef = useRef<Promise<void> | null>(null);
+  const lastSessionSeenAtRef = useRef(0);
 
-  const fetchUser = useCallback(async (options?: { suppressLoading?: boolean }) => {
-    console.log("[useAuth] fetchUser called");
-    try {
-      if (!options?.suppressLoading) {
-        setLoading(true);
+  /**
+   * Fetch the app-level user profile from the backend.
+   * Relies on the Supabase access token being sent automatically
+   * via the tRPC link's Authorization header.
+   */
+  const fetchUser = useCallback(async (opts?: { suppressLoading?: boolean }) => {
+    if (fetchUserInFlightRef.current) {
+      return fetchUserInFlightRef.current;
+    }
+
+    const inFlight = (async () => {
+      try {
+        if (!opts?.suppressLoading) setLoading(true);
+        setError(null);
+
+      // Check if we have a Supabase session
+      let { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        // Guard against transient auth-lock races on web: briefly re-check before
+        // treating the user as signed out.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const retry = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+        sessionData = retry.data as typeof sessionData;
       }
-      setError(null);
 
-      // Web platform: use cookie-based auth, fetch user from API
-      if (Platform.OS === "web") {
-        console.log("[useAuth] Web platform: fetching user from API...");
-
-        // Check cached user info first for faster initial load
-        const cachedUser = await Auth.getUserInfo();
-        if (cachedUser) {
-          console.log("[useAuth] Web: using cached user immediately", cachedUser);
-          setUser(cachedUser);
-          if (!options?.suppressLoading) {
-            setLoading(false);
-          }
-        }
-
-        const apiUser = await Api.getMe();
-        console.log("[useAuth] API user response:", apiUser);
-
-        if (apiUser) {
-          const userInfo = normalizeUser(apiUser as Record<string, unknown>);
-          setUser(userInfo);
-          // Cache user info in localStorage for faster subsequent loads
-          await Auth.setUserInfo(userInfo);
-          console.log("[useAuth] Web user set from API:", userInfo);
-        } else {
-          console.log("[useAuth] Web: No authenticated user from API");
-          setUser(null);
-          await Auth.clearUserInfo();
-        }
-        // Do not return here, let it fall through to finally block for native/common logic if any
-        // but for now native is separate. However, we must ensure setLoading(false) runs.
-      } else {
-        // Native platform: validate token against API
-        console.log("[useAuth] Native platform: checking for session token...");
-        const sessionToken = await Auth.getSessionToken();
-        console.log(
-          "[useAuth] Session token:",
-          sessionToken ? `present (${sessionToken.substring(0, 20)}...)` : "missing",
-        );
-        if (!sessionToken) {
-          console.log("[useAuth] No session token, setting user to null");
-          setUser(null);
-          await Auth.clearUserInfo();
+      if (!sessionData.session) {
+        const fallbackToken = await Auth.getSessionToken().catch(() => null);
+        const recentlyHadSession = Date.now() - lastSessionSeenAtRef.current < 20_000;
+        if (fallbackToken && recentlyHadSession) {
+          setHasSession(true);
+          setProfileHydrated(true);
           return;
         }
+        setHasSession(false);
+        setProfileHydrated(true);
+        setUser(null);
+        await Auth.clearUserInfo();
+        return;
+      }
+      lastSessionSeenAtRef.current = Date.now();
+      setHasSession(true);
+      setProfileHydrated(false);
 
-        const apiUser = await Api.getMe();
-        if (apiUser) {
-          const userInfo = normalizeUser(apiUser as Record<string, unknown>);
+      // Show cached user immediately while we fetch from API
+      const cachedUser = await Auth.getUserInfo();
+      const fallbackUser = buildFallbackUserFromSession(sessionData.session.user);
+      const sessionEmailLower = sessionData.session.user.email?.toLowerCase() ?? "";
+      const cachedEmailLower = cachedUser?.email?.toLowerCase() ?? "";
+      const cacheMatchesSession = Boolean(cachedUser) && (
+        !sessionEmailLower || cachedEmailLower === sessionEmailLower
+      );
+      const shouldPromoteFromFallback =
+        cacheMatchesSession &&
+        cachedUser?.role === "shopper" &&
+        fallbackUser.role !== "shopper";
+      const hasTrustedCachedUser = cacheMatchesSession && hasValidRole(cachedUser);
+      const seedUser =
+        hasTrustedCachedUser && cachedUser && !shouldPromoteFromFallback ? cachedUser : fallbackUser;
+
+      if (!opts?.suppressLoading) {
+        setUser(seedUser);
+      } else {
+        // During OAuth/native auth state transitions, we may fetch with suppressLoading.
+        // Ensure a session-backed user exists so hydration gates do not stall indefinitely.
+        setUser((prev) => {
+          if (!prev) return seedUser;
+          const prevEmailLower = prev.email?.toLowerCase() ?? "";
+          const sessionMatchesPrev = !sessionEmailLower || prevEmailLower === sessionEmailLower;
+          if (!sessionMatchesPrev) return seedUser;
+          if (prev.role === "shopper" && seedUser.role !== "shopper") return seedUser;
+          return prev;
+        });
+      }
+      await Auth.setUserInfo(seedUser);
+
+      // Fetch full user profile from backend (tRPC auth.me)
+      const { getApiBaseUrl } = await import("@/lib/api-config");
+      const apiBase = getApiBaseUrl();
+      const token = sessionData.session.access_token;
+      const controller = new AbortController();
+      const timeoutMs = 8000;
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      let resp: Response;
+      try {
+        resp = await fetch(`${apiBase}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.user) {
+          const userInfo = normalizeUser(data.user as Record<string, unknown>);
           setUser(userInfo);
           await Auth.setUserInfo(userInfo);
-          console.log("[useAuth] Native user set from API:", userInfo);
         } else {
-          console.log("[useAuth] Native: No authenticated user from API");
-          setUser(null);
-          await Auth.clearUserInfo();
-          await Auth.removeSessionToken();
+          setError(new Error("Authenticated session has no app user profile"));
+          // Keep deterministic fallback identity for known mapped accounts.
+          // This prevents transient /api/auth/me null responses from corrupting role to shopper.
+          setUser(seedUser);
+          await Auth.setUserInfo(seedUser);
         }
+      } else {
+        if (resp.status === 401) {
+          await Auth.handleAuthDesync("auth_me_401");
+          setHasSession(false);
+          setProfileHydrated(true);
+          setUser(null);
+          setError(new Error("Session expired. Please sign in again."));
+          return;
+        }
+        setError(new Error(`Auth profile request failed with status ${resp.status}`));
+        // Preserve deterministic fallback role while backend recovers.
+        setUser(seedUser);
+        await Auth.setUserInfo(seedUser);
       }
+      setProfileHydrated(true);
     } catch (err) {
-      const error = err instanceof Error ? err : new Error("Failed to fetch user");
-      console.error("[useAuth] fetchUser error:", error);
-      logError("auth.fetch_failed", error);
-      setError(error);
-      if (Platform.OS === "web") {
-        console.log("[useAuth] Web: Clearing cached user after error");
-        await Auth.clearUserInfo();
+      const e = err instanceof Error ? err : new Error("Failed to fetch user");
+      const isAbort = e.name === "AbortError" || /abort(ed|error)/i.test(e.message);
+      if (isAbort) {
+        // Request aborts happen during auth transitions and timeout races; avoid redbox-level noise.
+        logEvent("auth.fetch_aborted");
+      } else {
+        logError("auth.fetch_failed", e);
+        setError(e);
       }
-      setUser(null);
+      const activeSession =
+        (await supabase.auth.getSession().catch(() => ({ data: { session: null } }))).data.session;
+      if (!activeSession) {
+        const fallbackToken = await Auth.getSessionToken().catch(() => null);
+        const recentlyHadSession = Date.now() - lastSessionSeenAtRef.current < 20_000;
+        if (fallbackToken && recentlyHadSession) {
+          // Keep current auth state instead of bouncing to guest during lock/contention races.
+          setHasSession(true);
+          setProfileHydrated(true);
+          return;
+        }
+        setHasSession(false);
+        setProfileHydrated(true);
+        setUser(null);
+      } else {
+        lastSessionSeenAtRef.current = Date.now();
+        setHasSession(true);
+        setProfileHydrated(true);
+        const fallbackUser = buildFallbackUserFromSession(activeSession.user);
+        setUser((prev) => prev ?? fallbackUser);
+      }
     } finally {
-      if (!options?.suppressLoading) {
-        setLoading(false);
-        console.log("[useAuth] fetchUser completed, loading:", false);
+        if (!opts?.suppressLoading) setLoading(false);
+      }
+    })();
+
+    fetchUserInFlightRef.current = inFlight;
+    try {
+      await inFlight;
+    } finally {
+      if (fetchUserInFlightRef.current === inFlight) {
+        fetchUserInFlightRef.current = null;
       }
     }
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      await Api.logout();
       logEvent("auth.logout");
+      await Auth.signOut();
     } catch (err) {
-      console.error("[Auth] Logout API call failed:", err);
+      console.error("[Auth] Logout error:", err);
       logError("auth.logout_failed", err);
-      // Continue with logout even if API call fails
     } finally {
-      await Auth.removeSessionToken();
-      await Auth.clearUserInfo();
       setUser(null);
       setError(null);
     }
   }, []);
 
-  const isAuthenticated = useMemo(() => Boolean(user), [user]);
+  const isAuthenticated = useMemo(() => Boolean(user) || hasSession, [user, hasSession]);
 
   // Register global refresh callback
   useEffect(() => {
-    const refresh = () => {
-      console.log("[useAuth] Global refresh callback triggered");
-      fetchUser();
-    };
+    const refresh = () => fetchUser();
     globalRefreshCallback = refresh;
     return () => {
-      if (globalRefreshCallback === refresh) {
-        globalRefreshCallback = null;
-      }
+      if (globalRefreshCallback === refresh) globalRefreshCallback = null;
     };
   }, [fetchUser]);
 
+  // Listen for Supabase auth state changes
   useEffect(() => {
-    console.log("[useAuth] useEffect triggered, autoFetch:", autoFetch, "platform:", Platform.OS);
-    if (autoFetch) {
-      if (Platform.OS === "web") {
-        // Web: fetch user from API directly (user will login manually if needed)
-        console.log("[useAuth] Web: fetching user from API...");
-        fetchUser();
-      } else {
-        // Native: check for cached user info first for faster initial load
-        Auth.getUserInfo().then((cachedUser) => {
-          console.log("[useAuth] Native cached user check:", cachedUser);
-          if (cachedUser) {
-            console.log("[useAuth] Native: setting cached user immediately");
-            setUser(cachedUser);
-            setLoading(false);
-            fetchUser({ suppressLoading: true });
-          } else {
-            // No cached user, check session token
-            fetchUser();
-          }
-        });
-      }
-    } else {
-      console.log("[useAuth] autoFetch disabled, setting loading to false");
+    if (!autoFetch) {
       setLoading(false);
+      return;
     }
+
+    // Initial fetch
+    fetchUser();
+
+    // Subscribe to auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setHasSession(Boolean(session));
+
+      if (
+        (event === "SIGNED_IN" || event === "INITIAL_SESSION") &&
+        session
+      ) {
+        lastSessionSeenAtRef.current = Date.now();
+        setLoading(true);
+        setProfileHydrated(false);
+        // Seed user synchronously from callback session to unblock hydration gates.
+        const seeded = buildFallbackUserFromSession(session.user);
+        setUser((prev) => {
+          if (!prev) return seeded;
+          const prevEmailLower = prev.email?.toLowerCase() ?? "";
+          const sessionEmailLower = session.user.email?.toLowerCase() ?? "";
+          const sessionMatchesPrev = !sessionEmailLower || prevEmailLower === sessionEmailLower;
+          if (!sessionMatchesPrev) return seeded;
+          if (prev.role === "shopper" && seeded.role !== "shopper") return seeded;
+          return prev;
+        });
+        void Auth.setUserInfo(seeded);
+
+        // Run full profile fetch asynchronously; avoid awaiting inside auth callback.
+        // Do NOT suppress loading here: role-based navigation should wait until
+        // profile hydration settles to prevent routing to the wrong dashboard.
+        setTimeout(() => {
+          void fetchUser();
+        }, 0);
+        return;
+      }
+
+      if (event === "TOKEN_REFRESHED" && session) {
+        lastSessionSeenAtRef.current = Date.now();
+        setHasSession(true);
+        // No profile fetch needed on token refresh; avoids auth lock contention.
+        return;
+      }
+
+      if (event === "SIGNED_OUT") {
+        setHasSession(false);
+        setProfileHydrated(true);
+        setUser(null);
+        void Auth.clearUserInfo();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [autoFetch, fetchUser]);
 
+  // Log sign-in / sign-out transitions
   useEffect(() => {
-    console.log("[useAuth] State updated:", {
-      hasUser: !!user,
-      loading,
-      isAuthenticated,
-      error: error?.message,
-    });
-  }, [user, loading, isAuthenticated, error]);
-
-  useEffect(() => {
+    if (!profileHydrated) return;
     const prevUserId = prevUserIdRef.current;
     if (user && user.id !== prevUserId) {
       logEvent("auth.signed_in", { userId: user.id, role: user.role });
@@ -210,10 +404,12 @@ export function useAuth(options?: UseAuthOptions) {
       logEvent("auth.signed_out");
     }
     prevUserIdRef.current = user?.id ?? null;
-  }, [user]);
+  }, [user, profileHydrated]);
 
   return {
     user,
+    hasSession,
+    profileHydrated,
     loading,
     error,
     isAuthenticated,

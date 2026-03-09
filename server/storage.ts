@@ -3,6 +3,7 @@
 
 import fs from "fs/promises";
 import path from "path";
+import { getServerSupabase } from "../lib/supabase";
 import { ENV } from "./_core/env";
 
 type StorageConfig = { baseUrl: string; apiKey: string };
@@ -30,6 +31,45 @@ function isForgeConfigured(): boolean {
   return !!ENV.forgeApiUrl && !!ENV.forgeApiKey;
 }
 
+function getSupabaseStorageBucket(): string {
+  return (process.env.SUPABASE_STORAGE_BUCKET || "uploads").trim() || "uploads";
+}
+
+function isSupabaseStorageConfigured(): boolean {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return Boolean(supabaseUrl && serviceRoleKey);
+}
+
+let ensuredSupabaseBucketName: string | null = null;
+
+async function ensureSupabaseBucket(bucketName: string): Promise<void> {
+  if (ensuredSupabaseBucketName === bucketName) {
+    return;
+  }
+
+  const supabase = getServerSupabase();
+  const { data: existingBucket, error: getBucketError } = await supabase.storage.getBucket(bucketName);
+  if (getBucketError && getBucketError.message.toLowerCase().includes("not found")) {
+    const { error: createBucketError } = await supabase.storage.createBucket(bucketName, {
+      public: true,
+      fileSizeLimit: 25 * 1024 * 1024,
+    });
+    if (createBucketError && !createBucketError.message.toLowerCase().includes("already exists")) {
+      throw createBucketError;
+    }
+  } else if (getBucketError) {
+    throw getBucketError;
+  } else if (existingBucket && !existingBucket.public) {
+    const { error: updateBucketError } = await supabase.storage.updateBucket(bucketName, { public: true });
+    if (updateBucketError) {
+      throw updateBucketError;
+    }
+  }
+
+  ensuredSupabaseBucketName = bucketName;
+}
+
 async function buildDownloadUrl(baseUrl: string, relKey: string, apiKey: string): Promise<string> {
   const downloadApiUrl = new URL("v1/storage/downloadUrl", ensureTrailingSlash(baseUrl));
   downloadApiUrl.searchParams.set("path", normalizeKey(relKey));
@@ -42,6 +82,15 @@ async function buildDownloadUrl(baseUrl: string, relKey: string, apiKey: string)
 
 function ensureTrailingSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function getLocalPublicBaseUrl(): string {
+  const candidate =
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.PUBLIC_APP_URL ||
+    process.env.EXPO_PUBLIC_APP_URL ||
+    "http://localhost:3000";
+  return candidate.replace(/\/+$/, "");
 }
 
 function normalizeKey(relKey: string): string {
@@ -74,6 +123,38 @@ export async function storagePut(
   const key = normalizeKey(relKey);
 
   if (!isForgeConfigured()) {
+    if (isSupabaseStorageConfigured()) {
+      await ensureSupabaseBucket(getSupabaseStorageBucket());
+      const supabase = getServerSupabase();
+      const bucketName = getSupabaseStorageBucket();
+
+      let payload: Buffer;
+      if (typeof data === "string") {
+        if (data.includes(";base64,")) {
+          payload = Buffer.from(data.split(";base64,").pop()!, "base64");
+        } else {
+          payload = Buffer.from(data, "utf-8");
+        }
+      } else {
+        payload = Buffer.from(data);
+      }
+
+      const { error: uploadError } = await supabase.storage.from(bucketName).upload(key, payload, {
+        contentType,
+        upsert: true,
+      });
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from(bucketName).getPublicUrl(key);
+      if (!publicUrlData?.publicUrl) {
+        throw new Error(`Supabase storage upload succeeded but no public URL returned for ${key}`);
+      }
+
+      return { key, url: publicUrlData.publicUrl };
+    }
+
     console.log(`[Storage] Forge not configured, using local fallback for ${key}`);
     const uploadsDir = path.resolve(process.cwd(), "public", "uploads");
     await fs.mkdir(uploadsDir, { recursive: true });
@@ -95,7 +176,7 @@ export async function storagePut(
     }
 
     await fs.writeFile(filePath, buffer);
-    return { key, url: `/uploads/${key}` };
+    return { key, url: `${getLocalPublicBaseUrl()}/uploads/${key}` };
   }
 
   const { baseUrl, apiKey } = getStorageConfig();
@@ -121,9 +202,22 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
   const key = normalizeKey(relKey);
 
   if (!isForgeConfigured()) {
+    if (isSupabaseStorageConfigured()) {
+      await ensureSupabaseBucket(getSupabaseStorageBucket());
+      const supabase = getServerSupabase();
+      const bucketName = getSupabaseStorageBucket();
+      const { data: publicUrlData } = supabase.storage.from(bucketName).getPublicUrl(key);
+      if (publicUrlData?.publicUrl) {
+        return {
+          key,
+          url: publicUrlData.publicUrl,
+        };
+      }
+    }
+
     return {
       key,
-      url: `/uploads/${key}`,
+      url: `${getLocalPublicBaseUrl()}/uploads/${key}`,
     };
   }
 

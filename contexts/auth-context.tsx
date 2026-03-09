@@ -2,58 +2,88 @@ import { useAuth } from "@/hooks/use-auth";
 import * as Auth from "@/lib/_core/auth";
 import { logError, logEvent } from "@/lib/logger";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { router } from "expo-router";
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 export type UserRole = "shopper" | "client" | "trainer" | "manager" | "coordinator";
 
 type AuthContextType = {
   user: Auth.User | null;
+  hasSession: boolean;
+  profileHydrated: boolean;
   loading: boolean;
   error: Error | null;
   isAuthenticated: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
-  // Role helpers
   role: UserRole | null;
   isTrainer: boolean;
   isClient: boolean;
   isManager: boolean;
   isCoordinator: boolean;
-  canManage: boolean; // manager or coordinator
-  // Impersonation (coordinator only)
+  canManage: boolean;
   impersonatedUser: Auth.User | null;
   isImpersonating: boolean;
   startImpersonation: (user: Auth.User) => void;
   stopImpersonation: () => void;
-  effectiveUser: Auth.User | null; // The user to use for UI (impersonated or real)
+  effectiveUser: Auth.User | null;
   effectiveRole: UserRole | null;
+  /** True while impersonation is transitioning -- navigation guards should hold. */
+  navigationFrozen: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const IMPERSONATION_KEY = "locomotivate_impersonation";
+const NAVIGATION_FREEZE_MS = 1000;
+const VALID_ROLES: UserRole[] = ["shopper", "client", "trainer", "manager", "coordinator"];
+
+function hasValidRole(user: Auth.User | null | undefined): user is Auth.User {
+  return Boolean(user?.role && VALID_ROLES.includes(user.role as UserRole));
+}
+
+function toValidRole(value: unknown): UserRole | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return VALID_ROLES.includes(normalized as UserRole) ? (normalized as UserRole) : null;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const [impersonatedUser, setImpersonatedUser] = useState<Auth.User | null>(null);
+  const [navigationFrozen, setNavigationFrozen] = useState(false);
+  const freezeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load impersonation state on mount
+  const freezeNavigation = useCallback(() => {
+    setNavigationFrozen(true);
+    if (freezeTimerRef.current) clearTimeout(freezeTimerRef.current);
+    freezeTimerRef.current = setTimeout(() => {
+      setNavigationFrozen(false);
+      freezeTimerRef.current = null;
+    }, NAVIGATION_FREEZE_MS);
+  }, []);
+
   useEffect(() => {
     async function loadImpersonation() {
       try {
         const saved = await AsyncStorage.getItem(IMPERSONATION_KEY);
         if (saved) {
-          setImpersonatedUser(JSON.parse(saved));
-          logEvent("impersonation.restore");
+          const parsed = JSON.parse(saved) as Auth.User;
+          if (hasValidRole(parsed)) {
+            setImpersonatedUser(parsed);
+            freezeNavigation();
+            logEvent("impersonation.restore");
+          } else {
+            await AsyncStorage.removeItem(IMPERSONATION_KEY);
+          }
         }
       } catch (error) {
         logError("impersonation.restore_failed", error);
       }
     }
     loadImpersonation();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clear impersonation when logging out
   useEffect(() => {
     if (!auth.isAuthenticated && impersonatedUser) {
       setImpersonatedUser(null);
@@ -62,37 +92,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [auth.isAuthenticated, impersonatedUser]);
 
   const startImpersonation = useCallback(async (user: Auth.User) => {
+    freezeNavigation();
     setImpersonatedUser(user);
     await AsyncStorage.setItem(IMPERSONATION_KEY, JSON.stringify(user));
     logEvent("impersonation.start", { userId: user.id, role: user.role });
-    // Re-fetch user to synchronize backend state (will use X-Impersonate-User-Id header)
-    await auth.refresh();
-  }, [auth]);
+  }, [freezeNavigation]);
 
   const stopImpersonation = useCallback(async () => {
+    freezeNavigation();
     setImpersonatedUser(null);
     await AsyncStorage.removeItem(IMPERSONATION_KEY);
     logEvent("impersonation.stop");
-    // Re-fetch user to revert to coordinator identity
-    await auth.refresh();
+  }, [freezeNavigation]);
+
+  const logout = useCallback(async () => {
+    try {
+      setImpersonatedUser(null);
+      await AsyncStorage.removeItem(IMPERSONATION_KEY);
+      await auth.logout();
+    } finally {
+      router.replace("/welcome");
+    }
   }, [auth]);
 
-  // Determine effective user (impersonated or real)
   const effectiveUser = impersonatedUser || auth.user;
   const isImpersonating = !!impersonatedUser;
-
-  // Role helpers
-  const role = (auth.user?.role as UserRole) || null;
-  const effectiveRole = (effectiveUser?.role as UserRole) || null;
+  const role = toValidRole(auth.user?.role);
+  const effectiveRole = toValidRole(effectiveUser?.role);
 
   const isTrainer = effectiveRole === "trainer" || effectiveRole === "manager" || effectiveRole === "coordinator";
   const isClient = effectiveRole === "client";
   const isManager = effectiveRole === "manager" || effectiveRole === "coordinator";
-  const isCoordinator = role === "coordinator"; // Real role, not impersonated
+  const isCoordinator = role === "coordinator";
   const canManage = isManager;
 
-  const value: AuthContextType = {
+  const value: AuthContextType = useMemo(() => ({
     ...auth,
+    logout,
     role,
     isTrainer,
     isClient,
@@ -105,7 +141,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     stopImpersonation,
     effectiveUser,
     effectiveRole,
-  };
+    navigationFrozen,
+  }), [
+    auth, logout, role, isTrainer, isClient, isManager, isCoordinator, canManage,
+    impersonatedUser, isImpersonating, startImpersonation, stopImpersonation,
+    effectiveUser, effectiveRole, navigationFrozen,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -118,7 +159,6 @@ export function useAuthContext() {
   return context;
 }
 
-// Convenience hooks for role checks
 export function useIsTrainer() {
   const { isTrainer } = useAuthContext();
   return isTrainer;

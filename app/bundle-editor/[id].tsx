@@ -18,7 +18,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
-import { navigateToHome } from "@/lib/navigation";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
@@ -41,19 +40,19 @@ type ProductItem = {
   id: number;
   title: string;
   description: string | null;
-  vendor: string;
-  productType: string;
+  vendor: string | null;
+  productType: string | null;
   status: string;
   price: string;
   variantId?: number;
   sku: string;
   inventory: number;
   imageUrl: string | null;
-  quantity?: number; // Quantity of this product in the bundle (optional, defaults to 1)
+  quantity?: number;
 };
 
 // Product item with quantity (for bundle products)
-type BundleProductItem = ProductItem & { quantity: number };
+type BundleProductItem = ProductItem & { quantity: number; productId?: string | number };
 
 // Bundle form state - matching original locoman
 type BundleFormState = {
@@ -78,17 +77,8 @@ const CADENCE_OPTIONS = [
   { value: "monthly" as const, label: "Monthly" },
 ];
 
-// Service type suggestions - matching original locoman
-const SERVICE_SUGGESTIONS = [
-  "Training Session",
-  "Check-In",
-  "Video Call",
-  "Plan Review",
-  "Meal Planning",
-  "Progress Photos",
-  "Custom Workout",
-  "Nutrition Coaching",
-];
+import { ServicePickerModal } from "@/components/service-picker-modal";
+import { SERVICE_SUGGESTIONS } from "@/shared/service-suggestions";
 
 // Goal suggestions - matching original locoman
 const GOAL_SUGGESTIONS = [
@@ -108,12 +98,13 @@ const GOAL_SUGGESTIONS = [
 
 export default function BundleEditorScreen() {
   const colors = useColors();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, admin: adminParam, templateId } = useLocalSearchParams<{ id: string; admin?: string; templateId?: string }>();
   const isNewBundle = id === "new";
+  const isAdminMode = adminParam === "1";
   
-  // Parse id safely - return 0 if invalid
-  const bundleIdParam = (id && id !== "new") ? parseInt(id, 10) : 0;
-  const isValidBundleId = !isNaN(bundleIdParam) && bundleIdParam > 0;
+  // Parse id safely
+  const bundleIdParam = (id && id !== "new") ? id : "";
+  const isValidBundleId = bundleIdParam.length > 0;
 
   const [loading, setLoading] = useState(!isNewBundle);
   const [saving, setSaving] = useState(false);
@@ -132,7 +123,6 @@ export default function BundleEditorScreen() {
   
   // Service modal
   const [showServiceModal, setShowServiceModal] = useState(false);
-  const [newServiceType, setNewServiceType] = useState("");
   
   const [customGoal, setCustomGoal] = useState("");
 
@@ -141,6 +131,18 @@ export default function BundleEditorScreen() {
   const [selectedProductDetail, setSelectedProductDetail] = useState<ProductItem | null>(null);
   const [detailQuantity, setDetailQuantity] = useState(1);
   const [showDetailBarcodeScanner, setShowDetailBarcodeScanner] = useState(false);
+  const [reopenProductPickerAfterDetail, setReopenProductPickerAfterDetail] = useState(false);
+  const [showReviewResponseModal, setShowReviewResponseModal] = useState(false);
+  const [reviewResponse, setReviewResponse] = useState("");
+
+  const closeProductDetail = () => {
+    setShowProductDetail(false);
+    setDetailQuantity(1);
+    if (reopenProductPickerAfterDetail) {
+      setReopenProductPickerAfterDetail(false);
+      setShowProductModal(true);
+    }
+  };
 
   // AI image generation mutation
   const generateImageMutation = trpc.ai.generateBundleImage.useMutation();
@@ -167,26 +169,32 @@ export default function BundleEditorScreen() {
   // Fetch existing bundle if editing
   const { data: existingBundle, refetch: refetchBundle } = trpc.bundles.get.useQuery(
     { id: bundleIdParam },
-    { enabled: !isNewBundle && isValidBundleId }
+    { enabled: !isNewBundle && isValidBundleId && !isAdminMode }
   );
+  const { data: existingAdminBundle, refetch: refetchAdminBundle } = trpc.admin.getBundle.useQuery(
+    { id: bundleIdParam },
+    { enabled: !isNewBundle && isValidBundleId && isAdminMode }
+  );
+  const effectiveBundle = isAdminMode ? existingAdminBundle : existingBundle;
+  const effectiveRefetch = isAdminMode ? refetchAdminBundle : refetchBundle;
 
   // Cross-platform alert helper (defined early for mutations)
   const platformAlert = (title: string, message: string, buttons?: { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void }[]) => {
     if (Platform.OS === 'web') {
       if (buttons && buttons.length > 0) {
         const confirmButton = buttons.find(b => b.text !== 'Cancel') || buttons[0];
-        window.alert(`${title}\n\n${message}`);
+        Alert.alert(title, message);
         confirmButton?.onPress?.();
       } else {
-        window.alert(`${title}\n\n${message}`);
+        Alert.alert(title, message);
       }
     } else {
       Alert.alert(title, message, buttons);
     }
   };
 
-  // Create bundle mutation
-  const createBundleMutation = trpc.bundles.create.useMutation({
+  // Create bundle mutation (trainer)
+  const trainerCreateMutation = trpc.bundles.create.useMutation({
     onSuccess: () => {
       haptics.success();
       platformAlert("Success", "Bundle saved as draft", [
@@ -199,12 +207,32 @@ export default function BundleEditorScreen() {
     },
   });
 
-  // Update bundle mutation
-  const updateBundleMutation = trpc.bundles.update.useMutation({
+  // Create bundle mutation (admin)
+  const adminCreateMutation = trpc.admin.createBundle.useMutation({
+    onSuccess: (newBundleId) => {
+      haptics.success();
+      if (isAdminMode) {
+        promptTemplatePromotion(typeof newBundleId === "string" ? newBundleId : "");
+      } else {
+        platformAlert("Success", "Bundle saved as draft", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+      }
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message);
+    },
+  });
+
+  const createBundleMutation = isAdminMode ? adminCreateMutation : trainerCreateMutation;
+
+  // Update bundle mutation (trainer)
+  const trainerUpdateMutation = trpc.bundles.update.useMutation({
     onSuccess: () => {
       haptics.success();
       platformAlert("Success", "Bundle updated", [
-        { text: "OK", onPress: () => refetchBundle() },
+        { text: "OK", onPress: () => effectiveRefetch() },
       ]);
     },
     onError: (error) => {
@@ -212,6 +240,47 @@ export default function BundleEditorScreen() {
       platformAlert("Error", error.message);
     },
   });
+
+  // Update bundle mutation (admin)
+  const adminUpdateMutation = trpc.admin.updateBundle.useMutation({
+    onSuccess: () => {
+      haptics.success();
+      platformAlert("Success", "Bundle updated", [
+        { text: "OK", onPress: () => effectiveRefetch() },
+      ]);
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message);
+    },
+  });
+
+  const updateBundleMutation = isAdminMode ? adminUpdateMutation : trainerUpdateMutation;
+
+  const promptTemplatePromotion = (bundleId: string) => {
+    if (Platform.OS === "web") {
+      const yes = window.confirm("Bundle saved!\n\nWould you like to make this a template?");
+      if (yes && bundleId) {
+        router.replace({ pathname: "/(coordinator)/template-settings", params: { bundleId } } as any);
+      } else {
+        router.back();
+      }
+    } else {
+      Alert.alert("Bundle Saved", "Would you like to make this a template?", [
+        { text: "Not Now", style: "cancel", onPress: () => router.back() },
+        {
+          text: "Yes, Make Template",
+          onPress: () => {
+            if (bundleId) {
+              router.replace({ pathname: "/(coordinator)/template-settings", params: { bundleId } } as any);
+            } else {
+              router.back();
+            }
+          },
+        },
+      ]);
+    }
+  };
 
   // Submit for review mutation
   const submitForReviewMutation = trpc.bundles.submitForReview.useMutation({
@@ -227,35 +296,109 @@ export default function BundleEditorScreen() {
     },
   });
 
+  const respondToReviewMutation = trpc.bundles.respondToReview.useMutation({
+    onSuccess: () => {
+      haptics.success();
+      setShowReviewResponseModal(false);
+      setReviewResponse("");
+      platformAlert("Response Sent", "Your response has been sent to the reviewer.", [
+        { text: "OK", onPress: () => effectiveRefetch() },
+      ]);
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message || "Failed to send response.");
+    },
+  });
+
+  // Delete bundle mutation
+  const deleteBundleMutation = trpc.bundles.delete.useMutation({
+    onSuccess: () => {
+      haptics.success();
+      platformAlert("Deleted", "Bundle deleted successfully.", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Error", error.message || "Failed to delete bundle.");
+    },
+  });
+
+  // Fetch template data when creating from template
+  const { data: templateBundle } = trpc.bundles.get.useQuery(
+    { id: templateId || "" },
+    { enabled: isNewBundle && !!templateId },
+  );
+
+  // Populate form from template when creating a new bundle
+  useEffect(() => {
+    if (isNewBundle && templateBundle && templateId) {
+      setForm((prev) => ({
+        ...prev,
+        title: templateBundle.title || prev.title,
+        description: templateBundle.description || prev.description,
+        price: templateBundle.price || prev.price,
+        cadence: (templateBundle.cadence as "one_time" | "weekly" | "monthly") || prev.cadence,
+        imageUrl: templateBundle.imageUrl || prev.imageUrl,
+        services: (templateBundle.servicesJson as ServiceItem[]) || prev.services,
+        goals: (templateBundle.goalsJson as string[]) || prev.goals,
+        suggestedGoal: (templateBundle.suggestedGoal as string) || prev.suggestedGoal,
+      }));
+
+      if (templateBundle.productsJson && shopifyProducts) {
+        const parsedProducts = templateBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number; productId?: string }[];
+        const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
+          const matchId = p.productId || p.id;
+          const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === matchId);
+          if (shopifyProduct) {
+            return { ...shopifyProduct, quantity: p.quantity || 1 };
+          }
+          return {
+            id: p.id,
+            title: p.name,
+            description: null,
+            vendor: "",
+            productType: "",
+            status: "active",
+            price: p.price,
+            sku: "",
+            inventory: 0,
+            imageUrl: p.imageUrl || null,
+            quantity: p.quantity || 1,
+          };
+        });
+        setForm((prev) => ({ ...prev, products: matchedProducts }));
+      }
+      setLoading(false);
+    }
+  }, [isNewBundle, templateBundle, templateId, shopifyProducts]);
+
   // Populate form when editing
   useEffect(() => {
-    if (existingBundle) {
+    if (effectiveBundle) {
       setForm({
-        title: existingBundle.title || "",
-        description: existingBundle.description || "",
-        price: existingBundle.price || "0.00",
-        cadence: (existingBundle.cadence as "one_time" | "weekly" | "monthly") || "monthly",
-        imageUrl: existingBundle.imageUrl || "",
-        imageSource: (existingBundle.imageSource as "ai" | "custom") || "ai",
-        services: (existingBundle.servicesJson as ServiceItem[]) || [],
-        products: [], // Will be populated from productsJson
-        goals: (existingBundle.goalsJson as string[]) || [],
-        suggestedGoal: (existingBundle.suggestedGoal as string) || "",
-        status: (existingBundle.status as BundleFormState["status"]) || "draft",
-        rejectionReason: existingBundle.rejectionReason || undefined,
-        reviewComments: (existingBundle as any).reviewComments || undefined,
+        title: effectiveBundle.title || "",
+        description: effectiveBundle.description || "",
+        price: effectiveBundle.price || "0.00",
+        cadence: (effectiveBundle.cadence as "one_time" | "weekly" | "monthly") || "monthly",
+        imageUrl: effectiveBundle.imageUrl || "",
+        imageSource: (effectiveBundle.imageSource as "ai" | "custom") || "ai",
+        services: (effectiveBundle.servicesJson as ServiceItem[]) || [],
+        products: [],
+        goals: (effectiveBundle.goalsJson as string[]) || [],
+        suggestedGoal: (effectiveBundle.suggestedGoal as string) || "",
+        status: (effectiveBundle.status as BundleFormState["status"]) || "draft",
+        rejectionReason: effectiveBundle.rejectionReason || undefined,
+        reviewComments: (effectiveBundle as any).reviewComments || undefined,
       });
 
-      // Match products from productsJson with Shopify products
-      if (existingBundle.productsJson && shopifyProducts) {
-        const parsedProducts = existingBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number }[];
+      if (effectiveBundle.productsJson && shopifyProducts) {
+        const parsedProducts = effectiveBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number }[];
         const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
           const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === p.id);
           if (shopifyProduct) {
-            return {
-              ...shopifyProduct,
-              quantity: p.quantity || 1,
-            };
+            return { ...shopifyProduct, quantity: p.quantity || 1 };
           }
           return {
             id: p.id,
@@ -279,7 +422,7 @@ export default function BundleEditorScreen() {
     } else {
       setLoading(false);
     }
-  }, [existingBundle, shopifyProducts, isNewBundle]);
+  }, [effectiveBundle, shopifyProducts, isNewBundle]);
 
   const updateForm = useCallback(<K extends keyof BundleFormState>(key: K, value: BundleFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -339,7 +482,6 @@ export default function BundleEditorScreen() {
     updateForm("services", [...form.services, newService]);
     haptics.light();
     setShowServiceModal(false);
-    setNewServiceType("");
   };
 
   // Update service
@@ -530,7 +672,7 @@ export default function BundleEditorScreen() {
           confirmButton?.onPress?.();
         }
       } else {
-        window.alert(`${title}\n\n${message}`);
+        Alert.alert(title, message);
       }
     } else {
       Alert.alert(title, message, buttons);
@@ -567,9 +709,11 @@ export default function BundleEditorScreen() {
         imageSource: form.imageSource,
         productsJson: form.products.map((p) => ({
           id: p.id,
+          productId: p.productId || p.id,
           name: p.title,
           price: p.price,
           imageUrl: p.imageUrl,
+          quantity: p.quantity || 1,
         })),
         servicesJson: form.services,
         goalsJson: form.goals,
@@ -577,19 +721,22 @@ export default function BundleEditorScreen() {
       };
 
       if (isNewBundle) {
-        await createBundleMutation.mutateAsync(bundleData);
+        await createBundleMutation.mutateAsync({ ...bundleData, ...(templateId ? { templateId } : {}) });
       } else {
         await updateBundleMutation.mutateAsync({
           id: bundleIdParam,
           ...bundleData,
         });
       }
+    } catch (error) {
+      // Prevent unhandled promise rejections from mutateAsync.
+      console.error("[bundle-editor] handleSave failed:", error);
     } finally {
       setSaving(false);
     }
   };
 
-  // Submit for review
+  // Submit for review (trainers) / Save & optionally promote (admins)
   const handleSubmitForReview = async () => {
     if (!validateForm()) return;
 
@@ -601,7 +748,6 @@ export default function BundleEditorScreen() {
     const doSubmit = async () => {
       setSaving(true);
       try {
-        // First save the bundle
         const bundleData = {
           title: form.title,
           description: form.description,
@@ -623,8 +769,10 @@ export default function BundleEditorScreen() {
         let bundleId = bundleIdParam;
         if (isNewBundle) {
           const result = await createBundleMutation.mutateAsync(bundleData);
-          if (result && typeof result === 'object' && 'id' in result) {
-            bundleId = (result as { id: number }).id;
+          if (typeof result === "string") {
+            bundleId = result;
+          } else if (result && typeof result === "object" && "id" in result) {
+            bundleId = (result as { id: string }).id;
           }
         } else {
           await updateBundleMutation.mutateAsync({
@@ -633,24 +781,37 @@ export default function BundleEditorScreen() {
           });
         }
 
-        // Then submit for review
-        await submitForReviewMutation.mutateAsync({ id: bundleId });
+        if (isAdminMode) {
+          promptTemplatePromotion(bundleId);
+        } else {
+          await submitForReviewMutation.mutateAsync({ id: bundleId });
+        }
+      } catch (error) {
+        console.error("[bundle-editor] submitForReview failed:", error);
       } finally {
         setSaving(false);
       }
     };
 
-    showAlert(
-      "Submit for Review",
-      "Your bundle will be reviewed by the admin team. You'll be notified once it's approved.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Submit",
-          onPress: doSubmit,
-        },
-      ]
-    );
+    if (isAdminMode) {
+      showAlert(
+        "Save Bundle",
+        "Save this bundle and optionally promote it to a template?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Save", onPress: doSubmit },
+        ],
+      );
+    } else {
+      showAlert(
+        "Submit for Review",
+        "Your bundle will be reviewed by the admin team. You'll be notified once it's approved.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Submit", onPress: doSubmit },
+        ],
+      );
+    }
   };
 
   // Generate AI image
@@ -684,9 +845,8 @@ export default function BundleEditorScreen() {
   // Delete bundle
   const handleDelete = () => {
     const doDelete = async () => {
-      // TODO: Implement delete mutation
-      haptics.success();
-      router.back();
+      if (!isValidBundleId) return;
+      await deleteBundleMutation.mutateAsync({ id: bundleIdParam });
     };
 
     platformAlert(
@@ -701,6 +861,24 @@ export default function BundleEditorScreen() {
         },
       ]
     );
+  };
+
+  const handleSendReviewResponse = async (resubmit: boolean) => {
+    if (!bundleIdParam) return;
+    const trimmed = reviewResponse.trim();
+    if (!trimmed) {
+      platformAlert("Response required", "Please enter your response before sending.");
+      return;
+    }
+    try {
+      await respondToReviewMutation.mutateAsync({
+        id: bundleIdParam,
+        response: trimmed,
+        resubmit,
+      });
+    } catch (error) {
+      console.error("[bundle-editor] respondToReview failed:", error);
+    }
   };
 
   if (loading) {
@@ -723,7 +901,6 @@ export default function BundleEditorScreen() {
           title={isNewBundle ? "Create Bundle" : "Edit Bundle"}
           showBack
           showHome
-          onBack={() => navigateToHome()}
           confirmBack={{
             title: "Discard Changes?",
             message: "You have unsaved changes. Are you sure you want to leave?",
@@ -754,6 +931,17 @@ export default function BundleEditorScreen() {
             </View>
             <Text className="text-foreground mt-2 text-sm">{form.reviewComments}</Text>
             <Text className="text-muted mt-2 text-xs">Please address the feedback above and resubmit for review.</Text>
+            <View className="flex-row gap-2 mt-3">
+              <TouchableOpacity
+                className="bg-surface border border-border rounded-lg px-3 py-2"
+                onPress={() => setShowReviewResponseModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Respond to reviewer"
+                testID="bundle-review-respond"
+              >
+                <Text className="text-foreground text-sm font-medium">Respond to reviewer</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -917,6 +1105,9 @@ export default function BundleEditorScreen() {
               <TouchableOpacity
                 className="bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center mb-4"
                 onPress={() => setShowServiceModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Add Service"
+                testID="add-service-button"
               >
                 <IconSymbol name="plus" size={20} color={colors.primary} />
                 <Text className="text-primary font-medium ml-2">Add Service</Text>
@@ -1338,64 +1529,100 @@ export default function BundleEditorScreen() {
           </View>
         </View>
 
-        {/* Service Selection Modal */}
-        <Modal
+        <ServicePickerModal
           visible={showServiceModal}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setShowServiceModal(false)}
+          onClose={() => setShowServiceModal(false)}
+          onSelect={addService}
+          presentation="pageSheet"
+        />
+
+        {/* Product Selection Modal */}
+        <Modal
+          visible={showReviewResponseModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowReviewResponseModal(false)}
         >
-          <View className="flex-1 bg-background">
-            <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-              <Text className="text-lg font-semibold text-foreground">Add Service</Text>
-              <TouchableOpacity onPress={() => setShowServiceModal(false)}>
-                <IconSymbol name="xmark" size={24} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView className="flex-1 p-4">
-              <Text className="text-sm text-muted mb-4">Select a service type or create a custom one</Text>
-
-              {/* Suggested Services */}
-              <View className="gap-2 mb-4">
-                {SERVICE_SUGGESTIONS.map((service) => (
-                  <TouchableOpacity
-                    key={service}
-                    className="bg-surface border border-border rounded-xl p-4 flex-row items-center justify-between"
-                    onPress={() => addService(service)}
-                  >
-                    <Text className="text-foreground font-medium">{service}</Text>
-                    <IconSymbol name="plus" size={20} color={colors.primary} />
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Custom Service Input */}
-              <View className="flex-row gap-2">
-                <TextInput
-                  className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Custom service name..."
-                  placeholderTextColor={colors.muted}
-                  value={newServiceType}
-                  onChangeText={setNewServiceType}
-                />
+          <View
+            style={{
+              flex: 1,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: 16,
+              backgroundColor: "rgba(0,0,0,0.85)",
+            }}
+          >
+            <View className="bg-surface rounded-2xl p-6 w-full max-w-md">
+              <Text className="text-xl font-bold text-foreground mb-2">
+                Respond to Review
+              </Text>
+              <Text className="text-muted mb-4">
+                Send a response to the coordinator/manager with a deep link back to this bundle.
+              </Text>
+              <TextInput
+                className="bg-background border border-border rounded-lg p-4 text-foreground min-h-[120px] mb-4"
+                placeholder="Describe what you changed or ask a clarifying question..."
+                placeholderTextColor={colors.muted}
+                value={reviewResponse}
+                onChangeText={setReviewResponse}
+                multiline
+                textAlignVertical="top"
+              />
+              <View className="flex-row gap-3">
                 <TouchableOpacity
-                  className="bg-primary rounded-xl px-4 items-center justify-center"
+                  className="flex-1 bg-surface border border-border py-3 rounded-lg items-center"
                   onPress={() => {
-                    if (newServiceType.trim()) {
-                      addService(newServiceType.trim());
-                    }
+                    setShowReviewResponseModal(false);
+                    setReviewResponse("");
                   }}
-                  disabled={!newServiceType.trim()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel review response"
                 >
-                  <IconSymbol name="plus" size={20} color={colors.background} />
+                  <Text className="text-foreground font-medium">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="flex-1 bg-primary py-3 rounded-lg items-center"
+                  onPress={() => handleSendReviewResponse(false)}
+                  disabled={respondToReviewMutation.isPending || !reviewResponse.trim()}
+                  style={{
+                    opacity:
+                      respondToReviewMutation.isPending || !reviewResponse.trim()
+                        ? 0.6
+                        : 1,
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send response"
+                  testID="bundle-review-send-response"
+                >
+                  {respondToReviewMutation.isPending ? (
+                    <ActivityIndicator size="small" color={colors.background} />
+                  ) : (
+                    <Text className="text-background font-semibold">Send response</Text>
+                  )}
                 </TouchableOpacity>
               </View>
-            </ScrollView>
+              <TouchableOpacity
+                className="mt-3 bg-warning rounded-lg py-3 items-center"
+                onPress={() => handleSendReviewResponse(true)}
+                disabled={respondToReviewMutation.isPending || !reviewResponse.trim()}
+                style={{
+                  opacity:
+                    respondToReviewMutation.isPending || !reviewResponse.trim()
+                      ? 0.6
+                      : 1,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Send response and resubmit for review"
+                testID="bundle-review-send-and-resubmit"
+              >
+                <Text className="text-background font-semibold">
+                  Send and resubmit for review
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Modal>
 
-        {/* Product Selection Modal */}
         <Modal
           visible={showProductModal}
           animationType="slide"
@@ -1516,10 +1743,17 @@ export default function BundleEditorScreen() {
                           style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
                           onPress={() => {
                             setSelectedProductDetail(item);
-                            setShowProductDetail(true);
+                            // iOS pageSheet modals can fail to present a second modal on top.
+                            // Close picker first, then present detail and reopen picker on close.
+                            setReopenProductPickerAfterDetail(true);
+                            setShowProductModal(false);
+                            setTimeout(() => setShowProductDetail(true), 100);
                             haptics.light();
                           }}
                           activeOpacity={0.7}
+                          accessibilityRole="button"
+                          accessibilityLabel={`View details for ${item.title}`}
+                          testID={`bundle-product-detail-${item.id}`}
                         >
                           {/* Product Image - always show with placeholder fallback */}
                           <View style={{ width: 56, height: 56, borderRadius: 8, marginRight: 12, backgroundColor: colors.surface, overflow: 'hidden' }}>
@@ -1682,20 +1916,19 @@ export default function BundleEditorScreen() {
           visible={showProductDetail}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={() => {
-            setShowProductDetail(false);
-            setDetailQuantity(1);
-          }}
+          onRequestClose={closeProductDetail}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
             <View className="flex-1 bg-background">
               {/* Header */}
               <View className="flex-row items-center justify-between px-4 py-4 border-b border-border">
-                <TouchableOpacity onPress={() => {
-                  setShowProductDetail(false);
-                  setDetailQuantity(1);
-                }}>
-                  <IconSymbol name="chevron.left" size={24} color={colors.foreground} />
+                <TouchableOpacity
+                  onPress={closeProductDetail}
+                  className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                >
+                  <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
                 </TouchableOpacity>
                 <Text className="text-lg font-semibold text-foreground">Product Details</Text>
                 <TouchableOpacity 
@@ -1918,8 +2151,7 @@ export default function BundleEditorScreen() {
                           className="bg-primary rounded-xl py-4 items-center mb-2"
                           onPress={() => {
                             addProductWithQuantity(selectedProductDetail, detailQuantity);
-                            setShowProductDetail(false);
-                            setDetailQuantity(1);
+                            closeProductDetail();
                           }}
                         >
                           <Text className="text-background font-semibold">
@@ -1933,8 +2165,7 @@ export default function BundleEditorScreen() {
                             className="bg-error rounded-xl py-4 items-center"
                             onPress={() => {
                               toggleProduct(selectedProductDetail);
-                              setShowProductDetail(false);
-                              setDetailQuantity(1);
+                              closeProductDetail();
                             }}
                           >
                             <Text className="text-background font-semibold">

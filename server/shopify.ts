@@ -48,6 +48,16 @@ export interface ShopifyImage {
   alt: string;
 }
 
+export interface ShopifyCollection {
+  id: number;
+  title: string;
+  handle: string;
+  image: { src?: string } | null;
+  channels: string[];
+  shopEnabled: boolean;
+  updated_at?: string;
+}
+
 export interface ShopifyOrder {
   id: number;
   order_number: number;
@@ -268,6 +278,200 @@ export async function fetchProducts(): Promise<ShopifyProduct[]> {
 }
 
 /**
+ * Fetch all published Shopify collections (custom + smart)
+ */
+export async function fetchCollections(): Promise<ShopifyCollection[]> {
+  if (MOCK_SHOPIFY) {
+    const seen = new Set<string>();
+    const mockCollections: ShopifyCollection[] = [];
+    for (const product of mockProducts) {
+      const handle = (product.product_type || "collection")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      if (!handle || seen.has(handle)) continue;
+      seen.add(handle);
+      mockCollections.push({
+        id: product.id,
+        title: product.product_type || "Collection",
+        handle,
+        image: { src: product.images?.[0]?.src },
+        channels: ["Shop"],
+        shopEnabled: true,
+      });
+    }
+    return mockCollections;
+  }
+
+  const graphqlQuery = `
+    query CollectionsWithPublications {
+      collections(first: 250) {
+        edges {
+          node {
+            id
+            title
+            handle
+            updatedAt
+            image {
+              url
+            }
+            publications(first: 20) {
+              edges {
+                node {
+                  publication {
+                    name
+                  }
+                  channel {
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  let publicationScopesUnavailable = false;
+  try {
+    const response = await fetch(`${SHOPIFY_BASE_URL}/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+      },
+      body: JSON.stringify({ query: graphqlQuery }),
+    });
+    if (!response.ok) {
+      throw new Error(`GraphQL request failed with status ${response.status}`);
+    }
+    const payload = await response.json();
+    if (payload?.errors?.length) {
+      throw new Error(String(payload.errors[0]?.message || "Unknown GraphQL error"));
+    }
+
+    const edges = payload?.data?.collections?.edges || [];
+    const byHandle = new Map<string, ShopifyCollection>();
+    for (const edge of edges) {
+      const node = edge?.node;
+      const rawId = String(node?.id || "");
+      const idMatch = rawId.match(/Collection\/(\d+)$/);
+      const id = idMatch ? Number(idMatch[1]) : 0;
+      const handle = String(node?.handle || "").trim().toLowerCase();
+      if (!id || !handle) continue;
+      const channels = (node?.publications?.edges || [])
+        .map((publicationEdge: any) =>
+          String(
+            publicationEdge?.node?.publication?.name ||
+              publicationEdge?.node?.channel?.name ||
+              publicationEdge?.node?.name ||
+              "",
+          ).trim(),
+        )
+        .filter(Boolean);
+      // Explicitly require the "Shop" channel (case-insensitive exact word match).
+      const shopEnabled = channels.some((name: string) => /\bshop\b/i.test(name));
+      const mapped: ShopifyCollection = {
+        id,
+        title: String(node?.title || handle),
+        handle,
+        image: node?.image?.url ? { src: String(node.image.url) } : null,
+        channels,
+        shopEnabled,
+        updated_at: node?.updatedAt || undefined,
+      };
+
+      if (!byHandle.has(handle)) {
+        byHandle.set(handle, mapped);
+        continue;
+      }
+      const existing = byHandle.get(handle)!;
+      if (!existing.image?.src && mapped.image?.src) {
+        byHandle.set(handle, mapped);
+      }
+    }
+    return Array.from(byHandle.values());
+  } catch (graphError) {
+    console.warn("[Shopify] Falling back to REST collections fetch:", graphError);
+    const message = String((graphError as Error)?.message || graphError || "").toLowerCase();
+    publicationScopesUnavailable =
+      message.includes("read_publications") || message.includes("access denied for publications");
+  }
+
+  const [custom, smart] = await Promise.all([
+    shopifyRequest<{ custom_collections: Array<{ id: number; title: string; handle: string; image?: { src?: string } | null; updated_at?: string; published_scope?: string }> }>("/custom_collections.json?limit=250"),
+    shopifyRequest<{ smart_collections: Array<{ id: number; title: string; handle: string; image?: { src?: string } | null; updated_at?: string; published_scope?: string }> }>("/smart_collections.json?limit=250"),
+  ]);
+
+  const byHandle = new Map<string, ShopifyCollection>();
+  for (const collection of [...(custom.custom_collections || []), ...(smart.smart_collections || [])]) {
+    const handle = String(collection.handle || "").trim().toLowerCase();
+    if (!handle) continue;
+    const scope = String(collection.published_scope || "").toLowerCase();
+    // REST collection payload does not provide per-channel publication list.
+    // Keep channel list explicit and do not infer "Shop" here.
+    const channels = scope === "global" || scope === "web" ? ["Online Store"] : [];
+    const shopEnabledFromScope = scope === "global" || scope === "web";
+    const mapped: ShopifyCollection = {
+      id: Number(collection.id),
+      title: String(collection.title || handle),
+      handle,
+      image: collection.image?.src ? { src: collection.image.src } : null,
+      channels,
+      // If publication scopes are unavailable, fail-open so visible storefront
+      // collections (e.g. Protein, Energy Drinks) still appear in app.
+      shopEnabled: publicationScopesUnavailable ? shopEnabledFromScope : false,
+      updated_at: collection.updated_at,
+    };
+    if (!byHandle.has(handle)) {
+      byHandle.set(handle, mapped);
+      continue;
+    }
+    const existing = byHandle.get(handle)!;
+    if (!existing.image?.src && mapped.image?.src) {
+      byHandle.set(handle, mapped);
+    }
+  }
+
+  return Array.from(byHandle.values());
+}
+
+/**
+ * Fetch product IDs that belong to each collection.
+ */
+export async function fetchCollectionProductMap(
+  collectionIds: number[],
+): Promise<Record<number, number[]>> {
+  if (MOCK_SHOPIFY) {
+    const map: Record<number, number[]> = {};
+    for (const id of collectionIds) {
+      map[id] = [];
+    }
+    return map;
+  }
+
+  const map: Record<number, number[]> = {};
+  await Promise.all(
+    collectionIds.map(async (collectionId) => {
+      try {
+        const response = await shopifyRequest<{
+          collects: Array<{ product_id?: number | null }>;
+        }>(`/collects.json?collection_id=${collectionId}&limit=250`);
+        const productIds = (response.collects || [])
+          .map((collect) => Number(collect.product_id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+        map[collectionId] = Array.from(new Set(productIds));
+      } catch (error) {
+        console.warn(`[Shopify] Unable to fetch collection products for ${collectionId}:`, error);
+        map[collectionId] = [];
+      }
+    }),
+  );
+  return map;
+}
+
+/**
  * Fetch a single product by ID
  */
 export async function fetchProduct(productId: number): Promise<ShopifyProduct | null> {
@@ -288,23 +492,30 @@ async function fetchProductMedia(productId: number): Promise<ProductMedia> {
     };
   }
 
-  const response = await shopifyRequest<{ media: ShopifyMedia[] }>(
-    `/products/${productId}/media.json`,
-  );
-  const images: string[] = [];
-  const videos: string[] = [];
-  for (const media of response.media || []) {
-    const type = media.media_type?.toLowerCase();
-    if (type === "image") {
-      if (media.image?.src) images.push(media.image.src);
-      else if (media.preview_image?.src) images.push(media.preview_image.src);
-    } else if (type === "video" || type === "external_video") {
-      const url = media.sources?.[0]?.url || media.preview_image?.src;
-      if (url) videos.push(url);
+  try {
+    const response = await shopifyRequest<{ media: ShopifyMedia[] }>(
+      `/products/${productId}/media.json`,
+    );
+    const images: string[] = [];
+    const videos: string[] = [];
+    for (const media of response.media || []) {
+      const type = media.media_type?.toLowerCase();
+      if (type === "image") {
+        if (media.image?.src) images.push(media.image.src);
+        else if (media.preview_image?.src) images.push(media.preview_image.src);
+      } else if (type === "video" || type === "external_video") {
+        const url = media.sources?.[0]?.url || media.preview_image?.src;
+        if (url) videos.push(url);
+      }
     }
+    return { images, videos };
+  } catch {
+    // Media endpoint may 404 or 429 — gracefully skip
+    return { images: [], videos: [] };
   }
-  return { images, videos };
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Sync products from Shopify to database
@@ -335,7 +546,11 @@ export async function syncProductsToDatabase(
     try {
       const variant = product.variants[0];
       const image = product.images[0];
-      const media = await fetchProductMedia(product.id);
+      // Build media from the product listing images (no extra API call)
+      const media: ProductMedia = {
+        images: product.images.map((img) => img.src),
+        videos: [],
+      };
 
       await upsertProduct({
         shopifyId: product.id,
@@ -361,6 +576,29 @@ export async function syncProductsToDatabase(
   return { synced, errors };
 }
 
+function isBundle(product: ShopifyProduct): boolean {
+  const pt = (product.product_type || "").toLowerCase().trim();
+  const tags = (product.tags || "").toLowerCase();
+  const title = (product.title || "").toLowerCase();
+  const vendor = (product.vendor || "").toLowerCase().trim();
+  const storeName = (SHOPIFY_STORE_NAME || "").toLowerCase();
+
+  // Explicit product_type
+  if (pt === "bundle" || pt === "bundles") return true;
+
+  // Tags contain "bundle"
+  if (tags.includes("bundle")) return true;
+
+  // Title contains "bundle"
+  if (title.includes("bundle")) return true;
+
+  // Products published by our own store are bundles
+  // (trainers publish bundles through our app to Shopify)
+  if (storeName && vendor === storeName) return true;
+
+  return false;
+}
+
 export async function syncProductsFromShopify(): Promise<{ synced: number; errors: number }> {
   const products = await fetchProducts();
   let synced = 0;
@@ -374,7 +612,15 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
     try {
       const variant = product.variants[0];
       const image = product.images[0];
-      const media = await fetchProductMedia(product.id);
+      const media: ProductMedia = {
+        images: product.images.map((img) => img.src),
+        videos: [],
+      };
+      const productIsBundle = isBundle(product);
+      if (productIsBundle) {
+        console.log(`[Shopify] Bundle detected: "${product.title}" (id=${product.id}, type=${product.product_type}, tags=${product.tags})`);
+      }
+
       await db.upsertProduct({
         shopifyProductId: product.id,
         shopifyVariantId: variant?.id,
@@ -383,12 +629,25 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
         price: variant?.price || "0.00",
         imageUrl: image?.src || null,
         brand: product.vendor || null,
-        category: toCategory(product.product_type),
+        category: productIsBundle ? null : toCategory(product.product_type),
         inventoryQuantity: variant?.inventory_quantity || 0,
         availability: (variant?.inventory_quantity || 0) > 0 ? "available" : "out_of_stock",
-        syncedAt: new Date(),
+        syncedAt: new Date().toISOString(),
         media,
       });
+
+      // If it's a bundle, ensure a corresponding bundle_draft exists
+      if (productIsBundle) {
+        await db.upsertBundleFromShopify({
+          shopifyProductId: product.id,
+          shopifyVariantId: variant?.id,
+          title: product.title,
+          description: product.body_html || null,
+          imageUrl: image?.src || null,
+          price: variant?.price || "0.00",
+        });
+      }
+
       synced++;
     } catch (error) {
       console.error(`[Shopify] Failed to sync product ${product.id}:`, error);
@@ -396,7 +655,43 @@ export async function syncProductsFromShopify(): Promise<{ synced: number; error
     }
   }
 
-  console.log(`[Shopify] Sync complete: ${synced} synced, ${errors} errors`);
+  // Sync collections
+  let collectionsSynced = 0;
+  try {
+    const collections = await fetchCollections();
+    const shopEnabledCollections = collections.filter((c) => c.shopEnabled);
+    const productMap = await fetchCollectionProductMap(
+      shopEnabledCollections.map((c) => c.id),
+    );
+
+    for (const collection of shopEnabledCollections) {
+      try {
+        await db.upsertCollection({
+          shopifyCollectionId: collection.id,
+          title: collection.title,
+          handle: collection.handle,
+          imageUrl: collection.image?.src || null,
+          channels: collection.channels,
+          shopEnabled: collection.shopEnabled,
+          productIds: productMap[collection.id] || [],
+          syncedAt: new Date().toISOString(),
+        });
+        collectionsSynced++;
+      } catch (collectionError) {
+        console.error(`[Shopify] Failed to sync collection ${collection.id}:`, collectionError);
+      }
+    }
+
+    const activeIds = shopEnabledCollections.map((c) => c.id);
+    if (activeIds.length > 0) {
+      await db.deleteStaleCollections(activeIds);
+    }
+    console.log(`[Shopify] Collections synced: ${collectionsSynced}`);
+  } catch (collectionError) {
+    console.warn("[Shopify] Collection sync failed:", collectionError);
+  }
+
+  console.log(`[Shopify] Sync complete: ${synced} products, ${collectionsSynced} collections, ${errors} errors`);
   return { synced, errors };
 }
 
@@ -410,7 +705,7 @@ interface PublishBundleOptions {
   price: string;
   imageUrl?: string;
   products: { name: string; quantity: number }[];
-  trainerId: number;
+  trainerId: string;
   trainerName: string;
 }
 
@@ -436,8 +731,9 @@ export async function publishBundle(options: PublishBundleOptions): Promise<{ pr
     product: {
       title,
       body_html: fullDescription,
-      vendor: "LocoMotivate",
+      vendor: SHOPIFY_STORE_NAME || "LocoMotivate",
       product_type: "Bundle",
+      tags: "bundle",
       status: "active",
       variants: [
         {

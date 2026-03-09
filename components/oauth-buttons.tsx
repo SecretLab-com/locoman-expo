@@ -1,14 +1,9 @@
-import { getApiBaseUrl, startOAuthLogin } from "@/constants/oauth";
-import { useAuthContext } from "@/contexts/auth-context";
+import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
-import * as Auth from "@/lib/_core/auth";
+import { signInWithGoogle } from "@/lib/google-oauth";
+import { supabase } from "@/lib/supabase-client";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { router } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-
-// Ensure web browser redirects are handled
-WebBrowser.maybeCompleteAuthSession();
 
 interface OAuthButtonsProps {
   onSuccess?: () => void;
@@ -17,7 +12,6 @@ interface OAuthButtonsProps {
 
 export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
   const colors = useColors();
-  const { refresh } = useAuthContext();
 
   const handleAppleSignIn = async () => {
     try {
@@ -28,40 +22,17 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
         ],
       });
 
-      // Extract user info from credential
-      const { user, email, fullName, identityToken } = credential;
-
-      if (identityToken) {
-        // Send to backend for verification and session creation
-        const apiBaseUrl = getApiBaseUrl();
-        const response = await fetch(`${apiBaseUrl}/api/auth/apple`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            identityToken,
-            user,
-            email,
-            fullName: fullName ? `${fullName.givenName || ""} ${fullName.familyName || ""}`.trim() : undefined,
-          }),
-          credentials: "include",
+      if (credential.identityToken) {
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: "apple",
+          token: credential.identityToken,
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.user) {
-            await refresh();
-            onSuccess?.();
-            router.replace("/(tabs)");
-          }
-        } else {
-          throw new Error("Failed to authenticate with Apple");
-        }
+        if (error) throw error;
+        triggerAuthRefresh();
+        onSuccess?.();
       }
     } catch (error: any) {
-      if (error.code === "ERR_REQUEST_CANCELED") {
-        // User canceled, do nothing
-        return;
-      }
+      if (error.code === "ERR_REQUEST_CANCELED") return;
       console.error("Apple Sign In error:", error);
       onError?.(error);
     }
@@ -69,67 +40,17 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
 
   const handleGoogleSignIn = async () => {
     try {
-      const shouldUseDevLogin = process.env.EXPO_PUBLIC_DEV_LOGIN === "true";
-
-      if (shouldUseDevLogin) {
-        const apiBaseUrl = getApiBaseUrl();
-        const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "testuser@secretlab.com", password: "supertest" }),
-          credentials: "include",
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to authenticate using dev login.");
-        }
-
-        const data = await response.json();
-        if (data.user) {
-          const userInfo: Auth.User = {
-            id: data.user.id,
-            openId: data.user.openId,
-            name: data.user.name ?? null,
-            email: data.user.email ?? null,
-            phone: data.user.phone ?? null,
-            photoUrl: data.user.photoUrl ?? null,
-            loginMethod: data.user.loginMethod ?? null,
-            role: data.user.role ?? "shopper",
-            username: data.user.username ?? null,
-            bio: data.user.bio ?? null,
-            specialties: data.user.specialties ?? null,
-            socialLinks: data.user.socialLinks ?? null,
-            trainerId: data.user.trainerId ?? null,
-            active: data.user.active ?? true,
-            metadata: data.user.metadata ?? null,
-            createdAt: data.user.createdAt ? new Date(data.user.createdAt) : new Date(),
-            updatedAt: data.user.updatedAt ? new Date(data.user.updatedAt) : new Date(),
-            lastSignedIn: data.user.lastSignedIn ? new Date(data.user.lastSignedIn) : new Date(),
-          };
-          await Auth.setUserInfo(userInfo);
-        }
-
-        if (Platform.OS !== "web" && data.sessionToken) {
-          await Auth.setSessionToken(data.sessionToken);
-        }
-
-        await refresh();
+      await signInWithGoogle();
+      // Web OAuth redirects away immediately and does not have a session yet here.
+      // Calling onSuccess early can trigger route churn (/ -> /welcome) before callback.
+      if (Platform.OS !== "web") {
         onSuccess?.();
-        router.replace("/(tabs)");
-        return;
       }
-
-      // Use the centralized OAuth login flow which handles web + native
-      await startOAuthLogin();
-      // The OAuth callback will handle the rest via deep link
-      onSuccess?.();
     } catch (error: any) {
-      console.error("Google Sign In error detailed:", error);
-      const errorMessage = error?.message || String(error);
-
+      console.error("Google Sign In error:", error);
       Alert.alert(
         "Login Failed",
-        `Details: ${errorMessage}\n\nIf variables were recently added to .env, please restart your dev server with 'npx expo start --clear'.`,
+        error?.message || "An error occurred during Google sign in.",
       );
       onError?.(error);
     }
@@ -150,7 +71,7 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
         />
       )}
 
-      {/* Google/Portal OAuth Sign In */}
+      {/* Google OAuth Sign In */}
       <TouchableOpacity
         className="flex-row items-center justify-center border border-border rounded-xl py-4 px-6"
         onPress={handleGoogleSignIn}
@@ -178,11 +99,9 @@ export function OAuthButtons({ onSuccess, onError }: OAuthButtonsProps) {
   );
 }
 
-// Google icon SVG component
 function GoogleIcon() {
   return (
     <View style={{ width: 20, height: 20 }}>
-      {/* Simplified Google "G" representation */}
       <View
         style={{
           width: 20,

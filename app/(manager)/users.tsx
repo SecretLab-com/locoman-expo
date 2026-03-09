@@ -1,4 +1,5 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -30,27 +31,27 @@ type UserStatus = "active" | "inactive";
 type UserSort = "performance" | "newest" | "active" | "alphabetical";
 
 type User = {
-  id: number;
+  id: string;
   name: string | null;
   email: string | null;
   role: UserRole;
   active: boolean;
-  createdAt: Date;
-  lastSignedIn?: Date | null;
+  createdAt: string;
+  lastSignedIn?: string | null;
   phone?: string | null;
   photoUrl?: string | null;
-  openId?: string;
+  openId?: string | null;
 };
 
 type ActivityLogEntry = {
-  id: number;
-  targetUserId: number;
-  performedBy: number;
+  id: string;
+  targetUserId: string;
+  performedBy: string;
   action: string;
   previousValue: string | null;
   newValue: string | null;
   notes: string | null;
-  createdAt: Date;
+  createdAt: string;
 };
 
 const PAGE_SIZE = 20;
@@ -74,8 +75,28 @@ const ACTION_LABELS: Record<string, string> = {
   impersonation_started: "Impersonation Started",
   impersonation_ended: "Impersonation Ended",
   profile_updated: "Profile Updated",
-  invited: "Invited",
-  deleted: "Deleted",
+  invited: "User Invited",
+  deleted: "Account Deleted",
+};
+
+const ACTION_ICONS: Record<string, string> = {
+  role_changed: "person.2.fill",
+  status_changed: "power",
+  impersonation_started: "theatermasks.fill",
+  impersonation_ended: "theatermasks",
+  profile_updated: "pencil",
+  invited: "envelope.fill",
+  deleted: "trash.fill",
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  role_changed: "#3B82F6",
+  status_changed: "#F59E0B",
+  impersonation_started: "#8B5CF6",
+  impersonation_ended: "#8B5CF6",
+  profile_updated: "#10B981",
+  invited: "#06B6D4",
+  deleted: "#EF4444",
 };
 
 export default function UsersScreen() {
@@ -109,11 +130,13 @@ export default function UsersScreen() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [pagedUsers, setPagedUsers] = useState<User[]>([]);
+  const [stableTotalCount, setStableTotalCount] = useState(0);
   const [exporting, setExporting] = useState(false);
   
   // Bulk selection state
   const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [bulkActionModalVisible, setBulkActionModalVisible] = useState(false);
   
   // Date filter state
@@ -208,11 +231,24 @@ export default function UsersScreen() {
   const logActionMutation = trpc.admin.logUserAction.useMutation();
   const createInvitationMutation = trpc.admin.createUserInvitation.useMutation();
   const revokeInvitationMutation = trpc.admin.revokeUserInvitation.useMutation();
+  const resendInvitationMutation = trpc.admin.resendUserInvitation.useMutation();
 
-  const users = usersQuery.data?.users ?? [];
-  const totalCount = usersQuery.data?.total ?? 0;
-  const hasMore = offset + PAGE_SIZE < totalCount;
+  const users = pagedUsers;
+  const totalCount = Math.max(stableTotalCount, users.length);
+  const hasMore = users.length < totalCount;
   const pendingInvites = invitationsQuery.data?.invitations ?? [];
+  const filteredPendingInvites = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return pendingInvites.filter((invite) => {
+      const roleMatch = selectedRole === "all" || invite.role === selectedRole;
+      if (!roleMatch) return false;
+      if (!query) return true;
+      const name = String(invite.name || "").toLowerCase();
+      const email = String(invite.email || "").toLowerCase();
+      const role = String(invite.role || "").toLowerCase();
+      return name.includes(query) || email.includes(query) || role.includes(query);
+    });
+  }, [pendingInvites, searchQuery, selectedRole]);
   const displayUsers = useMemo(() => {
     if (!users.length) return [];
     const ordered = [...users];
@@ -231,6 +267,16 @@ export default function UsersScreen() {
     }
     return ordered;
   }, [users, sortKey]);
+  const trainerIdsForSocial = useMemo(
+    () => displayUsers.filter((user) => user.role === "trainer").map((user) => user.id),
+    [displayUsers],
+  );
+  const socialMembershipQuery = trpc.socialProgram.membershipByTrainerIds.useQuery(
+    { trainerIds: trainerIdsForSocial },
+    {
+      enabled: isAuthenticated && canManage && trainerIdsForSocial.length > 0,
+    },
+  );
 
   useEffect(() => {
     const normalize = (value: string | string[] | undefined) =>
@@ -260,8 +306,32 @@ export default function UsersScreen() {
   // Reset offset when filters change
   useEffect(() => {
     setOffset(0);
+    setPagedUsers([]);
     setSelectedUserIds(new Set());
   }, [searchQuery, selectedRole, selectedStatus, joinedAfter, joinedBefore]);
+
+  useEffect(() => {
+    if (!usersQuery.isSuccess) return;
+    const nextPageUsers = usersQuery.data?.users ?? [];
+    setStableTotalCount(Number(usersQuery.data?.total || 0));
+    setPagedUsers((previous) => {
+      if (offset === 0) {
+        return nextPageUsers;
+      }
+      if (!nextPageUsers.length) {
+        return previous;
+      }
+      const nextById = new Map(nextPageUsers.map((user) => [user.id, user]));
+      const merged = previous.map((user) => nextById.get(user.id) ?? user);
+      const existingIds = new Set(merged.map((user) => user.id));
+      for (const user of nextPageUsers) {
+        if (!existingIds.has(user.id)) {
+          merged.push(user);
+        }
+      }
+      return merged;
+    });
+  }, [usersQuery.isSuccess, usersQuery.data?.users, offset]);
 
   // Load more users
   const loadMore = useCallback(() => {
@@ -274,6 +344,8 @@ export default function UsersScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     setOffset(0);
+    setPagedUsers([]);
+    setStableTotalCount(0);
     await usersQuery.refetch();
     await invitationsQuery.refetch();
     setRefreshing(false);
@@ -338,12 +410,29 @@ export default function UsersScreen() {
     setActivityLogs([]);
   };
 
+  const openDirectMessage = (user: User, closeDetailModal = false) => {
+    if (!currentUser?.id || currentUser.id === user.id) return;
+    if (closeDetailModal) {
+      closeModal();
+    }
+    const conversationId = [currentUser.id, user.id].sort().join("-");
+    const name = user.name || "User";
+    router.push({
+      pathname: `${roleBase}/conversation/[id]` as any,
+      params: {
+        id: conversationId,
+        participantId: user.id,
+        name,
+      },
+    });
+  };
+
   // Load activity logs for user
-  const loadActivityLogs = async (userId: number) => {
+  const trpcUtils = trpc.useUtils();
+  const loadActivityLogs = async (userId: string) => {
     setLoadingLogs(true);
     try {
-      const utils = trpc.useUtils();
-      const logs = await utils.admin.getUserActivityLogs.fetch({ userId, limit: 50 });
+      const logs = await trpcUtils.admin.getUserActivityLogs.fetch({ userId, limit: 50 });
       setActivityLogs(logs as ActivityLogEntry[]);
       setActivityLogVisible(true);
     } catch (error) {
@@ -436,7 +525,7 @@ export default function UsersScreen() {
       });
       
       // Start impersonation
-      startImpersonation(selectedUser as any);
+      await startImpersonation(selectedUser as any);
       
       if (Platform.OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -445,22 +534,22 @@ export default function UsersScreen() {
       closeModal();
       
       // Navigate to appropriate dashboard based on impersonated user's role
-      // Uses role-aware navigation helper for consistency
-      navigateToHome({
-        isCoordinator: selectedUser.role === "coordinator",
-        isManager: selectedUser.role === "manager",
-        isTrainer: selectedUser.role === "trainer",
-        isClient: selectedUser.role === "client",
-      });
-      
-      Alert.alert("Impersonation Started", `You are now viewing as ${selectedUser.name}`);
+      // Use setTimeout to let modal close and state update before navigating
+      setTimeout(() => {
+        navigateToHome({
+          isCoordinator: selectedUser.role === "coordinator",
+          isManager: selectedUser.role === "manager",
+          isTrainer: selectedUser.role === "trainer",
+          isClient: selectedUser.role === "client",
+        });
+      }, 300);
     } catch {
       Alert.alert("Error", "Failed to start impersonation");
     }
   };
 
   // Toggle user selection for bulk actions
-  const toggleUserSelection = (userId: number) => {
+  const toggleUserSelection = (userId: string) => {
     setSelectedUserIds((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(userId)) {
@@ -563,7 +652,7 @@ export default function UsersScreen() {
       setInviteName("");
       setInviteRole("shopper");
       
-      Alert.alert("Success", `Invitation sent to ${inviteEmail}`);
+      Alert.alert("Success", `Invitation queued to ${inviteEmail}`);
     } catch {
       Alert.alert("Error", "Failed to send invitation");
     } finally {
@@ -572,7 +661,27 @@ export default function UsersScreen() {
   };
 
   // Revoke invitation
-  const revokeInvitation = async (inviteId: number) => {
+  const revokeInvitation = async (inviteId: string) => {
+    const performRevoke = async () => {
+      try {
+        await revokeInvitationMutation.mutateAsync({ id: inviteId });
+        await invitationsQuery.refetch();
+        Alert.alert("Success", "Invitation revoked");
+      } catch {
+        Alert.alert("Error", "Failed to revoke invitation");
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed =
+        typeof window !== "undefined"
+          ? window.confirm("Are you sure you want to revoke this invitation?")
+          : true;
+      if (!confirmed) return;
+      void performRevoke();
+      return;
+    }
+
     Alert.alert(
       "Revoke Invitation",
       "Are you sure you want to revoke this invitation?",
@@ -581,18 +690,23 @@ export default function UsersScreen() {
         {
           text: "Revoke",
           style: "destructive",
-          onPress: async () => {
-            try {
-              await revokeInvitationMutation.mutateAsync({ id: inviteId });
-              invitationsQuery.refetch();
-              Alert.alert("Success", "Invitation revoked");
-            } catch {
-              Alert.alert("Error", "Failed to revoke invitation");
-            }
+          onPress: () => {
+            void performRevoke();
           },
         },
       ]
     );
+  };
+
+  const resendInvitation = async (inviteId: string, email: string) => {
+    try {
+      await resendInvitationMutation.mutateAsync({ id: inviteId });
+      await invitationsQuery.refetch();
+      Alert.alert("Success", `Invitation re-queued to ${email}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to resend invitation";
+      Alert.alert("Error", message);
+    }
   };
 
   // Export to CSV
@@ -673,7 +787,7 @@ export default function UsersScreen() {
       router.back();
       return;
     }
-    router.replace("/(manager)" as any);
+    router.replace("/(manager)/dashboard" as any);
   };
 
   if (authLoading) {
@@ -716,7 +830,7 @@ export default function UsersScreen() {
         </View>
         <Text className="text-xl font-semibold text-foreground">Manager access required</Text>
         <Text className="text-muted text-center mt-2">
-          You don't have permission to view this page.
+          You do not have permission to view this page.
         </Text>
       </ScreenContainer>
     );
@@ -725,7 +839,7 @@ export default function UsersScreen() {
   return (
     <ScreenContainer className="flex-1">
       {/* Header with Export Button */}
-      <View className="px-4 pt-2 pb-4 flex-row items-center justify-between" style={{ paddingRight: 56 }}>
+      <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={handleBack}
@@ -743,134 +857,16 @@ export default function UsersScreen() {
             </Text>
           </View>
         </View>
-        <View style={styles.headerButtons}>
-          {selectionMode ? (
-            <>
-              <TouchableOpacity
-                onPress={exitSelectionMode}
-                style={[styles.headerButton, { backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel selection"
-                testID="users-cancel-selection"
-              >
-                <Text style={{ color: colors.foreground }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setBulkActionModalVisible(true)}
-                disabled={selectedUserIds.size === 0}
-                style={[
-                  styles.headerButton,
-                  {
-                    backgroundColor: colors.primary,
-                    opacity: selectedUserIds.size === 0 ? 0.5 : 1,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Bulk actions"
-                testID="users-bulk-actions"
-              >
-                <Text style={{ color: "#fff" }}>
-                  Actions ({selectedUserIds.size})
-                </Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                onPress={() => setInviteModalVisible(true)}
-                style={[styles.headerButton, { backgroundColor: colors.primary }]}
-                accessibilityRole="button"
-                accessibilityLabel="Invite user"
-                testID="users-invite"
-              >
-                <IconSymbol name="plus" size={16} color="#fff" />
-                <Text style={{ color: "#fff", marginLeft: 4 }}>Invite</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setSelectionMode(true)}
-                style={[styles.headerButton, { backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Select users"
-                testID="users-select"
-              >
-                <IconSymbol name="checkmark.circle.fill" size={16} color={colors.foreground} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={exportToCSV}
-                disabled={exporting}
-                style={[
-                  styles.headerButton,
-                  { backgroundColor: colors.surface, opacity: exporting ? 0.6 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Export users"
-                testID="users-export"
-              >
-                {exporting ? (
-                  <ActivityIndicator size="small" color={colors.foreground} />
-                ) : (
-                  <IconSymbol name="square.and.arrow.up" size={16} color={colors.foreground} />
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
       </View>
 
-      {/* Pending Invites Toggle */}
-      {pendingInvites.length > 0 && (
-        <TouchableOpacity
-          onPress={() => setShowInvites(!showInvites)}
-          style={[styles.invitesToggle, { backgroundColor: colors.warning + "20", borderColor: colors.warning }]}
-        >
-          <IconSymbol name="envelope.fill" size={16} color={colors.warning} />
-          <Text style={{ color: colors.warning, marginLeft: 8, fontWeight: "600" }}>
-            {pendingInvites.length} Pending Invite{pendingInvites.length > 1 ? "s" : ""}
-          </Text>
-          <IconSymbol
-            name={showInvites ? "chevron.up" : "chevron.down"}
-            size={14}
-            color={colors.warning}
-            style={{ marginLeft: "auto" }}
-          />
-        </TouchableOpacity>
-      )}
-
-      {/* Pending Invites List */}
-      {showInvites && pendingInvites.length > 0 && (
-        <View style={[styles.invitesList, { backgroundColor: colors.surface }]}>
-          {pendingInvites.map((invite) => (
-            <View key={invite.id} style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.foreground, fontWeight: "500" }}>
-                  {invite.name || invite.email}
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  {invite.email} • {invite.role}
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 11 }}>
-                  Expires {formatDate(invite.expiresAt)}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => revokeInvitation(invite.id)}
-                style={[styles.revokeButton, { backgroundColor: colors.error + "15" }]}
-              >
-                <Text style={{ color: colors.error, fontSize: 12, fontWeight: "500" }}>Revoke</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Search */}
+      {/* Search + inline actions */}
       <View className="px-4 mb-4">
         <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
           <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search users..."
+            placeholder="Search users and invites..."
             placeholderTextColor={colors.muted}
             className="flex-1 ml-2 text-foreground"
           />
@@ -878,6 +874,64 @@ export default function UsersScreen() {
             <TouchableOpacity onPress={() => setSearchQuery("")}>
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
             </TouchableOpacity>
+          )}
+
+          {selectionMode ? (
+            <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8, gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setBulkActionModalVisible(true)}
+                disabled={selectedUserIds.size === 0}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  backgroundColor: colors.primary,
+                  opacity: selectedUserIds.size === 0 ? 0.5 : 1,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Bulk actions"
+                testID="users-bulk-actions"
+              >
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                  Actions ({selectedUserIds.size})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={exitSelectionMode}
+                style={{ paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.surface }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel selection"
+                testID="users-cancel-selection"
+              >
+                <IconSymbol name="xmark" size={14} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8, gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => setSelectionMode(true)}
+                style={{ padding: 6, borderRadius: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Select users"
+                testID="users-select"
+              >
+                <IconSymbol name="checkmark.circle.fill" size={18} color={colors.muted} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={exportToCSV}
+                disabled={exporting}
+                style={{ padding: 6, borderRadius: 8, opacity: exporting ? 0.6 : 1 }}
+                accessibilityRole="button"
+                accessibilityLabel="Export users"
+                testID="users-export"
+              >
+                {exporting ? (
+                  <ActivityIndicator size="small" color={colors.muted} />
+                ) : (
+                  <IconSymbol name="square.and.arrow.up" size={18} color={colors.muted} />
+                )}
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -1007,6 +1061,80 @@ export default function UsersScreen() {
           </View>
         )}
       </View>
+
+      {/* Pending Invites Toggle */}
+      {pendingInvites.length > 0 && (
+        <TouchableOpacity
+          onPress={() => setShowInvites(!showInvites)}
+          style={[styles.invitesToggle, { backgroundColor: colors.warning + "20", borderColor: colors.warning }]}
+        >
+          <IconSymbol name="envelope.fill" size={16} color={colors.warning} />
+          <Text style={{ color: colors.warning, marginLeft: 8, fontWeight: "600" }}>
+            {filteredPendingInvites.length}
+            {filteredPendingInvites.length !== pendingInvites.length ? ` of ${pendingInvites.length}` : ""} Pending Invite
+            {filteredPendingInvites.length !== 1 ? "s" : ""}
+          </Text>
+          <IconSymbol
+            name={showInvites ? "chevron.up" : "chevron.down"}
+            size={14}
+            color={colors.warning}
+            style={{ marginLeft: "auto" }}
+          />
+        </TouchableOpacity>
+      )}
+
+      {/* Pending Invites List */}
+      {showInvites && pendingInvites.length > 0 && (
+        <View style={[styles.invitesList, { backgroundColor: colors.surface }]}>
+          {filteredPendingInvites.length === 0 ? (
+            <View style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>
+                No pending invites match the current search/filter.
+              </Text>
+            </View>
+          ) : (
+            filteredPendingInvites.map((invite) => (
+              <View key={invite.id} style={[styles.inviteItem, { borderBottomColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.foreground, fontWeight: "500" }}>
+                    {invite.name || invite.email}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    {invite.email} • {invite.role}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Expires {formatDate(invite.expiresAt)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => resendInvitation(invite.id, invite.email)}
+                    disabled={resendInvitationMutation.isPending}
+                    style={[
+                      styles.revokeButton,
+                      { backgroundColor: colors.primary + "15", opacity: resendInvitationMutation.isPending ? 0.6 : 1 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Resend invitation to ${invite.email}`}
+                    testID={`invite-resend-${invite.id}`}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "500" }}>Resend</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => revokeInvitation(invite.id)}
+                    style={[styles.revokeButton, { backgroundColor: colors.error + "15" }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Revoke invitation for ${invite.email}`}
+                    testID={`invite-revoke-${invite.id}`}
+                  >
+                    <Text style={{ color: colors.error, fontSize: 12, fontWeight: "500" }}>Revoke</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      )}
 
       {/* Selection Mode Header */}
       {selectionMode && (
@@ -1152,20 +1280,26 @@ export default function UsersScreen() {
                   <Text className="text-xs text-muted mt-1">
                     Joined {formatDate(user.createdAt)}
                   </Text>
+                  {user.role === "trainer" ? (
+                    <View
+                      className="mt-1 self-start px-2 py-0.5 rounded"
+                      style={{ backgroundColor: `${colors.primary}22` }}
+                    >
+                      <Text className="text-[10px] font-semibold" style={{ color: colors.primary }}>
+                        Social:{" "}
+                        {String(
+                          socialMembershipQuery.data?.[user.id]?.status || "not enrolled",
+                        ).replace(/_/g, " ")}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Role Badge */}
                 <View className="flex-row items-center gap-2">
-                  {!selectionMode && (
+                  {!selectionMode && currentUser?.id && currentUser.id !== user.id && (
                     <TouchableOpacity
-                      onPress={() => {
-                        if (!currentUser?.id) return;
-                        const conversationId = [currentUser.id, user.id].sort().join("-");
-                        const name = user.name || "User";
-                        router.push(
-                          `${roleBase}/messages/${conversationId}?participantId=${user.id}&name=${encodeURIComponent(name)}` as any
-                        );
-                      }}
+                      onPress={() => openDirectMessage(user)}
                       className="w-8 h-8 rounded-full items-center justify-center bg-surface border border-border"
                       accessibilityRole="button"
                       accessibilityLabel={`Message ${user.name || "user"}`}
@@ -1220,10 +1354,15 @@ export default function UsersScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <SwipeDownSheet
+              visible={modalVisible}
+              onClose={closeModal}
+              className="bg-background"
+              style={styles.modalContent}
+            >
+              <ScrollView showsVerticalScrollIndicator={false}>
               {selectedUser && !activityLogVisible && (
                 <>
                   {/* Modal Header */}
@@ -1368,6 +1507,24 @@ export default function UsersScreen() {
 
                   {/* Action Buttons */}
                   <View style={styles.buttonSection}>
+                    {currentUser?.id && currentUser.id !== selectedUser.id && (
+                      <TouchableOpacity
+                        onPress={() => openDirectMessage(selectedUser, true)}
+                        style={[
+                          styles.actionButton,
+                          { backgroundColor: `${colors.primary}15`, marginBottom: 12 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Message ${selectedUser.name || "user"}`}
+                        testID="user-detail-message-btn"
+                      >
+                        <IconSymbol name="message.fill" size={20} color={colors.primary} />
+                        <Text style={{ color: colors.primary, fontWeight: "600", marginLeft: 8 }}>
+                          Message User
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
                     {/* Impersonate Button (Coordinator only) */}
                     {isCoordinator && (
                       <TouchableOpacity
@@ -1439,10 +1596,18 @@ export default function UsersScreen() {
                   <View style={styles.modalHeader}>
                     <TouchableOpacity
                       onPress={() => setActivityLogVisible(false)}
-                      style={{ flexDirection: "row", alignItems: "center" }}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: colors.surface,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Go back"
                     >
-                      <IconSymbol name="chevron.left" size={20} color={colors.primary} />
-                      <Text style={{ color: colors.primary, marginLeft: 4 }}>Back</Text>
+                      <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
                     </TouchableOpacity>
                     <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                       Activity Log
@@ -1457,39 +1622,61 @@ export default function UsersScreen() {
                   {activityLogs.length === 0 ? (
                     <View style={styles.emptyLogs}>
                       <IconSymbol name="clock" size={48} color={colors.muted} />
-                      <Text style={{ color: colors.muted, marginTop: 12 }}>No activity recorded</Text>
+                      <Text style={{ color: colors.muted, marginTop: 12, fontSize: 16 }}>No activity recorded</Text>
+                      <Text style={{ color: colors.muted, marginTop: 4, fontSize: 13, textAlign: "center" }}>
+                        Actions like role changes, status updates, and impersonations will appear here.
+                      </Text>
                     </View>
                   ) : (
-                    activityLogs.map((log) => (
-                      <View
-                        key={log.id}
-                        style={[styles.logItem, { borderBottomColor: colors.border }]}
-                      >
-                        <View style={[styles.logIcon, { backgroundColor: colors.primary + "20" }]}>
-                          <IconSymbol name="clock.fill" size={16} color={colors.primary} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.foreground, fontWeight: "500" }}>
-                            {ACTION_LABELS[log.action] || log.action}
-                          </Text>
-                          {log.previousValue && log.newValue && (
-                            <Text style={{ color: colors.muted, fontSize: 13 }}>
-                              {log.previousValue} → {log.newValue}
+                    activityLogs.map((log) => {
+                      const actionColor = ACTION_COLORS[log.action] || colors.primary;
+                      const actionIcon = ACTION_ICONS[log.action] || "clock.fill";
+                      const performer = (usersQuery.data?.users || []).find((u: User) => u.id === log.performedBy);
+                      const performerName = performer?.name || "System";
+
+                      return (
+                        <View
+                          key={log.id}
+                          style={[styles.logItem, { borderBottomColor: colors.border }]}
+                        >
+                          <View style={[styles.logIcon, { backgroundColor: actionColor + "15" }]}>
+                            <IconSymbol name={actionIcon as any} size={16} color={actionColor} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 14 }}>
+                              {ACTION_LABELS[log.action] || log.action}
                             </Text>
-                          )}
-                          {log.notes && (
-                            <Text style={{ color: colors.muted, fontSize: 13 }}>{log.notes}</Text>
-                          )}
-                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-                            {formatRelativeTime(log.createdAt)}
-                          </Text>
+                            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>
+                              by {performerName}
+                            </Text>
+                            {log.previousValue && log.newValue && (
+                              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                                <View style={{ backgroundColor: colors.error + "15", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                  <Text style={{ color: colors.error, fontSize: 12 }}>{log.previousValue}</Text>
+                                </View>
+                                <Text style={{ color: colors.muted, marginHorizontal: 6, fontSize: 12 }}>→</Text>
+                                <View style={{ backgroundColor: colors.success + "15", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                  <Text style={{ color: colors.success, fontSize: 12 }}>{log.newValue}</Text>
+                                </View>
+                              </View>
+                            )}
+                            {log.notes && (
+                              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4, fontStyle: "italic" }}>
+                                {log.notes}
+                              </Text>
+                            )}
+                            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                              {formatRelativeTime(log.createdAt)}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
-                    ))
+                      );
+                    })
                   )}
                 </>
               )}
-            </ScrollView>
+              </ScrollView>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1506,10 +1693,15 @@ export default function UsersScreen() {
           onPress={() => setBulkActionModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
+            <SwipeDownSheet
+              visible={bulkActionModalVisible}
+              onClose={() => setBulkActionModalVisible(false)}
+              className="bg-background"
+              style={styles.modalContent}
+            >
+              <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                 Bulk Actions ({selectedUserIds.size} users)
               </Text>
@@ -1580,6 +1772,7 @@ export default function UsersScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1596,10 +1789,15 @@ export default function UsersScreen() {
           onPress={() => setInviteModalVisible(false)}
         >
           <Pressable
-            style={[styles.modalContent, { backgroundColor: colors.background }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <View style={styles.modalHeader}>
+            <SwipeDownSheet
+              visible={inviteModalVisible}
+              onClose={() => setInviteModalVisible(false)}
+              className="bg-background"
+              style={styles.modalContent}
+            >
+              <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                 Invite New User
               </Text>
@@ -1690,9 +1888,24 @@ export default function UsersScreen() {
                 )}
               </TouchableOpacity>
             </View>
+            </SwipeDownSheet>
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Invite FAB */}
+      {!selectionMode && (
+        <TouchableOpacity
+          onPress={() => setInviteModalVisible(true)}
+          className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
+          style={{ right: 16, bottom: 16 }}
+          accessibilityRole="button"
+          accessibilityLabel="Invite user"
+          testID="users-invite-fab"
+        >
+          <IconSymbol name="plus" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
     </ScreenContainer>
   );
 }
@@ -1837,7 +2050,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.85)",
     justifyContent: "flex-end",
   },
   modalContent: {

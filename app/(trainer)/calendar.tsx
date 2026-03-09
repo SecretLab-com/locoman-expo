@@ -1,18 +1,30 @@
-import { useState, useMemo } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  Alert,
-} from "react-native";
-import { ScreenContainer } from "@/components/screen-container";
+import { ActionButton } from "@/components/action-button";
 import { NavigationHeader } from "@/components/navigation-header";
+import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
+import * as Linking from "expo-linking";
+import { useLocalSearchParams } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View,
+} from "react-native";
 
 // Days of the week
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -21,72 +33,232 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December"
 ];
 
+const SESSION_TYPE_OPTIONS = [
+  { value: "training" as const, label: "Training" },
+  { value: "check_in" as const, label: "Check-In" },
+  { value: "call" as const, label: "Call" },
+  { value: "plan_review" as const, label: "Plan Review" },
+];
+
 type Session = {
   id: string;
-  clientId: number;
-  clientName: string;
-  bundleId: number;
-  bundleTitle: string;
+  clientId?: string;
+  clientName?: string;
+  bundleId?: string;
+  bundleTitle?: string;
   date: Date;
   time: string;
   duration: number; // minutes
-  type: "session" | "check_in" | "delivery";
-  status: "scheduled" | "completed" | "cancelled" | "no_show";
+  type: "session" | "check_in" | "delivery" | string;
+  status: "scheduled" | "completed" | "cancelled" | "no_show" | string;
   notes?: string;
 };
 
-// Mock data for sessions
-const MOCK_SESSIONS: Session[] = [
-  {
-    id: "1",
-    clientId: 1,
-    clientName: "John Smith",
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    date: new Date(),
-    time: "09:00",
-    duration: 60,
-    type: "session",
-    status: "scheduled",
-  },
-  {
-    id: "2",
-    clientId: 2,
-    clientName: "Sarah Johnson",
-    bundleId: 2,
-    bundleTitle: "Strength Training",
-    date: new Date(),
-    time: "14:00",
-    duration: 45,
-    type: "session",
-    status: "scheduled",
-  },
-  {
-    id: "3",
-    clientId: 3,
-    clientName: "Mike Davis",
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    date: new Date(Date.now() + 86400000), // Tomorrow
-    time: "10:30",
-    duration: 30,
-    type: "check_in",
-    status: "scheduled",
-  },
-];
-
 export default function CalendarScreen() {
   const colors = useColors();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const params = useLocalSearchParams<{ scheduleClientId?: string | string[]; code?: string | string[] }>();
+  const scheduleClientId = Array.isArray(params.scheduleClientId)
+    ? params.scheduleClientId[0]
+    : params.scheduleClientId;
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
+  const overlayColor = "rgba(0,0,0,0.85)";
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [sessions] = useState<Session[]>(MOCK_SESSIONS);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [newSessionClientId, setNewSessionClientId] = useState<string | null>(scheduleClientId || null);
+  const [newSessionTime, setNewSessionTime] = useState("09:00");
+  const [newSessionDuration, setNewSessionDuration] = useState("60");
+  const [newSessionType, setNewSessionType] = useState<"training" | "check_in" | "call" | "plan_review">("training");
+  const [newSessionLocation, setNewSessionLocation] = useState("");
+  const [newSessionNotes, setNewSessionNotes] = useState("");
+  const [searchClient, setSearchClient] = useState("");
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [showCalendarSettings, setShowCalendarSettings] = useState(false);
+  const [scheduleErrors, setScheduleErrors] = useState<Record<string, string>>({});
+  const [calendarExpanded, setCalendarExpanded] = useState(windowHeight >= 700);
+  const [counterProposeId, setCounterProposeId] = useState<string | null>(null);
+  const [counterDate, setCounterDate] = useState("");
+  const [counterTime, setCounterTime] = useState("");
+  const [counterNote, setCounterNote] = useState("");
+  const timeInputRef = useRef<TextInput>(null);
+  const durationInputRef = useRef<TextInput>(null);
+  const locationInputRef = useRef<TextInput>(null);
+  const notesInputRef = useRef<TextInput>(null);
+  const scheduleScrollRef = useRef<ScrollView>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("09:00");
+  const [rescheduleDuration, setRescheduleDuration] = useState("60");
+  const [rescheduleNote, setRescheduleNote] = useState("");
+  const isWideScreen = windowWidth >= 1100;
+
+  // Fetch sessions and reschedule requests from tRPC
+  const { data: clientsData = [], isLoading: clientsLoading } = trpc.clients.list.useQuery();
+  const { data: sessionsData, isLoading, refetch, isRefetching } = trpc.sessions.list.useQuery();
+  const { data: pendingReschedules = [], refetch: refetchReschedules } = trpc.reschedule.pending.useQuery();
+  const createSessionMutation = trpc.sessions.create.useMutation({
+    onSuccess: async () => {
+      await refetch();
+      setShowAddModal(false);
+      setNewSessionTime("09:00");
+      setNewSessionDuration("60");
+      setNewSessionType("training");
+      setNewSessionLocation("");
+      setNewSessionNotes("");
+      setSearchClient("");
+      Alert.alert("Success", "Session scheduled.");
+    },
+    onError: (error) => {
+      Alert.alert("Error", error.message || "Failed to schedule session.");
+    },
+  });
+  const googleStatus = trpc.googleCalendar.status.useQuery();
+  const googleCalendars = trpc.googleCalendar.calendars.useQuery(undefined, {
+    enabled: Boolean(googleStatus.data?.connected),
+  });
+  const getGoogleAuthUrl = trpc.googleCalendar.getAuthUrl.useMutation();
+  const connectGoogleCalendar = trpc.googleCalendar.connectWithCode.useMutation({
+    onSuccess: async () => {
+      await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+      Alert.alert("Connected", "Google Calendar connected successfully.");
+    },
+    onError: (error) => {
+      Alert.alert("Google Calendar Error", error.message || "Could not connect Google Calendar.");
+    },
+  });
+  const selectGoogleCalendar = trpc.googleCalendar.selectCalendar.useMutation({
+    onSuccess: async () => {
+      await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+    },
+  });
+  const disconnectGoogleCalendar = trpc.googleCalendar.disconnect.useMutation({
+    onSuccess: async () => {
+      await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+      Alert.alert("Disconnected", "Google Calendar has been disconnected.");
+    },
+  });
+  const suggestRescheduleMutation = trpc.sessions.suggestReschedule.useMutation({
+    onSuccess: () => {
+      setShowRescheduleModal(false);
+      setShowSessionModal(false);
+      Alert.alert("Suggestion sent", "Reschedule suggestion shared via Google Calendar.");
+    },
+    onError: (error) => {
+      Alert.alert("Could not suggest move", error.message || "Try again.");
+    },
+  });
+
+  useEffect(() => {
+    if (scheduleClientId) {
+      setNewSessionClientId(scheduleClientId);
+      setShowAddModal(true);
+    }
+  }, [scheduleClientId]);
+
+  useEffect(() => {
+    let code = Array.isArray(params.code) ? params.code[0] : params.code;
+    if (!code && Platform.OS === "web" && typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      code = urlParams.get("code") || undefined;
+    }
+    if (!code || Platform.OS !== "web" || connectGoogleCalendar.isPending) return;
+    const redirectUri = `${window.location.origin}/calendar`;
+    connectGoogleCalendar
+      .mutateAsync({ code, redirectUri })
+      .then(() => {
+        Alert.alert("Connected", "Google Calendar connected. A 'Locomotivate' calendar has been created.");
+      })
+      .catch((err) => {
+        Alert.alert("Connection failed", err?.message || "Could not connect Google Calendar.");
+      })
+      .finally(() => {
+        if (typeof window !== "undefined") {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      });
+  }, [params.code]);
+
+  // Map API data to Session type
+  const sessions: Session[] = useMemo(() => {
+    const clientNameById = new Map<string, string>();
+    (clientsData || []).forEach((client: any) => {
+      if (client?.id) {
+        clientNameById.set(String(client.id), String(client.name || client.email || "Client"));
+      }
+    });
+
+    return (sessionsData || []).map((s: any) => {
+      const sessionDate = new Date(s.sessionDate || s.date || s.createdAt);
+      const hours = sessionDate.getHours().toString().padStart(2, "0");
+      const minutes = sessionDate.getMinutes().toString().padStart(2, "0");
+      const clientId = s.clientId ? String(s.clientId) : undefined;
+      return {
+        id: String(s.id),
+        clientId,
+        clientName: s.clientName || (clientId ? clientNameById.get(clientId) : undefined) || "Unknown Client",
+        bundleId: s.bundleId,
+        bundleTitle: s.bundleTitle || "",
+        date: sessionDate,
+        time: s.time || `${hours}:${minutes}`,
+        duration: s.durationMinutes || s.duration || 60,
+        type: s.sessionType || s.type || "session",
+        status: s.status || "scheduled",
+        notes: s.notes,
+      };
+    });
+  }, [sessionsData, clientsData]);
+
+  // Session mutations
+  const completeMutation = trpc.sessions.complete.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowSessionModal(false);
+    },
+  });
+
+  const cancelMutation = trpc.sessions.cancel.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowSessionModal(false);
+    },
+  });
+
+  const syncFromGoogle = trpc.googleCalendar.syncFromGoogle.useMutation({
+    onSuccess: (result) => {
+      if (result.updated > 0 || result.cancelled > 0) {
+        refetch();
+        refetchReschedules();
+      }
+    },
+  });
+
+  const approveReschedule = trpc.reschedule.approve.useMutation({
+    onSuccess: () => { refetch(); refetchReschedules(); Alert.alert("Approved", "Session rescheduled."); },
+    onError: (err) => Alert.alert("Error", err.message),
+  });
+  const rejectReschedule = trpc.reschedule.reject.useMutation({
+    onSuccess: () => { refetchReschedules(); Alert.alert("Rejected", "Reschedule declined, original time kept."); },
+    onError: (err) => Alert.alert("Error", err.message),
+  });
+  const counterPropose = trpc.reschedule.counterPropose.useMutation({
+    onSuccess: () => { refetchReschedules(); setCounterProposeId(null); setCounterDate(""); setCounterTime(""); setCounterNote(""); Alert.alert("Sent", "Counter-proposal sent to client."); },
+    onError: (err) => Alert.alert("Error", err.message),
+  });
+
+  const onRefresh = async () => {
+    await Promise.all([refetch(), refetchReschedules()]);
+    if (googleStatus.data?.connected) {
+      syncFromGoogle.mutate();
+    }
+  };
+
+  useEffect(() => {
+    if (googleStatus.data?.connected && !syncFromGoogle.isPending) {
+      syncFromGoogle.mutate();
+    }
+  }, [googleStatus.data?.connected]);
 
   // Get calendar data for current month
   const calendarData = useMemo(() => {
@@ -125,6 +297,15 @@ export default function CalendarScreen() {
     return days;
   }, [currentDate, sessions]);
 
+  const visibleCalendarData = useMemo(() => {
+    if (calendarExpanded || isWideScreen) return calendarData;
+    const selectedIdx = calendarData.findIndex(
+      (d) => d.date.toDateString() === selectedDate.toDateString()
+    );
+    const weekRow = Math.floor((selectedIdx >= 0 ? selectedIdx : 0) / 7);
+    return calendarData.slice(weekRow * 7, weekRow * 7 + 7);
+  }, [calendarData, calendarExpanded, selectedDate, isWideScreen]);
+
   // Get sessions for selected date
   const selectedDateSessions = useMemo(() => {
     return sessions.filter(
@@ -139,6 +320,24 @@ export default function CalendarScreen() {
 
   const goToNextMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  };
+
+  const goToPreviousWeek = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 7);
+    setSelectedDate(d);
+    if (d.getMonth() !== currentDate.getMonth() || d.getFullYear() !== currentDate.getFullYear()) {
+      setCurrentDate(new Date(d.getFullYear(), d.getMonth(), 1));
+    }
+  };
+
+  const goToNextWeek = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + 7);
+    setSelectedDate(d);
+    if (d.getMonth() !== currentDate.getMonth() || d.getFullYear() !== currentDate.getFullYear()) {
+      setCurrentDate(new Date(d.getFullYear(), d.getMonth(), 1));
+    }
   };
 
   const goToToday = () => {
@@ -168,8 +367,7 @@ export default function CalendarScreen() {
         {
           text: "Complete",
           onPress: () => {
-            // TODO: Update session status via tRPC
-            setShowSessionModal(false);
+            completeMutation.mutate({ id: session.id });
           },
         },
       ]
@@ -186,8 +384,7 @@ export default function CalendarScreen() {
           text: "Yes, Cancel",
           style: "destructive",
           onPress: () => {
-            // TODO: Cancel session via tRPC
-            setShowSessionModal(false);
+            cancelMutation.mutate({ id: session.id });
           },
         },
       ]
@@ -224,169 +421,685 @@ export default function CalendarScreen() {
     }
   };
 
+  const clientOptions = useMemo(() => {
+    const term = searchClient.trim().toLowerCase();
+    return (clientsData || [])
+      .map((client: any) => ({
+        id: String(client.id),
+        name: String(client.name || client.email || "Client"),
+      }))
+      .filter((client) => !term || client.name.toLowerCase().includes(term))
+      .slice(0, 20);
+  }, [clientsData, searchClient]);
+
+  const selectedClientName = useMemo(() => {
+    const found = (clientsData || []).find((client: any) => String(client.id) === newSessionClientId);
+    return found?.name || found?.email || null;
+  }, [clientsData, newSessionClientId]);
+
+  const openAddSessionModal = () => {
+    if (scheduleClientId) {
+      setNewSessionClientId(scheduleClientId);
+    }
+    setScheduleErrors({});
+    setShowAddModal(true);
+  };
+
+  const getGoogleRedirectUri = () => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      return `${window.location.origin}/calendar`;
+    }
+    return Linking.createURL("calendar-google-auth");
+  };
+
+  const handleConnectGoogleCalendar = async () => {
+    const redirectUri = getGoogleRedirectUri();
+    const { authUrl } = await getGoogleAuthUrl.mutateAsync({ redirectUri });
+    if (Platform.OS === "web") {
+      const popup = window.open(authUrl, "google-calendar-auth", "width=500,height=700,popup=yes");
+      if (!popup) {
+        window.location.assign(authUrl);
+        return;
+      }
+      const timer = setInterval(async () => {
+        try {
+          if (popup.closed) {
+            clearInterval(timer);
+            return;
+          }
+          const popupUrl = popup.location.href;
+          if (popupUrl.includes("code=")) {
+            clearInterval(timer);
+            const url = new URL(popupUrl);
+            const code = url.searchParams.get("code");
+            popup.close();
+            if (code) {
+              try {
+                await connectGoogleCalendar.mutateAsync({ code, redirectUri });
+                await Promise.all([googleStatus.refetch(), googleCalendars.refetch()]);
+                Alert.alert("Connected", "Google Calendar connected.");
+              } catch (err: any) {
+                Alert.alert("Connection failed", err?.message || "Could not connect.");
+              }
+            }
+          }
+        } catch {
+          // cross-origin — popup still on Google's domain, keep waiting
+        }
+      }, 500);
+      return;
+    }
+    const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+    if (result.type !== "success" || !result.url) return;
+    const callbackUrl = new URL(result.url);
+    const code = callbackUrl.searchParams.get("code");
+    if (!code) return;
+    await connectGoogleCalendar.mutateAsync({ code, redirectUri });
+  };
+
+  const openRescheduleModal = (session: Session) => {
+    setSelectedSession(session);
+    setRescheduleDate(session.date.toISOString().slice(0, 10));
+    setRescheduleTime(session.time || "09:00");
+    setRescheduleDuration(String(session.duration || 60));
+    setRescheduleNote("");
+    setShowRescheduleModal(true);
+  };
+
+  const handleSuggestReschedule = async () => {
+    if (!selectedSession) return;
+    const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(rescheduleTime.trim());
+    if (!timeMatch) {
+      Alert.alert("Invalid time", "Use 24-hour format HH:MM.");
+      return;
+    }
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rescheduleDate.trim());
+    if (!dateMatch) {
+      Alert.alert("Invalid date", "Use date format YYYY-MM-DD.");
+      return;
+    }
+    const durationMinutes = Math.max(15, Math.min(480, Number.parseInt(rescheduleDuration, 10) || 60));
+    const proposed = new Date(
+      Number.parseInt(dateMatch[1], 10),
+      Number.parseInt(dateMatch[2], 10) - 1,
+      Number.parseInt(dateMatch[3], 10),
+      Number.parseInt(timeMatch[1], 10),
+      Number.parseInt(timeMatch[2], 10),
+      0,
+      0,
+    );
+    await suggestRescheduleMutation.mutateAsync({
+      id: selectedSession.id,
+      proposedStartTime: proposed,
+      durationMinutes,
+      note: rescheduleNote.trim() || undefined,
+    });
+  };
+
+  const handleScheduleSession = async () => {
+    const errors: Record<string, string> = {};
+
+    if (!newSessionClientId) {
+      errors.client = "Please select a client";
+    }
+
+    const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(newSessionTime.trim());
+    if (!timeMatch) {
+      errors.time = "Use 24-hour format HH:MM (e.g. 09:00)";
+    }
+
+    const parsedDuration = Number.parseInt(newSessionDuration, 10);
+    if (!parsedDuration || parsedDuration < 15) {
+      errors.duration = "Duration must be at least 15 minutes";
+    }
+
+    setScheduleErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    const durationMinutes = Math.max(15, Math.min(480, parsedDuration || 60));
+    const [hours, minutes] = [Number.parseInt(timeMatch![1], 10), Number.parseInt(timeMatch![2], 10)];
+    const sessionDate = new Date(selectedDate);
+    sessionDate.setHours(hours, minutes, 0, 0);
+
+    try {
+      await createSessionMutation.mutateAsync({
+        clientId: newSessionClientId!,
+        sessionDate,
+        durationMinutes,
+        sessionType: newSessionType,
+        location: newSessionLocation.trim() || undefined,
+        notes: newSessionNotes.trim() || undefined,
+      });
+    } catch {
+      // Error alert handled in mutation onError callback.
+    }
+  };
+
   return (
     <ScreenContainer className="flex-1" edges={["left", "right"]}>
       {/* Navigation Header */}
-      <NavigationHeader
-        title="Calendar"
-        rightAction={{
-          icon: "plus",
-          onPress: () => setShowAddModal(true),
-          label: "Add session",
-          testID: "add-session",
-        }}
-      />
+      <NavigationHeader title="Calendar" />
 
       {/* Month Navigation */}
-      <View className="flex-row items-center justify-between px-4 mb-4">
+      <View className="flex-row items-center justify-between px-4 mb-3">
         <TouchableOpacity
           onPress={goToPreviousMonth}
-          className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+          className="w-9 h-9 rounded-full bg-surface items-center justify-center"
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
         >
-          <IconSymbol name="chevron.left" size={20} color={colors.foreground} />
+          <IconSymbol name="chevron.left" size={18} color={colors.foreground} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={goToToday}>
+        <TouchableOpacity
+          onPress={() => { if (!isWideScreen) setCalendarExpanded(!calendarExpanded); else goToToday(); }}
+          className="flex-row items-center gap-1"
+          accessibilityRole="button"
+          accessibilityLabel={calendarExpanded ? "Collapse to week view" : "Expand to month view"}
+        >
           <Text className="text-lg font-semibold text-foreground">
             {MONTHS[currentDate.getMonth()]} {currentDate.getFullYear()}
           </Text>
+          {!isWideScreen && (
+            <IconSymbol
+              name={calendarExpanded ? "chevron.up" : "chevron.down"}
+              size={16}
+              color={colors.muted}
+            />
+          )}
         </TouchableOpacity>
 
+        <View className="flex-row items-center gap-2">
+          {!isToday(selectedDate) && (
+            <TouchableOpacity
+              onPress={goToToday}
+              className="px-2 py-1 rounded-full border border-primary"
+              accessibilityRole="button"
+              accessibilityLabel="Go to today"
+            >
+              <Text className="text-primary text-xs font-semibold">Today</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={goToNextMonth}
+            className="w-9 h-9 rounded-full bg-surface items-center justify-center"
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+          >
+            <IconSymbol name="chevron.right" size={18} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View className="px-4 mb-3 flex-row items-center justify-between">
+        <View className="flex-row items-center">
+          {googleStatus.data?.connected ? (
+            <>
+              <View className="w-2 h-2 rounded-full bg-success mr-2" />
+              <Text className="text-xs text-muted">
+                Syncing to {googleStatus.data.selectedCalendarName || "Google Calendar"}
+              </Text>
+            </>
+          ) : (
+            <TouchableOpacity onPress={handleConnectGoogleCalendar} className="flex-row items-center">
+              <IconSymbol name="link" size={14} color={colors.primary} />
+              <Text className="text-xs text-primary font-medium ml-1">Connect Google Calendar</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <TouchableOpacity
-          onPress={goToNextMonth}
-          className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+          onPress={() => setShowCalendarSettings(!showCalendarSettings)}
+          className="w-8 h-8 rounded-full bg-surface items-center justify-center"
+          accessibilityRole="button"
+          accessibilityLabel="Calendar settings"
+          testID="calendar-settings-toggle"
         >
-          <IconSymbol name="chevron.right" size={20} color={colors.foreground} />
+          <IconSymbol name="gearshape.fill" size={16} color={colors.muted} />
         </TouchableOpacity>
       </View>
 
-      {/* Calendar Grid */}
-      <View className="px-4 mb-4">
-        {/* Day Headers */}
-        <View className="flex-row mb-2">
-          {DAYS.map((day) => (
-            <View key={day} className="flex-1 items-center">
-              <Text className="text-xs text-muted font-medium">{day}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Date Grid */}
-        <View className="flex-row flex-wrap">
-          {calendarData.map((day, index) => (
-            <TouchableOpacity
-              key={index}
-              onPress={() => setSelectedDate(day.date)}
-              className="w-[14.28%] aspect-square items-center justify-center"
-            >
-              <View
-                className={`w-10 h-10 rounded-full items-center justify-center ${
-                  isSelected(day.date)
-                    ? "bg-primary"
-                    : isToday(day.date)
-                    ? "bg-primary/20"
-                    : ""
-                }`}
-              >
-                <Text
-                  className={`text-sm ${
-                    isSelected(day.date)
-                      ? "text-white font-bold"
-                      : day.isCurrentMonth
-                      ? "text-foreground"
-                      : "text-muted"
-                  }`}
+      {showCalendarSettings && (
+        <View className="px-4 mb-3">
+          <View className="bg-surface rounded-xl border border-border p-3">
+            <View className="flex-row items-center justify-between mb-2">
+              <Text className="text-sm font-semibold text-foreground">Google Calendar</Text>
+              {googleStatus.data?.connected ? (
+                <TouchableOpacity
+                  onPress={() => disconnectGoogleCalendar.mutate()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Disconnect Google Calendar"
+                  testID="calendar-google-disconnect"
                 >
-                  {day.date.getDate()}
+                  <Text className="text-xs text-error font-semibold">Disconnect</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={handleConnectGoogleCalendar}
+                  accessibilityRole="button"
+                  accessibilityLabel="Connect Google Calendar"
+                  testID="calendar-google-connect"
+                >
+                  <Text className="text-xs text-primary font-semibold">Connect</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {googleStatus.data?.connected && googleCalendars.data?.calendars?.length ? (
+              <View>
+                <Text className="text-xs text-muted mb-1">Sync calendar</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {googleCalendars.data.calendars.slice(0, 8).map((calendar) => {
+                    const active = googleCalendars.data?.selectedCalendarId === calendar.id;
+                    return (
+                      <TouchableOpacity
+                        key={calendar.id}
+                        onPress={() =>
+                          selectGoogleCalendar.mutate({
+                            calendarId: calendar.id,
+                            calendarName: calendar.summary,
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-full border ${active ? "bg-primary border-primary" : "bg-background border-border"}`}
+                      >
+                        <Text className={active ? "text-white text-xs font-medium" : "text-foreground text-xs"}>
+                          {calendar.summary}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : !googleStatus.data?.connected ? (
+              <Text className="text-xs text-muted">
+                Connect Google Calendar to auto-sync sessions.
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      )}
+
+      {/* Pending reschedule alerts */}
+      {(pendingReschedules as any[]).length > 0 && (
+        <View className="px-4 mb-2">
+          {(pendingReschedules as any[]).map((req: any) => {
+            const oldTime = new Date(req.originalDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            const newTime = new Date(req.proposedDate).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+            return (
+              <View key={req.id} className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-2">
+                <Text className="text-foreground text-sm font-semibold mb-1">📅 Reschedule Request</Text>
+                <Text className="text-muted text-xs mb-2">
+                  {oldTime} → {newTime}
+                  {req.source === "google_calendar" ? " (from Google Calendar)" : ""}
                 </Text>
-                {day.hasEvents && !isSelected(day.date) && (
-                  <View className="absolute bottom-1 w-1 h-1 rounded-full bg-primary" />
+                <View className="flex-row gap-2">
+                  <ActionButton
+                    className="flex-1 bg-success py-2 rounded-lg"
+                    onPress={() => approveReschedule.mutate({ id: req.id })}
+                    loading={approveReschedule.isPending}
+                    variant="primary"
+                    size="sm"
+                    accessibilityLabel="Approve reschedule"
+                  >
+                    Approve
+                  </ActionButton>
+                  <ActionButton
+                    className="flex-1 bg-error py-2 rounded-lg"
+                    onPress={() => rejectReschedule.mutate({ id: req.id })}
+                    loading={rejectReschedule.isPending}
+                    variant="danger"
+                    size="sm"
+                    accessibilityLabel="Reject reschedule"
+                  >
+                    Reject
+                  </ActionButton>
+                  <ActionButton
+                    className="flex-1 bg-primary py-2 rounded-lg"
+                    variant="primary"
+                    size="sm"
+                    onPress={() => {
+                      setCounterProposeId(counterProposeId === req.id ? null : req.id);
+                      const d = new Date(req.proposedDate);
+                      setCounterDate(d.toISOString().slice(0, 10));
+                      setCounterTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+                      setCounterNote("");
+                    }}
+                    accessibilityLabel="Suggest alternative time"
+                  >
+                    Suggest
+                  </ActionButton>
+                </View>
+                {counterProposeId === req.id && (
+                  <View className="mt-3 pt-3 border-t border-warning/20">
+                    <Text className="text-foreground text-xs font-semibold mb-2">Suggest another time</Text>
+                    <View className="flex-row gap-2 mb-2">
+                      <TextInput
+                        className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-xs"
+                        placeholder="YYYY-MM-DD"
+                        placeholderTextColor={colors.muted}
+                        value={counterDate}
+                        onChangeText={setCounterDate}
+                      />
+                      <TextInput
+                        className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-xs"
+                        placeholder="HH:MM"
+                        placeholderTextColor={colors.muted}
+                        value={counterTime}
+                        onChangeText={setCounterTime}
+                      />
+                    </View>
+                    <TextInput
+                      className="bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-xs mb-2"
+                      placeholder="Note (optional)"
+                      placeholderTextColor={colors.muted}
+                      value={counterNote}
+                      onChangeText={setCounterNote}
+                    />
+                    <ActionButton
+                      className="bg-primary py-2 rounded-lg"
+                      loading={counterPropose.isPending}
+                      loadingText="Sending..."
+                      variant="primary"
+                      size="sm"
+                      onPress={() => {
+                        const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(counterDate.trim());
+                        const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(counterTime.trim());
+                        if (!dateMatch || !timeMatch) { Alert.alert("Invalid", "Use YYYY-MM-DD and HH:MM format."); return; }
+                        const proposed = new Date(+dateMatch[1], +dateMatch[2] - 1, +dateMatch[3], +timeMatch[1], +timeMatch[2]);
+                        counterPropose.mutate({ id: req.id, counterDate: proposed, note: counterNote.trim() || undefined });
+                      }}
+                      accessibilityLabel="Send counter-proposal"
+                    >
+                      Send Counter-Proposal
+                    </ActionButton>
+                  </View>
                 )}
               </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Selected Date Sessions */}
-      <View className="flex-1 px-4">
-        <Text className="text-base font-semibold text-foreground mb-3">
-          {selectedDate.toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
+            );
           })}
-        </Text>
+        </View>
+      )}
 
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {selectedDateSessions.length === 0 ? (
-            <View className="bg-surface rounded-xl p-6 items-center">
-              <IconSymbol name="calendar" size={32} color={colors.muted} />
-              <Text className="text-muted mt-2">No sessions scheduled</Text>
-              <TouchableOpacity
-                onPress={() => setShowAddModal(true)}
-                className="mt-3 px-4 py-2 border border-border rounded-lg"
-              >
-                <Text className="text-foreground">Schedule Session</Text>
-              </TouchableOpacity>
+      {isWideScreen ? (
+        <View className="flex-1 flex-row px-4 pb-3">
+          <View className="rounded-xl border border-border bg-surface p-4 mr-4" style={{ width: "58%", maxWidth: 760 }}>
+            <View className="flex-row mb-2">
+              {DAYS.map((day) => (
+                <View key={day} className="flex-1 items-center">
+                  <Text className="text-xs text-muted font-medium">{day}</Text>
+                </View>
+              ))}
             </View>
-          ) : (
-            selectedDateSessions.map((session) => (
-              <TouchableOpacity
-                key={session.id}
-                onPress={() => {
-                  setSelectedSession(session);
-                  setShowSessionModal(true);
-                }}
-                className="bg-surface rounded-xl p-4 mb-3 border border-border"
-              >
-                <View className="flex-row items-start">
-                  {/* Time */}
-                  <View className="w-16">
-                    <Text className="text-lg font-bold text-foreground">
-                      {session.time}
-                    </Text>
-                    <Text className="text-xs text-muted">{session.duration}min</Text>
-                  </View>
-
-                  {/* Divider */}
+            <View className="flex-row flex-wrap">
+              {calendarData.map((day, index) => (
+                <TouchableOpacity
+                  key={index}
+                  onPress={() => setSelectedDate(day.date)}
+                  className="w-[14.28%] aspect-square items-center justify-center"
+                >
                   <View
-                    className="w-1 h-full rounded-full mr-3"
-                    style={{ backgroundColor: getStatusColor(session.status) }}
-                  />
-
-                  {/* Content */}
-                  <View className="flex-1">
-                    <Text className="text-base font-semibold text-foreground">
-                      {session.clientName}
+                    className={`w-10 h-10 rounded-full items-center justify-center ${
+                      isSelected(day.date)
+                        ? "bg-primary"
+                        : ""
+                    }`}
+                    style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
+                  >
+                    <Text
+                      className={`text-sm ${
+                        isSelected(day.date)
+                          ? "text-white font-bold"
+                          : isToday(day.date)
+                          ? "text-primary font-bold"
+                          : day.isCurrentMonth
+                          ? "text-foreground"
+                          : "text-muted"
+                      }`}
+                    >
+                      {day.date.getDate()}
                     </Text>
-                    <Text className="text-sm text-muted">{session.bundleTitle}</Text>
-                    <View className="flex-row items-center mt-1">
+                    {day.hasEvents && !isSelected(day.date) && (
+                      <View className="absolute bottom-0.5 w-1.5 h-1.5 rounded-full bg-success" />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View className="flex-1 rounded-xl border border-border bg-surface p-4">
+            <Text className="text-base font-semibold text-foreground mb-3">
+              {selectedDate.toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}
+            </Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />}
+            >
+              {isLoading ? (
+                <View className="items-center py-12">
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+              ) : selectedDateSessions.length === 0 ? (
+                <View className="bg-background rounded-xl p-6 items-center">
+                  <IconSymbol name="calendar" size={32} color={colors.muted} />
+                  <Text className="text-muted mt-2">No sessions scheduled</Text>
+                  <TouchableOpacity onPress={openAddSessionModal} className="mt-3 px-4 py-2 border border-border rounded-lg">
+                    <Text className="text-foreground">Schedule Session</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                selectedDateSessions.map((session) => (
+                  <TouchableOpacity
+                    key={session.id}
+                    onPress={() => {
+                      setSelectedSession(session);
+                      setShowSessionModal(true);
+                    }}
+                    className="bg-background rounded-xl p-4 mb-3 border border-border"
+                  >
+                    <View className="flex-row items-start">
+                      <View className="w-16">
+                        <Text className="text-lg font-bold text-foreground">{session.time}</Text>
+                        <Text className="text-xs text-muted">{session.duration}min</Text>
+                      </View>
+                      <View className="w-1 h-full rounded-full mr-3" style={{ backgroundColor: getStatusColor(session.status) }} />
+                      <View className="flex-1">
+                        <Text className="text-base font-semibold text-foreground">{session.clientName}</Text>
+                        <Text className="text-sm text-muted">{session.bundleTitle}</Text>
+                        <View className="flex-row items-center mt-1">
+                          <View className="px-2 py-0.5 rounded" style={{ backgroundColor: `${getStatusColor(session.status)}20` }}>
+                            <Text className="text-xs font-medium" style={{ color: getStatusColor(session.status) }}>
+                              {getTypeLabel(session.type)}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <IconSymbol name="chevron.right" size={20} color={colors.muted} />
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+              <View className="h-16" />
+            </ScrollView>
+          </View>
+        </View>
+      ) : (
+        <>
+          {/* Compact Calendar Grid — fixed at top, collapsible */}
+          <View className="border-b border-border" style={{ paddingBottom: 0 }}>
+            {calendarExpanded ? (
+              <>
+                <View className="flex-row mb-1 px-4">
+                  {DAYS.map((day) => (
+                    <View key={day} className="flex-1 items-center">
+                      <Text className="text-xs text-muted font-medium">{day}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View className="flex-row flex-wrap px-4">
+                  {visibleCalendarData.map((day, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => setSelectedDate(day.date)}
+                      className="w-[14.28%] items-center justify-center"
+                      style={{ paddingVertical: 3 }}
+                    >
                       <View
-                        className="px-2 py-0.5 rounded"
-                        style={{ backgroundColor: `${getStatusColor(session.status)}20` }}
+                        className={`w-8 h-8 rounded-full items-center justify-center ${
+                          isSelected(day.date) ? "bg-primary" : ""
+                        }`}
+                        style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
                       >
                         <Text
-                          className="text-xs font-medium"
-                          style={{ color: getStatusColor(session.status) }}
+                          className={`text-sm ${
+                            isSelected(day.date)
+                              ? "text-white font-bold"
+                              : isToday(day.date)
+                              ? "text-primary font-bold"
+                              : day.isCurrentMonth
+                              ? "text-foreground"
+                              : "text-muted"
+                          }`}
                         >
-                          {getTypeLabel(session.type)}
+                          {day.date.getDate()}
                         </Text>
                       </View>
-                    </View>
-                  </View>
-
-                  {/* Chevron */}
-                  <IconSymbol name="chevron.right" size={20} color={colors.muted} />
+                      {day.hasEvents && (
+                        <View className="w-1 h-1 rounded-full bg-success mt-0.5" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
                 </View>
-              </TouchableOpacity>
-            ))
-          )}
+              </>
+            ) : (
+              <View className="flex-row items-center">
+                <TouchableOpacity
+                  onPress={goToPreviousWeek}
+                  className="w-8 items-center justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous week"
+                >
+                  <IconSymbol name="chevron.left" size={16} color={colors.muted} />
+                </TouchableOpacity>
+                <View className="flex-1">
+                  <View className="flex-row mb-1">
+                    {DAYS.map((day) => (
+                      <View key={day} className="flex-1 items-center">
+                        <Text className="text-xs text-muted font-medium">{day}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View className="flex-row">
+                    {visibleCalendarData.map((day, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        onPress={() => setSelectedDate(day.date)}
+                        className="flex-1 items-center justify-center"
+                        style={{ paddingVertical: 3 }}
+                      >
+                        <View
+                          className={`w-8 h-8 rounded-full items-center justify-center ${
+                            isSelected(day.date) ? "bg-primary" : ""
+                          }`}
+                          style={!isSelected(day.date) && isToday(day.date) ? { borderWidth: 2, borderColor: colors.primary } : undefined}
+                        >
+                          <Text
+                            className={`text-sm ${
+                              isSelected(day.date)
+                                ? "text-white font-bold"
+                                : isToday(day.date)
+                                ? "text-primary font-bold"
+                                : day.isCurrentMonth
+                                ? "text-foreground"
+                                : "text-muted"
+                            }`}
+                          >
+                            {day.date.getDate()}
+                          </Text>
+                        </View>
+                        {day.hasEvents && (
+                          <View className="w-1 h-1 rounded-full bg-success mt-0.5" />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={goToNextWeek}
+                  className="w-8 items-center justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="Next week"
+                >
+                  <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+                </TouchableOpacity>
+              </View>
+            )}
+            <View className="h-1" />
+          </View>
 
-          {/* Bottom padding */}
-          <View className="h-24" />
-        </ScrollView>
-      </View>
+          {/* Selected Date Header */}
+          <View className="px-4 pt-3 pb-2 flex-row items-center justify-between">
+            <Text className="text-base font-semibold text-foreground">
+              {selectedDate.toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}
+            </Text>
+            <TouchableOpacity
+              onPress={openAddSessionModal}
+              className="bg-primary px-3 py-1.5 rounded-full"
+            >
+              <Text className="text-white text-xs font-semibold">+ Add</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Sessions list — scrollable, fills remaining space */}
+          <ScrollView
+            className="flex-1"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+            refreshControl={
+              <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
+            }
+          >
+            {isLoading ? (
+              <View className="items-center py-12">
+                <ActivityIndicator size="large" color={colors.primary} />
+              </View>
+            ) : selectedDateSessions.length === 0 ? (
+              <View className="bg-surface rounded-xl p-6 items-center mt-2">
+                <IconSymbol name="calendar" size={32} color={colors.muted} />
+                <Text className="text-muted mt-2">No sessions on this day</Text>
+              </View>
+            ) : (
+              selectedDateSessions.map((session) => (
+                <TouchableOpacity
+                  key={session.id}
+                  onPress={() => {
+                    setSelectedSession(session);
+                    setShowSessionModal(true);
+                  }}
+                  className="bg-surface rounded-xl p-4 mb-2 border border-border"
+                >
+                  <View className="flex-row items-center">
+                    <View style={{ width: 4, height: 40, borderRadius: 2, backgroundColor: getStatusColor(session.status), marginRight: 12 }} />
+                    <View className="flex-1">
+                      <Text className="text-foreground font-semibold">{session.clientName}</Text>
+                      <Text className="text-xs text-muted mt-0.5">
+                        {session.time} · {session.duration}min · {getTypeLabel(session.type)}
+                      </Text>
+                    </View>
+                    <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        </>
+      )}
 
       {/* Session Detail Modal */}
       <Modal
@@ -395,12 +1108,13 @@ export default function CalendarScreen() {
         animationType="slide"
         onRequestClose={() => setShowSessionModal(false)}
       >
-        <Pressable
-          className="flex-1 justify-end"
-          onPress={() => setShowSessionModal(false)}
-          style={{ backgroundColor: overlayColor }}
-        >
-          <View className="bg-background rounded-t-3xl p-6">
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowSessionModal(false)} />
+          <SwipeDownSheet
+            visible={showSessionModal}
+            onClose={() => setShowSessionModal(false)}
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
+          >
             {selectedSession && (
               <>
                 <View className="flex-row items-center justify-between mb-4">
@@ -430,6 +1144,12 @@ export default function CalendarScreen() {
                 {selectedSession.status === "scheduled" && (
                   <View className="gap-3">
                     <TouchableOpacity
+                      onPress={() => openRescheduleModal(selectedSession)}
+                      className="bg-primary/15 py-4 rounded-xl items-center border border-primary/40"
+                    >
+                      <Text className="text-primary font-semibold">Suggest Reschedule</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       onPress={() => handleCompleteSession(selectedSession)}
                       className="bg-success py-4 rounded-xl items-center"
                     >
@@ -453,8 +1173,71 @@ export default function CalendarScreen() {
                 </TouchableOpacity>
               </>
             )}
-          </View>
-        </Pressable>
+          </SwipeDownSheet>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showRescheduleModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRescheduleModal(false)}
+      >
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowRescheduleModal(false)} />
+          <SwipeDownSheet
+            visible={showRescheduleModal}
+            onClose={() => setShowRescheduleModal(false)}
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}
+          >
+            <Text className="text-xl font-bold text-foreground mb-4">Suggest Appointment Move</Text>
+            <Text className="text-sm text-muted mb-2">Date (YYYY-MM-DD)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+              value={rescheduleDate}
+              onChangeText={setRescheduleDate}
+              placeholder="2026-02-15"
+              placeholderTextColor={colors.muted}
+            />
+            <Text className="text-sm text-muted mb-2">Time (HH:MM)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+              value={rescheduleTime}
+              onChangeText={setRescheduleTime}
+              placeholder="09:00"
+              placeholderTextColor={colors.muted}
+            />
+            <Text className="text-sm text-muted mb-2">Duration (minutes)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+              value={rescheduleDuration}
+              onChangeText={setRescheduleDuration}
+              keyboardType="number-pad"
+              placeholder="60"
+              placeholderTextColor={colors.muted}
+            />
+            <Text className="text-sm text-muted mb-2">Message (optional)</Text>
+            <TextInput
+              className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+              value={rescheduleNote}
+              onChangeText={setRescheduleNote}
+              placeholder="Can we move this by an hour?"
+              placeholderTextColor={colors.muted}
+              multiline
+              numberOfLines={3}
+              style={{ minHeight: 88, textAlignVertical: "top" }}
+            />
+            <TouchableOpacity
+              onPress={handleSuggestReschedule}
+              className="bg-primary py-4 rounded-xl items-center"
+              disabled={suggestRescheduleMutation.isPending}
+            >
+              <Text className="text-white font-semibold">
+                {suggestRescheduleMutation.isPending ? "Sending..." : "Send Suggestion"}
+              </Text>
+            </TouchableOpacity>
+          </SwipeDownSheet>
+        </View>
       </Modal>
 
       {/* Add Session Modal */}
@@ -464,12 +1247,14 @@ export default function CalendarScreen() {
         animationType="slide"
         onRequestClose={() => setShowAddModal(false)}
       >
-        <Pressable
-          className="flex-1 justify-end"
-          onPress={() => setShowAddModal(false)}
-          style={{ backgroundColor: overlayColor }}
-        >
-          <View className="bg-background rounded-t-3xl p-6">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowAddModal(false)} />
+          <SwipeDownSheet
+            visible={showAddModal}
+            onClose={() => setShowAddModal(false)}
+            style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 24, paddingHorizontal: 24 }}
+          >
             <View className="flex-row items-center justify-between mb-4">
               <Text className="text-xl font-bold text-foreground">Schedule Session</Text>
               <TouchableOpacity onPress={() => setShowAddModal(false)}>
@@ -477,19 +1262,187 @@ export default function CalendarScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text className="text-muted text-center py-8">
-              Session scheduling will be available soon.{"\n"}
-              Contact your clients directly to schedule sessions.
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => setShowAddModal(false)}
-              className="bg-primary py-4 rounded-xl items-center"
+            <ScrollView
+              ref={scheduleScrollRef}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 32 }}
             >
-              <Text className="text-white font-semibold">Got it</Text>
-            </TouchableOpacity>
-          </View>
-        </Pressable>
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Date</Text>
+                <View className="bg-surface border border-border rounded-xl px-4 py-3">
+                  <Text className="text-foreground">
+                    {selectedDate.toLocaleDateString("en-US", {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </Text>
+                </View>
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Client *</Text>
+                {selectedClientName && (
+                  <View className="bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 mb-2">
+                    <Text className="text-primary font-medium">Selected: {selectedClientName}</Text>
+                  </View>
+                )}
+                {scheduleErrors.client && !newSessionClientId && (
+                  <Text className="text-error text-xs mb-1">{scheduleErrors.client}</Text>
+                )}
+                <TextInput
+                  className={`bg-surface border rounded-xl px-4 py-3 text-foreground mb-2 ${scheduleErrors.client && !newSessionClientId ? "border-error" : "border-border"}`}
+                  placeholder="Search clients..."
+                  placeholderTextColor={colors.muted}
+                  value={searchClient}
+                  onChangeText={setSearchClient}
+                />
+
+                {clientsLoading ? (
+                  <View className="py-4 items-center">
+                    <ActivityIndicator color={colors.primary} />
+                  </View>
+                ) : (
+                  <View className="gap-2">
+                    {clientOptions.length === 0 ? (
+                      <View className="bg-surface border border-border rounded-xl px-4 py-3">
+                        <Text className="text-muted text-sm">No matching clients</Text>
+                      </View>
+                    ) : (
+                      clientOptions.map((client) => (
+                        <TouchableOpacity
+                          key={client.id}
+                          onPress={() => { setNewSessionClientId(client.id); setScheduleErrors((prev) => { const { client: _, ...rest } = prev; return rest; }); }}
+                          className={`rounded-xl px-4 py-3 border ${
+                            newSessionClientId === client.id
+                              ? "border-primary bg-primary/10"
+                              : "border-border bg-surface"
+                          }`}
+                        >
+                          <Text className={newSessionClientId === client.id ? "text-primary font-medium" : "text-foreground"}>
+                            {client.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </View>
+                )}
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Time (HH:MM)</Text>
+                <TextInput
+                  ref={timeInputRef}
+                  className={`bg-surface border rounded-xl px-4 py-3 text-foreground ${scheduleErrors.time ? "border-error" : "border-border"}`}
+                  placeholder="09:00"
+                  placeholderTextColor={colors.muted}
+                  value={newSessionTime}
+                  onChangeText={(v) => { setNewSessionTime(v); setScheduleErrors((prev) => { const { time: _, ...rest } = prev; return rest; }); }}
+                  keyboardType="numbers-and-punctuation"
+                  returnKeyType="next"
+                  onSubmitEditing={() => durationInputRef.current?.focus()}
+                />
+                {scheduleErrors.time && <Text className="text-error text-xs mt-1">{scheduleErrors.time}</Text>}
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Duration (minutes)</Text>
+                <TextInput
+                  ref={durationInputRef}
+                  className={`bg-surface border rounded-xl px-4 py-3 text-foreground ${scheduleErrors.duration ? "border-error" : "border-border"}`}
+                  placeholder="60"
+                  placeholderTextColor={colors.muted}
+                  value={newSessionDuration}
+                  onChangeText={(v) => { setNewSessionDuration(v); setScheduleErrors((prev) => { const { duration: _, ...rest } = prev; return rest; }); }}
+                  keyboardType="number-pad"
+                  returnKeyType="next"
+                  onSubmitEditing={() => locationInputRef.current?.focus()}
+                />
+                <TouchableOpacity
+                  onPress={() => locationInputRef.current?.focus()}
+                  className="bg-primary/10 rounded-lg px-3 py-1.5 self-end mt-1"
+                >
+                  <Text className="text-primary text-xs font-semibold">Next →</Text>
+                </TouchableOpacity>
+                {scheduleErrors.duration && <Text className="text-error text-xs mt-1">{scheduleErrors.duration}</Text>}
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Session Type</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {SESSION_TYPE_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      onPress={() => setNewSessionType(option.value)}
+                      className={`px-3 py-2 rounded-full border ${
+                        newSessionType === option.value
+                          ? "bg-primary border-primary"
+                          : "bg-surface border-border"
+                      }`}
+                    >
+                      <Text className={newSessionType === option.value ? "text-white font-medium" : "text-foreground"}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-sm font-medium text-foreground mb-2">Location (optional)</Text>
+                <TextInput
+                  ref={locationInputRef}
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="Gym floor, Zoom, etc."
+                  placeholderTextColor={colors.muted}
+                  value={newSessionLocation}
+                  onChangeText={setNewSessionLocation}
+                  returnKeyType="next"
+                  onFocus={() => setTimeout(() => scheduleScrollRef.current?.scrollToEnd({ animated: true }), 300)}
+                  onSubmitEditing={() => notesInputRef.current?.focus()}
+                />
+              </View>
+
+              <View className="mb-5">
+                <Text className="text-sm font-medium text-foreground mb-2">Notes (optional)</Text>
+                <TextInput
+                  ref={notesInputRef}
+                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                  placeholder="Any notes for this session..."
+                  placeholderTextColor={colors.muted}
+                  value={newSessionNotes}
+                  onChangeText={setNewSessionNotes}
+                  returnKeyType="done"
+                  blurOnSubmit
+                  onFocus={() => setTimeout(() => scheduleScrollRef.current?.scrollToEnd({ animated: true }), 300)}
+                  multiline
+                  numberOfLines={3}
+                  style={{ minHeight: 90, textAlignVertical: "top" }}
+                />
+              </View>
+
+              <View className="flex-row gap-3 mb-2">
+                <TouchableOpacity
+                  onPress={() => setShowAddModal(false)}
+                  className="flex-1 bg-surface border border-border py-4 rounded-xl items-center"
+                >
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleScheduleSession}
+                  className="flex-1 bg-primary py-4 rounded-xl items-center"
+                  disabled={createSessionMutation.isPending}
+                >
+                  <Text className="text-white font-semibold">
+                    {createSessionMutation.isPending ? "Scheduling..." : "Schedule"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </SwipeDownSheet>
+        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </ScreenContainer>
   );

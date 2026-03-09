@@ -120,6 +120,7 @@ Ensure the following variables are correctly set in the environment or `.env` fi
 | Variable | Description | Platform |
 |----------|-------------|----------|
 | `EXPO_PUBLIC_API_BASE_URL` | Base URL for the backend API | All |
-| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | Client ID for Google OAuth | All |
-| `DATABASE_URL` | MySQL connection string | Backend |
-| `JWT_SECRET` | Secret for authentication tokens | Backend |
+| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL for client apps | All |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key for client apps | All |
+| `SUPABASE_URL` | Supabase project URL for backend | Backend |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (secret) | Backend |

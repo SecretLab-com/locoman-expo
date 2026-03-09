@@ -1,9 +1,11 @@
 import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LOCO_ASSISTANT_NAME, LOCO_ASSISTANT_USER_ID } from "@/shared/const";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
@@ -12,7 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 type Recipient = {
-  id: number;
+  id: string;
   name: string;
   subtitle?: string;
   photoUrl?: string | null;
@@ -22,7 +24,7 @@ type MessageGroup = {
   id: string;
   name: string;
   icon: string;
-  memberIds: number[];
+  memberIds: string[];
   createdAt: string;
 };
 
@@ -39,22 +41,12 @@ const GROUP_ICON_OPTIONS = [
 export default function NewMessageScreen() {
   const colors = useColors();
   const { effectiveRole, isManager, isCoordinator, user } = useAuthContext();
-  const roleBase =
-    effectiveRole === "client"
-      ? "/(client)"
-      : effectiveRole === "trainer"
-        ? "/(trainer)"
-        : effectiveRole === "manager"
-          ? "/(manager)"
-          : effectiveRole === "coordinator"
-            ? "/(coordinator)"
-            : "/(tabs)";
   const canManage = isManager || isCoordinator;
   const { recipientId } = useLocalSearchParams<{ recipientId: string }>();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [groupName, setGroupName] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<NewMessageMode>("default");
   const [groupIcon, setGroupIcon] = useState(GROUP_ICON_OPTIONS[0]);
   const [groups, setGroups] = useState<MessageGroup[]>([]);
@@ -75,8 +67,8 @@ export default function NewMessageScreen() {
 
   useEffect(() => {
     if (recipientId) {
-      const parsed = parseInt(Array.isArray(recipientId) ? recipientId[0] : recipientId, 10);
-      if (!Number.isNaN(parsed)) {
+      const parsed = Array.isArray(recipientId) ? recipientId[0] : recipientId;
+      if (parsed) {
         setSelectedIds(new Set([parsed]));
         setMode("default");
       }
@@ -104,30 +96,39 @@ export default function NewMessageScreen() {
   const recipients: Recipient[] = useMemo(() => {
     if (canManage) {
       return (managersQuery.data?.users ?? []).map((u) => ({
-        id: u.id,
+        id: String(u.id),
         name: u.name || "Unknown",
         subtitle: u.email || u.role,
         photoUrl: u.photoUrl,
       }));
     }
     if (effectiveRole === "trainer") {
-      return (trainerClientsQuery.data ?? []).map((c: any) => ({
-        id: c.id,
+      const clientRecipients = (trainerClientsQuery.data ?? []).map((c: any) => ({
+        id: String(c.userId || c.id),
         name: c.name || "Client",
         subtitle: c.email || "Client",
         photoUrl: c.photoUrl,
       }));
+      return [
+        {
+          id: LOCO_ASSISTANT_USER_ID,
+          name: LOCO_ASSISTANT_NAME,
+          subtitle: "AI automation assistant",
+          photoUrl: null,
+        },
+        ...clientRecipients,
+      ];
     }
     if (effectiveRole === "client") {
       return (clientTrainersQuery.data ?? []).map((t: any) => ({
-        id: t.id,
+        id: String(t.id),
         name: t.name || "Trainer",
         subtitle: t.email || "Trainer",
         photoUrl: t.photoUrl,
       }));
     }
     return (catalogTrainersQuery.data ?? []).map((t: any) => ({
-      id: t.id,
+      id: String(t.id),
       name: t.name || "Trainer",
       subtitle: t.email || "Trainer",
       photoUrl: t.photoUrl,
@@ -149,7 +150,7 @@ export default function NewMessageScreen() {
   const canProceedToDetails = selectedIds.size >= 2;
   const canCreateGroup = groupName.trim().length > 0 && selectedIds.size >= 2;
 
-  const toggleRecipient = (id: number) => {
+  const toggleRecipient = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -163,21 +164,35 @@ export default function NewMessageScreen() {
 
   const openDirectMessage = (recipient: Recipient) => {
     if (!user?.id) return;
-    const conversationId = [user.id, recipient.id].sort().join("-");
+    if (effectiveRole === "trainer" && recipient.id === LOCO_ASSISTANT_USER_ID) {
+      router.push("/(trainer)/assistant" as any);
+      return;
+    }
+    const conversationId =
+      recipient.id === LOCO_ASSISTANT_USER_ID
+        ? `bot-${user.id}`
+        : [user.id, recipient.id].sort().join("-");
     const name = recipient.name || "User";
-    router.push(
-      `${roleBase}/messages/${conversationId}?participantId=${recipient.id}&name=${encodeURIComponent(
-        name
-      )}` as any
-    );
+    router.push({
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
+      params: {
+        id: conversationId,
+        participantId: recipient.id,
+        name,
+      },
+    });
   };
 
   const openGroupChat = (group: MessageGroup) => {
-    router.push(
-      `${roleBase}/messages/${group.id}?participantIds=${group.memberIds.join(",")}&name=${encodeURIComponent(
-        group.name
-      )}&groupIcon=${encodeURIComponent(group.icon)}` as any
-    );
+    router.push({
+      pathname: getRoleConversationPath(effectiveRole as any) as any,
+      params: {
+        id: group.id,
+        participantIds: group.memberIds.join(","),
+        name: group.name,
+        groupIcon: group.icon,
+      },
+    });
   };
 
   const handleCreateGroup = async () => {
@@ -326,7 +341,9 @@ export default function NewMessageScreen() {
                     testID={`message-recipient-${recipient.id}`}
                   >
                     <View className="w-10 h-10 rounded-full bg-muted/30 items-center justify-center mr-3 overflow-hidden">
-                      {recipient.photoUrl ? (
+                      {recipient.id === LOCO_ASSISTANT_USER_ID ? (
+                        <IconSymbol name="sparkles" size={18} color={colors.primary} />
+                      ) : recipient.photoUrl ? (
                         <Image
                           source={{ uri: recipient.photoUrl }}
                           className="w-10 h-10 rounded-full"
@@ -349,7 +366,9 @@ export default function NewMessageScreen() {
 
             {mode === "group-select" && (
               <>
-                {filteredRecipients.map((recipient) => {
+                {filteredRecipients
+                  .filter((recipient) => recipient.id !== LOCO_ASSISTANT_USER_ID)
+                  .map((recipient) => {
                   const isSelected = selectedIds.has(recipient.id);
                   return (
                     <TouchableOpacity

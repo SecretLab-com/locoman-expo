@@ -4,6 +4,8 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useOffline } from "@/contexts/offline-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { normalizeAssetUrl } from "@/lib/asset-url";
+import { stripHtml } from "@/lib/html-utils";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -21,16 +23,21 @@ import {
 type Bundle = {
   id: number;
   title: string;
-  description: string | null;
+  description: string;
   price: string | number | null;
   imageUrl: string | null;
   trainerName?: string;
-  trainerAvatar?: string;
+  trainerAvatar: string | null;
   rating?: number;
   reviews?: number;
 };
 
 type ViewMode = "bundles" | "trainers";
+
+function toDescriptionPreview(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "No description available";
+  return stripHtml(value).trim() || "No description available";
+}
 
 function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }) {
   const colors = useColors();
@@ -58,7 +65,7 @@ function BundleCard({ bundle, onPress }: { bundle: Bundle; onPress: () => void }
           {bundle.title}
         </Text>
         <Text className="text-sm text-muted mb-3" numberOfLines={2}>
-          {bundle.description || "No description available"}
+          {bundle.description}
         </Text>
 
         <View className="flex-row items-center justify-between">
@@ -114,11 +121,11 @@ export default function DiscoverScreen() {
         setCachedBundles(cached.map((b: any) => ({
           id: b.id,
           title: b.title,
-          description: b.description,
+          description: toDescriptionPreview(b.description),
           price: b.price,
-          imageUrl: b.imageUrl,
+          imageUrl: normalizeAssetUrl(b.imageUrl),
           trainerName: b.trainerName || "Trainer",
-          trainerAvatar: b.trainerAvatar,
+          trainerAvatar: normalizeAssetUrl(b.trainerAvatar),
           rating: b.rating,
           reviews: b.reviewCount,
         })));
@@ -140,11 +147,11 @@ export default function DiscoverScreen() {
     ? bundlesData.map((b: any) => ({
         id: b.id,
         title: b.title,
-        description: b.description,
+        description: toDescriptionPreview(b.description),
         price: b.price,
-        imageUrl: b.imageUrl,
+        imageUrl: normalizeAssetUrl(b.imageUrl),
         trainerName: b.trainerName || "Trainer",
-        trainerAvatar: b.trainerAvatar,
+        trainerAvatar: normalizeAssetUrl(b.trainerAvatar),
         rating: b.rating,
         reviews: b.reviewCount,
       }))
@@ -240,35 +247,39 @@ export default function DiscoverScreen() {
           <Text className="text-muted mt-4">Loading bundles...</Text>
         </View>
       ) : (
-        <FlatList
-          data={bundles}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <BundleCard bundle={item} onPress={() => handleBundlePress(item)} />
-          )}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={handleRefresh}
-              tintColor={colors.primary}
-            />
-          }
-          ListEmptyComponent={
-            <View className="items-center py-12">
-              <IconSymbol name="magnifyingglass" size={48} color={colors.muted} />
-              <Text className="text-muted text-center mt-4">
-                {!isOnline ? "You're offline" : "No bundles found"}
-              </Text>
-              <Text className="text-muted text-center text-sm mt-1">
-                {!isOnline 
-                  ? "Connect to the internet to browse bundles" 
-                  : "Try adjusting your search"}
-              </Text>
-            </View>
-          }
-        />
+        <View style={{ flex: 1, minHeight: 0 }}>
+          <FlatList
+            data={bundles}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => (
+              <BundleCard bundle={item} onPress={() => handleBundlePress(item)} />
+            )}
+            style={{ flex: 1, minHeight: 0 }}
+            scrollEnabled
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching}
+                onRefresh={handleRefresh}
+                tintColor={colors.primary}
+              />
+            }
+            ListEmptyComponent={
+              <View className="items-center py-12">
+                <IconSymbol name="magnifyingglass" size={48} color={colors.muted} />
+                <Text className="text-muted text-center mt-4">
+                  {!isOnline ? "You're offline" : "No bundles found"}
+                </Text>
+                <Text className="text-muted text-center text-sm mt-1">
+                  {!isOnline
+                    ? "Connect to the internet to browse bundles"
+                    : "Try adjusting your search"}
+                </Text>
+              </View>
+            }
+          />
+        </View>
       )}
     </ScreenContainer>
   );

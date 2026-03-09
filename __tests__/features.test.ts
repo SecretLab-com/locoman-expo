@@ -53,22 +53,22 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
   });
 
   describe("Client Detail Screen", () => {
-    it("should have client detail screen with session tracking", () => {
+    it("should have client detail screen with active offers and payment history", () => {
       const clientDetailPath = path.join(projectRoot, "app/client-detail/[id].tsx");
       expect(fs.existsSync(clientDetailPath)).toBe(true);
       
       const content = fs.readFileSync(clientDetailPath, "utf-8");
       expect(content).toContain("ClientDetailScreen");
-      expect(content).toContain("sessionsIncluded");
-      expect(content).toContain("sessionsUsed");
-      expect(content).toContain("sessions remaining");
+      expect(content).toContain("Active offers");
+      expect(content).toContain("Payment history");
+      expect(content).toContain("Get Paid");
     });
 
-    it("should allow marking sessions as complete", () => {
+    it("should include payment and offer CTAs", () => {
       const clientDetailPath = path.join(projectRoot, "app/client-detail/[id].tsx");
       const content = fs.readFileSync(clientDetailPath, "utf-8");
-      expect(content).toContain("handleMarkSessionComplete");
-      expect(content).toContain("Mark Complete");
+      expect(content).toContain("Create Offer");
+      expect(content).toContain("Take Payment");
     });
   });
 
@@ -91,7 +91,7 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
       
       const content = fs.readFileSync(confirmationPath, "utf-8");
       expect(content).toContain("OrderConfirmationScreen");
-      expect(content).toContain("Order Placed");
+      expect(content).toContain("Order Submitted");
       expect(content).toContain("orderNumber");
     });
   });
@@ -137,10 +137,19 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
       expect(fs.existsSync(threadPath)).toBe(true);
       
       const content = fs.readFileSync(threadPath, "utf-8");
-      expect(content).toContain("MessageDetailScreen");
-      expect(content).toContain("MessageBubble");
-      expect(content).toContain("handleSend");
-      expect(content).toContain("inputText");
+      if (content.includes("conversation/[id]")) {
+        const conversationPath = path.join(projectRoot, "app/conversation/[id].tsx");
+        expect(fs.existsSync(conversationPath)).toBe(true);
+        const conversationContent = fs.readFileSync(conversationPath, "utf-8");
+        expect(conversationContent).toContain("MessageBubble");
+        expect(conversationContent).toContain("handleSend");
+        expect(conversationContent).toContain("messageText");
+      } else {
+        expect(content).toContain("MessageDetailScreen");
+        expect(content).toContain("MessageBubble");
+        expect(content).toContain("handleSend");
+        expect(content).toContain("inputText");
+      }
     });
   });
 
@@ -192,26 +201,26 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
 
   describe("Database Schema", () => {
     it("should have comprehensive schema with all tables", () => {
-      const schemaPath = path.join(projectRoot, "drizzle/schema.ts");
-      expect(fs.existsSync(schemaPath)).toBe(true);
-      
-      const content = fs.readFileSync(schemaPath, "utf-8");
-      expect(content).toContain("users");
-      expect(content).toContain("bundleDrafts");
-      expect(content).toContain("bundleTemplates");
-      expect(content).toContain("subscriptions");
-      expect(content).toContain("sessions");
-      expect(content).toContain("orders");
-      expect(content).toContain("productDeliveries");
-      expect(content).toContain("messages");
-      expect(content).toContain("clients");
+      const migrationPath = path.join(projectRoot, "supabase/migrations/001_initial_schema.sql");
+      expect(fs.existsSync(migrationPath)).toBe(true);
+
+      const content = fs.readFileSync(migrationPath, "utf-8");
+      expect(content).toContain("CREATE TABLE users");
+      expect(content).toContain("CREATE TABLE bundle_drafts");
+      expect(content).toContain("CREATE TABLE bundle_templates");
+      expect(content).toContain("CREATE TABLE subscriptions");
+      expect(content).toContain("CREATE TABLE training_sessions");
+      expect(content).toContain("CREATE TABLE orders");
+      expect(content).toContain("CREATE TABLE product_deliveries");
+      expect(content).toContain("CREATE TABLE messages");
+      expect(content).toContain("CREATE TABLE clients");
     });
 
     it("should have session tracking fields in subscriptions", () => {
-      const schemaPath = path.join(projectRoot, "drizzle/schema.ts");
-      const content = fs.readFileSync(schemaPath, "utf-8");
-      expect(content).toContain("sessionsIncluded");
-      expect(content).toContain("sessionsUsed");
+      const migrationPath = path.join(projectRoot, "supabase/migrations/001_initial_schema.sql");
+      const content = fs.readFileSync(migrationPath, "utf-8");
+      expect(content).toContain("sessions_included");
+      expect(content).toContain("sessions_used");
     });
   });
 

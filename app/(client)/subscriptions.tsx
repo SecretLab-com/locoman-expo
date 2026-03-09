@@ -8,18 +8,21 @@ import {
   Modal,
   Pressable,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { trpc } from "@/lib/trpc";
 
 type SubscriptionStatus = "active" | "paused" | "cancelled" | "expired";
 
 type Subscription = {
-  id: number;
-  bundleId: number;
+  id: string;
+  bundleId?: string;
   bundleTitle: string;
   trainerName: string;
   price: string;
@@ -33,57 +36,51 @@ type Subscription = {
   checkInsUsed: number;
 };
 
-// Mock data
-const MOCK_SUBSCRIPTIONS: Subscription[] = [
-  {
-    id: 1,
-    bundleId: 1,
-    bundleTitle: "Weight Loss Program",
-    trainerName: "Coach Mike",
-    price: "149.99",
-    cadence: "monthly",
-    status: "active",
-    nextBillingDate: new Date(Date.now() + 15 * 86400000),
-    startDate: new Date(Date.now() - 45 * 86400000),
-    sessionsIncluded: 8,
-    sessionsUsed: 5,
-    checkInsIncluded: 4,
-    checkInsUsed: 2,
-  },
-  {
-    id: 2,
-    bundleId: 2,
-    bundleTitle: "Nutrition Coaching",
-    trainerName: "Coach Sarah",
-    price: "79.99",
-    cadence: "monthly",
-    status: "paused",
-    nextBillingDate: new Date(Date.now() + 30 * 86400000),
-    startDate: new Date(Date.now() - 60 * 86400000),
-    sessionsIncluded: 4,
-    sessionsUsed: 4,
-    checkInsIncluded: 8,
-    checkInsUsed: 6,
-  },
-];
-
 export default function SubscriptionsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const overlayColor = colorScheme === "dark"
-    ? "rgba(0, 0, 0, 0.5)"
-    : "rgba(15, 23, 42, 0.18)";
-  const [subscriptions] = useState<Subscription[]>(MOCK_SUBSCRIPTIONS);
-  const [refreshing, setRefreshing] = useState(false);
+  const overlayColor = "rgba(0,0,0,0.85)";
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // Pull to refresh
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setRefreshing(false);
-  };
+  // Fetch real subscriptions
+  const { data: rawSubscriptions, isLoading, refetch, isRefetching } = trpc.subscriptions.mySubscriptions.useQuery();
+  const pauseSubscription = trpc.subscriptions.pause.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowDetailModal(false);
+    },
+  });
+  const resumeSubscription = trpc.subscriptions.resume.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowDetailModal(false);
+    },
+  });
+  const cancelSubscription = trpc.subscriptions.cancel.useMutation({
+    onSuccess: () => {
+      refetch();
+      setShowDetailModal(false);
+    },
+  });
+
+  // Map API data to UI type
+  const subscriptions: Subscription[] = (rawSubscriptions || []).map((sub: any) => ({
+    id: sub.id,
+    bundleId: sub.bundleDraftId,
+    bundleTitle: sub.bundleTitle || sub.title || "Subscription",
+    trainerName: sub.trainerName || "Trainer",
+    price: sub.price || "0.00",
+    cadence: sub.subscriptionType === "weekly" ? "weekly" : "monthly",
+    status: (sub.status || "active") as SubscriptionStatus,
+    nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : new Date(Date.now() + 30 * 86400000),
+    startDate: new Date(sub.startDate || sub.createdAt),
+    sessionsIncluded: sub.sessionsIncluded || 0,
+    sessionsUsed: sub.sessionsUsed || 0,
+    checkInsIncluded: sub.checkInsIncluded || 0,
+    checkInsUsed: sub.checkInsUsed || 0,
+  }));
+  const isMutating = pauseSubscription.isPending || resumeSubscription.isPending || cancelSubscription.isPending;
 
   // Get status color
   const getStatusColor = (status: SubscriptionStatus) => {
@@ -119,9 +116,13 @@ export default function SubscriptionsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Pause",
-          onPress: () => {
-            // TODO: Pause subscription via tRPC
-            setShowDetailModal(false);
+          onPress: async () => {
+            try {
+              await pauseSubscription.mutateAsync({ id: subscription.id });
+            } catch (error) {
+              console.error("Failed to pause subscription:", error);
+              Alert.alert("Error", "Unable to pause subscription. Please try again.");
+            }
           },
         },
       ]
@@ -137,9 +138,13 @@ export default function SubscriptionsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Resume",
-          onPress: () => {
-            // TODO: Resume subscription via tRPC
-            setShowDetailModal(false);
+          onPress: async () => {
+            try {
+              await resumeSubscription.mutateAsync({ id: subscription.id });
+            } catch (error) {
+              console.error("Failed to resume subscription:", error);
+              Alert.alert("Error", "Unable to resume subscription. Please try again.");
+            }
           },
         },
       ]
@@ -156,9 +161,13 @@ export default function SubscriptionsScreen() {
         {
           text: "Cancel Subscription",
           style: "destructive",
-          onPress: () => {
-            // TODO: Cancel subscription via tRPC
-            setShowDetailModal(false);
+          onPress: async () => {
+            try {
+              await cancelSubscription.mutateAsync({ id: subscription.id });
+            } catch (error) {
+              console.error("Failed to cancel subscription:", error);
+              Alert.alert("Error", "Unable to cancel subscription. Please try again.");
+            }
           },
         },
       ]
@@ -189,11 +198,17 @@ export default function SubscriptionsScreen() {
         </View>
       </View>
 
+      {isLoading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading subscriptions...</Text>
+        </View>
+      ) : (
       <ScrollView
         className="flex-1 px-4"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
         }
       >
         {subscriptions.length === 0 ? (
@@ -312,6 +327,7 @@ export default function SubscriptionsScreen() {
         {/* Bottom padding */}
         <View className="h-24" />
       </ScrollView>
+      )}
 
       {/* Subscription Detail Modal */}
       <Modal
@@ -321,11 +337,14 @@ export default function SubscriptionsScreen() {
         onRequestClose={() => setShowDetailModal(false)}
       >
         <Pressable
-          className="flex-1 justify-end"
           onPress={() => setShowDetailModal(false)}
-          style={{ backgroundColor: overlayColor }}
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}
         >
-          <View className="bg-background rounded-t-3xl max-h-[85%]">
+          <SwipeDownSheet
+            visible={showDetailModal}
+            onClose={() => setShowDetailModal(false)}
+            className="bg-background rounded-t-3xl max-h-[85%]"
+          >
             {selectedSubscription && (
               <ScrollView>
                 <View className="p-6">
@@ -434,6 +453,7 @@ export default function SubscriptionsScreen() {
                     {selectedSubscription.status === "active" && (
                       <TouchableOpacity
                         onPress={() => handlePause(selectedSubscription)}
+                        disabled={isMutating}
                         className="bg-warning/10 py-4 rounded-xl items-center border border-warning/30"
                       >
                         <Text className="text-warning font-semibold">Pause Subscription</Text>
@@ -443,6 +463,7 @@ export default function SubscriptionsScreen() {
                     {selectedSubscription.status === "paused" && (
                       <TouchableOpacity
                         onPress={() => handleResume(selectedSubscription)}
+                        disabled={isMutating}
                         className="bg-primary py-4 rounded-xl items-center"
                       >
                         <Text className="text-white font-semibold">Resume Subscription</Text>
@@ -452,6 +473,7 @@ export default function SubscriptionsScreen() {
                     {(selectedSubscription.status === "active" || selectedSubscription.status === "paused") && (
                       <TouchableOpacity
                         onPress={() => handleCancel(selectedSubscription)}
+                        disabled={isMutating}
                         className="bg-error/10 py-4 rounded-xl items-center border border-error/30"
                       >
                         <Text className="text-error font-semibold">Cancel Subscription</Text>
@@ -468,7 +490,7 @@ export default function SubscriptionsScreen() {
                 </View>
               </ScrollView>
             )}
-          </View>
+          </SwipeDownSheet>
         </Pressable>
       </Modal>
     </ScreenContainer>

@@ -11,18 +11,19 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { trpc } from "@/lib/trpc";
 
 type DeliveryStatus = "pending" | "ready" | "delivered" | "confirmed" | "disputed";
 
 type Delivery = {
-  id: number;
+  id: string;
   trainerName: string;
   clientName: string;
   productName: string;
   quantity: number;
   status: DeliveryStatus;
   method: string;
-  scheduledDate: string;
+  scheduledDate: string | null;
 };
 
 const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
@@ -33,71 +34,60 @@ const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
   { key: "disputed", label: "Disputed" },
 ];
 
-// Mock data
-const MOCK_DELIVERIES: Delivery[] = [
-  {
-    id: 1,
-    trainerName: "Sarah Johnson",
-    clientName: "John Doe",
-    productName: "Protein Powder",
-    quantity: 2,
-    status: "pending",
-    method: "In Person",
-    scheduledDate: "2026-01-26",
-  },
-  {
-    id: 2,
-    trainerName: "Mike Chen",
-    clientName: "Jane Smith",
-    productName: "Pre-Workout",
-    quantity: 1,
-    status: "ready",
-    method: "Locker",
-    scheduledDate: "2026-01-25",
-  },
-  {
-    id: 3,
-    trainerName: "Emily Davis",
-    clientName: "Alex Rivera",
-    productName: "BCAA",
-    quantity: 3,
-    status: "delivered",
-    method: "Shipped",
-    scheduledDate: "2026-01-24",
-  },
-  {
-    id: 4,
-    trainerName: "Sarah Johnson",
-    clientName: "Chris Lee",
-    productName: "Creatine",
-    quantity: 1,
-    status: "disputed",
-    method: "Front Desk",
-    scheduledDate: "2026-01-23",
-  },
-];
-
 export default function ManagerDeliveriesScreen() {
   const colors = useColors();
   const [activeTab, setActiveTab] = useState<DeliveryStatus | "all">("all");
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [deliveries] = useState<Delivery[]>(MOCK_DELIVERIES);
-
-  const filteredDeliveries = deliveries.filter((d) => {
-    const matchesTab = activeTab === "all" || d.status === activeTab;
-    const matchesSearch =
-      searchQuery === "" ||
-      d.trainerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.productName.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesTab && matchesSearch;
+  const deliveriesQuery = trpc.admin.deliveries.useQuery({
+    limit: 200,
+    offset: 0,
+    status: activeTab === "all" ? undefined : activeTab,
+    search: searchQuery.trim() || undefined,
   });
+
+  const deliveries: Delivery[] = ((deliveriesQuery.data as any)?.deliveries || []).map((delivery: any) => ({
+    id: String(delivery.id),
+    trainerName: delivery.trainerName || "Unknown Trainer",
+    clientName: delivery.clientName || "Unknown Client",
+    productName: delivery.productName || "Product",
+    quantity: delivery.quantity || 0,
+    status: (delivery.status || "pending") as DeliveryStatus,
+    method: delivery.deliveryMethod || "in_person",
+    scheduledDate: delivery.scheduledDate || null,
+  }));
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    await deliveriesQuery.refetch();
+    setRefreshing(false);
+  }, [deliveriesQuery]);
+
+  const formatMethod = (method: string) => {
+    switch (method) {
+      case "in_person":
+        return "In Person";
+      case "locker":
+        return "Locker";
+      case "front_desk":
+        return "Front Desk";
+      case "shipped":
+        return "Shipped";
+      default:
+        return method;
+    }
+  };
+
+  const formatDate = (value: string | null) => {
+    if (!value) return "Not scheduled";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Not scheduled";
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
 
   const getStatusColor = (status: DeliveryStatus) => {
     switch (status) {
@@ -156,11 +146,11 @@ export default function ManagerDeliveriesScreen() {
         </View>
         <View className="flex-row justify-between mb-1">
           <Text className="text-muted text-sm">Method:</Text>
-          <Text className="text-foreground text-sm">{item.method}</Text>
+          <Text className="text-foreground text-sm">{formatMethod(item.method)}</Text>
         </View>
         <View className="flex-row justify-between">
           <Text className="text-muted text-sm">Scheduled:</Text>
-          <Text className="text-foreground text-sm">{item.scheduledDate}</Text>
+          <Text className="text-foreground text-sm">{formatDate(item.scheduledDate)}</Text>
         </View>
       </View>
     </View>
@@ -174,6 +164,8 @@ export default function ManagerDeliveriesScreen() {
           <TouchableOpacity
             onPress={() => router.back()}
             className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
@@ -213,7 +205,11 @@ export default function ManagerDeliveriesScreen() {
             onChangeText={setSearchQuery}
           />
           {searchQuery !== "" && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
               <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
             </TouchableOpacity>
           )}
@@ -229,6 +225,8 @@ export default function ManagerDeliveriesScreen() {
               activeTab === tab.key ? "border-primary" : "border-transparent"
             }`}
             onPress={() => setActiveTab(tab.key)}
+            accessibilityRole="button"
+            accessibilityLabel={`Filter by ${tab.label}`}
           >
             <Text
               className={`text-sm font-medium ${
@@ -243,17 +241,24 @@ export default function ManagerDeliveriesScreen() {
 
       {/* Deliveries List */}
       <FlatList
-        data={filteredDeliveries}
+        data={deliveries}
         renderItem={renderDelivery}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 100 }}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
+            refreshing={refreshing || deliveriesQuery.isRefetching}
             onRefresh={onRefresh}
             tintColor={colors.primary}
           />
+        }
+        ListHeaderComponent={
+          deliveriesQuery.isLoading ? (
+            <View className="items-center py-6">
+              <Text className="text-muted">Loading deliveries...</Text>
+            </View>
+          ) : null
         }
         ListEmptyComponent={
           <View className="items-center py-12">
