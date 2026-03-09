@@ -24,11 +24,16 @@ export default function GetPaidScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { data: payoutSummary } = trpc.payments.payoutSummary.useQuery();
   const utils = trpc.useUtils();
+  const canRequestPayments = payoutSummary?.canRequestPayments === true;
+  const payoutStatusLabel = payoutSummary?.statusLabel || "Not Started";
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await utils.payments.payoutSummary.invalidate();
+      await Promise.all([
+        utils.payments.payoutSummary.invalidate(),
+        utils.payments.getOnboardingStatus.invalidate(),
+      ]);
     } finally {
       setIsRefreshing(false);
     }
@@ -62,15 +67,15 @@ export default function GetPaidScreen() {
                 padding: 16,
               } : undefined}
             >
-              {payoutSummary?.bankConnected ? (
+              {canRequestPayments ? (
                 <SurfaceCard>
                   <View className="flex-row items-center">
                     <View className="h-9 w-9 rounded-full items-center justify-center mr-3 bg-success/10">
                       <IconSymbol name="checkmark.circle.fill" size={18} color={colors.success} />
                     </View>
                     <View className="flex-1">
-                      <Text className="text-sm font-semibold text-foreground">Setup payment</Text>
-                      <Text className="text-xs text-muted mt-0.5">Merchant account active</Text>
+                      <Text className="text-sm font-semibold text-foreground">Payout account active</Text>
+                      <Text className="text-xs text-muted mt-0.5">{payoutSummary?.message}</Text>
                     </View>
                     <IconSymbol name="chevron.right" size={16} color={colors.muted} />
                   </View>
@@ -83,11 +88,13 @@ export default function GetPaidScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: "700", color: "#FBBF24" }}>Complete Setup to Get Paid</Text>
                     <Text style={{ fontSize: 12, color: "#FDE68A", marginTop: 3 }}>
-                      Finish merchant onboarding so clients can pay you
+                      {payoutStatusLabel}: {payoutSummary?.message || "Finish setup to receive payouts."}
                     </Text>
                   </View>
                   <View style={{ backgroundColor: "#FBBF24", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 }}>
-                    <Text style={{ fontSize: 13, fontWeight: "700", color: "#0A0A14" }}>Setup</Text>
+                    <Text style={{ fontSize: 13, fontWeight: "700", color: "#0A0A14" }}>
+                      {payoutSummary?.status === "not_started" ? "Start" : "View"}
+                    </Text>
                   </View>
                 </View>
               )}
@@ -101,19 +108,27 @@ export default function GetPaidScreen() {
                 <TouchableOpacity
                   className="rounded-xl border p-4 items-center justify-center"
                   style={{ ...TILE_STYLE, height: TILE_HEIGHT }}
-                  onPress={() => router.push("/(trainer)/request-payment?mode=link" as any)}
+                  onPress={() =>
+                    canRequestPayments
+                      ? router.push("/(trainer)/request-payment?mode=link" as any)
+                      : router.push("/(trainer)/payment-setup" as any)
+                  }
+                  disabled={false}
                   accessibilityRole="button"
                   accessibilityLabel="Create payment link"
                   testID="get-paid-card-link"
                 >
-                  <View className="w-12 h-12 rounded-full items-center justify-center mb-2" style={ICON_BG}>
+                  <View
+                    className="w-12 h-12 rounded-full items-center justify-center mb-2"
+                    style={ICON_BG}
+                  >
                     <IconSymbol name="link" size={22} color={colors.warning} />
                   </View>
                   <Text className="text-sm font-semibold text-center" style={{ color: "#F8FAFC" }} numberOfLines={1}>
                     Payment Link
                   </Text>
                   <Text className="text-[11px] mt-1 text-center" style={{ color: "#94A3B8" }} numberOfLines={1}>
-                    Share a checkout link
+                    {canRequestPayments ? "Share a checkout link" : "Complete payout setup first"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -122,7 +137,11 @@ export default function GetPaidScreen() {
                 <TouchableOpacity
                   className="rounded-xl border p-4 items-center justify-center"
                   style={{ ...TILE_STYLE, height: TILE_HEIGHT }}
-                  onPress={() => router.push("/(trainer)/request-payment?mode=tap" as any)}
+                  onPress={() =>
+                    canRequestPayments
+                      ? router.push("/(trainer)/request-payment?mode=tap" as any)
+                      : router.push("/(trainer)/payment-setup" as any)
+                  }
                   accessibilityRole="button"
                   accessibilityLabel="Start tap to pay"
                   testID="get-paid-card-tap"
@@ -134,7 +153,7 @@ export default function GetPaidScreen() {
                     Tap to Pay
                   </Text>
                   <Text className="text-[11px] mt-1 text-center" style={{ color: "#94A3B8" }} numberOfLines={1}>
-                    In-person contactless
+                    {canRequestPayments ? "In-person contactless" : "Complete payout setup first"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -148,10 +167,14 @@ export default function GetPaidScreen() {
               <Text className="text-sm text-muted mt-1">
                 {payoutSummary?.message || "Connect your bank account to receive payouts."}
               </Text>
+              <View className="flex-row items-center justify-between mt-3">
+                <Text className="text-muted text-sm">Status</Text>
+                <Text className="text-foreground font-semibold">{payoutStatusLabel}</Text>
+              </View>
               {payoutSummary?.destination ? (
                 <Text className="text-xs text-foreground mt-2">{payoutSummary.destination}</Text>
               ) : null}
-              <View className="flex-row items-center justify-between mt-3">
+              <View className="flex-row items-center justify-between mt-2">
                 <Text className="text-muted text-sm">Available</Text>
                 <Text className="text-foreground font-semibold">{formatGBP(payoutSummary?.available || 0)}</Text>
               </View>

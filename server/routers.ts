@@ -6,6 +6,17 @@ import {
   LOCO_ASSISTANT_NAME,
   LOCO_ASSISTANT_USER_ID,
 } from "../shared/const.js";
+import { isSupportedCountry } from "../shared/countries.js";
+import {
+  canEditPayoutKycIntake,
+  getPayoutKycStatusLabel,
+  getPayoutKycTrainerMessage,
+  isPayoutKycPaymentEnabled,
+  normalizePayoutKycStatus,
+  PAYOUT_KYC_ACCOUNT_HOLDER_TYPES,
+  PAYOUT_KYC_STATUSES,
+  type PayoutKycStatus,
+} from "../shared/payout-kyc.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import {
   getInviteEmailFailureUserMessage,
@@ -1262,6 +1273,280 @@ function getTrainerPayoutBankDetails(
     connectedAt,
     updatedAt: updatedAt || connectedAt,
   };
+}
+
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized : null;
+}
+
+function applyPayoutKycStatusTimestamps(
+  current: db.TrainerPayoutOnboarding | undefined,
+  status: PayoutKycStatus,
+  nowIso: string,
+) {
+  const next: Partial<db.InsertTrainerPayoutOnboarding> = {};
+  if (status === "details_submitted") {
+    next.submittedAt = current?.submittedAt || nowIso;
+  }
+  if (status === "verification_required") {
+    next.kycLinkSentAt = current?.kycLinkSentAt || nowIso;
+  }
+  if (
+    status === "under_review" ||
+    status === "active" ||
+    status === "more_information_required" ||
+    status === "verification_failed" ||
+    status === "account_rejected"
+  ) {
+    next.kycSubmittedAt = current?.kycSubmittedAt || nowIso;
+  }
+  if (status === "under_review") {
+    next.underReviewAt = current?.underReviewAt || nowIso;
+  }
+  if (status === "active") {
+    next.approvedAt = current?.approvedAt || nowIso;
+    next.activeAt = current?.activeAt || nowIso;
+  }
+  if (status === "more_information_required") {
+    next.additionalInfoRequiredAt = current?.additionalInfoRequiredAt || nowIso;
+  }
+  if (status === "verification_failed" || status === "account_rejected") {
+    next.rejectedAt = current?.rejectedAt || nowIso;
+  }
+  return next;
+}
+
+async function ensureTrainerPayoutOnboardingRecord(
+  trainer: db.User,
+): Promise<db.TrainerPayoutOnboarding | undefined> {
+  const existing = await db.getTrainerPayoutOnboarding(trainer.id);
+  if (existing) return existing;
+  const payoutBank = getTrainerPayoutBankDetails(trainer.metadata);
+  if (!payoutBank) return undefined;
+  const nowIso =
+    payoutBank.connectedAt || payoutBank.updatedAt || new Date().toISOString();
+  const onboarding = await db.upsertTrainerPayoutOnboarding({
+    trainerId: trainer.id,
+    status: "active",
+    approvedAt: nowIso,
+    activeAt: nowIso,
+    currentStepNote: "Migrated from legacy payout setup.",
+    blockingReason: null,
+  });
+  if (onboarding) {
+    await db.createTrainerPayoutOnboardingEvent({
+      onboardingId: onboarding.id,
+      trainerId: trainer.id,
+      eventType: "legacy_migrated",
+      previousStatus: null,
+      nextStatus: "active",
+      note: "Migrated from legacy payout setup.",
+      createdBy: trainer.id,
+    });
+  }
+  return onboarding;
+}
+
+async function getTrainerPayoutOnboardingBundle(trainerId: string) {
+  const trainer = await db.getUserById(trainerId);
+  if (!trainer) notFound("Trainer");
+  const payoutBank = getTrainerPayoutBankDetails(trainer.metadata);
+  const onboarding = await ensureTrainerPayoutOnboardingRecord(trainer);
+  const details = onboarding
+    ? await db.getTrainerPayoutOnboardingDetails(trainerId)
+    : undefined;
+  const events = onboarding
+    ? await db.listTrainerPayoutOnboardingEvents({
+        trainerId,
+        onboardingId: onboarding.id,
+        limit: 50,
+      })
+    : [];
+  const status = normalizePayoutKycStatus(onboarding?.status || "start_setup");
+  return {
+    trainer,
+    payoutBank,
+    onboarding: onboarding || null,
+    details: details || null,
+    events,
+    status,
+    statusLabel: getPayoutKycStatusLabel(status),
+    canEditIntake: canEditPayoutKycIntake(status),
+    canRequestPayments: isPayoutKycPaymentEnabled(status) || Boolean(payoutBank),
+  };
+}
+
+const payoutOnboardingIntakeSchema = z
+  .object({
+    accountHolderType: z.enum(PAYOUT_KYC_ACCOUNT_HOLDER_TYPES),
+    organizationName: z.string().trim().max(120).optional().nullable(),
+    countryOfRegistration: z.string().trim().max(120).optional().nullable(),
+    firstName: z.string().trim().max(120).optional().nullable(),
+    lastName: z.string().trim().max(120).optional().nullable(),
+    country: z.string().trim().max(120).optional().nullable(),
+    contactEmail: z.string().trim().max(160).optional().nullable(),
+    contactPhone: z.string().trim().max(40).optional().nullable(),
+  })
+  .superRefine((value, ctx) => {
+    const contactEmail = normalizeOptionalText(value.contactEmail);
+    if (!contactEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contactEmail"],
+        message: "Email address is required.",
+      });
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contactEmail"],
+        message: "Enter a valid email address.",
+      });
+    }
+    if (value.accountHolderType === "organization") {
+      if (!normalizeOptionalText(value.organizationName)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["organizationName"],
+          message: "Organization name is required.",
+        });
+      }
+      if (!isSupportedCountry(value.countryOfRegistration || "")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["countryOfRegistration"],
+          message: "Select a valid country or region of registration.",
+        });
+      }
+      return;
+    }
+    if (!normalizeOptionalText(value.firstName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["firstName"],
+        message: "First name is required.",
+      });
+    }
+    if (!normalizeOptionalText(value.lastName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["lastName"],
+        message: "Last name is required.",
+      });
+    }
+    if (!isSupportedCountry(value.country || "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["country"],
+        message: "Select a valid country or region.",
+      });
+    }
+  });
+
+async function saveTrainerPayoutOnboardingIntake(params: {
+  trainerId: string;
+  performedBy: string;
+  input: z.infer<typeof payoutOnboardingIntakeSchema>;
+  resetStatusToSubmitted: boolean;
+  eventType: db.TrainerPayoutOnboardingEventType;
+}) {
+  const trainer = await db.getUserById(params.trainerId);
+  if (!trainer) notFound("Trainer");
+  const current = await db.getTrainerPayoutOnboarding(params.trainerId);
+  const nowIso = new Date().toISOString();
+  const nextStatus: PayoutKycStatus =
+    params.resetStatusToSubmitted || !current
+      ? "details_submitted"
+      : normalizePayoutKycStatus(current.status);
+  const currentStepNote =
+    nextStatus === "details_submitted"
+      ? "Submitted to Bright.Blue for manual Adyen setup."
+      : current?.currentStepNote || "Payout onboarding details updated.";
+  const onboarding = await db.upsertTrainerPayoutOnboarding({
+    trainerId: params.trainerId,
+    accountHolderType: params.input.accountHolderType,
+    status: nextStatus,
+    currentStepNote,
+    blockingReason:
+      nextStatus === "details_submitted" ? null : current?.blockingReason || null,
+    createdBy: current?.createdBy || params.performedBy,
+    updatedBy: params.performedBy,
+    ...applyPayoutKycStatusTimestamps(current, nextStatus, nowIso),
+  });
+  if (!onboarding) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Unable to save payout onboarding.",
+    });
+  }
+  await db.upsertTrainerPayoutOnboardingDetails({
+    onboardingId: onboarding.id,
+    trainerId: params.trainerId,
+    organizationName:
+      params.input.accountHolderType === "organization"
+        ? normalizeOptionalText(params.input.organizationName)
+        : null,
+    countryOfRegistration:
+      params.input.accountHolderType === "organization"
+        ? normalizeOptionalText(params.input.countryOfRegistration)
+        : null,
+    firstName:
+      params.input.accountHolderType === "individual"
+        ? normalizeOptionalText(params.input.firstName)
+        : null,
+    lastName:
+      params.input.accountHolderType === "individual"
+        ? normalizeOptionalText(params.input.lastName)
+        : null,
+    country:
+      params.input.accountHolderType === "individual"
+        ? normalizeOptionalText(params.input.country)
+        : null,
+    contactEmail: normalizeOptionalText(params.input.contactEmail),
+    contactPhone: normalizeOptionalText(params.input.contactPhone),
+  });
+  await db.createTrainerPayoutOnboardingEvent({
+    onboardingId: onboarding.id,
+    trainerId: params.trainerId,
+    eventType: params.eventType,
+    previousStatus: current?.status || null,
+    nextStatus,
+    note: currentStepNote,
+    metadata: {
+      accountHolderType: params.input.accountHolderType,
+    },
+    createdBy: params.performedBy,
+  });
+  await db.logUserActivity({
+    targetUserId: params.trainerId,
+    performedBy: params.performedBy,
+    action:
+      params.eventType === "submitted"
+        ? "payout_kyc_submitted"
+        : "payout_kyc_details_updated",
+    previousValue: current?.status || "none",
+    newValue: nextStatus,
+    notes: `account_holder_type:${params.input.accountHolderType}`,
+  });
+  const managerIds = await db.getUserIdsByRoles(["manager", "coordinator"]);
+  if (managerIds.length > 0) {
+    await sendPushToUsers(managerIds, {
+      title:
+        params.eventType === "submitted"
+          ? "New payout onboarding"
+          : "Payout onboarding updated",
+      body:
+        params.eventType === "submitted"
+          ? `${trainer.name || trainer.email || "A trainer"} submitted payout onboarding details.`
+          : `${trainer.name || trainer.email || "A trainer"} updated payout onboarding details.`,
+      data: {
+        type: "payout_kyc_submission",
+        trainerId: params.trainerId,
+        status: nextStatus,
+      },
+    });
+  }
+  return getTrainerPayoutOnboardingBundle(params.trainerId);
 }
 
 function getGoogleCalendarIntegration(
@@ -2522,6 +2807,7 @@ export const appRouter = router({
         z.object({
           title: z.string().min(1).max(255),
           description: z.string().optional(),
+          imageUrl: z.string().optional(),
           type: z.enum([
             "one_off_session",
             "multi_session_package",
@@ -2539,6 +2825,7 @@ export const appRouter = router({
           input as {
             title: string;
             description?: string;
+            imageUrl?: string;
             type: OfferType;
             priceMinor: number;
             included?: string[];
@@ -2552,6 +2839,7 @@ export const appRouter = router({
           trainerId: ctx.user.id,
           title: draft.title,
           description: draft.description,
+          imageUrl: draft.imageUrl,
           price: draft.price,
           cadence: draft.cadence as "one_time" | "weekly" | "monthly",
           servicesJson: draft.servicesJson,
@@ -2571,6 +2859,7 @@ export const appRouter = router({
           id: z.string(),
           title: z.string().min(1).max(255).optional(),
           description: z.string().optional(),
+          imageUrl: z.string().optional(),
           type: z
             .enum([
               "one_off_session",
@@ -2593,6 +2882,7 @@ export const appRouter = router({
         const mapped = mapOfferInputToBundleDraft({
           title: input.title || bundle.title,
           description: input.description ?? bundle.description ?? undefined,
+          imageUrl: input.imageUrl ?? bundle.imageUrl ?? undefined,
           type: (input.type || mapBundleToOffer(bundle).type) as OfferType,
           priceMinor:
             input.priceMinor ??
@@ -2610,6 +2900,7 @@ export const appRouter = router({
         await db.updateBundleDraft(input.id, {
           title: mapped.title,
           description: mapped.description,
+          imageUrl: mapped.imageUrl,
           price: mapped.price,
           cadence: mapped.cadence as "one_time" | "weekly" | "monthly",
           servicesJson: mapped.servicesJson,
@@ -8077,55 +8368,284 @@ export const appRouter = router({
       return Array.from(seen.values());
     }),
 
+    getOnboardingStatus: trainerProcedure.query(async ({ ctx }) => {
+      const bundle = await getTrainerPayoutOnboardingBundle(ctx.user.id);
+      return {
+        trainer: {
+          id: bundle.trainer.id,
+          name: bundle.trainer.name,
+          email: bundle.trainer.email,
+          phone: bundle.trainer.phone,
+        },
+        payoutBank: bundle.payoutBank,
+        onboarding: bundle.onboarding,
+        details: bundle.details,
+        events: bundle.events,
+        status: bundle.status,
+        statusLabel: bundle.statusLabel,
+        statusMessage: getPayoutKycTrainerMessage(bundle.status),
+        canEditIntake: bundle.canEditIntake,
+        canRequestPayments: bundle.canRequestPayments,
+      };
+    }),
+
+    submitOnboardingIntake: trainerProcedure
+      .input(payoutOnboardingIntakeSchema)
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getTrainerPayoutOnboarding(ctx.user.id);
+        if (current && !canEditPayoutKycIntake(current.status)) {
+          forbidden("This onboarding request can no longer be edited by the trainer.");
+        }
+        return saveTrainerPayoutOnboardingIntake({
+          trainerId: ctx.user.id,
+          performedBy: ctx.user.id,
+          input,
+          resetStatusToSubmitted: true,
+          eventType: "submitted",
+        });
+      }),
+
+    updateOnboardingIntake: trainerProcedure
+      .input(payoutOnboardingIntakeSchema)
+      .mutation(async ({ ctx, input }) => {
+        const current = await db.getTrainerPayoutOnboarding(ctx.user.id);
+        if (current && !canEditPayoutKycIntake(current.status)) {
+          forbidden("This onboarding request can no longer be edited by the trainer.");
+        }
+        const shouldReset =
+          !current ||
+          normalizePayoutKycStatus(current.status) === "start_setup" ||
+          normalizePayoutKycStatus(current.status) === "more_information_required" ||
+          normalizePayoutKycStatus(current.status) === "verification_failed";
+        return saveTrainerPayoutOnboardingIntake({
+          trainerId: ctx.user.id,
+          performedBy: ctx.user.id,
+          input,
+          resetStatusToSubmitted: shouldReset,
+          eventType: shouldReset ? "submitted" : "details_updated",
+        });
+      }),
+
+    kycSummary: managerProcedure.query(async () => {
+      return db.getTrainerPayoutOnboardingSummary();
+    }),
+
+    listOnboardingRequests: managerProcedure
+      .input(
+        z
+          .object({
+            status: z
+              .union([z.literal("all"), z.enum(PAYOUT_KYC_STATUSES)])
+              .optional(),
+            search: z.string().optional(),
+            limit: z.number().int().min(1).max(500).optional(),
+            offset: z.number().int().min(0).optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        return db.listTrainerPayoutOnboardings({
+          status: input?.status,
+          search: input?.search,
+          limit: input?.limit,
+          offset: input?.offset,
+        });
+      }),
+
+    getOnboardingRequest: managerProcedure
+      .input(z.object({ trainerId: z.string() }))
+      .query(async ({ input }) => {
+        return getTrainerPayoutOnboardingBundle(input.trainerId);
+      }),
+
+    updateOnboardingStatus: managerProcedure
+      .input(
+        z.object({
+          trainerId: z.string(),
+          status: z.enum(PAYOUT_KYC_STATUSES),
+          note: z.string().optional(),
+          blockingReason: z.string().optional(),
+          adyenAccountHolderId: z.string().optional(),
+          adyenLegalEntityId: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const trainer = await db.getUserById(input.trainerId);
+        if (!trainer || trainer.role !== "trainer") notFound("Trainer");
+        const current = await ensureTrainerPayoutOnboardingRecord(trainer);
+        const nowIso = new Date().toISOString();
+        const onboarding = await db.upsertTrainerPayoutOnboarding({
+          trainerId: trainer.id,
+          accountHolderType:
+            (current?.accountHolderType as any) || null,
+          status: input.status,
+          currentStepNote:
+            normalizeOptionalText(input.note) ||
+            current?.currentStepNote ||
+            getPayoutKycTrainerMessage(input.status),
+          blockingReason:
+            input.status === "more_information_required" ||
+            input.status === "verification_failed" ||
+            input.status === "account_rejected"
+              ? normalizeOptionalText(input.blockingReason)
+              : null,
+          adyenAccountHolderId:
+            normalizeOptionalText(input.adyenAccountHolderId) ||
+            current?.adyenAccountHolderId ||
+            null,
+          adyenLegalEntityId:
+            normalizeOptionalText(input.adyenLegalEntityId) ||
+            current?.adyenLegalEntityId ||
+            null,
+          createdBy: current?.createdBy || ctx.user.id,
+          updatedBy: ctx.user.id,
+          ...applyPayoutKycStatusTimestamps(current, input.status, nowIso),
+        });
+        if (!onboarding) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Unable to update onboarding status.",
+          });
+        }
+        await db.createTrainerPayoutOnboardingEvent({
+          onboardingId: onboarding.id,
+          trainerId: trainer.id,
+          eventType: "status_changed",
+          previousStatus: current?.status || null,
+          nextStatus: input.status,
+          note:
+            normalizeOptionalText(input.note) ||
+            `Status changed to ${getPayoutKycStatusLabel(input.status)}.`,
+          metadata: {
+            blockingReason: normalizeOptionalText(input.blockingReason),
+          },
+          createdBy: ctx.user.id,
+        });
+        await db.logUserActivity({
+          targetUserId: trainer.id,
+          performedBy: ctx.user.id,
+          action: "payout_kyc_status_changed",
+          previousValue: current?.status || "none",
+          newValue: input.status,
+          notes: normalizeOptionalText(input.note),
+        });
+        await sendPushToUsers([trainer.id], {
+          title: "Payout onboarding update",
+          body: `Your payout setup status is now ${getPayoutKycStatusLabel(input.status)}.`,
+          data: {
+            type: "payout_kyc_status",
+            trainerId: trainer.id,
+            status: input.status,
+          },
+        });
+        return getTrainerPayoutOnboardingBundle(trainer.id);
+      }),
+
+    addOnboardingNote: managerProcedure
+      .input(
+        z.object({
+          trainerId: z.string(),
+          note: z.string().min(1).max(500),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const trainer = await db.getUserById(input.trainerId);
+        if (!trainer || trainer.role !== "trainer") notFound("Trainer");
+        const current = await ensureTrainerPayoutOnboardingRecord(trainer);
+        if (!current) {
+          forbidden("The trainer has not submitted a payout onboarding request yet.");
+        }
+        const onboarding = await db.upsertTrainerPayoutOnboarding({
+          trainerId: trainer.id,
+          accountHolderType: current.accountHolderType,
+          status: current.status,
+          currentStepNote: input.note.trim(),
+          blockingReason: current.blockingReason,
+          adyenAccountHolderId: current.adyenAccountHolderId,
+          adyenLegalEntityId: current.adyenLegalEntityId,
+          createdBy: current.createdBy,
+          updatedBy: ctx.user.id,
+        });
+        if (!onboarding) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Unable to save onboarding note.",
+          });
+        }
+        await db.createTrainerPayoutOnboardingEvent({
+          onboardingId: onboarding.id,
+          trainerId: trainer.id,
+          eventType: "note",
+          previousStatus: current.status,
+          nextStatus: current.status,
+          note: input.note.trim(),
+          createdBy: ctx.user.id,
+        });
+        await db.logUserActivity({
+          targetUserId: trainer.id,
+          performedBy: ctx.user.id,
+          action: "payout_kyc_note_added",
+          previousValue: current.status,
+          newValue: current.status,
+          notes: input.note.trim(),
+        });
+        return getTrainerPayoutOnboardingBundle(trainer.id);
+      }),
+
     payoutSummary: trainerProcedure.query(async ({ ctx }) => {
       const earnings = await db.getEarningsSummary(ctx.user.id);
       const available = Math.max(
         (earnings.total || 0) - (earnings.pending || 0),
         0,
       );
-      const trainer = await db.getUserById(ctx.user.id);
-      const payoutBank = getTrainerPayoutBankDetails(trainer?.metadata);
-      const destination = payoutBank
-        ? `${payoutBank.bankName} ••••${payoutBank.accountNumberLast4}`
+      const bundle = await getTrainerPayoutOnboardingBundle(ctx.user.id);
+      const destination = bundle.payoutBank
+        ? `${bundle.payoutBank.bankName} ••••${bundle.payoutBank.accountNumberLast4}`
         : null;
+      const canRequestPayments = bundle.canRequestPayments;
       return {
         available,
         pending: earnings.pending || 0,
         nextPayoutDate: null as string | null,
-        automatic: Boolean(payoutBank),
+        automatic: canRequestPayments,
         destination,
-        bankConnected: Boolean(payoutBank),
-        message: payoutBank
-          ? `Payouts are enabled to ${destination}.`
-          : "Connect your bank account to receive payouts.",
+        bankConnected: canRequestPayments,
+        status: bundle.status,
+        statusLabel: bundle.statusLabel,
+        canRequestPayments,
+        canEditIntake: bundle.canEditIntake,
+        currentStepNote: bundle.onboarding?.currentStepNote || null,
+        blockingReason: bundle.onboarding?.blockingReason || null,
+        message:
+          canRequestPayments && destination
+            ? `Payouts are enabled to ${destination}.`
+            : getPayoutKycTrainerMessage(bundle.status),
       };
     }),
 
     payoutSetup: trainerProcedure.query(async ({ ctx }) => {
-      const trainer = await db.getUserById(ctx.user.id);
-      if (!trainer) notFound("Trainer");
-
-      const payoutBank = getTrainerPayoutBankDetails(trainer.metadata);
-      if (!payoutBank) {
-        return {
-          connected: false,
-          accountHolderName: null,
-          bankName: null,
-          sortCode: null,
-          accountNumberLast4: null,
-          connectedAt: null,
-          updatedAt: null,
-        };
-      }
-
+      const bundle = await getTrainerPayoutOnboardingBundle(ctx.user.id);
+      const payoutBank = bundle.payoutBank;
       return {
-        connected: true,
-        accountHolderName: payoutBank.accountHolderName,
-        bankName: payoutBank.bankName,
-        sortCode: payoutBank.sortCode,
-        accountNumberLast4: payoutBank.accountNumberLast4,
-        connectedAt: payoutBank.connectedAt,
-        updatedAt: payoutBank.updatedAt,
+        connected: bundle.canRequestPayments,
+        status: bundle.status,
+        statusLabel: bundle.statusLabel,
+        canEditIntake: bundle.canEditIntake,
+        currentStepNote: bundle.onboarding?.currentStepNote || null,
+        blockingReason: bundle.onboarding?.blockingReason || null,
+        accountHolderType: bundle.onboarding?.accountHolderType || null,
+        accountHolderName:
+          payoutBank?.accountHolderName ||
+          bundle.details?.organizationName ||
+          [bundle.details?.firstName, bundle.details?.lastName]
+            .filter(Boolean)
+            .join(" ") ||
+          null,
+        bankName: payoutBank?.bankName || null,
+        sortCode: payoutBank?.sortCode || null,
+        accountNumberLast4: payoutBank?.accountNumberLast4 || null,
+        connectedAt: payoutBank?.connectedAt || bundle.onboarding?.activeAt || null,
+        updatedAt: payoutBank?.updatedAt || bundle.onboarding?.updatedAt || null,
       };
     }),
 

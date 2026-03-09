@@ -1069,11 +1069,16 @@ export default function TrainerHomeScreen() {
     () => getSocialCardVariant(cachedSocialStatusEntry?.data),
     [cachedSocialStatusEntry?.data],
   );
+  const cachedSocialMembershipStatus = String(
+    cachedSocialStatusEntry?.data?.membership?.status || "",
+  ).toLowerCase();
   const shouldUseCachedSocialStatus =
     !socialStatus &&
     Boolean(cachedSocialStatusEntry?.data) &&
     (cachedSocialCardVariant === "connected" ||
       cachedSocialCardVariant === "active_member" ||
+      cachedSocialMembershipStatus === "banned" ||
+      cachedSocialMembershipStatus === "paused" ||
       isFreshSocialStatusCache(cachedSocialStatusEntry?.timestamp));
   const resolvedSocialStatus = socialStatus ||
     (shouldUseCachedSocialStatus ? cachedSocialStatusEntry?.data : null);
@@ -1176,8 +1181,13 @@ export default function TrainerHomeScreen() {
     );
 
   const showConnectedSocialCard = connectedSocialPlatforms.length > 0;
+  const socialMembershipStatus = String(
+    resolvedSocialStatus?.membership?.status || "",
+  ).toLowerCase();
   const isActiveSocialMember =
-    String(resolvedSocialStatus?.membership?.status || "").toLowerCase() === "active";
+    socialMembershipStatus === "active";
+  const isRestrictedSocialMember =
+    socialMembershipStatus === "banned" || socialMembershipStatus === "paused";
   const socialProfile = resolvedSocialStatus?.profile as any;
   const socialCommitment = resolvedSocialStatus?.commitment as any;
   const socialFollowers = Number(socialProfile?.followerCount || 0);
@@ -1369,6 +1379,37 @@ export default function TrainerHomeScreen() {
     .join(" · ");
   const showSocialCardSkeleton =
     !resolvedSocialStatus && (socialStatusLoading || !socialStatusCacheHydrated);
+  const shouldHideSocialHomeCard =
+    socialMembershipStatus === "banned" ||
+    socialMembershipStatus === "uninvited" ||
+    (!showConnectedSocialCard &&
+      !isActiveSocialMember &&
+      !hasPendingSocialInvite &&
+      socialStatusCacheHydrated &&
+      !socialStatusLoading);
+  const socialHomeCardTitle = showConnectedSocialCard
+    ? "Your social progress at a glance"
+    : socialMembershipStatus === "banned"
+      ? "Social access removed."
+      : socialMembershipStatus === "paused"
+        ? "Social access paused."
+        : isActiveSocialMember
+          ? "You’re in Social Posts."
+          : hasPendingSocialInvite
+            ? "You’ve been invited to Social Posts."
+            : "Get Paid for Social Posts.";
+  const socialHomeCardSubtitle = showConnectedSocialCard
+    ? displaySocialStatusLine
+    : socialMembershipStatus === "banned"
+      ? "Your social program access is currently banned. Please contact your coordinator if this looks incorrect."
+      : socialMembershipStatus === "paused"
+        ? "Your social program access is paused right now. Your coordinator can reactivate it when you are ready."
+        : isActiveSocialMember
+          ? "Connect your first social channel to unlock campaign tracking, recent posts, and progress metrics."
+          : hasPendingSocialInvite
+            ? `Congratulations${resolvedSocialStatus?.invitedBy?.name ? `, ${resolvedSocialStatus.invitedBy.name} invited you` : ""} to join this exclusive creator program.`
+            : "This is an exclusive invite-only program for trainers selected to post and earn from social campaigns.";
+  const socialHomeCardAccessibilityLabel = `${socialHomeCardTitle} ${socialHomeCardSubtitle}`.trim();
   const socialVizAnimationKey = useMemo(
     () =>
       JSON.stringify({
@@ -1826,6 +1867,7 @@ export default function TrainerHomeScreen() {
   const totalEarned = formatGBPFromMinor(paymentStats?.totalPaidMinor || 0);
   const availableEarnings = formatGBPFromMinor(Math.round((payoutSummary?.available || 0) * 100));
   const pendingEarnings = formatGBPFromMinor(Math.round((payoutSummary?.pending || 0) * 100));
+  const payoutStatusLabel = payoutSummary?.statusLabel || (payoutSummary?.bankConnected ? "Active" : "Not Started");
   const firstName = useMemo(() => toFirstName(effectiveUser?.name), [effectiveUser?.name]);
 
   const quickActions = [
@@ -2146,7 +2188,7 @@ export default function TrainerHomeScreen() {
         )}
 
         <View className={SECTION_SPACING_CLASS}>
-          {showSocialCardSkeleton ? (
+          {shouldHideSocialHomeCard ? null : showSocialCardSkeleton ? (
             <SocialCardSkeleton />
           ) : !canNavigateSocialCard ? (
             <View testID="trainer-social-program-card">
@@ -2167,11 +2209,7 @@ export default function TrainerHomeScreen() {
                   }
                   activeOpacity={0.92}
                   accessibilityRole="button"
-                  accessibilityLabel={
-                    showConnectedSocialCard
-                      ? "View social progress"
-                      : "View social program"
-                  }
+                  accessibilityLabel={socialHomeCardAccessibilityLabel}
                   testID="trainer-social-card-body-link"
                   style={{
                     position: "absolute",
@@ -2242,23 +2280,11 @@ export default function TrainerHomeScreen() {
                         className="text-base font-semibold"
                         style={{ color: DASH.text }}
                       >
-                        {showConnectedSocialCard
-                          ? "Your social progress at a glance"
-                          : isActiveSocialMember
-                            ? "You’re in Social Posts."
-                            : hasPendingSocialInvite
-                              ? "You’ve been invited to Social Posts."
-                              : "Get Paid for Social Posts."}
+                        {socialHomeCardTitle}
                       </Text>
                     ) : null}
                     <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
-                      {showConnectedSocialCard
-                        ? displaySocialStatusLine
-                        : isActiveSocialMember
-                          ? "Connect your first social channel to unlock campaign tracking, recent posts, and progress metrics."
-                          : hasPendingSocialInvite
-                            ? `Congratulations${resolvedSocialStatus?.invitedBy?.name ? `, ${resolvedSocialStatus.invitedBy.name} invited you` : ""} to join this exclusive creator program.`
-                            : "This is an exclusive invite-only program for trainers selected to post and earn from social campaigns."}
+                      {socialHomeCardSubtitle}
                     </Text>
                     {showConnectedSocialCard ? (
                       <>
@@ -2488,9 +2514,7 @@ export default function TrainerHomeScreen() {
               accessibilityRole={canNavigateSocialCard ? "button" : undefined}
               accessibilityLabel={
                 canNavigateSocialCard
-                  ? showConnectedSocialCard
-                    ? "View social progress"
-                    : "View social program"
+                  ? socialHomeCardAccessibilityLabel
                   : undefined
               }
               testID="trainer-social-program-card"
@@ -2557,23 +2581,11 @@ export default function TrainerHomeScreen() {
                         className="text-base font-semibold"
                         style={{ color: DASH.text }}
                       >
-                        {showConnectedSocialCard
-                          ? "Your social progress at a glance"
-                          : isActiveSocialMember
-                            ? "You’re in Social Posts."
-                            : hasPendingSocialInvite
-                              ? "You’ve been invited to Social Posts."
-                              : "Get Paid for Social Posts."}
+                        {socialHomeCardTitle}
                       </Text>
                     )}
                     <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
-                      {showConnectedSocialCard
-                        ? displaySocialStatusLine
-                        : isActiveSocialMember
-                          ? "Connect your first social channel to unlock campaign tracking, recent posts, and progress metrics."
-                          : hasPendingSocialInvite
-                            ? `Congratulations${resolvedSocialStatus?.invitedBy?.name ? `, ${resolvedSocialStatus.invitedBy.name} invited you` : ""} to join this exclusive creator program.`
-                            : "This is an exclusive invite-only program for trainers selected to post and earn from social campaigns."}
+                      {socialHomeCardSubtitle}
                     </Text>
                     {showConnectedSocialCard ? (
                       <>
@@ -2849,6 +2861,15 @@ export default function TrainerHomeScreen() {
                   {payoutSummary?.nextPayoutDate || "—"}
                 </Text>
               </View>
+              <View className="flex-row items-center justify-between mt-2">
+                <Text style={{ color: DASH.muted }}>Payout setup</Text>
+                <Text className="font-semibold" style={{ color: DASH.text }}>
+                  {payoutStatusLabel}
+                </Text>
+              </View>
+              <Text className="text-xs mt-2" style={{ color: DASH.muted }}>
+                {payoutSummary?.message || "Complete your payout onboarding to start getting paid."}
+              </Text>
               {earningsExpanded ? (
                 <>
                   <View className="h-px my-3" style={{ backgroundColor: "rgba(255,255,255,0.10)" }} />

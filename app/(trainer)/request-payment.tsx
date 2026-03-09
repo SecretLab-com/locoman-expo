@@ -54,8 +54,11 @@ export default function RequestPaymentScreen() {
     environment: string;
   } | null>(null);
 
+  const { data: payoutSummary, isLoading: payoutLoading } =
+    trpc.payments.payoutSummary.useQuery();
   const { data: trainerServices = [] } = trpc.payments.trainerServices.useQuery();
   const utils = trpc.useUtils();
+  const canRequestPayments = payoutSummary?.canRequestPayments === true;
 
   const extraBundleServices = useMemo(() => {
     const suggestionsLower = new Set(SERVICE_SUGGESTIONS.map((s) => s.toLowerCase()));
@@ -97,6 +100,14 @@ export default function RequestPaymentScreen() {
 
   const handleSubmit = async () => {
     await haptics.light();
+    if (!canRequestPayments) {
+      showAlert(
+        "Complete payout setup",
+        payoutSummary?.message || "Finish your payout onboarding before requesting payments.",
+      );
+      router.push("/(trainer)/payment-setup" as any);
+      return;
+    }
     const value = parseFloat(amount);
     if (!value || value <= 0) {
       showAlert("Invalid amount", "Enter a valid amount in GBP.");
@@ -188,6 +199,38 @@ export default function RequestPaymentScreen() {
               </Text>
             </View>
           </View>
+
+          {!payoutLoading && !canRequestPayments ? (
+            <View className="px-4 mb-4">
+              <View
+                className="rounded-xl px-4 py-3"
+                style={{
+                  backgroundColor: "rgba(251,191,36,0.12)",
+                  borderWidth: 1,
+                  borderColor: "rgba(251,191,36,0.28)",
+                }}
+              >
+                <Text className="text-sm font-semibold" style={{ color: colors.warning }}>
+                  Payout setup required
+                </Text>
+                <Text className="text-sm text-muted mt-1">
+                  {payoutSummary?.message || "Finish your payout onboarding before requesting payments."}
+                </Text>
+                <TouchableOpacity
+                  className="mt-3 self-start rounded-full px-3 py-2"
+                  style={{ backgroundColor: colors.warning }}
+                  onPress={() => router.push("/(trainer)/payment-setup" as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open payout setup"
+                  testID="request-payment-open-payout-setup"
+                >
+                  <Text className="text-xs font-semibold" style={{ color: "#1C1306" }}>
+                    Open setup
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
 
           {/* Gold form card */}
           <View className="px-4 mb-4">
@@ -284,9 +327,12 @@ export default function RequestPaymentScreen() {
               {/* Submit button */}
               <TouchableOpacity
                 className="rounded-xl py-4 items-center"
-                style={{ backgroundColor: colors.warning }}
+                style={{
+                  backgroundColor: colors.warning,
+                  opacity: !canRequestPayments || isSubmitting ? 0.75 : 1,
+                }}
                 onPress={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !canRequestPayments}
                 accessibilityRole="button"
                 accessibilityLabel="Request payment"
                 testID="request-payment-submit"
@@ -295,7 +341,7 @@ export default function RequestPaymentScreen() {
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <Text className="font-semibold text-base" style={{ color: "#1C1306" }}>
-                    Request Payment
+                    {canRequestPayments ? "Request Payment" : "Setup required"}
                   </Text>
                 )}
               </TouchableOpacity>

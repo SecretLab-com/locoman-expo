@@ -111,6 +111,12 @@ export default function CoordinatorMoreScreen() {
       href: "/(coordinator)/social-management",
     },
     {
+      icon: "doc.text.fill",
+      title: "Payout KYC",
+      subtitle: "Track trainer payout onboarding and Adyen status",
+      href: "/(coordinator)/kyc-management",
+    },
+    {
       icon: "chart.line.uptrend.xyaxis",
       title: "Brand Dashboard",
       subtitle: "Campaign performance by brand and account",

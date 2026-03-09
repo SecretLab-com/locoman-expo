@@ -27,6 +27,9 @@
 - **Phyllo manual sync button**: The social detail screen's `Sync now` button now triggers the full backend sync path and refreshes status, recent posts, and campaign metrics queries after completion
 - **Phyllo V/MO persistence**: When Phyllo profile aggregates omit monthly views, imported content views now backfill `avgViewsPerMonth` and the trainer UI also falls back to recent-post view totals so the V/MO dial no longer stays at zero
 - **Connected services impressions**: The trainer social detail screen now folds imported recent-post views into per-platform connected-service stats, so YouTube impressions/month reflects synced post data instead of stale zero-valued profile metadata
+- **Payout onboarding workflow**: Trainers now complete an internal payout/KYC intake form instead of opening Adyen directly, trainers can track manual-first KYC state in-app, coordinators/managers can process and update KYC state from a dedicated queue, and social management now shows payout KYC summary/status alongside social metrics
+- **Adyen status coverage**: The payout/KYC flow now tracks and displays the full app-facing Adyen status set requested by product, including retryable failure states and final rejection states, with trainer/admin UI and docs aligned to that model
+- **Offer image generation**: The real trainer offer wizard now exposes AI image generation, and generated image URLs persist correctly through offer create/update reads instead of being confined to the legacy bundle editor path
 
 ## What's Left
 - **Campaign attribution tooling**: No dedicated admin/manual reprocessing control yet for large historical backfills

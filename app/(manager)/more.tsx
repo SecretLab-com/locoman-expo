@@ -94,6 +94,12 @@ export default function ManagerMoreScreen() {
       href: "/(manager)/social-management",
     },
     {
+      icon: "doc.text.fill",
+      title: "Payout KYC",
+      subtitle: "Track trainer payout onboarding and Adyen status",
+      href: "/(manager)/kyc-management",
+    },
+    {
       icon: "chart.line.uptrend.xyaxis",
       title: "Brand Dashboard",
       subtitle: "Campaign performance by brand and account",

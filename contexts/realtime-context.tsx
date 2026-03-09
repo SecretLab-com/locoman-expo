@@ -1,8 +1,9 @@
 import { useAuthContext } from "@/contexts/auth-context";
+import { offlineCache } from "@/lib/offline-cache";
 import { getSupabaseClient } from "@/lib/supabase-client";
 import { trpc } from "@/lib/trpc";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { createContext, useContext, useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 type RealtimeContextValue = {
   connected: boolean;
@@ -79,6 +80,26 @@ const TABLE_INVALIDATION_MAP: Record<string, (utils: ReturnType<typeof trpc.useU
   trainer_social_content_activity_daily: (utils) => {
     utils.socialProgram.recentPosts.invalidate();
   },
+  trainer_payout_onboardings: (utils) => {
+    utils.payments.getOnboardingStatus.invalidate();
+    utils.payments.payoutSummary.invalidate();
+    utils.payments.payoutSetup.invalidate();
+    utils.payments.kycSummary.invalidate();
+    utils.payments.listOnboardingRequests.invalidate();
+    utils.payments.getOnboardingRequest.invalidate();
+  },
+  trainer_payout_onboarding_details: (utils) => {
+    utils.payments.getOnboardingStatus.invalidate();
+    utils.payments.kycSummary.invalidate();
+    utils.payments.listOnboardingRequests.invalidate();
+    utils.payments.getOnboardingRequest.invalidate();
+  },
+  trainer_payout_onboarding_events: (utils) => {
+    utils.payments.getOnboardingStatus.invalidate();
+    utils.payments.kycSummary.invalidate();
+    utils.payments.listOnboardingRequests.invalidate();
+    utils.payments.getOnboardingRequest.invalidate();
+  },
 };
 
 const DEBOUNCE_MS = 200;
@@ -86,17 +107,17 @@ const DEBOUNCE_MS = 200;
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthContext();
   const utils = trpc.useUtils();
+  const [connected, setConnected] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const pendingTablesRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const connectedRef = useRef(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
       if (channelRef.current) {
         channelRef.current.unsubscribe();
         channelRef.current = null;
-        connectedRef.current = false;
+        setConnected(false);
       }
       return;
     }
@@ -126,50 +147,88 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       timerRef.current = setTimeout(flushInvalidations, DEBOUNCE_MS);
     };
 
-    const channel = supabase
-      .channel("realtime-invalidator")
-      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => scheduleInvalidation("products"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "bundle_drafts" }, () => scheduleInvalidation("bundle_drafts"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => scheduleInvalidation("orders"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "payment_sessions" }, () => scheduleInvalidation("payment_sessions"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => scheduleInvalidation("users"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "product_deliveries" }, () => scheduleInvalidation("product_deliveries"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "subscriptions" }, () => scheduleInvalidation("subscriptions"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "user_invitations" }, () => scheduleInvalidation("user_invitations"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "invitations" }, () => scheduleInvalidation("invitations"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => scheduleInvalidation("collections"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_profiles" }, () => scheduleInvalidation("trainer_social_profiles"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_metrics_daily" }, () => scheduleInvalidation("trainer_social_metrics_daily"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "trainer_campaign_metrics_daily" }, () => scheduleInvalidation("trainer_campaign_metrics_daily"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "social_event_notifications" }, () => scheduleInvalidation("social_event_notifications"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_contents" }, () => scheduleInvalidation("trainer_social_contents"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_content_activity_daily" }, () => scheduleInvalidation("trainer_social_content_activity_daily"))
-      .subscribe((status) => {
-        connectedRef.current = status === "SUBSCRIBED";
-        if (status === "SUBSCRIBED") {
-          console.log("[Realtime] Connected to Supabase Realtime");
-        } else if (status === "CHANNEL_ERROR") {
-          console.warn("[Realtime] Channel error");
-        } else if (status === "TIMED_OUT") {
-          console.warn("[Realtime] Connection timed out");
-        }
-      });
+    let isOnline = true;
+    let networkUnsubscribe: (() => void) | null = null;
 
-    channelRef.current = channel;
+    const unsubscribeChannel = () => {
+      if (!channelRef.current) return;
+      channelRef.current.unsubscribe();
+      channelRef.current = null;
+      setConnected(false);
+    };
+
+    const subscribeChannel = () => {
+      if (channelRef.current || !isOnline) return;
+      const channel = supabase
+        .channel("realtime-invalidator")
+        .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => scheduleInvalidation("products"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "bundle_drafts" }, () => scheduleInvalidation("bundle_drafts"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => scheduleInvalidation("orders"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "payment_sessions" }, () => scheduleInvalidation("payment_sessions"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => scheduleInvalidation("users"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "product_deliveries" }, () => scheduleInvalidation("product_deliveries"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "subscriptions" }, () => scheduleInvalidation("subscriptions"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "user_invitations" }, () => scheduleInvalidation("user_invitations"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "invitations" }, () => scheduleInvalidation("invitations"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => scheduleInvalidation("collections"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_profiles" }, () => scheduleInvalidation("trainer_social_profiles"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_metrics_daily" }, () => scheduleInvalidation("trainer_social_metrics_daily"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_campaign_metrics_daily" }, () => scheduleInvalidation("trainer_campaign_metrics_daily"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "social_event_notifications" }, () => scheduleInvalidation("social_event_notifications"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_contents" }, () => scheduleInvalidation("trainer_social_contents"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_content_activity_daily" }, () => scheduleInvalidation("trainer_social_content_activity_daily"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_payout_onboardings" }, () => scheduleInvalidation("trainer_payout_onboardings"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_payout_onboarding_details" }, () => scheduleInvalidation("trainer_payout_onboarding_details"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_payout_onboarding_events" }, () => scheduleInvalidation("trainer_payout_onboarding_events"))
+        .subscribe((status) => {
+          const nextConnected = status === "SUBSCRIBED";
+          setConnected(nextConnected);
+          if (status === "SUBSCRIBED") {
+            console.log("[Realtime] Connected to Supabase Realtime");
+          } else if (status === "CHANNEL_ERROR" && isOnline) {
+            console.warn("[Realtime] Channel error");
+          } else if (status === "TIMED_OUT" && isOnline) {
+            console.warn("[Realtime] Connection timed out");
+          }
+        });
+      channelRef.current = channel;
+    };
+
+    const initializeRealtime = async () => {
+      isOnline = await offlineCache.isOnline();
+      if (isOnline) {
+        subscribeChannel();
+      } else {
+        setConnected(false);
+      }
+
+      networkUnsubscribe = offlineCache.subscribeToNetworkChanges((online) => {
+        isOnline = online;
+        if (online) {
+          subscribeChannel();
+          return;
+        }
+        unsubscribeChannel();
+      });
+    };
+
+    void initializeRealtime();
 
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      channel.unsubscribe();
-      channelRef.current = null;
-      connectedRef.current = false;
+      if (networkUnsubscribe) {
+        networkUnsubscribe();
+        networkUnsubscribe = null;
+      }
+      unsubscribeChannel();
     };
   }, [isAuthenticated, utils]);
 
   return (
-    <RealtimeContext.Provider value={{ connected: connectedRef.current }}>
+    <RealtimeContext.Provider value={{ connected }}>
       {children}
     </RealtimeContext.Provider>
   );

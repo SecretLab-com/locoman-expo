@@ -53,14 +53,14 @@ without needing support.
 
 ## Example Status States
 
--   Draft / Not Started
--   Submitted to Bright.Blue
--   KYC Link Sent
--   KYC In Progress
--   Under Review
--   Approved
+-   Start setup
+-   Details submitted
+-   Verification required
+-   Under review
+-   More information required
 -   Active
--   Rejected / More Information Required
+-   Verification failed
+-   Account rejected
 
 This ensures transparency and reduces support requests.
 
@@ -148,27 +148,58 @@ verification.
   -----------------------------------------------------------------------
   Status                  Meaning                 Action
   ----------------------- ----------------------- -----------------------
-  Not Started             PT has not filled the   Prompt to start
+  Start setup             PT has not filled the   Prompt to start
                           form                    onboarding
 
-  Submitted               Basic details completed Bright.Blue initiates
-                                                  KYC
+  Details submitted       Basic details completed Bright.Blue initiates
+                                                 KYC manually
 
-  KYC Link Sent           Adyen link created      PT must complete
-                                                  verification
+  Verification required   Adyen verification link PT must complete
+                          sent / waiting on PT    verification
 
-  KYC In Progress         PT started but not      Await completion
-                          finished                
+  Under review            KYC submitted to Adyen  Await approval
 
-  Under Review            KYC submitted to Adyen  Await approval
+  More information        Adyen needs additional  Prompt PT to update
+  required                information             details / documents
 
-  Approved                Verification approved   Activate PT account
+  Active                  Verification approved   Platform access enabled
 
-  Active                  Fully onboarded         Platform access enabled
+  Verification failed     Documents or data were  Prompt PT to correct
+                          invalid                 and retry
 
-  Rejected / Info         Issue with KYC          Prompt PT to update
-  Required                                        details
+  Account rejected        Compliance failed       Final rejection /
+                                                  support follow-up
   -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+# Adyen Documentation Alignment
+
+Adyen's own verification docs describe lower-level verification and
+capability statuses such as:
+
+- `AWAITING_DATA`
+- `DATA_PROVIDED`
+- `PENDING`
+- `INVALID_DATA`
+- `RETRY_LIMIT_REACHED`
+- `PASSED`
+- `FAILED`
+
+For the Bright.Blue trainer app, these are mapped into simpler
+user-facing statuses:
+
+- `Start setup` covers no trainer intake submitted yet
+- `Details submitted` covers Bright.Blue receiving the trainer's intake
+- `Verification required` covers the Adyen verification step waiting on
+  the trainer
+- `Under review` maps to Adyen verification in progress / pending review
+- `More information required` maps to cases where Adyen requires more
+  data or remediation
+- `Verification failed` maps to retryable invalid verification outcomes
+- `Account rejected` maps to final compliance failure / non-retryable
+  rejection
+- `Active` maps to successful verification and payout activation
 
 ------------------------------------------------------------------------
 

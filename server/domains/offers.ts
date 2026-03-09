@@ -24,6 +24,7 @@ export type Offer = {
 export type CreateOfferInput = {
   title: string;
   description?: string;
+  imageUrl?: string;
   type: OfferType;
   priceMinor: number;
   included?: string[];
@@ -140,6 +141,7 @@ export function mapOfferInputToBundleDraft(input: CreateOfferInput) {
   return {
     title: input.title,
     description: input.description,
+    imageUrl: input.imageUrl,
     price: (input.priceMinor / 100).toFixed(2),
     cadence,
     servicesJson:

@@ -7,6 +7,11 @@
  */
 
 import { getServerSupabase } from "../lib/supabase";
+import { normalizePayoutKycStatus } from "../shared/payout-kyc.js";
+import type {
+  PayoutKycAccountHolderType,
+  PayoutKycStatus,
+} from "../shared/payout-kyc.js";
 import { ENV } from "./_core/env";
 
 // ============================================================================
@@ -769,6 +774,103 @@ export type InsertUserActivityLog = Partial<Omit<UserActivityLog, "id" | "create
   targetUserId: string;
   performedBy: string;
   action: string;
+};
+
+export type TrainerPayoutOnboardingEventType =
+  | "submitted"
+  | "details_updated"
+  | "status_changed"
+  | "note"
+  | "legacy_migrated";
+
+export type TrainerPayoutOnboarding = {
+  id: string;
+  trainerId: string;
+  accountHolderType: PayoutKycAccountHolderType | null;
+  status: PayoutKycStatus;
+  submittedAt: string | null;
+  kycLinkSentAt: string | null;
+  kycStartedAt: string | null;
+  kycSubmittedAt: string | null;
+  underReviewAt: string | null;
+  approvedAt: string | null;
+  activeAt: string | null;
+  rejectedAt: string | null;
+  additionalInfoRequiredAt: string | null;
+  adyenAccountHolderId: string | null;
+  adyenLegalEntityId: string | null;
+  currentStepNote: string | null;
+  blockingReason: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerPayoutOnboarding = Partial<
+  Omit<TrainerPayoutOnboarding, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+};
+
+export type TrainerPayoutOnboardingDetails = {
+  id: string;
+  onboardingId: string;
+  trainerId: string;
+  organizationName: string | null;
+  countryOfRegistration: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  country: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerPayoutOnboardingDetails = Partial<
+  Omit<TrainerPayoutOnboardingDetails, "id" | "createdAt" | "updatedAt">
+> & {
+  onboardingId: string;
+  trainerId: string;
+};
+
+export type TrainerPayoutOnboardingEvent = {
+  id: string;
+  onboardingId: string;
+  trainerId: string;
+  eventType: TrainerPayoutOnboardingEventType;
+  previousStatus: string | null;
+  nextStatus: string | null;
+  note: string | null;
+  metadata: any;
+  createdBy: string | null;
+  createdAt: string;
+};
+
+export type InsertTrainerPayoutOnboardingEvent = Partial<
+  Omit<TrainerPayoutOnboardingEvent, "id" | "createdAt">
+> & {
+  onboardingId: string;
+  trainerId: string;
+  eventType: TrainerPayoutOnboardingEventType;
+};
+
+export type TrainerPayoutOnboardingListItem = {
+  onboarding: TrainerPayoutOnboarding;
+  details: TrainerPayoutOnboardingDetails | null;
+  trainer: User | null;
+};
+
+export type TrainerPayoutOnboardingSummary = {
+  total: number;
+  awaitingOffice: number;
+  active: number;
+  underReview: number;
+  actionRequired: number;
+  verificationFailed: number;
+  accountRejected: number;
+  byStatus: Record<PayoutKycStatus, number>;
 };
 
 export type PaymentSession = {
@@ -3068,6 +3170,229 @@ export async function getRecentActivityLogs(limit = 100): Promise<UserActivityLo
     .limit(limit);
   if (error) { console.error("[Database] getRecentActivityLogs:", error.message); return []; }
   return mapRowsFromDb<UserActivityLog>(data || []);
+}
+
+// ============================================================================
+// TRAINER PAYOUT ONBOARDING / KYC
+// ============================================================================
+
+export async function getTrainerPayoutOnboarding(
+  trainerId: string,
+): Promise<TrainerPayoutOnboarding | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_payout_onboardings")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getTrainerPayoutOnboarding:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerPayoutOnboarding>(data);
+}
+
+export async function getTrainerPayoutOnboardingDetails(
+  trainerId: string,
+): Promise<TrainerPayoutOnboardingDetails | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_payout_onboarding_details")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getTrainerPayoutOnboardingDetails:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerPayoutOnboardingDetails>(data);
+}
+
+export async function listTrainerPayoutOnboardingEvents(options: {
+  trainerId?: string;
+  onboardingId?: string;
+  limit?: number;
+}): Promise<TrainerPayoutOnboardingEvent[]> {
+  const limit = Math.max(1, Math.min(options.limit || 100, 500));
+  let query = sb().from("trainer_payout_onboarding_events").select("*");
+  if (options.trainerId) query = query.eq("trainer_id", options.trainerId);
+  if (options.onboardingId) query = query.eq("onboarding_id", options.onboardingId);
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    console.error("[Database] listTrainerPayoutOnboardingEvents:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerPayoutOnboardingEvent>(data || []);
+}
+
+export async function upsertTrainerPayoutOnboarding(
+  data: InsertTrainerPayoutOnboarding,
+): Promise<TrainerPayoutOnboarding | undefined> {
+  const payload = mapToDb({
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_payout_onboardings")
+    .upsert(payload, { onConflict: "trainer_id" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerPayoutOnboarding:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerPayoutOnboarding>(row);
+}
+
+export async function upsertTrainerPayoutOnboardingDetails(
+  data: InsertTrainerPayoutOnboardingDetails,
+): Promise<TrainerPayoutOnboardingDetails | undefined> {
+  const payload = mapToDb({
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_payout_onboarding_details")
+    .upsert(payload, { onConflict: "trainer_id" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] upsertTrainerPayoutOnboardingDetails:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerPayoutOnboardingDetails>(row);
+}
+
+export async function createTrainerPayoutOnboardingEvent(
+  data: InsertTrainerPayoutOnboardingEvent,
+): Promise<TrainerPayoutOnboardingEvent | undefined> {
+  const { data: row, error } = await sb()
+    .from("trainer_payout_onboarding_events")
+    .insert(mapToDb(data))
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] createTrainerPayoutOnboardingEvent:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerPayoutOnboardingEvent>(row);
+}
+
+export async function listTrainerPayoutOnboardings(options?: {
+  status?: PayoutKycStatus | "all";
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<TrainerPayoutOnboardingListItem[]> {
+  const limit = Math.max(1, Math.min(options?.limit || 100, 500));
+  const offset = Math.max(0, options?.offset || 0);
+  const search = sanitizeSearchTerm(String(options?.search || "")).toLowerCase();
+  let query = sb().from("trainer_payout_onboardings").select("*");
+  if (options?.status && options.status !== "all") {
+    query = query.eq("status", options.status);
+  }
+  if (!search) {
+    query = query.range(offset, offset + limit - 1);
+  } else {
+    query = query.limit(1000);
+  }
+  const { data, error } = await query.order("updated_at", { ascending: false });
+  if (error) {
+    console.error("[Database] listTrainerPayoutOnboardings:", error.message);
+    return [];
+  }
+  const onboardings = mapRowsFromDb<TrainerPayoutOnboarding>(data || []);
+  if (!onboardings.length) return [];
+  const trainerIds = onboardings.map((row) => row.trainerId);
+  const [users, detailsRaw] = await Promise.all([
+    getUsersByIds(trainerIds),
+    sb()
+      .from("trainer_payout_onboarding_details")
+      .select("*")
+      .in("trainer_id", trainerIds),
+  ]);
+  const userById = new Map(users.map((row) => [row.id, row]));
+  const detailsByTrainerId = new Map(
+    mapRowsFromDb<TrainerPayoutOnboardingDetails>(detailsRaw.data || []).map((row) => [
+      row.trainerId,
+      row,
+    ]),
+  );
+  const rows = onboardings
+    .map((onboarding) => ({
+      onboarding,
+      details: detailsByTrainerId.get(onboarding.trainerId) || null,
+      trainer: userById.get(onboarding.trainerId) || null,
+    }))
+    .filter((row) => {
+      if (!search) return true;
+      const haystack = [
+        row.trainer?.name,
+        row.trainer?.email,
+        row.details?.organizationName,
+        row.details?.firstName,
+        row.details?.lastName,
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ");
+      return haystack.includes(search);
+    });
+  return search ? rows.slice(offset, offset + limit) : rows;
+}
+
+export async function getTrainerPayoutOnboardingSummary(): Promise<TrainerPayoutOnboardingSummary> {
+  const { data, error } = await sb()
+    .from("trainer_payout_onboardings")
+    .select("status");
+  const byStatus: Record<PayoutKycStatus, number> = {
+    start_setup: 0,
+    details_submitted: 0,
+    verification_required: 0,
+    under_review: 0,
+    more_information_required: 0,
+    active: 0,
+    verification_failed: 0,
+    account_rejected: 0,
+    not_started: 0,
+    submitted: 0,
+    kyc_link_sent: 0,
+    kyc_in_progress: 0,
+    approved: 0,
+    additional_info_required: 0,
+    rejected: 0,
+  };
+  if (error) {
+    console.error("[Database] getTrainerPayoutOnboardingSummary:", error.message);
+    return {
+      total: 0,
+      awaitingOffice: 0,
+      active: 0,
+      underReview: 0,
+      actionRequired: 0,
+      verificationFailed: 0,
+      accountRejected: 0,
+      byStatus,
+    };
+  }
+  const rows = (data || []) as Array<{ status?: PayoutKycStatus }>;
+  for (const row of rows) {
+    const rawStatus = row.status;
+    const normalizedStatus = normalizePayoutKycStatus(rawStatus);
+    if (normalizedStatus && normalizedStatus in byStatus) {
+      byStatus[normalizedStatus] += 1;
+    }
+  }
+  return {
+    total: rows.length,
+    awaitingOffice:
+      byStatus.details_submitted +
+      byStatus.verification_required,
+    active: byStatus.active,
+    underReview: byStatus.under_review,
+    actionRequired:
+      byStatus.more_information_required + byStatus.verification_failed,
+    verificationFailed: byStatus.verification_failed,
+    accountRejected: byStatus.account_rejected,
+    byStatus,
+  };
 }
 
 // ============================================================================

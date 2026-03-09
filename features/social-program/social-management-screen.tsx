@@ -5,6 +5,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { getPayoutKycStatusLabel } from "@/shared/payout-kyc";
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -35,6 +36,11 @@ export function SocialManagementScreen({ roleLabel }: Props) {
   >("all");
 
   const summaryQuery = trpc.socialProgram.managementSummary.useQuery();
+  const kycSummaryQuery = trpc.payments.kycSummary.useQuery();
+  const kycRequestsQuery = trpc.payments.listOnboardingRequests.useQuery({
+    status: "all",
+    limit: 500,
+  });
   const membersQuery = trpc.socialProgram.listMembers.useQuery({
     status: selectedStatus,
     search,
@@ -115,6 +121,16 @@ export function SocialManagementScreen({ roleLabel }: Props) {
     eligibleFallbackQuery.data?.users,
     eligibleQuery.data,
   ]);
+  const kycStatusByTrainerId = useMemo(
+    () =>
+      new Map(
+        (kycRequestsQuery.data || []).map((row) => [
+          row.onboarding.trainerId,
+          getPayoutKycStatusLabel(row.onboarding.status),
+        ]),
+      ),
+    [kycRequestsQuery.data],
+  );
 
   useEffect(() => {
     if (!showInviteModal) return;
@@ -262,6 +278,66 @@ export function SocialManagementScreen({ roleLabel }: Props) {
           </SurfaceCard>
 
           <SurfaceCard>
+            <View className="flex-row items-center justify-between mb-2">
+              <Text className="text-base font-semibold text-foreground">
+                Payout KYC
+              </Text>
+              <ActionButton
+                size="sm"
+                variant="secondary"
+                onPress={() =>
+                  router.push(
+                    (roleLabel === "Manager"
+                      ? "/(manager)/kyc-management"
+                      : "/(coordinator)/kyc-management") as any,
+                  )
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Open payout KYC management"
+                testID="social-open-kyc-management"
+              >
+                Open queue
+              </ActionButton>
+            </View>
+            <Text className="text-sm text-muted mb-3">
+              Manual payout onboarding and Adyen verification tracking.
+            </Text>
+            <View className="flex-row flex-wrap -mx-1">
+              {[
+                {
+                  key: "awaiting-office",
+                  label: "Awaiting office",
+                  value: Number(kycSummaryQuery.data?.awaitingOffice || 0),
+                },
+                {
+                  key: "under-review",
+                  label: "Under review",
+                  value: Number(kycSummaryQuery.data?.underReview || 0),
+                },
+                {
+                  key: "action-required",
+                  label: "Action required",
+                  value: Number(kycSummaryQuery.data?.actionRequired || 0),
+                },
+                {
+                  key: "active",
+                  label: "Active",
+                  value: Number(kycSummaryQuery.data?.active || 0),
+                },
+              ].map((item) => (
+                <View key={item.key} className="w-1/2 px-1 mb-2">
+                  <View className="border border-border rounded-lg px-3 py-2">
+                    <Text className="text-[11px] text-muted">{item.label}</Text>
+                    <Text className="text-base font-semibold text-foreground mt-0.5">
+                      {item.value.toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </SurfaceCard>
+
+          <SurfaceCard>
             <Text className="text-base font-semibold text-foreground mb-2">
               Top performers
             </Text>
@@ -375,6 +451,12 @@ export function SocialManagementScreen({ roleLabel }: Props) {
                 <Text className="text-xs text-muted mt-0.5">
                   {member.trainer?.email || "No email"} •{" "}
                   <Text className="capitalize">{member.status}</Text>
+                </Text>
+                <Text className="text-xs text-muted mt-0.5">
+                  Payout KYC:{" "}
+                  <Text className="text-foreground">
+                    {kycStatusByTrainerId.get(member.trainerId) || "Not Started"}
+                  </Text>
                 </Text>
                 <Text className="text-xs text-muted mt-0.5">
                   Followers:{" "}

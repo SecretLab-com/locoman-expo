@@ -1,4 +1,5 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { SingleImagePicker } from "@/components/media-picker";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
@@ -112,6 +113,7 @@ export default function OfferWizardScreen() {
   const [sessionCountInput, setSessionCountInput] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Array<{ id: string; name: string; price: string; imageUrl?: string | null; quantity: number }>>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -134,6 +136,7 @@ export default function OfferWizardScreen() {
     setPriceInput(((offerData.priceMinor || 0) / 100).toFixed(2));
     setTitle(offerData.title || "");
     setDescription(offerData.description || "");
+    setImageUrl(offerData.imageUrl || "");
     setIncludedInput((offerData.included || []).join("\n"));
     setSessionCountInput(offerData.sessionCount ? String(offerData.sessionCount) : "");
   }, [offerData]);
@@ -141,6 +144,8 @@ export default function OfferWizardScreen() {
   const createOffer = trpc.offers.create.useMutation();
   const updateOffer = trpc.offers.update.useMutation();
   const submitForReviewOffer = trpc.offers.submitForReview.useMutation();
+  const generateImageMutation = trpc.ai.generateBundleImage.useMutation();
+  const [generatingImage, setGeneratingImage] = useState(false);
 
   const isSubmitting = createOffer.isPending || updateOffer.isPending || submitForReviewOffer.isPending;
   const included = useMemo(
@@ -204,6 +209,7 @@ export default function OfferWizardScreen() {
 
     setTitle(template.title || "");
     setDescription(template.description || "");
+    setImageUrl(template.imageUrl || "");
     if (template.basePrice) {
       const parsedPrice = Number.parseFloat(template.basePrice);
       if (Number.isFinite(parsedPrice) && parsedPrice > 0) {
@@ -250,6 +256,31 @@ export default function OfferWizardScreen() {
           quantity: Number(p.quantity) || 1,
         };
       }));
+    }
+  };
+
+  const handleGenerateImage = async () => {
+    if (!title.trim()) {
+      showAlert("Title required", "Please enter an offer title first to generate an image.");
+      return;
+    }
+    setGeneratingImage(true);
+    try {
+      const result = await generateImageMutation.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        goals: included.length > 0 ? included : undefined,
+        style: "fitness",
+      });
+      if (result.url) {
+        setImageUrl(result.url);
+        await haptics.success();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to generate image.";
+      showAlert("Image generation failed", message);
+    } finally {
+      setGeneratingImage(false);
     }
   };
 
@@ -345,6 +376,7 @@ export default function OfferWizardScreen() {
     const payload = {
       title: title.trim(),
       description: description.trim() || undefined,
+      imageUrl: imageUrl || undefined,
       type,
       priceMinor: toMinorUnits(amount),
       included,
@@ -402,6 +434,36 @@ export default function OfferWizardScreen() {
 
         <View className="px-4 pb-8">
           <View className="bg-surface border border-border rounded-xl p-4 mb-4">
+            <Text className="text-sm font-medium text-muted mb-2">Offer image</Text>
+            <SingleImagePicker
+              image={imageUrl || null}
+              onImageChange={(uri) => setImageUrl(uri || "")}
+              aspectRatio={[16, 9]}
+              placeholder="Add an offer image or generate one with AI"
+            />
+            <TouchableOpacity
+              className={`mt-2 mb-4 flex-row items-center justify-center py-3 rounded-xl border ${
+                generatingImage ? "bg-surface border-border" : "bg-primary/10 border-primary"
+              }`}
+              onPress={handleGenerateImage}
+              disabled={generatingImage}
+              accessibilityRole="button"
+              accessibilityLabel="Generate offer image with AI"
+              testID="offer-generate-image"
+            >
+              {generatingImage ? (
+                <>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text className="text-primary font-medium ml-2">Generating...</Text>
+                </>
+              ) : (
+                <>
+                  <IconSymbol name="sparkles" size={18} color={colors.primary} />
+                  <Text className="text-primary font-medium ml-2">Generate with AI</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
             <Text className="text-sm font-medium text-muted mb-2">Offer title</Text>
             <TextInput
               className={`bg-background border rounded-xl px-4 py-3 text-foreground ${fieldErrors.title ? "border-error" : "border-border"}`}
@@ -430,6 +492,7 @@ export default function OfferWizardScreen() {
                     setSelectedTemplateId("scratch");
                     setTitle("");
                     setDescription("");
+                    setImageUrl("");
                     setPriceInput("");
                     setIncludedInput("");
                     setSessionCountInput("");
