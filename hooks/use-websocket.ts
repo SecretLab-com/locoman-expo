@@ -1,7 +1,8 @@
 import * as Auth from "@/lib/_core/auth";
 import { getApiBaseUrl } from "@/lib/api-config";
+import { offlineCache } from "@/lib/offline-cache";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type WSMessage =
   | { type: "connected"; userId: string }
@@ -35,6 +36,9 @@ type WSConnection = {
   lastConnectAt: number;
   authBlockedUntil: number;
   failedToken: string | null;
+  networkOnline: boolean;
+  networkMonitorUnsubscribe: (() => void) | null;
+  connectInvoker: (() => void) | null;
 };
 
 const sharedConnection: WSConnection = {
@@ -47,7 +51,47 @@ const sharedConnection: WSConnection = {
   lastConnectAt: 0,
   authBlockedUntil: 0,
   failedToken: null,
+  networkOnline: true,
+  networkMonitorUnsubscribe: null,
+  connectInvoker: null,
 };
+
+function clearReconnectTimeout() {
+  if (sharedConnection.reconnectTimeout) {
+    clearTimeout(sharedConnection.reconnectTimeout);
+    sharedConnection.reconnectTimeout = null;
+  }
+}
+
+function isNetworkDownClose(event: CloseEvent) {
+  const reason = String(event.reason || "").toLowerCase();
+  return (
+    !sharedConnection.networkOnline ||
+    reason.includes("network is down") ||
+    reason.includes("offline")
+  );
+}
+
+function ensureNetworkMonitoring() {
+  if (sharedConnection.networkMonitorUnsubscribe) return;
+  sharedConnection.networkMonitorUnsubscribe = offlineCache.subscribeToNetworkChanges(
+    (connected) => {
+      sharedConnection.networkOnline = connected;
+      if (!connected) {
+        clearReconnectTimeout();
+        return;
+      }
+      if (
+        sharedConnection.refCount > 0 &&
+        !sharedConnection.ws &&
+        !sharedConnection.isConnecting &&
+        sharedConnection.connectInvoker
+      ) {
+        sharedConnection.connectInvoker();
+      }
+    },
+  );
+}
 
 export function useWebSocket() {
   const [isConnected, setIsConnected] = useState(false);
@@ -65,6 +109,14 @@ export function useWebSocket() {
       sharedConnection.idleCloseTimeout = null;
     }
     try {
+      ensureNetworkMonitoring();
+      const isOnline = await offlineCache.isOnline();
+      sharedConnection.networkOnline = isOnline;
+      if (!isOnline) {
+        sharedConnection.isConnecting = false;
+        setConnectionError(null);
+        return;
+      }
       // Skip when not authenticated — always require a Supabase token
       const token = await Auth.getSessionToken();
       if (!token) {
@@ -96,7 +148,11 @@ export function useWebSocket() {
 
       if (sharedConnection.ws) {
         const state = sharedConnection.ws.readyState;
-        if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+        if (
+          state === WebSocket.OPEN ||
+          state === WebSocket.CONNECTING ||
+          state === WebSocket.CLOSING
+        ) {
           return;
         }
       }
@@ -128,6 +184,7 @@ export function useWebSocket() {
         setIsConnected(true);
         setConnectionError(null);
         sharedConnection.isConnecting = false;
+        clearReconnectTimeout();
       };
 
       ws.onmessage = (event) => {
@@ -140,6 +197,10 @@ export function useWebSocket() {
       };
 
       ws.onerror = (error) => {
+        if (!sharedConnection.networkOnline) {
+          setConnectionError(null);
+          return;
+        }
         // Browser/native WebSocket "error" events are often opaque and expected during reconnects.
         const eventType =
           error && typeof error === "object" && "type" in error
@@ -147,23 +208,29 @@ export function useWebSocket() {
             : "error";
         console.warn("[WebSocket] Event:", eventType);
         setConnectionError("Reconnecting…");
-        sharedConnection.isConnecting = false;
       };
 
       ws.onclose = (event) => {
-        console.log("[WebSocket] Disconnected:", event.code, event.reason);
         setIsConnected(false);
         sharedConnection.ws = null;
         sharedConnection.isConnecting = false;
+        if (isNetworkDownClose(event)) {
+          clearReconnectTimeout();
+          setConnectionError(null);
+          return;
+        }
+        console.log("[WebSocket] Disconnected:", event.code, event.reason);
 
         // Skip reconnect on auth failure or intentional close
         if (event.code === 4001) {
           setConnectionError("Authentication required");
           sharedConnection.failedToken = tokenUsed;
           sharedConnection.authBlockedUntil = Date.now() + 30000;
+          clearReconnectTimeout();
           return;
         }
         if (event.code !== 1000) {
+          clearReconnectTimeout();
           sharedConnection.reconnectTimeout = setTimeout(() => {
             connect();
           }, 5000);
@@ -177,6 +244,18 @@ export function useWebSocket() {
       sharedConnection.isConnecting = false;
     }
   }, []);
+
+  useEffect(() => {
+    ensureNetworkMonitoring();
+    sharedConnection.connectInvoker = () => {
+      void connect();
+    };
+    return () => {
+      if (sharedConnection.refCount === 0) {
+        sharedConnection.connectInvoker = null;
+      }
+    };
+  }, [connect]);
 
   const disconnect = useCallback(() => {
     if (hasRegisteredRef.current) {
@@ -192,8 +271,7 @@ export function useWebSocket() {
           return;
         }
         if (sharedConnection.reconnectTimeout) {
-          clearTimeout(sharedConnection.reconnectTimeout);
-          sharedConnection.reconnectTimeout = null;
+          clearReconnectTimeout();
         }
         if (sharedConnection.ws) {
           sharedConnection.ws.close(1000, "User disconnected");

@@ -2,30 +2,64 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
+import { useAuthContext } from "@/contexts/auth-context";
+import {
+  getCachedTrainerSocialPreviewMode,
+  setCachedTrainerSocialPreviewMode,
+} from "@/lib/social-status-cache";
 import { useColors } from "@/hooks/use-colors";
 import {
   getSocialPlatformIcon,
   inferSocialPlatformFromText,
   normalizeSocialPlatform,
 } from "@/lib/social-platforms";
+import {
+  hasNativePhylloConnectSdk,
+  openPhylloConnectNative,
+} from "@/lib/phyllo-connect-native";
+import { openPhylloConnectWeb } from "@/lib/phyllo-connect";
 import { trpc } from "@/lib/trpc";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
+  Platform,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import Svg, {
+  Circle,
+  ClipPath,
+  Defs,
+  LinearGradient,
+  Path,
+  Rect,
+  Stop,
+} from "react-native-svg";
 
 function pct(value: number | null | undefined) {
   const numeric = Number(value || 0);
   return `${(numeric * 100).toFixed(1)}%`;
+}
+
+function normalizeSocialPlatformLabel(value: string) {
+  const cleaned = String(value || '')
+    .trim()
+    .replace(/_/g, ' ');
+  if (!cleaned) return '';
+  if (cleaned.toLowerCase() === 'x') return 'X';
+  return cleaned
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function formatPostingWindow(start?: string | null, end?: string | null) {
@@ -77,19 +111,470 @@ function getComplianceColor(state: string) {
   }
 }
 
+function isBenignCloseReason(reason: string) {
+  const normalized = reason.trim().toLowerCase();
+  return (
+    normalized === "exit_from_platform_selection" ||
+    normalized.startsWith("exit_from_platform_") ||
+    normalized === "back_pressed" ||
+    normalized === "user_closed_connect_flow" ||
+    normalized === "dismissed" ||
+    normalized === "closed"
+  );
+}
+
+function isTokenExpiredReason(reason: string) {
+  const normalized = reason.trim().toLowerCase();
+  return (
+    normalized === "token_expired" ||
+    normalized === "tokenexpired" ||
+    normalized === "token expired" ||
+    (normalized.includes("token") && normalized.includes("expired"))
+  );
+}
+
+type DevSocialPreviewData = {
+  followers: number;
+  viewsPerMonth: number;
+  engagementRate: number;
+  ctr: number;
+  platforms: string[];
+  momentum: number[];
+  latestPostSummary: string;
+};
+
+const DASH = {
+  text: '#F8FAFC',
+  muted: '#94A3B8',
+  primary: '#60A5FA',
+  borderStrong: 'rgba(96,165,250,0.5)',
+  cardSoft: '#141A28',
+};
+
+const CARD_SOFT_STYLE = {
+  backgroundColor: DASH.cardSoft,
+  borderColor: DASH.borderStrong,
+};
+
+const DEV_SOCIAL_PREVIEW_OWNER_EMAILS = [
+  'jason@secretlab.com',
+  'trainer@secretlab.com',
+];
+
+const DEV_SOCIAL_PREVIEW_DATA: DevSocialPreviewData = {
+  followers: 13840,
+  viewsPerMonth: 18400,
+  engagementRate: 0.064,
+  ctr: 0.021,
+  platforms: ['instagram', 'youtube', 'tiktok'],
+  momentum: [220, 310, 420, 390, 560, 680, 740, 910, 1120, 1360],
+  latestPostSummary: 'Latest post: 1.8k engagements',
+};
+
+const SOCIAL_VIZ_ANIMATION_MS = 1500;
+const DIAL_START_ANGLE = 240;
+const DIAL_SWEEP_ANGLE = 240;
+const DIAL_SEGMENT_GAP_ANGLE = 8;
+const DIAL_SEGMENT_COLORS = ['#F87171', '#FBBF24', '#34D399'] as const;
+
+function formatCompactNumber(value: number) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return '0';
+  if (Math.abs(numeric) >= 1_000_000) {
+    return `${(numeric / 1_000_000).toFixed(numeric >= 10_000_000 ? 0 : 1)}M`;
+  }
+  if (Math.abs(numeric) >= 1_000) {
+    return `${(numeric / 1_000).toFixed(numeric >= 10_000 ? 0 : 1)}k`;
+  }
+  return numeric.toLocaleString();
+}
+
+function polarToCartesian(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  angleInDegrees: number,
+) {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
+  return {
+    x: centerX + radius * Math.cos(angleInRadians),
+    y: centerY + radius * Math.sin(angleInRadians),
+  };
+}
+
+function describeArc(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+) {
+  const start = polarToCartesian(centerX, centerY, radius, endAngle);
+  const end = polarToCartesian(centerX, centerY, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+  return [
+    'M',
+    start.x,
+    start.y,
+    'A',
+    radius,
+    radius,
+    0,
+    largeArcFlag,
+    0,
+    end.x,
+    end.y,
+  ].join(' ');
+}
+
+function getDialAccentColor(progress: number) {
+  if (progress < 0.34) return DIAL_SEGMENT_COLORS[0];
+  if (progress < 0.67) return DIAL_SEGMENT_COLORS[1];
+  return DIAL_SEGMENT_COLORS[2];
+}
+
+function SocialMetricDial({
+  label,
+  value,
+  helper,
+  progress,
+  animationProgress = 1,
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+  progress: number;
+  animationProgress?: number;
+}) {
+  const size = 92;
+  const strokeWidth = 8;
+  const center = size / 2;
+  const radius = (size - strokeWidth) / 2;
+  const clampedProgress = Math.max(0, Math.min(1, progress * animationProgress));
+  const accentColor = getDialAccentColor(clampedProgress);
+  const segmentSweep = DIAL_SWEEP_ANGLE / DIAL_SEGMENT_COLORS.length;
+  const progressEndAngle = DIAL_START_ANGLE + clampedProgress * DIAL_SWEEP_ANGLE;
+  const progressEndPoint = polarToCartesian(center, center, radius, progressEndAngle);
+  return (
+    <View
+      className='flex-1 rounded-xl border px-2 py-3 items-center'
+      style={{
+        backgroundColor: 'rgba(11,16,32,0.4)',
+        borderColor: 'rgba(148,163,184,0.18)',
+        minHeight: 148,
+      }}
+    >
+      <Text
+        className='text-[9px] font-semibold uppercase tracking-[0.4px]'
+        style={{ color: '#93C5FD' }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+      >
+        {label}
+      </Text>
+      <View
+        style={{
+          width: size,
+          height: size,
+          marginTop: 6,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Svg width={size} height={size}>
+          {DIAL_SEGMENT_COLORS.map((segmentColor, index) => {
+            const startAngle =
+              DIAL_START_ANGLE + index * segmentSweep + DIAL_SEGMENT_GAP_ANGLE / 2;
+            const endAngle =
+              DIAL_START_ANGLE +
+              (index + 1) * segmentSweep -
+              DIAL_SEGMENT_GAP_ANGLE / 2;
+            return (
+              <Path
+                key={`${label}-segment-${segmentColor}`}
+                d={describeArc(center, center, radius, startAngle, endAngle)}
+                stroke={segmentColor}
+                strokeWidth={strokeWidth}
+                strokeLinecap='round'
+                fill='none'
+                opacity={0.45}
+              />
+            );
+          })}
+          {clampedProgress > 0 ? (
+            <Path
+              d={describeArc(center, center, radius, DIAL_START_ANGLE, progressEndAngle)}
+              stroke={accentColor}
+              strokeWidth={strokeWidth}
+              strokeLinecap='round'
+              fill='none'
+            />
+          ) : null}
+          <Circle cx={progressEndPoint.x} cy={progressEndPoint.y} r={3.5} fill={accentColor} />
+        </Svg>
+        <View
+          pointerEvents='none'
+          style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text className='text-xl font-bold' style={{ color: DASH.text }}>
+            {value}
+          </Text>
+        </View>
+      </View>
+      {helper ? (
+        <Text
+          className='text-[10px] mt-1 text-center'
+          style={{ color: DASH.muted, minHeight: 28 }}
+          numberOfLines={2}
+        >
+          {helper}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function buildLinePath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) return '';
+  return points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(' ');
+}
+
+function buildAreaPath(points: Array<{ x: number; y: number }>, baselineY: number) {
+  if (points.length === 0) return '';
+  const linePath = buildLinePath(points);
+  const lastPoint = points[points.length - 1];
+  const firstPoint = points[0];
+  return `${linePath} L ${lastPoint.x.toFixed(2)} ${baselineY.toFixed(2)} L ${firstPoint.x.toFixed(2)} ${baselineY.toFixed(2)} Z`;
+}
+
+function SocialLineChart({
+  values,
+  animationProgress = 1,
+}: {
+  values: number[];
+  animationProgress?: number;
+}) {
+  const width = 280;
+  const height = 88;
+  const paddingX = 8;
+  const paddingTop = 10;
+  const paddingBottom = 10;
+  const baselineY = height - paddingBottom;
+  const chartHeight = height - paddingTop - paddingBottom;
+  const maxValue = Math.max(1, ...values);
+  const points = values.map((value, index) => {
+    const x =
+      values.length === 1
+        ? width / 2
+        : paddingX + (index / (values.length - 1)) * (width - paddingX * 2);
+    const y = baselineY - (Number(value || 0) / maxValue) * chartHeight;
+    return { x, y };
+  });
+  const linePath = buildLinePath(points);
+  const areaPath = buildAreaPath(points, baselineY);
+  const lastPoint = points[points.length - 1];
+  const clampedProgress = Math.max(0, Math.min(1, animationProgress));
+  const revealWidth = Math.max(0, width * clampedProgress);
+  return (
+    <View
+      style={{
+        height,
+        borderRadius: 12,
+        overflow: 'hidden',
+        backgroundColor: 'rgba(15,23,42,0.42)',
+        borderWidth: 1,
+        borderColor: 'rgba(148,163,184,0.14)',
+        paddingHorizontal: 4,
+        paddingVertical: 4,
+      }}
+    >
+      <Svg width='100%' height='100%' viewBox={`0 0 ${width} ${height}`}>
+        <Defs>
+          <LinearGradient id='socialProgressMomentumFill' x1='0' y1='0' x2='0' y2='1'>
+            <Stop offset='0%' stopColor='#60A5FA' stopOpacity='0.35' />
+            <Stop offset='100%' stopColor='#60A5FA' stopOpacity='0.02' />
+          </LinearGradient>
+          <LinearGradient id='socialProgressMomentumLine' x1='0' y1='0' x2='1' y2='0'>
+            <Stop offset='0%' stopColor='#60A5FA' />
+            <Stop offset='100%' stopColor='#A78BFA' />
+          </LinearGradient>
+          <ClipPath id='socialProgressMomentumReveal'>
+            <Rect x={0} y={0} width={revealWidth} height={height} />
+          </ClipPath>
+        </Defs>
+        {[0.25, 0.5, 0.75].map((ratio) => {
+          const y = paddingTop + chartHeight * ratio;
+          return (
+            <Path
+              key={`social-progress-grid-${ratio}`}
+              d={`M ${paddingX} ${y.toFixed(2)} L ${width - paddingX} ${y.toFixed(2)}`}
+              stroke='rgba(148,163,184,0.16)'
+              strokeWidth={1}
+              strokeDasharray='4 6'
+              fill='none'
+            />
+          );
+        })}
+        {areaPath ? (
+          <Path d={areaPath} fill='url(#socialProgressMomentumFill)' clipPath='url(#socialProgressMomentumReveal)' />
+        ) : null}
+        {linePath ? (
+          <Path
+            d={linePath}
+            stroke='url(#socialProgressMomentumLine)'
+            strokeWidth={3}
+            strokeLinecap='round'
+            strokeLinejoin='round'
+            fill='none'
+            clipPath='url(#socialProgressMomentumReveal)'
+          />
+        ) : null}
+        {lastPoint && clampedProgress > 0.96 ? (
+          <>
+            <Circle cx={lastPoint.x} cy={lastPoint.y} r={6} fill='rgba(167,139,250,0.24)' />
+            <Circle cx={lastPoint.x} cy={lastPoint.y} r={3.5} fill='#A78BFA' />
+          </>
+        ) : null}
+      </Svg>
+    </View>
+  );
+}
+
+function SocialLineChartPlaceholder() {
+  const width = 280;
+  const height = 88;
+  const paddingX = 8;
+  const paddingTop = 10;
+  const paddingBottom = 10;
+  const baselineY = height - paddingBottom;
+  const placeholderPoints = [
+    { x: 16, y: baselineY - 10 },
+    { x: 56, y: baselineY - 18 },
+    { x: 96, y: baselineY - 22 },
+    { x: 136, y: baselineY - 20 },
+    { x: 176, y: baselineY - 26 },
+    { x: 216, y: baselineY - 24 },
+    { x: 256, y: baselineY - 28 },
+  ];
+  return (
+    <View
+      style={{
+        height,
+        borderRadius: 12,
+        overflow: 'hidden',
+        backgroundColor: 'rgba(15,23,42,0.42)',
+        borderWidth: 1,
+        borderColor: 'rgba(148,163,184,0.14)',
+        paddingHorizontal: 4,
+        paddingVertical: 4,
+        justifyContent: 'center',
+      }}
+    >
+      <Svg width='100%' height='100%' viewBox={`0 0 ${width} ${height}`}>
+        {[0.25, 0.5, 0.75].map((ratio) => {
+          const y = paddingTop + (height - paddingTop - paddingBottom) * ratio;
+          return (
+            <Path
+              key={`social-progress-placeholder-grid-${ratio}`}
+              d={`M ${paddingX} ${y.toFixed(2)} L ${width - paddingX} ${y.toFixed(2)}`}
+              stroke='rgba(148,163,184,0.08)'
+              strokeWidth={1}
+              strokeDasharray='4 6'
+              fill='none'
+            />
+          );
+        })}
+        <Path d={buildAreaPath(placeholderPoints, baselineY)} fill='rgba(148,163,184,0.05)' />
+        <Path
+          d={buildLinePath(placeholderPoints)}
+          stroke='rgba(148,163,184,0.18)'
+          strokeWidth={2}
+          strokeLinecap='round'
+          strokeLinejoin='round'
+          fill='none'
+        />
+      </Svg>
+      <View
+        pointerEvents='none'
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <View
+          style={{
+            borderRadius: 999,
+            paddingHorizontal: 14,
+            paddingVertical: 7,
+            backgroundColor: 'rgba(15,23,42,0.6)',
+            borderWidth: 1,
+            borderColor: 'rgba(148,163,184,0.14)',
+          }}
+        >
+          <Text className='text-xs font-medium' style={{ color: 'rgba(148,163,184,0.72)' }}>
+            No data available.. Yet.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function TrainerSocialProgressScreen() {
+  const { user } = useAuthContext();
   const colors = useColors();
+  const utils = trpc.useUtils();
   const params = useLocalSearchParams<{ bundleId?: string; templateId?: string }>();
+  const [showDevSocialPreview, setShowDevSocialPreview] = useState(false);
+  const devSocialPreviewInitialized = useRef(false);
+  const [devSocialPreviewHydrated, setDevSocialPreviewHydrated] = useState(false);
+  const socialVizProgressAnim = useRef(new Animated.Value(0)).current;
+  const [socialVizProgress, setSocialVizProgress] = useState(0);
   const { data } = trpc.socialProgram.myProgramDashboard.useQuery();
   const recentPostsQuery = trpc.socialProgram.recentPosts.useQuery({
     limit: 12,
     sparklineDays: 10,
   });
+  const syncNowMutation = trpc.socialProgram.syncNow.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.socialProgram.myStatus.invalidate(),
+        utils.socialProgram.myProgramDashboard.invalidate(),
+        utils.socialProgram.recentPosts.invalidate(),
+      ]);
+      setSyncDoneAt(Date.now());
+    },
+  });
+  const startConnectMutation = trpc.socialProgram.startConnect.useMutation();
+  const completeConnectMutation = trpc.socialProgram.completeConnect.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.socialProgram.myStatus.invalidate(),
+        utils.socialProgram.myProgramDashboard.invalidate(),
+        utils.socialProgram.recentPosts.invalidate(),
+      ]);
+    },
+  });
   const bundlesQuery = trpc.bundles.list.useQuery();
+  const membership = data?.membership;
+  const pendingInvite = data?.pendingInvite;
+  const invitedBy = data?.invitedBy;
   const profile = data?.profile;
   const progress = data?.progress;
   const commitment = data?.commitment;
   const violations = data?.violations || [];
+  const [syncDoneAt, setSyncDoneAt] = useState<number | null>(null);
+  const [isLaunchingConnect, setIsLaunchingConnect] = useState(false);
+  const [connectActionError, setConnectActionError] = useState<string | null>(null);
+  const [connectActionSuccess, setConnectActionSuccess] = useState<string | null>(null);
   const bundles = bundlesQuery.data || [];
   const campaignBundles = useMemo(
     () => bundles.filter((bundle: any) => Boolean(bundle.templateId)),
@@ -222,7 +707,6 @@ export default function TrainerSocialProgressScreen() {
         })),
     [data?.recentMetrics],
   );
-  const trendMaxViews = Math.max(1, ...trendRows.map((row) => row.views));
 
   const connectedPlatforms = useMemo(() => {
     const keys = new Set<string>();
@@ -289,6 +773,455 @@ export default function TrainerSocialProgressScreen() {
     }
     return Array.from(keys);
   }, [profile]);
+  const membershipStatus = membership?.status || 'not_enrolled';
+  const hasPendingInvite = Boolean(pendingInvite?.id);
+  const isConnected = Boolean(profile?.phylloUserId);
+  const isRestrictedStatus =
+    membershipStatus === 'paused' || membershipStatus === 'banned';
+  const canAttemptConnect =
+    !isRestrictedStatus &&
+    (membershipStatus === 'active' || hasPendingInvite || isConnected);
+  const platformStats = useMemo(() => {
+    const rawProfiles = Array.isArray((profile as any)?.metadata?.rawProfiles)
+      ? ((profile as any)?.metadata?.rawProfiles as any[])
+      : [];
+    const directPlatforms = Array.isArray((profile as any)?.platforms)
+      ? ((profile as any)?.platforms as any[])
+      : [];
+    const rawAccounts = Array.isArray((profile as any)?.metadata?.rawAccounts)
+      ? ((profile as any)?.metadata?.rawAccounts as any[])
+      : [];
+    const rows = new Map<
+      string,
+      { platform: string; followers: number; impressions: number }
+    >();
+    for (const row of rawProfiles) {
+      const rawPlatform =
+        row?.platform ||
+        row?.platform_name ||
+        row?.work_platform?.name ||
+        row?.workPlatform?.name ||
+        row?.work_platform_name ||
+        row?.network ||
+        '';
+      const normalizedPlatform =
+        normalizeSocialPlatform(rawPlatform) ||
+        inferSocialPlatformFromText(
+          [
+            row?.url,
+            row?.profile_url,
+            row?.profileUrl,
+            row?.account_url,
+            row?.accountUrl,
+            row?.username,
+            row?.handle,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        );
+      const platform = normalizedPlatform || 'unknown';
+      const followers = Number(row?.audience?.follower_count || row?.followers || 0);
+      const impressions = Number(
+        row?.engagement?.impressions ||
+          row?.engagement?.avg_views_per_month ||
+          row?.avg_views_per_month ||
+          row?.impressions ||
+          0,
+      );
+      const existing = rows.get(platform);
+      if (existing) {
+        existing.followers += followers;
+        existing.impressions += impressions;
+      } else {
+        rows.set(platform, { platform, followers, impressions });
+      }
+    }
+    for (const platformRow of directPlatforms) {
+      const normalizedKey = normalizeSocialPlatform(
+        platformRow?.platform || platformRow?.name || platformRow,
+      );
+      if (!normalizedKey || rows.has(normalizedKey)) continue;
+      rows.set(normalizedKey, {
+        platform: normalizedKey,
+        followers: Number(platformRow?.followers || 0),
+        impressions: Number(platformRow?.impressions || platformRow?.avgViewsPerMonth || 0),
+      });
+    }
+    for (const accountRow of rawAccounts) {
+      const normalizedKey =
+        normalizeSocialPlatform(
+          accountRow?.platform ||
+            accountRow?.platform_name ||
+            accountRow?.work_platform?.name ||
+            accountRow?.workPlatform?.name ||
+            accountRow?.work_platform_name ||
+            accountRow?.network ||
+            '',
+        ) ||
+        inferSocialPlatformFromText(
+          [
+            accountRow?.url,
+            accountRow?.profile_url,
+            accountRow?.profileUrl,
+            accountRow?.account_url,
+            accountRow?.accountUrl,
+            accountRow?.username,
+            accountRow?.handle,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        );
+      if (!normalizedKey || rows.has(normalizedKey)) continue;
+      rows.set(normalizedKey, {
+        platform: normalizedKey,
+        followers: 0,
+        impressions: 0,
+      });
+    }
+    if (rows.has('unknown') && rows.size > 1) rows.delete('unknown');
+    if (rows.size === 1 && rows.has('unknown')) {
+      const unknownRow = rows.get('unknown');
+      if (unknownRow) {
+        rows.delete('unknown');
+        rows.set('youtube', { ...unknownRow, platform: 'youtube' });
+      }
+    }
+    return Array.from(rows.values()).sort((a, b) => b.followers - a.followers);
+  }, [profile]);
+  useEffect(() => {
+    if (!syncDoneAt) return;
+    const timer = setTimeout(() => setSyncDoneAt(null), 10000);
+    return () => clearTimeout(timer);
+  }, [syncDoneAt]);
+  useEffect(() => {
+    if (!connectActionSuccess) return;
+    const timer = setTimeout(() => setConnectActionSuccess(null), 10000);
+    return () => clearTimeout(timer);
+  }, [connectActionSuccess]);
+  useEffect(() => {
+    if (!connectActionError) return;
+    const matchedReason = connectActionError.match(/\(([^)]+)\)/);
+    if (matchedReason && isBenignCloseReason(matchedReason[1] || '')) {
+      setConnectActionError(null);
+    }
+  }, [connectActionError]);
+
+  const handleConnectPhyllo = async () => {
+    if (isLaunchingConnect) return;
+    setIsLaunchingConnect(true);
+    setConnectActionError(null);
+    setConnectActionSuccess(null);
+    try {
+      const shouldForceFreshSession = !isConnected;
+      let session;
+      try {
+        session = await startConnectMutation.mutateAsync({
+          forceNewUser: shouldForceFreshSession,
+        });
+      } catch (firstError: any) {
+        const firstMessage = String(firstError?.message || "").toLowerCase();
+        const isIncorrectUserId =
+          firstMessage.includes("incorrect_user_id") ||
+          firstMessage.includes("requested user id does not exist");
+        if (!shouldForceFreshSession && isIncorrectUserId) {
+          session = await startConnectMutation.mutateAsync({
+            forceNewUser: true,
+          });
+        } else {
+          throw firstError;
+        }
+      }
+
+      if (!session?.sdkToken || !session?.phylloUserId) {
+        throw new Error("Could not create a social connect session.");
+      }
+
+      let result;
+      if (Platform.OS === "web") {
+        result = await openPhylloConnectWeb({
+          scriptUrl:
+            session.connectConfig?.scriptUrl ||
+            "https://cdn.getphyllo.com/connect/v2/phyllo-connect.js",
+          environment:
+            session.connectConfig?.environment === "production"
+              ? "production"
+              : session.connectConfig?.environment === "staging"
+                ? "staging"
+                : "sandbox",
+          userId: session.phylloUserId,
+          token: session.sdkToken,
+          clientDisplayName:
+            session.connectConfig?.clientDisplayName || "LocoMotivate",
+        });
+      } else if (hasNativePhylloConnectSdk()) {
+        result = await openPhylloConnectNative({
+          environment:
+            session.connectConfig?.environment === "production"
+              ? "production"
+              : session.connectConfig?.environment === "staging"
+                ? "staging"
+                : "sandbox",
+          userId: session.phylloUserId,
+          token: session.sdkToken,
+          clientDisplayName:
+            session.connectConfig?.clientDisplayName || "LocoMotivate",
+        });
+      } else {
+        setConnectActionError("Social connection is unavailable in this build.");
+        return;
+      }
+
+      const finalized = await completeConnectMutation.mutateAsync({
+        status: result.status,
+        reason: result.reason,
+      });
+      const connectedCount = Number(finalized?.profile?.platforms?.length || 0);
+      if (result.status === "connected") {
+        setConnectActionSuccess(
+          connectedCount > 0
+            ? `Connected successfully. ${connectedCount} platform(s) linked.`
+            : "Connected successfully. Refresh status to load your latest platform metrics.",
+        );
+      } else if (result.status === "cancelled") {
+        const reason = String(result.reason || "").trim();
+        if (isBenignCloseReason(reason)) {
+          setConnectActionError(null);
+          setConnectActionSuccess(null);
+        } else {
+          setConnectActionError(
+            reason
+              ? `Connection closed (${reason}).`
+              : "Connection was cancelled before any platform was linked.",
+          );
+        }
+      } else {
+        setConnectActionError(
+          isTokenExpiredReason(String(result.reason || ""))
+            ? "Social connection session expired. Please retry."
+            : String(result.reason || "Could not connect your social platforms."),
+        );
+      }
+    } catch (error: any) {
+      setConnectActionError(
+        String(error?.message || "Unable to connect social platforms right now.").replace(
+          /phyllo/gi,
+          "social",
+        ),
+      );
+    } finally {
+      setIsLaunchingConnect(false);
+    }
+  };
+  const canUseDevSocialPreview =
+    __DEV__ &&
+    DEV_SOCIAL_PREVIEW_OWNER_EMAILS.includes(
+      String(user?.email || '').trim().toLowerCase(),
+    );
+  const socialFollowers = Number(profile?.followerCount || 0);
+  const socialViewsPerMonth = Number(profile?.avgViewsPerMonth || 0);
+  const socialEngagementRate = Number(profile?.avgEngagementRate || 0);
+  const socialCtr = Number(profile?.avgCtr || 0);
+  const socialFollowerTarget = Math.max(1, Number(commitment?.minimumFollowers || 10000));
+  const socialViewsTarget = Math.max(1, Number(commitment?.minimumAvgViews || 1000));
+  const socialOpenViolationsCount = violations.length;
+  const recentSocialPosts = recentPostsQuery.data || [];
+  const recentSocialMomentum = useMemo(() => {
+    const rows = recentSocialPosts
+      .map((post: any) =>
+        Array.isArray(post?.sparkline)
+          ? post.sparkline.map((value: any) => Number(value || 0))
+          : [],
+      )
+      .filter((values) => values.length > 0);
+    if (rows.length === 0) return [] as number[];
+    const maxLength = Math.max(...rows.map((values) => values.length));
+    const totals = Array.from({ length: maxLength }, () => 0);
+    for (const values of rows as number[][]) {
+      const offset = maxLength - values.length;
+      values.forEach((value: number, index: number) => {
+        totals[offset + index] += value;
+      });
+    }
+    return totals.slice(-10);
+  }, [recentSocialPosts]);
+  const latestSocialPost = recentSocialPosts[0] || null;
+  const latestSocialPostSummary = latestSocialPost
+    ? `Latest post: ${formatCompactNumber(Number(latestSocialPost.latestEngagements || 0))} engagements`
+    : 'No data available.. Yet.';
+  const socialPlatformSummary = connectedPlatforms
+    .slice(0, 2)
+    .map((platform) => normalizeSocialPlatformLabel(platform))
+    .join(' · ');
+  const platformDialTarget = 3;
+  const shouldAutoEnableDevPreview =
+    canUseDevSocialPreview &&
+    connectedPlatforms.length > 0 &&
+    socialFollowers === 0 &&
+    socialViewsPerMonth === 0 &&
+    recentSocialMomentum.length === 0;
+  useEffect(() => {
+    const userId = String(user?.id || "").trim();
+    let isCancelled = false;
+    if (!canUseDevSocialPreview) {
+      setShowDevSocialPreview(false);
+      devSocialPreviewInitialized.current = false;
+      setDevSocialPreviewHydrated(true);
+      return;
+    }
+    if (connectedPlatforms.length === 0 || !userId || devSocialPreviewInitialized.current) return;
+    setDevSocialPreviewHydrated(false);
+    getCachedTrainerSocialPreviewMode(userId).then((savedMode) => {
+      if (isCancelled) return;
+      setShowDevSocialPreview(
+        savedMode == null ? shouldAutoEnableDevPreview : savedMode,
+      );
+      devSocialPreviewInitialized.current = true;
+      setDevSocialPreviewHydrated(true);
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [canUseDevSocialPreview, connectedPlatforms.length, shouldAutoEnableDevPreview, user?.id]);
+  const displayConnectedPlatforms = showDevSocialPreview
+    ? DEV_SOCIAL_PREVIEW_DATA.platforms
+    : connectedPlatforms;
+  const displaySocialFollowers = showDevSocialPreview
+    ? DEV_SOCIAL_PREVIEW_DATA.followers
+    : socialFollowers;
+  const displaySocialViewsPerMonth = showDevSocialPreview
+    ? DEV_SOCIAL_PREVIEW_DATA.viewsPerMonth
+    : socialViewsPerMonth;
+  const displaySocialEngagementRate = showDevSocialPreview
+    ? DEV_SOCIAL_PREVIEW_DATA.engagementRate
+    : socialEngagementRate;
+  const displaySocialCtr = showDevSocialPreview
+    ? DEV_SOCIAL_PREVIEW_DATA.ctr
+    : socialCtr;
+  const displaySocialOpenViolationsCount = showDevSocialPreview
+    ? 0
+    : socialOpenViolationsCount;
+  const displaySocialFollowerProgressPct = Math.max(
+    0,
+    Math.min(100, Math.round((displaySocialFollowers / socialFollowerTarget) * 100)),
+  );
+  const displaySocialViewsProgressPct = Math.max(
+    0,
+    Math.min(100, Math.round((displaySocialViewsPerMonth / socialViewsTarget) * 100)),
+  );
+  const displaySocialReadinessPct = Math.round(
+    (displaySocialFollowerProgressPct + displaySocialViewsProgressPct) / 2,
+  );
+  const displaySocialFollowerGap = Math.max(
+    0,
+    socialFollowerTarget - displaySocialFollowers,
+  );
+  const displaySocialViewsGap = Math.max(
+    0,
+    socialViewsTarget - displaySocialViewsPerMonth,
+  );
+  const displaySocialReadinessColor =
+    displaySocialOpenViolationsCount > 0
+      ? '#F59E0B'
+      : displaySocialReadinessPct >= 100
+        ? '#34D399'
+        : DASH.primary;
+  const displaySocialReadinessMessage =
+    displaySocialOpenViolationsCount > 0
+      ? `${displaySocialOpenViolationsCount} open concern${displaySocialOpenViolationsCount === 1 ? '' : 's'} to review`
+      : displaySocialFollowerGap <= 0 && displaySocialViewsGap <= 0
+        ? 'Ready for campaign review'
+        : displaySocialFollowerProgressPct <= displaySocialViewsProgressPct
+          ? `Needs ${formatCompactNumber(displaySocialFollowerGap)} more followers`
+          : `Needs ${formatCompactNumber(displaySocialViewsGap)} more monthly views`;
+  const displaySocialStatusLine =
+    displaySocialOpenViolationsCount > 0
+      ? 'Momentum is strong, but there is a compliance issue to resolve.'
+      : showDevSocialPreview
+        ? `Connected from ${displayConnectedPlatforms.length} platforms with rising example engagement.`
+        : `Connected from ${displayConnectedPlatforms.length} platform${displayConnectedPlatforms.length === 1 ? '' : 's'} with live Phyllo sync.`;
+  const displayRecentSocialMomentum = showDevSocialPreview
+    ? DEV_SOCIAL_PREVIEW_DATA.momentum
+    : recentSocialMomentum;
+  const displayLatestSocialPostSummary = showDevSocialPreview
+    ? DEV_SOCIAL_PREVIEW_DATA.latestPostSummary
+    : latestSocialPostSummary;
+  const displaySocialPlatformSummary = displayConnectedPlatforms
+    .slice(0, 2)
+    .map((platform) => normalizeSocialPlatformLabel(platform))
+    .join(' · ');
+  const socialVizAnimationKey = useMemo(
+    () =>
+      JSON.stringify({
+        showDevSocialPreview,
+        followers: displaySocialFollowers,
+        views: displaySocialViewsPerMonth,
+        platforms: displayConnectedPlatforms.length,
+        momentum: displayRecentSocialMomentum,
+      }),
+    [
+      showDevSocialPreview,
+      displaySocialFollowers,
+      displaySocialViewsPerMonth,
+      displayConnectedPlatforms.length,
+      displayRecentSocialMomentum,
+    ],
+  );
+  useEffect(() => {
+    const listenerId = socialVizProgressAnim.addListener(({ value }) => {
+      setSocialVizProgress(value);
+    });
+    return () => {
+      socialVizProgressAnim.removeListener(listenerId);
+    };
+  }, [socialVizProgressAnim]);
+  useEffect(() => {
+    socialVizProgressAnim.stopAnimation();
+    socialVizProgressAnim.setValue(0);
+    const animation = Animated.timing(socialVizProgressAnim, {
+      toValue: 1,
+      duration: SOCIAL_VIZ_ANIMATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => {
+      socialVizProgressAnim.stopAnimation();
+    };
+  }, [socialVizAnimationKey, socialVizProgressAnim]);
+
+  const accessStateCard = useMemo(() => {
+    if (membershipStatus === 'banned') {
+      return {
+        title: 'Social access removed',
+        body: 'Your social program access is currently banned. Please contact your coordinator if this looks incorrect.',
+        color: '#EF4444',
+      };
+    }
+    if (membershipStatus === 'paused') {
+      return {
+        title: 'Social access paused',
+        body: 'Your social program access is paused right now. Your coordinator can reactivate it when you are ready.',
+        color: '#F59E0B',
+      };
+    }
+    if (!isConnected && hasPendingInvite) {
+      return {
+        title: 'Invite waiting',
+        body: invitedBy?.name
+          ? `${invitedBy.name} invited you to Social Posts. Connect your first platform when you are ready.`
+          : 'You have a pending Social Posts invitation waiting for connection.',
+        color: '#60A5FA',
+      };
+    }
+    if (!isConnected && (membershipStatus === 'uninvited' || membershipStatus === 'declined' || membershipStatus === 'not_enrolled')) {
+      return {
+        title: 'Invite required',
+        body: 'You are not currently invited to Social Posts. Once a coordinator invites you, connection controls will become available here.',
+        color: '#94A3B8',
+      };
+    }
+    return null;
+  }, [hasPendingInvite, invitedBy?.name, isConnected, membershipStatus]);
 
   const openRecentPost = async (post: any) => {
     const targetUrl = String(post?.postUrl || post?.fallbackProfileUrl || "").trim();
@@ -316,7 +1249,7 @@ export default function TrainerSocialProgressScreen() {
           subtitle="Track your commitments, KPI performance, and compliance status."
           leftSlot={
             <TouchableOpacity
-              onPress={() => (router.canGoBack() ? router.back() : router.replace("/(trainer)/social-program" as any))}
+              onPress={() => (router.canGoBack() ? router.back() : router.replace("/(trainer)" as any))}
               className="w-10 h-10 rounded-full bg-surface items-center justify-center"
               accessibilityRole="button"
               accessibilityLabel="Go back"
@@ -327,68 +1260,342 @@ export default function TrainerSocialProgressScreen() {
           }
         />
         <View className="px-4 pb-8 gap-4">
-          <SurfaceCard>
-            <Text className="text-base font-semibold text-foreground mb-2">
-              Measured KPI Snapshot
+          <SurfaceCard style={{ ...CARD_SOFT_STYLE, overflow: 'hidden' }}>
+            <View
+              pointerEvents='none'
+              style={{
+                position: 'absolute',
+                top: -20,
+                right: -25,
+                width: 110,
+                height: 110,
+                borderRadius: 55,
+                backgroundColor: 'rgba(96,165,250,0.18)',
+              }}
+            />
+            <View
+              pointerEvents='none'
+              style={{
+                position: 'absolute',
+                bottom: -28,
+                left: -20,
+                width: 120,
+                height: 120,
+                borderRadius: 60,
+                backgroundColor: 'rgba(167,139,250,0.14)',
+              }}
+            />
+            {canUseDevSocialPreview ? (
+              <TouchableOpacity
+                onPress={() => {
+                  const userId = String(user?.id || "").trim();
+                  setShowDevSocialPreview((current) => {
+                    const next = !current;
+                    if (userId) {
+                      void setCachedTrainerSocialPreviewMode(userId, next);
+                    }
+                    return next;
+                  });
+                }}
+                activeOpacity={0.75}
+                accessibilityRole='button'
+                accessibilityLabel={
+                  showDevSocialPreview
+                    ? 'Show live social metrics'
+                    : 'Show sample social metrics'
+                }
+                testID='social-progress-preview-toggle'
+                className='self-start'
+              >
+                <Text
+                  className='text-base font-semibold'
+                  style={{
+                    color: DASH.primary,
+                    textDecorationLine: 'underline',
+                  }}
+                >
+                  Your social progress at a glance
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text
+                className='text-base font-semibold'
+                style={{ color: DASH.text }}
+              >
+                Your social progress at a glance
+              </Text>
+            )}
+            <Text className='text-sm mt-1' style={{ color: DASH.muted }}>
+              {displaySocialStatusLine}
             </Text>
-            <Text className="text-sm text-muted mb-1">
-              Followers:{" "}
-              <Text className="text-foreground font-semibold">
-                {Number(profile?.followerCount || 0).toLocaleString()}
+            <View className='flex-row mt-3 gap-2'>
+              <SocialMetricDial
+                label='Followers'
+                value={formatCompactNumber(displaySocialFollowers * socialVizProgress)}
+                helper={`Goal ${formatCompactNumber(socialFollowerTarget)}`}
+                progress={displaySocialFollowers / socialFollowerTarget}
+                animationProgress={socialVizProgress}
+              />
+              <SocialMetricDial
+                label='V/MO'
+                value={formatCompactNumber(displaySocialViewsPerMonth * socialVizProgress)}
+                helper={`Goal ${formatCompactNumber(socialViewsTarget)}`}
+                progress={displaySocialViewsPerMonth / socialViewsTarget}
+                animationProgress={socialVizProgress}
+              />
+              <SocialMetricDial
+                label='Platforms'
+                value={String(
+                  Math.round(displayConnectedPlatforms.length * socialVizProgress),
+                )}
+                helper={displaySocialPlatformSummary || 'Connect channels'}
+                progress={displayConnectedPlatforms.length / platformDialTarget}
+                animationProgress={socialVizProgress}
+              />
+            </View>
+            <View
+              className='mt-3 rounded-xl border px-3 py-3'
+              style={{
+                backgroundColor: 'rgba(11,16,32,0.42)',
+                borderColor: 'rgba(148,163,184,0.18)',
+              }}
+            >
+              <View className='flex-row items-center justify-between'>
+                <Text
+                  className='text-[11px] font-semibold uppercase tracking-[0.8px]'
+                  style={{ color: '#93C5FD' }}
+                >
+                  Recent engagement
+                </Text>
+                <Text className='text-[11px]' style={{ color: DASH.muted }}>
+                  {displayLatestSocialPostSummary}
+                </Text>
+              </View>
+              <View className='mt-3'>
+                {displayRecentSocialMomentum.length > 0 ? (
+                  <SocialLineChart
+                    values={displayRecentSocialMomentum}
+                    animationProgress={socialVizProgress}
+                  />
+                ) : (
+                  <SocialLineChartPlaceholder />
+                )}
+              </View>
+              <View className='flex-row flex-wrap mt-3'>
+                {[
+                  `Engagement ${pct(displaySocialEngagementRate)}`,
+                  `CTR ${pct(displaySocialCtr)}`,
+                ].map((pill) => (
+                  <View
+                    key={pill}
+                    className='mr-2 mb-2 rounded-full px-2.5 py-1'
+                    style={{
+                      backgroundColor: 'rgba(15,23,42,0.55)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(148,163,184,0.25)',
+                    }}
+                  >
+                    <Text
+                      className='text-[10px] font-semibold'
+                      style={{ color: '#C7D2FE' }}
+                    >
+                      {pill}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            <View
+              className='mt-3 rounded-xl border px-3 py-3'
+              style={{
+                backgroundColor: 'rgba(11,16,32,0.42)',
+                borderColor: 'rgba(148,163,184,0.18)',
+              }}
+            >
+              <View className='flex-row items-center justify-between mb-2'>
+                <Text
+                  className='text-[11px] font-semibold uppercase tracking-[0.8px]'
+                  style={{ color: '#93C5FD' }}
+                >
+                  Program readiness
+                </Text>
+                <Text
+                  className='text-xs font-semibold'
+                  style={{ color: displaySocialReadinessColor }}
+                >
+                  {displaySocialReadinessPct}%
+                </Text>
+              </View>
+              <View
+                className='h-2 rounded-full border overflow-hidden'
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  borderColor: 'rgba(148,163,184,0.18)',
+                }}
+              >
+                <View
+                  style={{
+                    width: `${Math.max(8, displaySocialReadinessPct)}%`,
+                    height: '100%',
+                    backgroundColor: displaySocialReadinessColor,
+                  }}
+                />
+              </View>
+              <Text className='text-xs mt-2 font-medium' style={{ color: DASH.text }}>
+                {displaySocialReadinessMessage}
+              </Text>
+            </View>
+          </SurfaceCard>
+
+          {accessStateCard ? (
+            <SurfaceCard
+              style={{
+                borderColor: `${accessStateCard.color}55`,
+                backgroundColor: `${accessStateCard.color}12`,
+              }}
+            >
+              <Text
+                className='text-sm font-semibold'
+                style={{ color: accessStateCard.color }}
+              >
+                {accessStateCard.title}
+              </Text>
+              <Text className='text-sm mt-1' style={{ color: colors.foreground }}>
+                {accessStateCard.body}
+              </Text>
+            </SurfaceCard>
+          ) : null}
+
+          <SurfaceCard style={{ position: 'relative', overflow: 'visible' }}>
+            <View className='flex-row items-center justify-between mb-2'>
+              <Text className='text-base font-semibold text-foreground'>
+                Connected services
+              </Text>
+              <View className='flex-row items-center gap-2'>
+                {isConnected ? (
+                  <TouchableOpacity
+                    onPress={() => syncNowMutation.mutate()}
+                    disabled={syncNowMutation.isPending}
+                    className='px-2.5 py-1 rounded-full border border-border flex-row items-center'
+                    style={{
+                      backgroundColor: colors.surface,
+                      opacity: syncNowMutation.isPending ? 0.7 : 1,
+                      borderColor: syncDoneAt ? 'rgba(52,211,153,0.45)' : colors.border,
+                    }}
+                    accessibilityRole='button'
+                    accessibilityLabel='Sync social stats now'
+                    testID='social-progress-sync-now'
+                  >
+                    {syncNowMutation.isPending ? (
+                      <ActivityIndicator size='small' color={colors.muted} />
+                    ) : (
+                      <MaterialCommunityIcons
+                        name={syncDoneAt ? 'check-circle' : 'refresh'}
+                        size={12}
+                        color={syncDoneAt ? '#34D399' : colors.muted}
+                      />
+                    )}
+                    <Text
+                      className='text-[11px] ml-1'
+                      style={{ color: syncDoneAt ? '#34D399' : colors.muted }}
+                    >
+                      {syncNowMutation.isPending
+                        ? 'Syncing...'
+                        : syncDoneAt
+                          ? 'Synced'
+                          : 'Sync now'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {canAttemptConnect ? (
+                  <TouchableOpacity
+                    onPress={handleConnectPhyllo}
+                    disabled={isLaunchingConnect}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 17,
+                      backgroundColor: colors.primary,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: isLaunchingConnect ? 0.9 : 1,
+                    }}
+                    accessibilityRole='button'
+                    accessibilityLabel={
+                      isConnected
+                        ? 'Connect more platforms'
+                        : 'Connect your first platform'
+                    }
+                    testID='social-progress-connect-more-fab'
+                  >
+                    {isLaunchingConnect ? (
+                      <ActivityIndicator size='small' color='#fff' />
+                    ) : (
+                      <MaterialCommunityIcons name='plus' size={18} color='#fff' />
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+            <Text className='text-sm text-muted'>
+              Membership:{' '}
+              <Text className='text-foreground font-semibold capitalize'>
+                {String(membershipStatus).replace(/_/g, ' ')}
               </Text>
             </Text>
-            <Text className="text-sm text-muted mb-1">
-              V/MO:{" "}
-              <Text className="text-foreground font-semibold">
-                {Number(profile?.avgViewsPerMonth || 0).toLocaleString()}
+            <Text className='text-sm text-muted mt-1'>
+              Social accounts connected:{' '}
+              <Text className='text-foreground font-semibold'>
+                {isConnected ? 'Yes' : 'No'}
               </Text>
             </Text>
-            <Text className="text-sm text-muted mb-1">
-              Engagement rate:{" "}
-              <Text className="text-foreground font-semibold">
-                {pct(profile?.avgEngagementRate)}
+            {connectActionError ? (
+              <Text className='text-xs mt-2' style={{ color: '#EF4444' }}>
+                {connectActionError}
               </Text>
-            </Text>
-            <Text className="text-sm text-muted">
-              CTR:{" "}
-              <Text className="text-foreground font-semibold">
-                {pct(profile?.avgCtr)}
+            ) : null}
+            {connectActionSuccess ? (
+              <Text className='text-xs mt-2' style={{ color: '#34D399' }}>
+                {connectActionSuccess}
               </Text>
-            </Text>
-            <Text className="text-xs text-muted mt-2">
-              Source: connected social profile metrics
-            </Text>
-            <Text className="text-sm text-muted mt-2">
-              Connected platforms:
-            </Text>
-            <View className="flex-row flex-wrap gap-2 mt-2">
-              {connectedPlatforms.length > 0 ? (
-                connectedPlatforms.map((platformKey) => {
-                  const platformIcon = getSocialPlatformIcon(platformKey);
+            ) : null}
+            <View className='gap-2 mt-3'>
+              {platformStats.length > 0 ? (
+                platformStats.map((row) => {
+                  const platformIcon = getSocialPlatformIcon(row.platform);
                   return (
                     <View
-                      key={`progress-${platformKey}`}
-                      className="flex-row items-center px-2.5 py-1 rounded-full border border-border"
-                      style={{
-                        backgroundColor:
-                          colors.background === "#0A0A14"
-                            ? "rgba(148,163,184,0.22)"
-                            : "rgba(148,163,184,0.16)",
-                      }}
+                      key={`progress-service-${row.platform}`}
+                      className='rounded-xl border border-border px-3 py-2 flex-row items-center justify-between'
                     >
-                      <MaterialCommunityIcons
-                        name={platformIcon.icon as any}
-                        size={13}
-                        color={platformIcon.color}
-                      />
-                      <Text className="text-xs text-foreground ml-1.5">
-                        {platformIcon.label}
-                      </Text>
+                      <View className='flex-1 pr-3'>
+                        <View className='flex-row items-center'>
+                          <MaterialCommunityIcons
+                            name={platformIcon.icon as any}
+                            size={16}
+                            color={platformIcon.color}
+                          />
+                          <Text className='text-sm font-semibold text-foreground ml-1.5'>
+                            {platformIcon.label}
+                          </Text>
+                        </View>
+                        <Text className='text-xs text-muted mt-0.5'>
+                          Followers: {row.followers.toLocaleString()}
+                        </Text>
+                      </View>
+                      <View className='items-end'>
+                        <Text className='text-xs text-muted'>
+                          Impressions / month
+                        </Text>
+                        <Text className='text-sm font-semibold text-foreground'>
+                          {row.impressions.toLocaleString()}
+                        </Text>
+                      </View>
                     </View>
                   );
                 })
               ) : (
-                <Text className="text-xs text-muted">None linked yet</Text>
+                <Text className='text-xs text-muted'>None linked yet</Text>
               )}
             </View>
           </SurfaceCard>
@@ -578,36 +1785,6 @@ export default function TrainerSocialProgressScreen() {
                 </View>
               </>
             )}
-          </SurfaceCard>
-
-          <SurfaceCard>
-            <Text className="text-base font-semibold text-foreground mb-2">
-              14-Day Trend
-            </Text>
-            {trendRows.length === 0 ? (
-              <Text className="text-sm text-muted">No recent trend data yet.</Text>
-            ) : (
-              <View className="flex-row items-end h-32">
-                {trendRows.map((row) => {
-                  const h = Math.max(4, Math.round((row.views / trendMaxViews) * 96));
-                  return (
-                    <View key={row.date} className="flex-1 items-center justify-end">
-                      <View
-                        style={{
-                          width: 8,
-                          height: h,
-                          borderRadius: 4,
-                          backgroundColor: `${colors.primary}CC`,
-                        }}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-            <Text className="text-xs text-muted mt-2">
-              Bars represent daily view volume.
-            </Text>
           </SurfaceCard>
 
           <SurfaceCard>

@@ -193,6 +193,22 @@ async function ensureActiveSocialMembershipForConnect(params: {
   }
 
   if (!membership || membership.status !== "active") {
+    const existingProfile = await db.getTrainerSocialProfile(params.trainerId);
+    if (existingProfile?.phylloUserId) {
+      membership = await db.upsertTrainerSocialMembership({
+        trainerId: params.trainerId,
+        status: "active",
+        acceptedAt:
+          membership?.acceptedAt ||
+          existingProfile.lastSyncedAt ||
+          new Date().toISOString(),
+        invitedBy: membership?.invitedBy || null,
+        reason: null,
+      });
+    }
+  }
+
+  if (!membership || membership.status !== "active") {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: pendingInvite
@@ -203,6 +219,69 @@ async function ensureActiveSocialMembershipForConnect(params: {
 
   await ensureSocialCommitmentProgress(params.trainerId);
   return { membership, pendingInviteAccepted };
+}
+
+async function reconcileTrainerSocialMembershipState(params: {
+  trainerId: string;
+  membership?: db.TrainerSocialMembership;
+  profile?: db.TrainerSocialProfile;
+  pendingInvite?: db.TrainerSocialInvite;
+}): Promise<{
+  membership?: db.TrainerSocialMembership;
+  pendingInvite?: db.TrainerSocialInvite;
+}> {
+  let membership = params.membership;
+  let pendingInvite = params.pendingInvite;
+  const profile = params.profile;
+
+  if (membership?.status === "banned" || membership?.status === "paused") {
+    return { membership, pendingInvite };
+  }
+
+  if (profile?.phylloUserId) {
+    if (pendingInvite?.status === "pending") {
+      await db.updateTrainerSocialInvite(pendingInvite.id, {
+        status: "accepted",
+        acceptedAt: new Date().toISOString(),
+      });
+      pendingInvite = undefined;
+    }
+    if (!membership || membership.status !== "active") {
+      membership = await db.upsertTrainerSocialMembership({
+        trainerId: params.trainerId,
+        status: "active",
+        invitedBy: membership?.invitedBy || pendingInvite?.invitedBy || null,
+        acceptedAt:
+          membership?.acceptedAt ||
+          profile.lastSyncedAt ||
+          new Date().toISOString(),
+        declinedAt: null,
+        pausedAt: null,
+        bannedAt: null,
+        reason: null,
+      });
+    }
+    return { membership, pendingInvite };
+  }
+
+  if (
+    pendingInvite &&
+    (!membership ||
+      membership.status === "uninvited" ||
+      membership.status === "declined")
+  ) {
+    membership = await db.upsertTrainerSocialMembership({
+      trainerId: params.trainerId,
+      status: "invited",
+      invitedBy: pendingInvite.invitedBy,
+      invitedAt: membership?.invitedAt || pendingInvite.createdAt,
+      acceptedAt: null,
+      declinedAt: null,
+      reason: null,
+    });
+  }
+
+  return { membership, pendingInvite };
 }
 
 async function preparePhylloConnectSession(params: {
@@ -7047,7 +7126,7 @@ export const appRouter = router({
   // ============================================================================
   socialProgram: router({
     myStatus: trainerProcedure.query(async ({ ctx }) => {
-      const [membership, profile, pendingInvite, commitment, progress, violations] =
+      const [membershipRaw, profile, pendingInviteRaw, commitment, progress, violations] =
         await Promise.all([
           db.getTrainerSocialMembership(ctx.user.id),
           db.getTrainerSocialProfile(ctx.user.id),
@@ -7060,6 +7139,14 @@ export const appRouter = router({
             limit: 25,
           }),
         ]);
+
+      const { membership, pendingInvite } =
+        await reconcileTrainerSocialMembershipState({
+          trainerId: ctx.user.id,
+          membership: membershipRaw,
+          profile,
+          pendingInvite: pendingInviteRaw,
+        });
 
       const inviteBy =
         pendingInvite?.invitedBy &&
@@ -7315,10 +7402,11 @@ export const appRouter = router({
     }),
 
     myProgramDashboard: trainerProcedure.query(async ({ ctx }) => {
-      const [membership, profile, progress, commitment, violations, recentMetrics] =
+      const [membershipRaw, profile, pendingInviteRaw, progress, commitment, violations, recentMetrics] =
         await Promise.all([
           db.getTrainerSocialMembership(ctx.user.id),
           db.getTrainerSocialProfile(ctx.user.id),
+          db.getPendingTrainerSocialInvite(ctx.user.id),
           db.getLatestTrainerSocialProgress(ctx.user.id),
           db.getActiveTrainerSocialCommitment(ctx.user.id),
           db.listTrainerSocialViolations({
@@ -7327,9 +7415,27 @@ export const appRouter = router({
           }),
           db.getTrainerSocialMetricsRange(ctx.user.id, { limit: 30 }),
         ]);
+      const { membership, pendingInvite } =
+        await reconcileTrainerSocialMembershipState({
+          trainerId: ctx.user.id,
+          membership: membershipRaw,
+          profile,
+          pendingInvite: pendingInviteRaw,
+        });
+      const inviteBy =
+        pendingInvite?.invitedBy &&
+        (await db.getUserById(pendingInvite.invitedBy));
       return {
         membership,
         profile,
+        pendingInvite,
+        invitedBy: inviteBy
+          ? {
+              id: inviteBy.id,
+              name: inviteBy.name,
+              role: inviteBy.role,
+            }
+          : null,
         progress,
         commitment,
         violations,
@@ -7536,13 +7642,13 @@ export const appRouter = router({
         const summary =
           input.summary?.trim() ||
           "You are invited to earn by posting approved social campaign content.";
-        const appLink = "locomotivate://(trainer)/social-program";
+        const appLink = "locomotivate://(trainer)/social-progress";
         const webBase = String(
           process.env.EXPO_PUBLIC_APP_URL || "https://locomotivate.app",
         )
           .trim()
           .replace(/\/+$/g, "");
-        const webLink = `${webBase}/(trainer)/social-program`;
+        const webLink = `${webBase}/(trainer)/social-progress`;
         const content = [
           `You have been invited to the LocoMotivate Social Program.`,
           summary,

@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const SOCIAL_STATUS_CACHE_VERSION = 1;
 const SOCIAL_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 const SOCIAL_STATUS_CACHE_KEY_PREFIX = "trainer_social_status_snapshot";
+const SOCIAL_PREVIEW_MODE_KEY_PREFIX = "trainer_social_preview_mode";
 
 type SocialStatusCacheEntry = {
   data: any;
@@ -12,6 +13,10 @@ type SocialStatusCacheEntry = {
 
 function getSocialStatusCacheKey(userId: string) {
   return `${SOCIAL_STATUS_CACHE_KEY_PREFIX}:${userId}`;
+}
+
+function getSocialPreviewModeKey(userId: string) {
+  return `${SOCIAL_PREVIEW_MODE_KEY_PREFIX}:${userId}`;
 }
 
 export function getSocialStatusCacheTtlMs() {
@@ -61,6 +66,33 @@ export async function setCachedTrainerSocialStatus(userId: string, data: any) {
     await AsyncStorage.setItem(
       getSocialStatusCacheKey(userId),
       JSON.stringify(entry),
+    );
+  } catch {
+    // Best-effort cache only.
+  }
+}
+
+export async function getCachedTrainerSocialPreviewMode(
+  userId: string,
+): Promise<boolean | null> {
+  try {
+    const raw = await AsyncStorage.getItem(getSocialPreviewModeKey(userId));
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setCachedTrainerSocialPreviewMode(
+  userId: string,
+  enabled: boolean,
+) {
+  try {
+    await AsyncStorage.setItem(
+      getSocialPreviewModeKey(userId),
+      enabled ? "1" : "0",
     );
   } catch {
     // Best-effort cache only.

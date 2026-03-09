@@ -39,7 +39,7 @@ export default function PhylloCallbackScreen() {
         ]);
         const target = params.returnTo
           ? decodeURIComponent(String(params.returnTo))
-          : "/(trainer)/social-program";
+          : "/(trainer)/social-progress";
         const separator = target.includes("?") ? "&" : "?";
         const reasonParam = reason
           ? `&reason=${encodeURIComponent(String(reason))}`

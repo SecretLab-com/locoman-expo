@@ -7,9 +7,11 @@ import { trackLaunchEvent } from "@/lib/analytics";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
 import {
+  getCachedTrainerSocialPreviewMode,
   getCachedTrainerSocialStatus,
   getSocialStatusCacheTtlMs,
   isFreshSocialStatusCache,
+  setCachedTrainerSocialPreviewMode,
   setCachedTrainerSocialStatus,
 } from "@/lib/social-status-cache";
 import { maybeShowInviteCongrats } from "@/lib/social-invite-alerts";
@@ -134,7 +136,7 @@ const DEV_SOCIAL_PREVIEW_DATA: DevSocialPreviewData = {
   momentum: [220, 310, 420, 390, 560, 680, 740, 910, 1120, 1360],
   latestPostSummary: "Latest post: 1.8k engagements",
 };
-const SOCIAL_VIZ_ANIMATION_MS = 700;
+const SOCIAL_VIZ_ANIMATION_MS = 1500;
 
 const OFFER_STATUS_STYLE: Record<OfferStatus, { bg: string; border: string; text: string; label: string }> = {
   draft: { bg: "rgba(250,204,21,0.15)", border: "rgba(250,204,21,0.3)", text: "#FACC15", label: "Draft" },
@@ -665,6 +667,110 @@ function SocialLineChart({
   );
 }
 
+function SocialLineChartPlaceholder() {
+  const width = 280;
+  const height = 88;
+  const paddingX = 8;
+  const paddingTop = 10;
+  const paddingBottom = 10;
+  const baselineY = height - paddingBottom;
+  const placeholderLine = buildLinePath([
+    { x: 16, y: baselineY - 10 },
+    { x: 56, y: baselineY - 18 },
+    { x: 96, y: baselineY - 22 },
+    { x: 136, y: baselineY - 20 },
+    { x: 176, y: baselineY - 26 },
+    { x: 216, y: baselineY - 24 },
+    { x: 256, y: baselineY - 28 },
+  ]);
+  const placeholderArea = buildAreaPath(
+    [
+      { x: 16, y: baselineY - 10 },
+      { x: 56, y: baselineY - 18 },
+      { x: 96, y: baselineY - 22 },
+      { x: 136, y: baselineY - 20 },
+      { x: 176, y: baselineY - 26 },
+      { x: 216, y: baselineY - 24 },
+      { x: 256, y: baselineY - 28 },
+    ],
+    baselineY,
+  );
+
+  return (
+    <View
+      style={{
+        height,
+        borderRadius: 12,
+        overflow: "hidden",
+        backgroundColor: "rgba(15,23,42,0.42)",
+        borderWidth: 1,
+        borderColor: "rgba(148,163,184,0.14)",
+        paddingHorizontal: 4,
+        paddingVertical: 4,
+        justifyContent: "center",
+      }}
+    >
+      <Svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`}>
+        {[0.25, 0.5, 0.75].map((ratio) => {
+          const y = paddingTop + (height - paddingTop - paddingBottom) * ratio;
+          return (
+            <Path
+              key={`social-placeholder-grid-${ratio}`}
+              d={`M ${paddingX} ${y.toFixed(2)} L ${width - paddingX} ${y.toFixed(2)}`}
+              stroke="rgba(148,163,184,0.08)"
+              strokeWidth={1}
+              strokeDasharray="4 6"
+              fill="none"
+            />
+          );
+        })}
+        <Path
+          d={placeholderArea}
+          fill="rgba(148,163,184,0.05)"
+        />
+        <Path
+          d={placeholderLine}
+          stroke="rgba(148,163,184,0.18)"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </Svg>
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <View
+          style={{
+            borderRadius: 999,
+            paddingHorizontal: 14,
+            paddingVertical: 7,
+            backgroundColor: "rgba(15,23,42,0.6)",
+            borderWidth: 1,
+            borderColor: "rgba(148,163,184,0.14)",
+          }}
+        >
+          <Text
+            className="text-xs font-medium"
+            style={{ color: "rgba(148,163,184,0.72)" }}
+          >
+            No data available.. Yet.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function getConnectedPlatformsFromSocialStatus(status: any): string[] {
   const profile = status?.profile as any;
   const keys = new Set<string>();
@@ -803,6 +909,7 @@ export default function TrainerHomeScreen() {
   const [earningsExpanded, setEarningsExpanded] = useState(false);
   const [showDevSocialPreview, setShowDevSocialPreview] = useState(false);
   const devSocialPreviewInitialized = useRef(false);
+  const [devSocialPreviewHydrated, setDevSocialPreviewHydrated] = useState(false);
   const socialVizProgressAnim = useRef(new Animated.Value(0)).current;
   const [socialVizProgress, setSocialVizProgress] = useState(0);
   const heroScaleAnim = useRef(new Animated.Value(1)).current;
@@ -1107,18 +1214,32 @@ export default function TrainerHomeScreen() {
     socialViewsPerMonth === 0 &&
     recentSocialMomentum.length === 0;
   useEffect(() => {
+    const userId = String(user?.id || "").trim();
+    let isCancelled = false;
     if (!canUseDevSocialPreview) {
       setShowDevSocialPreview(false);
       devSocialPreviewInitialized.current = false;
+      setDevSocialPreviewHydrated(true);
       return;
     }
-    if (!showConnectedSocialCard || devSocialPreviewInitialized.current) return;
-    setShowDevSocialPreview(shouldAutoEnableDevPreview);
-    devSocialPreviewInitialized.current = true;
+    if (!showConnectedSocialCard || !userId || devSocialPreviewInitialized.current) return;
+    setDevSocialPreviewHydrated(false);
+    getCachedTrainerSocialPreviewMode(userId).then((savedMode) => {
+      if (isCancelled) return;
+      setShowDevSocialPreview(
+        savedMode == null ? shouldAutoEnableDevPreview : savedMode,
+      );
+      devSocialPreviewInitialized.current = true;
+      setDevSocialPreviewHydrated(true);
+    });
+    return () => {
+      isCancelled = true;
+    };
   }, [
     canUseDevSocialPreview,
     shouldAutoEnableDevPreview,
     showConnectedSocialCard,
+    user?.id,
   ]);
   const displayConnectedSocialPlatforms = showDevSocialPreview
     ? DEV_SOCIAL_PREVIEW_DATA.platforms
@@ -1246,7 +1367,14 @@ export default function TrainerHomeScreen() {
     event?.stopPropagation?.();
     event?.preventDefault?.();
     if (!canUseDevSocialPreview) return;
-    setShowDevSocialPreview((current) => !current);
+    const userId = String(user?.id || "").trim();
+    setShowDevSocialPreview((current) => {
+      const next = !current;
+      if (userId) {
+        void setCachedTrainerSocialPreviewMode(userId, next);
+      }
+      return next;
+    });
   };
   const canNavigateSocialCard =
     !(showConnectedSocialCard && canUseDevSocialPreview);
@@ -1976,6 +2104,31 @@ export default function TrainerHomeScreen() {
                   overflow: "hidden",
                 }}
               >
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push(
+                      (showConnectedSocialCard
+                        ? "/(trainer)/social-progress"
+                        : "/(trainer)/social-progress") as any,
+                    )
+                  }
+                  activeOpacity={0.92}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    showConnectedSocialCard
+                      ? "View social progress"
+                      : "View social program"
+                  }
+                  testID="trainer-social-card-body-link"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    left: 0,
+                    zIndex: 1,
+                  }}
+                />
                 <View
                   pointerEvents="none"
                   style={{
@@ -2001,32 +2154,37 @@ export default function TrainerHomeScreen() {
                     transform: [{ translateY: socialFloatY }],
                   }}
                 />
-                <View className="flex-row items-start justify-between gap-3">
+                {showConnectedSocialCard && canUseDevSocialPreview ? (
+                  <TouchableOpacity
+                    onPress={handleToggleDevSocialPreview}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      showDevSocialPreview
+                        ? "Show live social metrics"
+                        : "Show sample social metrics"
+                    }
+                    testID="trainer-social-preview-toggle"
+                    className="self-start"
+                    style={{ zIndex: 2 }}
+                  >
+                    <Text
+                      className="text-base font-semibold"
+                      style={{
+                        color: DASH.primary,
+                        textDecorationLine: "underline",
+                      }}
+                    >
+                      Your social progress at a glance
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                <View
+                  className="flex-row items-start justify-between gap-3"
+                  pointerEvents="none"
+                >
                   <View className="flex-1">
-                    {showConnectedSocialCard && canUseDevSocialPreview ? (
-                      <TouchableOpacity
-                        onPress={handleToggleDevSocialPreview}
-                        activeOpacity={0.75}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          showDevSocialPreview
-                            ? "Show live social metrics"
-                            : "Show sample social metrics"
-                        }
-                        testID="trainer-social-preview-toggle"
-                        className="self-start"
-                      >
-                        <Text
-                          className="text-base font-semibold"
-                          style={{
-                            color: DASH.primary,
-                            textDecorationLine: "underline",
-                          }}
-                        >
-                          Your social progress at a glance
-                        </Text>
-                      </TouchableOpacity>
-                    ) : (
+                    {!showConnectedSocialCard || !canUseDevSocialPreview ? (
                       <Text
                         className="text-base font-semibold"
                         style={{ color: DASH.text }}
@@ -2039,7 +2197,7 @@ export default function TrainerHomeScreen() {
                               ? "You’ve been invited to Social Posts."
                               : "Get Paid for Social Posts."}
                       </Text>
-                    )}
+                    ) : null}
                     <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
                       {showConnectedSocialCard
                         ? displaySocialStatusLine
@@ -2121,15 +2279,7 @@ export default function TrainerHomeScreen() {
                                 animationProgress={socialVizProgress}
                               />
                             ) : (
-                              <View className="items-center justify-center py-4">
-                                {socialRecentPostsQuery.isLoading ? (
-                                  <ActivityIndicator size="small" color={DASH.primary} />
-                                ) : (
-                                  <Text className="text-xs" style={{ color: DASH.muted }}>
-                                    Syncing first post signals...
-                                  </Text>
-                                )}
-                              </View>
+                              <SocialLineChartPlaceholder />
                             )}
                           </View>
                           <View className="flex-row flex-wrap mt-3">
@@ -2276,7 +2426,7 @@ export default function TrainerHomeScreen() {
                       router.push(
                         (showConnectedSocialCard
                           ? "/(trainer)/social-progress"
-                          : "/(trainer)/social-program") as any,
+                          : "/(trainer)/social-progress") as any,
                       )
                   : undefined
               }
@@ -2429,15 +2579,7 @@ export default function TrainerHomeScreen() {
                             {displayRecentSocialMomentum.length > 0 ? (
                               <SocialLineChart values={displayRecentSocialMomentum} />
                             ) : (
-                              <View className="items-center justify-center py-4">
-                                {socialRecentPostsQuery.isLoading ? (
-                                  <ActivityIndicator size="small" color={DASH.primary} />
-                                ) : (
-                                  <Text className="text-xs" style={{ color: DASH.muted }}>
-                                    Syncing first post signals...
-                                  </Text>
-                                )}
-                              </View>
+                              <SocialLineChartPlaceholder />
                             )}
                           </View>
                           <View className="flex-row flex-wrap mt-3">

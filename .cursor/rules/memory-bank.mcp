@@ -5,6 +5,7 @@
 - Maintain Memory Bank files in `memory-bank/`.
 - Social campaign compliance now flows through `bundle_campaign_accounts.metadata.postingRules` plus durable `trainer_social_content_campaign_attributions`; dashboards should read attribution-backed campaign metrics instead of trainer-wide snapshot fan-out.
 - For trainer-home social status, prefer cached local state plus a skeleton fallback; trust stale active/connected states to avoid false invite flashes, but do not trust stale invite-only states indefinitely.
+- The websocket client should honor offline state: pause reconnects and suppress repeated expected `network down` disconnect logs until connectivity returns.
 
 ## User Preferences
 - Use single quotes in static CLI parameters.

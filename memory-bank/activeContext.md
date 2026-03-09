@@ -27,6 +27,7 @@
 - **Bundle creation from templates**: Copies template product/service/goal data, pre-populates form fields
 - **Campaign post attribution**: Added posting rules on campaign account metadata, durable post-to-campaign attribution storage, webhook-time matching, attribution-backed campaign metrics, and trainer/coordinator compliance UI
 - **Trainer home social card**: Added local `AsyncStorage` cache for `socialProgram.myStatus`, trusted stale active/connected states, and skeleton fallback when no trustworthy social status is available yet
+- **WebSocket offline noise**: Client websocket hook now pauses reconnect attempts and suppresses expected offline disconnect spam until the network is restored
 
 ## Next Steps / Remaining TODOs
 - **Campaign attribution backfill ops**: Consider adding an explicit admin backfill/replay action for historical posts if campaign rules change at scale

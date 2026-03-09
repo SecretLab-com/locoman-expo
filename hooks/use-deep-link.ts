@@ -21,10 +21,10 @@ type DeepLinkRoute = {
  * Add new routes here as the app grows.
  */
 const DEEP_LINK_ROUTES: DeepLinkRoute[] = [
-  // Trainer social program: /social-program -> /(trainer)/social-program
+  // Trainer social program: /social-program -> /(trainer)/social-progress
   {
     pattern: "social-program",
-    routerPath: "/(trainer)/social-program",
+    routerPath: "/(trainer)/social-progress",
   },
   // Phyllo callback bridge: /phyllo/callback -> /phyllo/callback
   {
