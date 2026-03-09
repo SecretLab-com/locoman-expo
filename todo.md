@@ -883,3 +883,11 @@
 
 ## Bug Fixes
 - [x] Fix coordinator login button - API URL was using port 3002 instead of 3000
+
+## Phyllo Integration
+- [x] Merge phyllo branch from GitHub into main (110 commits, 311 files changed)
+- [x] Resolve merge conflicts (api-config.ts, client-detail, login.tsx, welcome.tsx, seed-defaults.ts, websocket.ts, test-accounts.test.ts, drizzle journal)
+- [x] Fix API URL port from 3002 to 3000 in merged code
+- [x] Configure Supabase credentials (EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_KEY, EXPO_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_URL)
+- [ ] Configure SUPABASE_SERVICE_ROLE_KEY (awaiting user input)
+- [ ] Continue Phyllo integration implementation
