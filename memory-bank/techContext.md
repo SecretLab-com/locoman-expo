@@ -58,6 +58,11 @@
 - `EXPO_PUBLIC_SUPABASE_URL` - Supabase project URL exposed to client apps
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY` - Supabase anon key exposed to client apps
 - `EXPO_PUBLIC_API_BASE_URL` - API base URL used by client apps
+- `PHYLLO_AUTH_BASIC` - Server-side basic auth used for direct Phyllo API pulls
+- `PHYLLO_PERIODIC_SYNC_KEY` - Shared secret for the authenticated periodic Phyllo sync endpoint (for Cloud Scheduler or other cron drivers)
+- `PHYLLO_PERIODIC_SYNC_MS` - Optional server poll interval for Phyllo backfill syncs
+- `PHYLLO_PERIODIC_SYNC_STARTUP_DELAY_MS` - Optional delay before the first periodic Phyllo poll after boot
+- `PHYLLO_PERIODIC_SYNC_BATCH_SIZE` - Optional cap on connected Phyllo profiles scanned per periodic run
 
 ## Dev Setup
 - Install dependencies: `pnpm install`

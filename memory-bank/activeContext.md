@@ -10,6 +10,12 @@
 - **Trainer home social-state UX**: Cached social card state with skeleton fallback to prevent invite-state flicker for signed-up trainers
 
 ## Recent Changes
+- **Phyllo dual-path sync**: Social data now syncs through both webhook ingestion and direct API pulls; manual/connect syncs backfill content rows, and the server periodically polls connected Phyllo profiles into Supabase so missed webhooks no longer leave the UI empty
+- **Phyllo recent-post autofill**: The `socialProgram.recentPosts` query now self-heals empty trainer content by triggering a direct Phyllo pull when a connected `phylloUserId` exists, so the UI can populate posts even before a webhook or scheduled poll has written them
+- **Phyllo manual full sync**: The visible `Sync now` action on `social-progress` now runs the full manual Phyllo sync path, including profile refresh, direct content pull, campaign post attribution refresh, and campaign metrics invalidation in the UI
+- **Phyllo production ops**: `DEPLOYMENT_GUIDE.md` now includes the exact Cloud Run env vars and Cloud Scheduler create/update commands for the deployed backend (`locoman-486301`, `us-central1`, `locoman-backend`) using the authenticated periodic-sync endpoint
+- **Phyllo V/MO fallback**: Trainer social cards now derive `V/MO` from imported recent-post views when profile-level monthly views are missing, and the pull sync persists that fallback into `avgViewsPerMonth` so YouTube view data no longer displays as zero
+- **Connected services impressions fallback**: The `social-progress` connected-services list now merges imported recent-post view totals into per-platform impressions and uses subscriber-count fallbacks for YouTube followers, so the YouTube service row no longer shows `0` when synced post metrics exist
 - **Counter-propose UI**: Reschedule request alerts now include a "Suggest" button that expands an inline form for date/time/note counter-proposals
 - **Client spending categorization**: Orders now categorized as sessions/subscriptions/products based on description and fulfillment method (was previously all "products")
 - **Accessibility labels**: Added `accessibilityRole="button"`, `accessibilityLabel`, and `testID` to trainer MoreRow components
@@ -30,6 +36,7 @@
 - **WebSocket offline noise**: Client websocket hook now pauses reconnect attempts and suppresses expected offline disconnect spam until the network is restored
 
 ## Next Steps / Remaining TODOs
+- **Phyllo ops hardening**: Consider admin visibility/replay tooling for failed or delayed Phyllo webhook/poll sync runs
 - **Campaign attribution backfill ops**: Consider adding an explicit admin backfill/replay action for historical posts if campaign rules change at scale
 - **Google Calendar webhook**: Real-time push notifications from Google (currently polling-based sync)
 - **Partnerships**: Still using mock data, needs real API

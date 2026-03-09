@@ -107,6 +107,19 @@ export async function getPhylloProfiles(userId: string) {
   return phylloRequest<any[]>(`/v1/profiles?${params.toString()}`);
 }
 
+export async function getPhylloContents(input: {
+  accountId: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams({
+    account_id: input.accountId,
+  });
+  if (input.limit && Number.isFinite(input.limit) && input.limit > 0) {
+    params.set("limit", String(Math.round(input.limit)));
+  }
+  return phylloRequest<any[]>(`/v1/social/contents?${params.toString()}`);
+}
+
 export function getBootstrapPhylloUserFromEnv() {
   if (!ENV.phylloId) return null;
   return {

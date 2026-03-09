@@ -18,6 +18,7 @@ export const ENV = {
   phylloApiBaseUrl:
     process.env.PHYLLO_API_BASE_URL ?? "https://api.staging.getphyllo.com",
   phylloAuthBasic: process.env.PHYLLO_AUTH_BASIC ?? "",
+  phylloPeriodicSyncKey: process.env.PHYLLO_PERIODIC_SYNC_KEY ?? "",
   phylloWebhookSecret: process.env.PHYLLO_WEBHOOK_SECRET ?? "",
   phylloName: process.env.PHYLLO_NAME ?? "",
   phylloExternalId: process.env.PHYLLO_EXTERNAL_ID ?? "",

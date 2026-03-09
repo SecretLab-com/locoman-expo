@@ -4110,6 +4110,23 @@ export async function getTrainerSocialProfileByPhylloUserId(
   return mapFromDb<TrainerSocialProfile>(data);
 }
 
+export async function listTrainerSocialProfilesForSync(options?: {
+  limit?: number;
+}): Promise<TrainerSocialProfile[]> {
+  const limit = Math.max(1, Math.min(options?.limit || 250, 1000));
+  const { data, error } = await sb()
+    .from("trainer_social_profiles")
+    .select("*")
+    .not("phyllo_user_id", "is", null)
+    .order("updated_at", { ascending: true })
+    .limit(limit);
+  if (error) {
+    console.error("[Database] listTrainerSocialProfilesForSync:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialProfile>(data || []);
+}
+
 export async function upsertTrainerSocialProfile(
   data: InsertTrainerSocialProfile,
 ): Promise<TrainerSocialProfile | undefined> {

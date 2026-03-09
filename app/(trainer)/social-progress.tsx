@@ -350,6 +350,25 @@ function buildAreaPath(points: Array<{ x: number; y: number }>, baselineY: numbe
   return `${linePath} L ${lastPoint.x.toFixed(2)} ${baselineY.toFixed(2)} L ${firstPoint.x.toFixed(2)} ${baselineY.toFixed(2)} Z`;
 }
 
+function getResponsiveSocialChartHeight(width: number) {
+  return Math.max(88, Math.min(156, Math.round(width * 0.24)));
+}
+
+function buildSocialChartPlaceholderPoints(params: {
+  width: number;
+  baselineY: number;
+  chartHeight: number;
+  paddingX: number;
+}) {
+  const usableWidth = Math.max(1, params.width - params.paddingX * 2);
+  const xRatios = [0.02, 0.18, 0.34, 0.5, 0.68, 0.84, 0.98];
+  const yRatios = [0.18, 0.28, 0.34, 0.32, 0.46, 0.54, 0.74];
+  return xRatios.map((ratio, index) => ({
+    x: params.paddingX + usableWidth * ratio,
+    y: params.baselineY - params.chartHeight * yRatios[index],
+  }));
+}
+
 function SocialLineChart({
   values,
   animationProgress = 1,
@@ -357,20 +376,30 @@ function SocialLineChart({
   values: number[];
   animationProgress?: number;
 }) {
-  const width = 280;
-  const height = 88;
+  const [chartWidth, setChartWidth] = useState(280);
+  const width = Math.max(1, Math.round(chartWidth || 280));
+  const height = getResponsiveSocialChartHeight(width);
   const paddingX = 8;
   const paddingTop = 10;
   const paddingBottom = 10;
   const baselineY = height - paddingBottom;
   const chartHeight = height - paddingTop - paddingBottom;
-  const maxValue = Math.max(1, ...values);
-  const points = values.map((value, index) => {
+  const numericValues = values.map((value) => Number(value || 0));
+  const minValue = numericValues.length > 0 ? Math.min(...numericValues) : 0;
+  const maxValue = numericValues.length > 0 ? Math.max(...numericValues) : 0;
+  const domainPadding =
+    maxValue > minValue
+      ? (maxValue - minValue) * 0.2
+      : Math.max(maxValue * 0.18, 1);
+  const domainMin = Math.max(0, minValue - domainPadding);
+  const domainMax = maxValue + domainPadding;
+  const domainRange = Math.max(1, domainMax - domainMin);
+  const points = numericValues.map((value, index) => {
     const x =
-      values.length === 1
+      numericValues.length === 1
         ? width / 2
-        : paddingX + (index / (values.length - 1)) * (width - paddingX * 2);
-    const y = baselineY - (Number(value || 0) / maxValue) * chartHeight;
+        : paddingX + (index / (numericValues.length - 1)) * (width - paddingX * 2);
+    const y = baselineY - ((value - domainMin) / domainRange) * chartHeight;
     return { x, y };
   });
   const linePath = buildLinePath(points);
@@ -380,6 +409,12 @@ function SocialLineChart({
   const revealWidth = Math.max(0, width * clampedProgress);
   return (
     <View
+      onLayout={(event) => {
+        const nextWidth = Math.max(1, Math.round(event.nativeEvent.layout.width - 8));
+        setChartWidth((currentWidth) =>
+          Math.abs(currentWidth - nextWidth) < 2 ? currentWidth : nextWidth,
+        );
+      }}
       style={{
         height,
         borderRadius: 12,
@@ -444,23 +479,32 @@ function SocialLineChart({
 }
 
 function SocialLineChartPlaceholder() {
-  const width = 280;
-  const height = 88;
+  const [chartWidth, setChartWidth] = useState(280);
+  const width = Math.max(1, Math.round(chartWidth || 280));
+  const height = getResponsiveSocialChartHeight(width);
   const paddingX = 8;
   const paddingTop = 10;
   const paddingBottom = 10;
   const baselineY = height - paddingBottom;
-  const placeholderPoints = [
-    { x: 16, y: baselineY - 10 },
-    { x: 56, y: baselineY - 18 },
-    { x: 96, y: baselineY - 22 },
-    { x: 136, y: baselineY - 20 },
-    { x: 176, y: baselineY - 26 },
-    { x: 216, y: baselineY - 24 },
-    { x: 256, y: baselineY - 28 },
-  ];
+  const chartHeight = height - paddingTop - paddingBottom;
+  const placeholderPoints = useMemo(
+    () =>
+      buildSocialChartPlaceholderPoints({
+        width,
+        baselineY,
+        chartHeight,
+        paddingX,
+      }),
+    [baselineY, chartHeight, paddingX, width],
+  );
   return (
     <View
+      onLayout={(event) => {
+        const nextWidth = Math.max(1, Math.round(event.nativeEvent.layout.width - 8));
+        setChartWidth((currentWidth) =>
+          Math.abs(currentWidth - nextWidth) < 2 ? currentWidth : nextWidth,
+        );
+      }}
       style={{
         height,
         borderRadius: 12,
@@ -549,6 +593,7 @@ export default function TrainerSocialProgressScreen() {
         utils.socialProgram.myStatus.invalidate(),
         utils.socialProgram.myProgramDashboard.invalidate(),
         utils.socialProgram.recentPosts.invalidate(),
+        utils.socialProgram.campaignMetrics.invalidate(),
       ]);
       setSyncDoneAt(Date.now());
     },
@@ -795,6 +840,7 @@ export default function TrainerSocialProgressScreen() {
       string,
       { platform: string; followers: number; impressions: number }
     >();
+    const recentPosts = Array.isArray(recentPostsQuery.data) ? recentPostsQuery.data : [];
     for (const row of rawProfiles) {
       const rawPlatform =
         row?.platform ||
@@ -820,11 +866,23 @@ export default function TrainerSocialProgressScreen() {
             .join(' '),
         );
       const platform = normalizedPlatform || 'unknown';
-      const followers = Number(row?.audience?.follower_count || row?.followers || 0);
+      const followers = Number(
+        row?.audience?.follower_count ||
+          row?.audience?.followers_count ||
+          row?.audience?.subscriber_count ||
+          row?.followers ||
+          row?.followers_count ||
+          row?.subscriber_count ||
+          row?.subscribers ||
+          row?.reputation?.subscriber_count ||
+          row?.reputation?.follower_count ||
+          0,
+      );
       const impressions = Number(
         row?.engagement?.impressions ||
           row?.engagement?.avg_views_per_month ||
           row?.avg_views_per_month ||
+          row?.reputation?.view_count ||
           row?.impressions ||
           0,
       );
@@ -878,6 +936,21 @@ export default function TrainerSocialProgressScreen() {
         impressions: 0,
       });
     }
+    for (const post of recentPosts as any[]) {
+      const normalizedKey = normalizeSocialPlatform(post?.platform || '');
+      if (!normalizedKey) continue;
+      const impressions = Number(post?.latestViews || 0);
+      const existing = rows.get(normalizedKey);
+      if (existing) {
+        existing.impressions = Math.max(existing.impressions, impressions);
+      } else {
+        rows.set(normalizedKey, {
+          platform: normalizedKey,
+          followers: 0,
+          impressions,
+        });
+      }
+    }
     if (rows.has('unknown') && rows.size > 1) rows.delete('unknown');
     if (rows.size === 1 && rows.has('unknown')) {
       const unknownRow = rows.get('unknown');
@@ -887,7 +960,7 @@ export default function TrainerSocialProgressScreen() {
       }
     }
     return Array.from(rows.values()).sort((a, b) => b.followers - a.followers);
-  }, [profile]);
+  }, [profile, recentPostsQuery.data]);
   useEffect(() => {
     if (!syncDoneAt) return;
     const timer = setTimeout(() => setSyncDoneAt(null), 10000);
@@ -1018,13 +1091,20 @@ export default function TrainerSocialProgressScreen() {
       String(user?.email || '').trim().toLowerCase(),
     );
   const socialFollowers = Number(profile?.followerCount || 0);
-  const socialViewsPerMonth = Number(profile?.avgViewsPerMonth || 0);
   const socialEngagementRate = Number(profile?.avgEngagementRate || 0);
   const socialCtr = Number(profile?.avgCtr || 0);
   const socialFollowerTarget = Math.max(1, Number(commitment?.minimumFollowers || 10000));
   const socialViewsTarget = Math.max(1, Number(commitment?.minimumAvgViews || 1000));
   const socialOpenViolationsCount = violations.length;
   const recentSocialPosts = recentPostsQuery.data || [];
+  const socialViewsPerMonthFromPosts = recentSocialPosts.reduce(
+    (sum: number, post: any) => sum + Number(post?.latestViews || 0),
+    0,
+  );
+  const socialViewsPerMonth = Math.max(
+    Number(profile?.avgViewsPerMonth || 0),
+    socialViewsPerMonthFromPosts,
+  );
   const recentSocialMomentum = useMemo(() => {
     const rows = recentSocialPosts
       .map((post: any) =>
@@ -1474,7 +1554,10 @@ export default function TrainerSocialProgressScreen() {
               <View className='flex-row items-center gap-2'>
                 {isConnected ? (
                   <TouchableOpacity
-                    onPress={() => syncNowMutation.mutate()}
+                    onPress={() => {
+                      setSyncDoneAt(null);
+                      syncNowMutation.mutate();
+                    }}
                     disabled={syncNowMutation.isPending}
                     className='px-2.5 py-1 rounded-full border border-border flex-row items-center'
                     style={{
@@ -1483,7 +1566,7 @@ export default function TrainerSocialProgressScreen() {
                       borderColor: syncDoneAt ? 'rgba(52,211,153,0.45)' : colors.border,
                     }}
                     accessibilityRole='button'
-                    accessibilityLabel='Sync social stats now'
+                    accessibilityLabel='Run a full social sync now'
                     testID='social-progress-sync-now'
                   >
                     {syncNowMutation.isPending ? (

@@ -43,6 +43,86 @@ gcloud run deploy locoman-backend \
   --allow-unauthenticated
 ```
 
+### Phyllo periodic sync on the deployed backend
+
+Use Cloud Scheduler as the reliable production trigger for the Phyllo pull sync.
+
+Exact deployed values from this repo:
+
+- Project: `locoman-486301`
+- Region: `us-central1`
+- Cloud Run service: `locoman-backend`
+- Public backend URL: `https://locoman-backend-870100645593.us-central1.run.app`
+- Custom domain: `https://services.bright.coach`
+- Periodic sync endpoint: `https://locoman-backend-870100645593.us-central1.run.app/api/internal/phyllo/periodic-sync`
+- Suggested scheduler job name: `locoman-phyllo-periodic-sync`
+
+Recommended production setup:
+
+- Keep `PHYLLO_AUTH_BASIC` and `PHYLLO_WEBHOOK_SECRET` set as they are now.
+- Set `PHYLLO_PERIODIC_SYNC_KEY` to a strong random secret.
+- Set `PHYLLO_PERIODIC_SYNC_MS='0'` on Cloud Run so you rely on Cloud Scheduler instead of in-process timers.
+- Set `PHYLLO_PERIODIC_SYNC_BATCH_SIZE='250'` unless you want a smaller scan size.
+
+Generate a secret locally:
+
+```bash
+export PHYLLO_PERIODIC_SYNC_KEY="$(openssl rand -hex 32)"
+```
+
+Update the deployed backend env vars:
+
+```bash
+gcloud run services update 'locoman-backend' \
+  --project 'locoman-486301' \
+  --region 'us-central1' \
+  --update-env-vars "PHYLLO_PERIODIC_SYNC_KEY=${PHYLLO_PERIODIC_SYNC_KEY},PHYLLO_PERIODIC_SYNC_MS=0,PHYLLO_PERIODIC_SYNC_BATCH_SIZE=250"
+```
+
+Create the scheduler job:
+
+```bash
+gcloud scheduler jobs create http 'locoman-phyllo-periodic-sync' \
+  --project 'locoman-486301' \
+  --location 'us-central1' \
+  --schedule '*/15 * * * *' \
+  --time-zone 'Etc/UTC' \
+  --http-method 'POST' \
+  --uri 'https://locoman-backend-870100645593.us-central1.run.app/api/internal/phyllo/periodic-sync' \
+  --headers "Content-Type=application/json,X-LOCO-CRON-KEY=${PHYLLO_PERIODIC_SYNC_KEY}" \
+  --message-body '{}'
+```
+
+If the job already exists, update it instead:
+
+```bash
+gcloud scheduler jobs update http 'locoman-phyllo-periodic-sync' \
+  --project 'locoman-486301' \
+  --location 'us-central1' \
+  --schedule '*/15 * * * *' \
+  --time-zone 'Etc/UTC' \
+  --http-method 'POST' \
+  --uri 'https://locoman-backend-870100645593.us-central1.run.app/api/internal/phyllo/periodic-sync' \
+  --headers "Content-Type=application/json,X-LOCO-CRON-KEY=${PHYLLO_PERIODIC_SYNC_KEY}" \
+  --message-body '{}'
+```
+
+Manual verification:
+
+```bash
+curl -X POST 'https://locoman-backend-870100645593.us-central1.run.app/api/internal/phyllo/periodic-sync' \
+  -H 'Content-Type: application/json' \
+  -H "X-LOCO-CRON-KEY: ${PHYLLO_PERIODIC_SYNC_KEY}" \
+  -d '{}'
+```
+
+Expected behavior:
+
+- `200` means the sync ran.
+- `202` means the endpoint accepted the call but skipped work, usually because a sync was already running.
+- Any `401` means the scheduler key does not match `PHYLLO_PERIODIC_SYNC_KEY`.
+- Any `500` usually means required backend config such as `PHYLLO_AUTH_BASIC` is missing or invalid.
+
 ### Deploying the Web Frontend
 The web app is exported as a static site and served via Nginx.
 
@@ -124,3 +204,8 @@ Ensure the following variables are correctly set in the environment or `.env` fi
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key for client apps | All |
 | `SUPABASE_URL` | Supabase project URL for backend | Backend |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (secret) | Backend |
+| `PHYLLO_AUTH_BASIC` | Server-side basic auth for direct Phyllo API pulls | Backend |
+| `PHYLLO_WEBHOOK_SECRET` | Verifies incoming Phyllo webhooks | Backend |
+| `PHYLLO_PERIODIC_SYNC_KEY` | Shared secret required by `/api/internal/phyllo/periodic-sync` | Backend |
+| `PHYLLO_PERIODIC_SYNC_MS` | Set to `0` on Cloud Run when using Cloud Scheduler as the trigger | Backend |
+| `PHYLLO_PERIODIC_SYNC_BATCH_SIZE` | Max connected Phyllo profiles scanned per scheduler run | Backend |

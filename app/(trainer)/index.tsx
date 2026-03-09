@@ -564,6 +564,25 @@ function buildAreaPath(
   )} L ${firstPoint.x.toFixed(2)} ${baselineY.toFixed(2)} Z`;
 }
 
+function getResponsiveSocialChartHeight(width: number) {
+  return Math.max(88, Math.min(156, Math.round(width * 0.24)));
+}
+
+function buildSocialChartPlaceholderPoints(params: {
+  width: number;
+  baselineY: number;
+  chartHeight: number;
+  paddingX: number;
+}) {
+  const usableWidth = Math.max(1, params.width - params.paddingX * 2);
+  const xRatios = [0.02, 0.18, 0.34, 0.5, 0.68, 0.84, 0.98];
+  const yRatios = [0.18, 0.28, 0.34, 0.32, 0.46, 0.54, 0.74];
+  return xRatios.map((ratio, index) => ({
+    x: params.paddingX + usableWidth * ratio,
+    y: params.baselineY - params.chartHeight * yRatios[index],
+  }));
+}
+
 function SocialLineChart({
   values,
   animationProgress = 1,
@@ -571,20 +590,30 @@ function SocialLineChart({
   values: number[];
   animationProgress?: number;
 }) {
-  const width = 280;
-  const height = 88;
+  const [chartWidth, setChartWidth] = useState(280);
+  const width = Math.max(1, Math.round(chartWidth || 280));
+  const height = getResponsiveSocialChartHeight(width);
   const paddingX = 8;
   const paddingTop = 10;
   const paddingBottom = 10;
   const baselineY = height - paddingBottom;
   const chartHeight = height - paddingTop - paddingBottom;
-  const maxValue = Math.max(1, ...values);
-  const points = values.map((value, index) => {
+  const numericValues = values.map((value) => Number(value || 0));
+  const minValue = numericValues.length > 0 ? Math.min(...numericValues) : 0;
+  const maxValue = numericValues.length > 0 ? Math.max(...numericValues) : 0;
+  const domainPadding =
+    maxValue > minValue
+      ? (maxValue - minValue) * 0.2
+      : Math.max(maxValue * 0.18, 1);
+  const domainMin = Math.max(0, minValue - domainPadding);
+  const domainMax = maxValue + domainPadding;
+  const domainRange = Math.max(1, domainMax - domainMin);
+  const points = numericValues.map((value, index) => {
     const x =
-      values.length === 1
+      numericValues.length === 1
         ? width / 2
-        : paddingX + (index / (values.length - 1)) * (width - paddingX * 2);
-    const y = baselineY - (Number(value || 0) / maxValue) * chartHeight;
+        : paddingX + (index / (numericValues.length - 1)) * (width - paddingX * 2);
+    const y = baselineY - ((value - domainMin) / domainRange) * chartHeight;
     return { x, y };
   });
   const linePath = buildLinePath(points);
@@ -595,6 +624,12 @@ function SocialLineChart({
 
   return (
     <View
+      onLayout={(event) => {
+        const nextWidth = Math.max(1, Math.round(event.nativeEvent.layout.width - 8));
+        setChartWidth((currentWidth) =>
+          Math.abs(currentWidth - nextWidth) < 2 ? currentWidth : nextWidth,
+        );
+      }}
       style={{
         height,
         borderRadius: 12,
@@ -668,36 +703,35 @@ function SocialLineChart({
 }
 
 function SocialLineChartPlaceholder() {
-  const width = 280;
-  const height = 88;
+  const [chartWidth, setChartWidth] = useState(280);
+  const width = Math.max(1, Math.round(chartWidth || 280));
+  const height = getResponsiveSocialChartHeight(width);
   const paddingX = 8;
   const paddingTop = 10;
   const paddingBottom = 10;
   const baselineY = height - paddingBottom;
-  const placeholderLine = buildLinePath([
-    { x: 16, y: baselineY - 10 },
-    { x: 56, y: baselineY - 18 },
-    { x: 96, y: baselineY - 22 },
-    { x: 136, y: baselineY - 20 },
-    { x: 176, y: baselineY - 26 },
-    { x: 216, y: baselineY - 24 },
-    { x: 256, y: baselineY - 28 },
-  ]);
-  const placeholderArea = buildAreaPath(
-    [
-      { x: 16, y: baselineY - 10 },
-      { x: 56, y: baselineY - 18 },
-      { x: 96, y: baselineY - 22 },
-      { x: 136, y: baselineY - 20 },
-      { x: 176, y: baselineY - 26 },
-      { x: 216, y: baselineY - 24 },
-      { x: 256, y: baselineY - 28 },
-    ],
-    baselineY,
+  const chartHeight = height - paddingTop - paddingBottom;
+  const placeholderPoints = useMemo(
+    () =>
+      buildSocialChartPlaceholderPoints({
+        width,
+        baselineY,
+        chartHeight,
+        paddingX,
+      }),
+    [baselineY, chartHeight, paddingX, width],
   );
+  const placeholderLine = buildLinePath(placeholderPoints);
+  const placeholderArea = buildAreaPath(placeholderPoints, baselineY);
 
   return (
     <View
+      onLayout={(event) => {
+        const nextWidth = Math.max(1, Math.round(event.nativeEvent.layout.width - 8));
+        setChartWidth((currentWidth) =>
+          Math.abs(currentWidth - nextWidth) < 2 ? currentWidth : nextWidth,
+        );
+      }}
       style={{
         height,
         borderRadius: 12,
@@ -1147,36 +1181,29 @@ export default function TrainerHomeScreen() {
   const socialProfile = resolvedSocialStatus?.profile as any;
   const socialCommitment = resolvedSocialStatus?.commitment as any;
   const socialFollowers = Number(socialProfile?.followerCount || 0);
-  const socialViewsPerMonth = Number(socialProfile?.avgViewsPerMonth || 0);
   const socialEngagementRate = Number(socialProfile?.avgEngagementRate || 0);
   const socialCtr = Number(socialProfile?.avgCtr || 0);
   const socialFollowerTarget = Math.max(1, Number(socialCommitment?.minimumFollowers || 10000));
   const socialViewsTarget = Math.max(1, Number(socialCommitment?.minimumAvgViews || 1000));
-  const socialFollowerProgressPct = Math.max(0, Math.min(100, Math.round((socialFollowers / socialFollowerTarget) * 100)));
-  const socialViewsProgressPct = Math.max(0, Math.min(100, Math.round((socialViewsPerMonth / socialViewsTarget) * 100)));
-  const socialReadinessPct = Math.round((socialFollowerProgressPct + socialViewsProgressPct) / 2);
   const socialOpenViolationsCount = Array.isArray(resolvedSocialStatus?.openViolations)
     ? resolvedSocialStatus.openViolations.length
     : 0;
-  const socialFollowerGap = Math.max(0, socialFollowerTarget - socialFollowers);
-  const socialViewsGap = Math.max(0, socialViewsTarget - socialViewsPerMonth);
   const socialReadinessColor =
     socialOpenViolationsCount > 0
       ? "#F59E0B"
-      : socialReadinessPct >= 100
-        ? "#34D399"
-        : DASH.primary;
-  const socialReadinessMessage = socialOpenViolationsCount > 0
-    ? `${socialOpenViolationsCount} open concern${socialOpenViolationsCount === 1 ? "" : "s"} to review`
-    : socialFollowerGap <= 0 && socialViewsGap <= 0
-      ? "Ready for campaign review"
-      : socialFollowerProgressPct <= socialViewsProgressPct
-        ? `Needs ${formatCompactNumber(socialFollowerGap)} more followers`
-        : `Needs ${formatCompactNumber(socialViewsGap)} more monthly views`;
+      : DASH.primary;
   const socialStatusLine = socialOpenViolationsCount > 0
     ? "Momentum is strong, but there is a compliance issue to resolve."
     : `Connected from ${connectedSocialPlatforms.length} platform${connectedSocialPlatforms.length === 1 ? "" : "s"} with live Phyllo sync.`;
   const recentSocialPosts = socialRecentPostsQuery.data || [];
+  const socialViewsPerMonthFromPosts = recentSocialPosts.reduce(
+    (sum: number, post: any) => sum + Number(post?.latestViews || 0),
+    0,
+  );
+  const socialViewsPerMonth = Math.max(
+    Number(socialProfile?.avgViewsPerMonth || 0),
+    socialViewsPerMonthFromPosts,
+  );
   const recentSocialMomentum = useMemo(() => {
     const rows = recentSocialPosts
       .map((post: any) =>
@@ -1196,6 +1223,32 @@ export default function TrainerHomeScreen() {
     }
     return totals.slice(-10);
   }, [recentSocialPosts]);
+  const socialFollowerProgressPct = Math.max(
+    0,
+    Math.min(100, Math.round((socialFollowers / socialFollowerTarget) * 100)),
+  );
+  const socialViewsProgressPct = Math.max(
+    0,
+    Math.min(100, Math.round((socialViewsPerMonth / socialViewsTarget) * 100)),
+  );
+  const socialReadinessPct = Math.round(
+    (socialFollowerProgressPct + socialViewsProgressPct) / 2,
+  );
+  const socialFollowerGap = Math.max(0, socialFollowerTarget - socialFollowers);
+  const socialViewsGap = Math.max(0, socialViewsTarget - socialViewsPerMonth);
+  const resolvedSocialReadinessColor =
+    socialOpenViolationsCount > 0
+      ? "#F59E0B"
+      : socialReadinessPct >= 100
+        ? "#34D399"
+        : DASH.primary;
+  const socialReadinessMessage = socialOpenViolationsCount > 0
+    ? `${socialOpenViolationsCount} open concern${socialOpenViolationsCount === 1 ? "" : "s"} to review`
+    : socialFollowerGap <= 0 && socialViewsGap <= 0
+      ? "Ready for campaign review"
+      : socialFollowerProgressPct <= socialViewsProgressPct
+        ? `Needs ${formatCompactNumber(socialFollowerGap)} more followers`
+        : `Needs ${formatCompactNumber(socialViewsGap)} more monthly views`;
   const latestSocialPost = recentSocialPosts[0] || null;
   const latestSocialPostSummary = latestSocialPost
     ? `Latest post: ${formatCompactNumber(Number(latestSocialPost.latestEngagements || 0))} engagements`
@@ -1289,7 +1342,7 @@ export default function TrainerHomeScreen() {
       ? "#F59E0B"
       : displaySocialReadinessPct >= 100
         ? "#34D399"
-        : DASH.primary;
+        : resolvedSocialReadinessColor;
   const displaySocialReadinessMessage =
     displaySocialOpenViolationsCount > 0
       ? `${displaySocialOpenViolationsCount} open concern${displaySocialOpenViolationsCount === 1 ? "" : "s"} to review`

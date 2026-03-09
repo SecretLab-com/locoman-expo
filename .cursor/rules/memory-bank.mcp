@@ -6,6 +6,12 @@
 - Social campaign compliance now flows through `bundle_campaign_accounts.metadata.postingRules` plus durable `trainer_social_content_campaign_attributions`; dashboards should read attribution-backed campaign metrics instead of trainer-wide snapshot fan-out.
 - For trainer-home social status, prefer cached local state plus a skeleton fallback; trust stale active/connected states to avoid false invite flashes, but do not trust stale invite-only states indefinitely.
 - The websocket client should honor offline state: pause reconnects and suppress repeated expected `network down` disconnect logs until connectivity returns.
+- Phyllo social ingestion should use a dual path: keep webhook processing for fast updates, but also run direct API pull syncs that write the same Supabase tables so periodic polling/manual sync can heal missed webhooks and Supabase Realtime can refresh the trainer social UI.
+- For trainer social content, `socialProgram.recentPosts` should be allowed to self-heal empty state by triggering a direct pull sync when a connected `phylloUserId` exists and Supabase has no imported content yet.
+- The `social-progress` screen's `Sync now` control should run the full manual Phyllo sync path, including direct content pull plus campaign attribution refresh, and then invalidate `myStatus`, `myProgramDashboard`, `recentPosts`, and `campaignMetrics`.
+- On Cloud Run, prefer Cloud Scheduler to hit `/api/internal/phyllo/periodic-sync` and set `PHYLLO_PERIODIC_SYNC_MS=0` there so production periodic sync is externally triggered rather than relying on in-process timers.
+- For Phyllo-backed trainer KPIs, if profile-level monthly views are missing, fall back to imported recent-post view totals and persist that fallback into `trainer_social_profiles.avgViewsPerMonth` during pull syncs so the V/MO dial is not misleadingly zero.
+- For the trainer `Connected services` card, compute per-platform impressions from imported recent-post rows when Phyllo profile/account metadata does not include a usable impressions aggregate, and use subscriber-count fallbacks for YouTube follower display.
 
 ## User Preferences
 - Use single quotes in static CLI parameters.

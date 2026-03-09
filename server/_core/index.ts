@@ -10,7 +10,7 @@ import * as shopify from "../shopify";
 import { createContext } from "./context";
 import { ENV } from "./env";
 import { logError, logEvent, logWarn } from "./logger";
-import { processPhylloWebhookPayload } from "./phyllo-webhook";
+import { processPhylloWebhookPayload, syncTrainerSocialFromPhylloPull } from "./phyllo-webhook";
 import { verifyPhylloWebhookSignature } from "./phyllo";
 let registerTrainerAssistantMcpHttpRoutes: ((app: any) => void) | null = null;
 try {
@@ -20,6 +20,91 @@ try {
 }
 import { registerOAuthRoutes } from "./oauth";
 import { setupWebSocket } from "./websocket";
+
+const PHYLLO_PERIODIC_SYNC_MS = Math.max(
+  0,
+  Number(process.env.PHYLLO_PERIODIC_SYNC_MS || 15 * 60 * 1000),
+);
+const PHYLLO_PERIODIC_SYNC_STARTUP_DELAY_MS = Math.max(
+  0,
+  Number(process.env.PHYLLO_PERIODIC_SYNC_STARTUP_DELAY_MS || 60 * 1000),
+);
+const PHYLLO_PERIODIC_SYNC_BATCH_SIZE = Math.max(
+  1,
+  Math.min(Number(process.env.PHYLLO_PERIODIC_SYNC_BATCH_SIZE || 250), 1000),
+);
+
+let phylloPeriodicSyncInFlight = false;
+
+async function runPhylloPeriodicSyncOnce() {
+  if (phylloPeriodicSyncInFlight) {
+    logWarn("phyllo.periodic_sync_skipped", { reason: "already_running" });
+    return {
+      ok: false as const,
+      skipped: "already_running" as const,
+    };
+  }
+  if (!String(ENV.phylloAuthBasic || "").trim()) {
+    logWarn("phyllo.periodic_sync_skipped", { reason: "missing_auth_basic" });
+    return {
+      ok: false as const,
+      skipped: "missing_auth_basic" as const,
+    };
+  }
+
+  phylloPeriodicSyncInFlight = true;
+  try {
+    const profiles = await db.listTrainerSocialProfilesForSync({
+      limit: PHYLLO_PERIODIC_SYNC_BATCH_SIZE,
+    });
+    let syncedProfiles = 0;
+    let pulledRows = 0;
+    let savedRows = 0;
+
+    for (const profile of profiles) {
+      const phylloUserId = String(profile.phylloUserId || "").trim();
+      if (!phylloUserId) continue;
+
+      const membership = await db.getTrainerSocialMembership(profile.trainerId);
+      if (membership?.status === "paused" || membership?.status === "banned") {
+        continue;
+      }
+
+      try {
+        const result = await syncTrainerSocialFromPhylloPull({
+          trainerId: profile.trainerId,
+          phylloUserId,
+          source: "periodic_sync",
+        });
+        syncedProfiles += 1;
+        pulledRows += Number(result.pulledRows || 0);
+        savedRows += Number(result.savedRows || 0);
+      } catch (error) {
+        logError("phyllo.periodic_sync_profile_failed", error, {
+          trainerId: profile.trainerId,
+          phylloUserId,
+        });
+      }
+    }
+
+    logEvent("phyllo.periodic_sync_completed", {
+      scannedProfiles: profiles.length,
+      syncedProfiles,
+      pulledRows,
+      savedRows,
+      intervalMs: PHYLLO_PERIODIC_SYNC_MS,
+    });
+    return {
+      ok: true as const,
+      scannedProfiles: profiles.length,
+      syncedProfiles,
+      pulledRows,
+      savedRows,
+    };
+  } finally {
+    phylloPeriodicSyncInFlight = false;
+  }
+}
 
 async function startServer() {
   const app = express();
@@ -315,6 +400,37 @@ async function startServer() {
     res.status(200).type("html").send(html);
   });
 
+  app.post("/api/internal/phyllo/periodic-sync", async (req, res) => {
+    const configuredKey = String(ENV.phylloPeriodicSyncKey || "").trim();
+    const authHeader = String(req.get("authorization") || "");
+    const bearerToken = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+    const headerKey = String(req.get("x-loco-cron-key") || "").trim();
+    const providedKey = bearerToken || headerKey;
+
+    if (configuredKey) {
+      if (!providedKey || providedKey !== configuredKey) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+    } else if (process.env.NODE_ENV === "production") {
+      logWarn("phyllo.periodic_sync_endpoint_unconfigured", {
+        path: "/api/internal/phyllo/periodic-sync",
+      });
+      res.status(500).json({ error: "Periodic sync key is not configured" });
+      return;
+    }
+
+    try {
+      const result = await runPhylloPeriodicSyncOnce();
+      res.status(result.ok ? 200 : 202).json(result);
+    } catch (error) {
+      logError("phyllo.periodic_sync_endpoint_failed", error);
+      res.status(500).json({ error: "Periodic sync failed" });
+    }
+  });
+
   // Adyen webhook — must be before JSON body parser for raw body access
   app.post("/api/webhooks/adyen", express.json(), async (req, res) => {
     try {
@@ -555,6 +671,25 @@ async function startServer() {
   server.listen(preferredPort, () => {
     logEvent("server.started", { port: preferredPort });
     logEvent("websocket.ready", { url: `ws://localhost:${preferredPort}/ws` });
+    if (PHYLLO_PERIODIC_SYNC_MS > 0) {
+      const initialTimer = setTimeout(() => {
+        void runPhylloPeriodicSyncOnce();
+      }, PHYLLO_PERIODIC_SYNC_STARTUP_DELAY_MS);
+      (initialTimer as unknown as { unref?: () => void }).unref?.();
+      const interval = setInterval(() => {
+        void runPhylloPeriodicSyncOnce();
+      }, PHYLLO_PERIODIC_SYNC_MS);
+      (interval as unknown as { unref?: () => void }).unref?.();
+      logEvent("phyllo.periodic_sync_started", {
+        intervalMs: PHYLLO_PERIODIC_SYNC_MS,
+        startupDelayMs: PHYLLO_PERIODIC_SYNC_STARTUP_DELAY_MS,
+        batchSize: PHYLLO_PERIODIC_SYNC_BATCH_SIZE,
+      });
+    } else {
+      logWarn("phyllo.periodic_sync_disabled", {
+        reason: "interval_not_positive",
+      });
+    }
   });
   server.on("error", (error) => {
     logError("server.start_failed", error, { port: preferredPort });

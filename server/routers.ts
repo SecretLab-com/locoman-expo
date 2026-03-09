@@ -28,6 +28,7 @@ import { generateImage } from "./_core/imageGeneration";
 import {
   processPhylloWebhookPayload,
   syncTrainerCampaignPostAttributions,
+  syncTrainerSocialFromPhylloPull,
 } from "./_core/phyllo-webhook";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
@@ -491,7 +492,19 @@ async function syncPhylloProfileForTrainer(params: {
 
   const followerCount = profiles.reduce(
     (sum: number, row: any) =>
-      sum + Number(row?.audience?.follower_count || row?.followers || 0),
+      sum +
+      Number(
+        row?.audience?.follower_count ||
+          row?.audience?.followers_count ||
+          row?.audience?.subscriber_count ||
+          row?.followers ||
+          row?.followers_count ||
+          row?.subscriber_count ||
+          row?.subscribers ||
+          row?.reputation?.subscriber_count ||
+          row?.reputation?.follower_count ||
+          0,
+      ),
     0,
   );
 
@@ -7351,11 +7364,19 @@ export const appRouter = router({
           hasPhylloAuthBasic: session.hasPhylloAuthBasic,
           source: "complete_connect",
         });
+        const pullResult = session.hasPhylloAuthBasic
+          ? await syncTrainerSocialFromPhylloPull({
+              trainerId: ctx.user.id,
+              phylloUserId: session.phylloUserId,
+              source: "complete_connect_pull",
+            })
+          : null;
         return {
           success: true,
           status,
           reason: input?.reason || null,
-          profile: savedProfile,
+          profile: pullResult ? await db.getTrainerSocialProfile(ctx.user.id) : savedProfile,
+          pulledContentRows: pullResult?.pulledRows || 0,
         };
       }),
 
@@ -7374,10 +7395,18 @@ export const appRouter = router({
           hasPhylloAuthBasic: session.hasPhylloAuthBasic,
           source: "connect_phyllo",
         });
+        const pullResult = session.hasPhylloAuthBasic
+          ? await syncTrainerSocialFromPhylloPull({
+              trainerId: ctx.user.id,
+              phylloUserId: session.phylloUserId,
+              source: "connect_phyllo_pull",
+            })
+          : null;
         return {
           success: true,
           pendingInviteAccepted: session.pendingInviteAccepted,
-          profile: savedProfile,
+          profile: pullResult ? await db.getTrainerSocialProfile(ctx.user.id) : savedProfile,
+          pulledContentRows: pullResult?.pulledRows || 0,
           sdkTokenExpiresAt: session.sdkTokenExpiresAt,
         };
       }),
@@ -7394,9 +7423,23 @@ export const appRouter = router({
         hasPhylloAuthBasic: session.hasPhylloAuthBasic,
         source: "manual_sync",
       });
+      const pullResult = session.hasPhylloAuthBasic
+        ? await syncTrainerSocialFromPhylloPull({
+            trainerId: ctx.user.id,
+            phylloUserId: session.phylloUserId,
+            source: "manual_sync_pull",
+          })
+        : null;
+      const attributionResult = await syncTrainerCampaignPostAttributions({
+        trainerId: ctx.user.id,
+      });
       return {
         success: true,
-        profile: savedProfile,
+        profile: pullResult ? await db.getTrainerSocialProfile(ctx.user.id) : savedProfile,
+        pulledContentRows: pullResult?.pulledRows || 0,
+        syncedContentRows: pullResult?.savedRows || 0,
+        evaluatedCampaignPosts: attributionResult.evaluatedPosts,
+        updatedCampaignBundles: attributionResult.updatedBundles,
         syncedAt: new Date().toISOString(),
       };
     }),
@@ -7502,10 +7545,37 @@ export const appRouter = router({
           .optional(),
       )
       .query(async ({ ctx, input }) => {
-        return db.getTrainerRecentSocialPosts(ctx.user.id, {
-          limit: input?.limit,
-          sparklineDays: input?.sparklineDays,
-        });
+        const loadPosts = () =>
+          db.getTrainerRecentSocialPosts(ctx.user.id, {
+            limit: input?.limit,
+            sparklineDays: input?.sparklineDays,
+          });
+
+        let posts = await loadPosts();
+        if (posts.length > 0) return posts;
+
+        const profile = await db.getTrainerSocialProfile(ctx.user.id);
+        const phylloUserId = String(profile?.phylloUserId || "").trim();
+        if (!phylloUserId || !String(ENV.phylloAuthBasic || "").trim()) {
+          return posts;
+        }
+
+        try {
+          await syncTrainerSocialFromPhylloPull({
+            trainerId: ctx.user.id,
+            phylloUserId,
+            source: "recent_posts_autofill",
+          });
+          posts = await loadPosts();
+        } catch (error) {
+          logWarn("social_program.recent_posts_autofill_failed", {
+            trainerId: ctx.user.id,
+            phylloUserId,
+            error: error instanceof Error ? error.message : String(error || "unknown_error"),
+          });
+        }
+
+        return posts;
       }),
 
     myNotifications: protectedProcedure

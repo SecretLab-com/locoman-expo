@@ -3,11 +3,14 @@ import { getConfiguredPhylloEnvironment } from "./env";
 import { logError, logEvent, logWarn } from "./logger";
 import {
   getPhylloAccounts,
+  getPhylloContents,
   getPhylloProfiles,
   normalizePhylloWebhookEvents,
   type PhylloWebhookEvent,
 } from "./phyllo";
 import { notifySocialAlert } from "./websocket";
+
+const PHYLLO_CONTENT_PULL_LIMIT = 25;
 
 type ParsedContentRow = {
   phylloContentId: string;
@@ -89,9 +92,24 @@ function toNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function readFollowerLikeCount(row: any): number {
+  return toNumber(
+    row?.audience?.follower_count ||
+      row?.audience?.followers_count ||
+      row?.audience?.subscriber_count ||
+      row?.followers ||
+      row?.followers_count ||
+      row?.subscriber_count ||
+      row?.subscribers ||
+      row?.reputation?.subscriber_count ||
+      row?.reputation?.follower_count,
+  );
+}
+
 function normalizeContentRows(value: any): any[] {
   if (!value || typeof value !== "object") return [];
   if (Array.isArray(value)) return value;
+  if (Array.isArray(value.data)) return value.data;
   if (Array.isArray(value.contents)) return value.contents;
   if (Array.isArray(value.content)) return value.content;
   if (Array.isArray(value.data?.contents)) return value.data.contents;
@@ -505,6 +523,65 @@ function publishedAtOrNow(value: string | null | undefined): string {
   return toIsoOrNull(value) || new Date().toISOString();
 }
 
+export async function ingestTrainerSocialContentRows(params: {
+  trainerId: string;
+  phylloUserId: string | null;
+  phylloAccountId: string | null;
+  source: string;
+  providerEventId?: string | null;
+  contentRows: ParsedContentRow[];
+}) {
+  const savedContentIds: string[] = [];
+  for (const contentRow of params.contentRows) {
+    const savedContent = await db.upsertTrainerSocialContent({
+      trainerId: params.trainerId,
+      phylloUserId: params.phylloUserId,
+      phylloAccountId: params.phylloAccountId,
+      phylloContentId: contentRow.phylloContentId,
+      platform: contentRow.platform,
+      postUrl: contentRow.postUrl,
+      profileUrl: contentRow.profileUrl,
+      thumbnailUrl: contentRow.thumbnailUrl,
+      title: contentRow.title,
+      caption: contentRow.caption,
+      publishedAt: contentRow.publishedAt,
+      latestViews: contentRow.views,
+      latestLikes: contentRow.likes,
+      latestComments: contentRow.comments,
+      latestEngagements: contentRow.engagements,
+      metadata: {
+        sourceEventType: params.source,
+        providerEventId: params.providerEventId || null,
+      },
+      rawPayload: contentRow.rawPayload,
+    });
+    if (!savedContent) continue;
+    savedContentIds.push(savedContent.id);
+    await db.upsertTrainerSocialContentActivityDaily({
+      trainerSocialContentId: savedContent.id,
+      trainerId: params.trainerId,
+      metricDate: contentRow.publishedAt || new Date().toISOString(),
+      views: contentRow.views,
+      likes: contentRow.likes,
+      comments: contentRow.comments,
+      engagements: contentRow.engagements,
+      metadata: {
+        sourceEventType: params.source,
+        providerEventId: params.providerEventId || null,
+      },
+    });
+  }
+  if (savedContentIds.length > 0) {
+    await syncTrainerCampaignPostAttributions({
+      trainerId: params.trainerId,
+      contentIds: savedContentIds,
+    });
+  }
+  return {
+    savedContentIds,
+  };
+}
+
 async function refreshTrainerSnapshotFromPhyllo(params: {
   trainerId: string;
   phylloUserId: string;
@@ -524,8 +601,7 @@ async function refreshTrainerSnapshotFromPhyllo(params: {
       ? ["youtube"]
       : platformNames;
   const followerCount = profiles.reduce(
-    (sum: number, row: any) =>
-      sum + Number(row?.audience?.follower_count || row?.followers || 0),
+    (sum: number, row: any) => sum + readFollowerLikeCount(row),
     0,
   );
   const avgViewsPerMonth = Math.round(
@@ -589,6 +665,141 @@ async function refreshTrainerSnapshotFromPhyllo(params: {
     avgEngagementRate,
     avgCtr,
     platforms: normalizedPlatformNames,
+    accounts,
+  };
+}
+
+export async function syncTrainerSocialFromPhylloPull(params: {
+  trainerId: string;
+  phylloUserId: string;
+  source: string;
+  limitPerAccount?: number;
+}) {
+  const refreshedSnapshot = await refreshTrainerSnapshotFromPhyllo({
+    trainerId: params.trainerId,
+    phylloUserId: params.phylloUserId,
+    eventType: params.source,
+  });
+
+  const limitPerAccount = Math.max(
+    1,
+    Math.min(params.limitPerAccount || PHYLLO_CONTENT_PULL_LIMIT, 100),
+  );
+  const accountIds = Array.from(
+    new Set(
+      (refreshedSnapshot.accounts || [])
+        .filter((row: any) => {
+          const status = String(row?.status || "").trim().toUpperCase();
+          return !status || status === "CONNECTED";
+        })
+        .map((row: any) => String(row?.id || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  let pulledRows = 0;
+  let savedRows = 0;
+  let pulledViewsTotal = 0;
+  let pulledEngagementsTotal = 0;
+  for (const accountId of accountIds) {
+    const rawContents = await getPhylloContents({
+      accountId,
+      limit: limitPerAccount,
+    }).catch((error) => {
+      logWarn("phyllo.pull.contents_failed", {
+        trainerId: params.trainerId,
+        phylloUserId: params.phylloUserId,
+        accountId,
+        source: params.source,
+        error: error instanceof Error ? error.message : String(error || "unknown_error"),
+      });
+      return [];
+    });
+    const extractedContentRows = extractPhylloContentRows(rawContents);
+    pulledRows += extractedContentRows.length;
+    pulledViewsTotal += extractedContentRows.reduce(
+      (sum, row) => sum + Number(row.views || 0),
+      0,
+    );
+    pulledEngagementsTotal += extractedContentRows.reduce(
+      (sum, row) => sum + Number(row.engagements || 0),
+      0,
+    );
+    const ingestResult = await ingestTrainerSocialContentRows({
+      trainerId: params.trainerId,
+      phylloUserId: params.phylloUserId,
+      phylloAccountId: accountId,
+      source: params.source,
+      contentRows: extractedContentRows,
+    });
+    savedRows += ingestResult.savedContentIds.length;
+  }
+
+  const derivedViewsPerMonth = Math.max(
+    Number(refreshedSnapshot.avgViewsPerMonth || 0),
+    pulledViewsTotal,
+  );
+  const derivedEngagementRate =
+    Number(refreshedSnapshot.avgEngagementRate || 0) > 0
+      ? Number(refreshedSnapshot.avgEngagementRate || 0)
+      : derivedViewsPerMonth > 0
+        ? pulledEngagementsTotal / derivedViewsPerMonth
+        : 0;
+
+  if (
+    derivedViewsPerMonth !== Number(refreshedSnapshot.avgViewsPerMonth || 0) ||
+    derivedEngagementRate !== Number(refreshedSnapshot.avgEngagementRate || 0)
+  ) {
+    await db.upsertTrainerSocialProfile({
+      trainerId: params.trainerId,
+      phylloUserId: params.phylloUserId,
+      phylloAccountIds: accountIds,
+      platforms: refreshedSnapshot.platforms,
+      followerCount: Number(refreshedSnapshot.followerCount || 0),
+      avgViewsPerMonth: derivedViewsPerMonth,
+      avgEngagementRate: derivedEngagementRate,
+      avgCtr: Number(refreshedSnapshot.avgCtr || 0),
+      metadata: {
+        rawProfiles: [],
+        rawAccounts: refreshedSnapshot.accounts || [],
+        sourceEventType: params.source,
+        contentPullViewFallback: true,
+        pulledViewsTotal,
+        pulledEngagementsTotal,
+      },
+      lastSyncedAt: new Date().toISOString(),
+    });
+    await db.upsertTrainerSocialMetricDaily({
+      trainerId: params.trainerId,
+      metricDate: new Date().toISOString(),
+      platform: "all",
+      followers: Number(refreshedSnapshot.followerCount || 0),
+      views: derivedViewsPerMonth,
+      engagements: Math.round(derivedViewsPerMonth * derivedEngagementRate),
+      clicks: Math.round(derivedViewsPerMonth * Number(refreshedSnapshot.avgCtr || 0)),
+      shareSaves: Math.round(derivedViewsPerMonth * 0.01),
+      postsDelivered: 0,
+      postsOnTime: 0,
+      requiredPosts: 4,
+      requiredTagPosts: 4,
+      approvedCreativePosts: 0,
+      metadata: {
+        source: params.source,
+        contentPullViewFallback: true,
+        pulledViewsTotal,
+        pulledEngagementsTotal,
+      },
+    });
+  }
+
+  return {
+    ...refreshedSnapshot,
+    avgViewsPerMonth: derivedViewsPerMonth,
+    avgEngagementRate: derivedEngagementRate,
+    accountIds,
+    pulledRows,
+    savedRows,
+    pulledViewsTotal,
   };
 }
 
@@ -650,52 +861,14 @@ async function processSinglePhylloEvent(
     });
 
     const extractedContentRows = extractPhylloContentRows(event.payload);
-    const savedContentIds: string[] = [];
-    for (const contentRow of extractedContentRows) {
-      const savedContent = await db.upsertTrainerSocialContent({
-        trainerId,
-        phylloUserId: event.phylloUserId || linkedProfile?.phylloUserId || null,
-        phylloAccountId: event.phylloAccountId || null,
-        phylloContentId: contentRow.phylloContentId,
-        platform: contentRow.platform,
-        postUrl: contentRow.postUrl,
-        profileUrl: contentRow.profileUrl,
-        thumbnailUrl: contentRow.thumbnailUrl,
-        title: contentRow.title,
-        caption: contentRow.caption,
-        publishedAt: contentRow.publishedAt,
-        latestViews: contentRow.views,
-        latestLikes: contentRow.likes,
-        latestComments: contentRow.comments,
-        latestEngagements: contentRow.engagements,
-        metadata: {
-          sourceEventType: event.eventType,
-          providerEventId: event.providerEventId,
-        },
-        rawPayload: contentRow.rawPayload,
-      });
-      if (!savedContent) continue;
-      savedContentIds.push(savedContent.id);
-      await db.upsertTrainerSocialContentActivityDaily({
-        trainerSocialContentId: savedContent.id,
-        trainerId,
-        metricDate: contentRow.publishedAt || new Date().toISOString(),
-        views: contentRow.views,
-        likes: contentRow.likes,
-        comments: contentRow.comments,
-        engagements: contentRow.engagements,
-        metadata: {
-          sourceEventType: event.eventType,
-          providerEventId: event.providerEventId,
-        },
-      });
-    }
-    if (savedContentIds.length > 0) {
-      await syncTrainerCampaignPostAttributions({
-        trainerId,
-        contentIds: savedContentIds,
-      });
-    }
+    const ingestResult = await ingestTrainerSocialContentRows({
+      trainerId,
+      phylloUserId: event.phylloUserId || linkedProfile?.phylloUserId || null,
+      phylloAccountId: event.phylloAccountId || null,
+      source: event.eventType,
+      providerEventId: event.providerEventId,
+      contentRows: extractedContentRows,
+    });
 
     const copy = buildNotificationCopy(event.eventType);
     const recipients =
@@ -726,7 +899,7 @@ async function processSinglePhylloEvent(
       eventType: event.eventType,
       followerDelta: Math.max(0, Number(refreshedSnapshot?.followerCount || 0) - previousFollowerCount),
       newFollowerCount: Number(refreshedSnapshot?.followerCount || 0),
-      contentCount: extractedContentRows.length,
+      contentCount: ingestResult.savedContentIds.length,
     });
     if (celebration) {
       await db.createSocialEventNotification({

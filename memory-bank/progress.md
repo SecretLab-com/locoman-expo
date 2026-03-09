@@ -22,6 +22,11 @@
 - **Styling**: NativeWind with inline style fallbacks for modals on web
 - **Campaign post attribution**: Campaign posting rules are stored on campaign account metadata, Phyllo content is attributed to campaign offers via hashtag/mention/link/platform/window checks, and campaign dashboards now read attribution-backed compliance counts
 - **Trainer social card load behavior**: The trainer home screen now uses cached social membership/profile state plus a skeleton fallback so signed-up trainers do not briefly see the invite card on initial load
+- **Phyllo content recovery**: Manual sync/connect flows now pull recent content directly from Phyllo, webhook ingestion still applies live updates, and the server periodically backfills connected profiles into Supabase so social UI can recover from missed webhook delivery
+- **Phyllo empty-post recovery**: When a connected trainer opens recent posts and Supabase is still empty, the backend now performs an on-demand Phyllo pull and returns the imported content in the same request
+- **Phyllo manual sync button**: The social detail screen's `Sync now` button now triggers the full backend sync path and refreshes status, recent posts, and campaign metrics queries after completion
+- **Phyllo V/MO persistence**: When Phyllo profile aggregates omit monthly views, imported content views now backfill `avgViewsPerMonth` and the trainer UI also falls back to recent-post view totals so the V/MO dial no longer stays at zero
+- **Connected services impressions**: The trainer social detail screen now folds imported recent-post views into per-platform connected-service stats, so YouTube impressions/month reflects synced post data instead of stale zero-valued profile metadata
 
 ## What's Left
 - **Campaign attribution tooling**: No dedicated admin/manual reprocessing control yet for large historical backfills
