@@ -140,6 +140,71 @@ export function getPayoutKycTrainerMessage(
   }
 }
 
+export const PAYOUT_KYC_STATUS_DETAILS = [
+  {
+    id: "start_setup",
+    label: "Start setup",
+    description:
+      "No payout capability has been requested yet. Submit your details so Bright.Blue can start your Adyen onboarding.",
+  },
+  {
+    id: "details_submitted",
+    label: "Details submitted",
+    description:
+      "Your details have been collected and the payout setup request is being prepared for Adyen verification.",
+  },
+  {
+    id: "verification_required",
+    label: "Verification required",
+    description:
+      "Adyen still needs required verification information or documents before the payout capability can be allowed.",
+  },
+  {
+    id: "under_review",
+    label: "Under review",
+    description:
+      "Adyen is reviewing the submitted information. Requested capabilities can remain pending while checks are in progress.",
+  },
+  {
+    id: "more_information_required",
+    label: "More information required",
+    description:
+      "Adyen found missing or updated information. Verification remains invalid until the requested data or documents are provided.",
+  },
+  {
+    id: "active",
+    label: "Active",
+    description:
+      "The account holder is active and the payout capability is verified and allowed to use.",
+  },
+  {
+    id: "verification_failed",
+    label: "Verification failed",
+    description:
+      "Adyen could not verify the submitted details or documents and returns verification errors with remediation steps.",
+  },
+  {
+    id: "account_rejected",
+    label: "Account rejected",
+    description:
+      "Adyen completed verification and rejected the capability. This is a final outcome that cannot be resolved by uploading more data.",
+  },
+] as const satisfies ReadonlyArray<{
+  id: (typeof PAYOUT_KYC_WORKFLOW_STATUSES)[number];
+  label: string;
+  description: string;
+}>;
+
+export function getPayoutKycStatusDescription(
+  value: string | null | undefined,
+): string {
+  const normalized = normalizePayoutKycStatus(value);
+  return (
+    PAYOUT_KYC_STATUS_DETAILS.find((detail) => detail.id === normalized)
+      ?.description || PAYOUT_KYC_STATUS_DETAILS[0].description
+  );
+}
+
 export const PAYOUT_KYC_TRACKER_STEPS = [
   { id: "start_setup", label: "Start setup" },
   { id: "details_submitted", label: "Details submitted" },

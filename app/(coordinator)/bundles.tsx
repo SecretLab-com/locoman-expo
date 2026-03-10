@@ -144,7 +144,7 @@ export default function CoordinatorBundlesScreen() {
 
   return (
     <ScreenContainer>
-      <ScreenHeader title="Bundles" subtitle={`${filteredBundles.length} of ${bundles.length} bundles`} />
+      <ScreenHeader title="Offers" subtitle={`${filteredBundles.length} of ${bundles.length} offers`} />
 
       {/* Search bar - always visible */}
       <View className="px-4 pb-3">
@@ -153,12 +153,12 @@ export default function CoordinatorBundlesScreen() {
             <IconSymbol name="magnifyingglass" size={18} color={colors.muted} />
             <TextInput
               className="flex-1 ml-2.5 text-foreground text-sm"
-              placeholder="Search bundles..."
+              placeholder="Search offers..."
               placeholderTextColor={colors.muted}
               value={searchQuery}
               onChangeText={setSearchQuery}
               returnKeyType="search"
-              accessibilityLabel="Search bundles"
+              accessibilityLabel="Search offers"
               testID="bundles-search"
             />
             {searchQuery.length > 0 && (
@@ -199,7 +199,7 @@ export default function CoordinatorBundlesScreen() {
       {bundlesQuery.isLoading && !catalogBundlesQuery.data ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text className="text-muted mt-2">Loading bundles...</Text>
+            <Text className="text-muted mt-2">Loading offers...</Text>
         </View>
       ) : (
         <FlatList
@@ -211,7 +211,7 @@ export default function CoordinatorBundlesScreen() {
               className="mb-3 bg-surface border border-border rounded-xl overflow-hidden"
               onPress={() => router.push(`/bundle/${item.id}` as any)}
               accessibilityRole="button"
-              accessibilityLabel={`Open bundle ${item.title}`}
+              accessibilityLabel={`Open offer ${item.title}`}
               testID={`bundle-row-${item.id}`}
             >
               {item.imageUrl ? (

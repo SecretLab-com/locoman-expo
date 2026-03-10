@@ -2163,26 +2163,6 @@ export default function TrainerHomeScreen() {
               <Text style={{ fontSize: 15, color: "#C7D2FE", marginTop: 6, lineHeight: 22 }}>
                 Manage clients, create offers, and grow your business.
               </Text>
-              <View style={{ flexDirection: "row", gap: 12, marginTop: 18 }}>
-                <TouchableOpacity
-                  style={{ backgroundColor: "#818CF8", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, flexDirection: "row", alignItems: "center" }}
-                  onPress={() => router.push("/(trainer)/get-paid" as any)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Get paid"
-                >
-                  <IconSymbol name="creditcard.fill" size={16} color="#0B1020" />
-                  <Text style={{ fontSize: 14, fontWeight: "700", color: "#0B1020", marginLeft: 6 }}>Get Paid</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={{ backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", paddingHorizontal: 18, paddingVertical: 10, flexDirection: "row", alignItems: "center" }}
-                  onPress={() => router.push("/(trainer)/offers/new" as any)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Create an offer"
-                >
-                  <IconSymbol name="sparkles" size={16} color="#C7D2FE" />
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: "#E0E7FF", marginLeft: 6 }}>New Offer</Text>
-                </TouchableOpacity>
-              </View>
             </View>
           </View>
         )}
@@ -3186,27 +3166,7 @@ export default function TrainerHomeScreen() {
           )}
         </View>
 
-        {!displayHasPayment ? (
-          <View className="px-6 pb-8">
-            <SurfaceCard style={CARD_STYLE}>
-              <View className="flex-row items-start">
-                <View className="w-8 h-8 rounded-full items-center justify-center mr-3" style={{ backgroundColor: "rgba(96,165,250,0.16)" }}>
-                  <IconSymbol name="sparkles" size={14} color={DASH.primary} />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
-                    Rewards unlock after first payment
-                  </Text>
-                  <Text className="text-xs mt-1" style={{ color: DASH.muted }}>
-                    Keep focus on Invite, Offer, and Get Paid. Rewards appear automatically after your first successful payment.
-                  </Text>
-                </View>
-              </View>
-            </SurfaceCard>
-          </View>
-        ) : (
-          <View className="pb-8" />
-        )}
+        <View className="pb-8" />
 
         {hasAnyLoading ? (
           <View className="items-center pb-8">

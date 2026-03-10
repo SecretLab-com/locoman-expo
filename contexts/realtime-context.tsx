@@ -60,6 +60,17 @@ const TABLE_INVALIDATION_MAP: Record<string, (utils: ReturnType<typeof trpc.useU
     utils.socialProgram.managementSummary.invalidate();
     utils.socialProgram.listMembers.invalidate();
   },
+  trainer_social_memberships: (utils) => {
+    utils.socialProgram.myStatus.invalidate();
+    utils.socialProgram.managementSummary.invalidate();
+    utils.socialProgram.listMembers.invalidate();
+    utils.socialProgram.membershipByTrainerIds.invalidate();
+  },
+  trainer_social_invites: (utils) => {
+    utils.socialProgram.myStatus.invalidate();
+    utils.socialProgram.listMembers.invalidate();
+    utils.socialProgram.listEligibleTrainers.invalidate();
+  },
   trainer_social_metrics_daily: (utils) => {
     utils.socialProgram.myProgramDashboard.invalidate();
     utils.socialProgram.campaignMetrics.invalidate();
@@ -172,6 +183,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         .on("postgres_changes", { event: "*", schema: "public", table: "invitations" }, () => scheduleInvalidation("invitations"))
         .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => scheduleInvalidation("collections"))
         .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_profiles" }, () => scheduleInvalidation("trainer_social_profiles"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_memberships" }, () => scheduleInvalidation("trainer_social_memberships"))
+        .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_invites" }, () => scheduleInvalidation("trainer_social_invites"))
         .on("postgres_changes", { event: "*", schema: "public", table: "trainer_social_metrics_daily" }, () => scheduleInvalidation("trainer_social_metrics_daily"))
         .on("postgres_changes", { event: "*", schema: "public", table: "trainer_campaign_metrics_daily" }, () => scheduleInvalidation("trainer_campaign_metrics_daily"))
         .on("postgres_changes", { event: "*", schema: "public", table: "social_event_notifications" }, () => scheduleInvalidation("social_event_notifications"))

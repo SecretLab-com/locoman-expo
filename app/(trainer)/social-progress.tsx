@@ -1302,6 +1302,64 @@ export default function TrainerSocialProgressScreen() {
     }
     return null;
   }, [hasPendingInvite, invitedBy?.name, isConnected, membershipStatus]);
+  const shouldHideProgramDetails =
+    membershipStatus === 'uninvited' ||
+    membershipStatus === 'declined' ||
+    membershipStatus === 'not_enrolled' ||
+    membershipStatus === 'banned';
+
+  if (shouldHideProgramDetails) {
+    return (
+      <ScreenContainer>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <ScreenHeader
+            title="Social Program Progress"
+            subtitle="Track your commitments, KPI performance, and compliance status."
+            leftSlot={
+              <TouchableOpacity
+                onPress={() => (router.canGoBack() ? router.back() : router.replace("/(trainer)" as any))}
+                className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                testID="social-progress-back"
+              >
+                <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+            }
+          />
+          <View className="px-4 pb-8 gap-4">
+            {accessStateCard ? (
+              <SurfaceCard
+                style={{
+                  borderColor: `${accessStateCard.color}55`,
+                  backgroundColor: `${accessStateCard.color}12`,
+                }}
+              >
+                <Text
+                  className="text-sm font-semibold"
+                  style={{ color: accessStateCard.color }}
+                >
+                  {accessStateCard.title}
+                </Text>
+                <Text className="text-sm mt-1" style={{ color: colors.foreground }}>
+                  {accessStateCard.body}
+                </Text>
+              </SurfaceCard>
+            ) : null}
+            <SurfaceCard>
+              <Text className="text-base font-semibold text-foreground">
+                Social Posts is invite-only
+              </Text>
+              <Text className="text-sm text-muted mt-2">
+                Your membership details stay hidden until a coordinator invites you back into the
+                program.
+              </Text>
+            </SurfaceCard>
+          </View>
+        </ScrollView>
+      </ScreenContainer>
+    );
+  }
 
   const openRecentPost = async (post: any) => {
     const targetUrl = String(post?.postUrl || post?.fallbackProfileUrl || "").trim();

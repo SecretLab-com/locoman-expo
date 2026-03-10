@@ -41,6 +41,11 @@ import {
   syncTrainerCampaignPostAttributions,
   syncTrainerSocialFromPhylloPull,
 } from "./_core/phyllo-webhook";
+import {
+  findTrainerSocialIdentityConflict,
+  formatTrainerSocialIdentityConflictMessage,
+  notifyTrainerSocialIdentityConflict,
+} from "./_core/social-account-ownership";
 import { sendPushToUsers } from "./_core/push";
 import { systemRouter } from "./_core/systemRouter";
 import { runTrainerAssistant } from "./_core/trainerAssistant";
@@ -176,7 +181,7 @@ async function ensureActiveSocialMembershipForConnect(params: {
     .filter((row) => row.status === "pending")
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
 
-  if (membership?.status === "banned") {
+  if (membership?.status === "banned" && !pendingInvite) {
     forbidden("Your social membership is banned");
   }
   if (membership?.status === "paused") {
@@ -188,7 +193,9 @@ async function ensureActiveSocialMembershipForConnect(params: {
     pendingInvite &&
     (!membership ||
       membership.status === "invited" ||
-      membership.status === "uninvited")
+      membership.status === "uninvited" ||
+      membership.status === "declined" ||
+      membership.status === "banned")
   ) {
     await db.updateTrainerSocialInvite(pendingInvite.id, {
       status: "accepted",
@@ -204,7 +211,7 @@ async function ensureActiveSocialMembershipForConnect(params: {
     pendingInviteAccepted = true;
   }
 
-  if (!membership || membership.status !== "active") {
+  if (!membership || membership.status === "invited") {
     const existingProfile = await db.getTrainerSocialProfile(params.trainerId);
     if (existingProfile?.phylloUserId) {
       membership = await db.upsertTrainerSocialMembership({
@@ -246,23 +253,36 @@ async function reconcileTrainerSocialMembershipState(params: {
   let pendingInvite = params.pendingInvite;
   const profile = params.profile;
 
-  if (membership?.status === "banned" || membership?.status === "paused") {
+  if ((membership?.status === "banned" || membership?.status === "paused") && !pendingInvite) {
     return { membership, pendingInvite };
   }
 
-  if (profile?.phylloUserId) {
-    if (pendingInvite?.status === "pending") {
-      await db.updateTrainerSocialInvite(pendingInvite.id, {
-        status: "accepted",
-        acceptedAt: new Date().toISOString(),
-      });
-      pendingInvite = undefined;
-    }
-    if (!membership || membership.status !== "active") {
+  if (
+    pendingInvite &&
+    (!membership ||
+      membership.status === "banned" ||
+      membership.status === "uninvited" ||
+      membership.status === "declined")
+  ) {
+    membership = await db.upsertTrainerSocialMembership({
+      trainerId: params.trainerId,
+      status: "invited",
+      invitedBy: pendingInvite.invitedBy,
+      invitedAt: membership?.invitedAt || pendingInvite.createdAt,
+      acceptedAt: null,
+      pausedAt: null,
+      bannedAt: null,
+      declinedAt: null,
+      reason: null,
+    });
+  }
+
+  if (profile?.phylloUserId && !pendingInvite) {
+    if (!membership || membership.status === "invited") {
       membership = await db.upsertTrainerSocialMembership({
         trainerId: params.trainerId,
         status: "active",
-        invitedBy: membership?.invitedBy || pendingInvite?.invitedBy || null,
+        invitedBy: membership?.invitedBy || null,
         acceptedAt:
           membership?.acceptedAt ||
           profile.lastSyncedAt ||
@@ -274,23 +294,6 @@ async function reconcileTrainerSocialMembershipState(params: {
       });
     }
     return { membership, pendingInvite };
-  }
-
-  if (
-    pendingInvite &&
-    (!membership ||
-      membership.status === "uninvited" ||
-      membership.status === "declined")
-  ) {
-    membership = await db.upsertTrainerSocialMembership({
-      trainerId: params.trainerId,
-      status: "invited",
-      invitedBy: pendingInvite.invitedBy,
-      invitedAt: membership?.invitedAt || pendingInvite.createdAt,
-      acceptedAt: null,
-      declinedAt: null,
-      reason: null,
-    });
   }
 
   return { membership, pendingInvite };
@@ -335,6 +338,28 @@ async function preparePhylloConnectSession(params: {
           "Phyllo API credentials are missing. Set PHYLLO_AUTH_BASIC or provide PHYLLO_ID + PHYLLO_SDK_TOKEN bootstrap values.",
       });
     }
+  }
+
+  const phylloIdentityConflict = await findTrainerSocialIdentityConflict({
+    trainerId: params.trainerId,
+    phylloUserId,
+  });
+  if (phylloIdentityConflict) {
+    await notifyTrainerSocialIdentityConflict({
+      trainerId: params.trainerId,
+      source: "prepare_connect_session",
+      conflict: phylloIdentityConflict,
+    }).catch((error) => {
+      logWarn("social.account_conflict_notification_failed", {
+        trainerId: params.trainerId,
+        source: "prepare_connect_session",
+        error: String((error as any)?.message || error),
+      });
+    });
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: formatTrainerSocialIdentityConflictMessage(phylloIdentityConflict),
+    });
   }
 
   const tokenMode = hasPhylloAuthBasic ? "dynamic" : "bootstrap";
@@ -453,6 +478,32 @@ async function syncPhylloProfileForTrainer(params: {
 
   const accounts = normalizeRows(accountsRaw);
   const profiles = normalizeRows(profilesRaw);
+  const phylloAccountIds = accounts.map((a: any) => String(a?.id)).filter(Boolean);
+
+  const socialIdentityConflict = await findTrainerSocialIdentityConflict({
+    trainerId: params.trainerId,
+    phylloUserId: params.phylloUserId,
+    phylloAccountIds,
+    profiles,
+    accounts,
+  });
+  if (socialIdentityConflict) {
+    await notifyTrainerSocialIdentityConflict({
+      trainerId: params.trainerId,
+      source: params.source,
+      conflict: socialIdentityConflict,
+    }).catch((error) => {
+      logWarn("social.account_conflict_notification_failed", {
+        trainerId: params.trainerId,
+        source: params.source,
+        error: String((error as any)?.message || error),
+      });
+    });
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: formatTrainerSocialIdentityConflictMessage(socialIdentityConflict),
+    });
+  }
 
   const normalizePlatformName = (value: unknown): string => {
     const raw = String(value || "")
@@ -548,7 +599,7 @@ async function syncPhylloProfileForTrainer(params: {
   const savedProfile = await db.upsertTrainerSocialProfile({
     trainerId: params.trainerId,
     phylloUserId: params.phylloUserId,
-    phylloAccountIds: accounts.map((a: any) => String(a?.id)).filter(Boolean),
+    phylloAccountIds,
     platforms: normalizedPlatformNames,
     followerCount,
     avgViewsPerMonth,
@@ -6811,6 +6862,12 @@ export const appRouter = router({
               case "status_changed":
                 if (String(log.notes || "").startsWith("social_program_invite_declined:")) {
                   description = `${performer} declined the exclusive Social Posts invitation and reset to uninvited.`;
+                } else if (String(log.notes || "").startsWith("social_program_paused:")) {
+                  description = `${performer} paused ${target}'s Social Posts access.`;
+                } else if (String(log.notes || "").startsWith("social_program_activated:")) {
+                  description = `${performer} activated ${target}'s Social Posts access.`;
+                } else if (String(log.notes || "").startsWith("social_program_banned_reset:")) {
+                  description = `${performer} removed ${target} from Social Posts and reset access to uninvited.`;
                 } else {
                   description = `${performer} ${log.newValue === "true" ? "activated" : "deactivated"} ${target}`;
                 }
@@ -6825,7 +6882,11 @@ export const appRouter = router({
                 description = `${performer} updated ${target}'s profile`;
                 break;
               case "invited":
-                description = `${performer} invited ${log.notes || target}`;
+                if (String(log.notes || "").startsWith("social_program_invited:")) {
+                  description = `${performer} invited ${target} to Social Posts.`;
+                } else {
+                  description = `${performer} invited ${log.notes || target}`;
+                }
                 break;
               case "deleted":
                 description = `${performer} deleted ${target}`;
@@ -7455,10 +7516,19 @@ export const appRouter = router({
       const inviteBy =
         pendingInvite?.invitedBy &&
         (await db.getUserById(pendingInvite.invitedBy));
+      const normalizedMembership =
+        membership?.status === "banned"
+          ? ({ ...membership, status: "uninvited" } as db.TrainerSocialMembership)
+          : membership;
+      const canViewProgramDetails =
+        Boolean(pendingInvite?.id) ||
+        normalizedMembership?.status === "active" ||
+        normalizedMembership?.status === "paused" ||
+        normalizedMembership?.status === "invited";
 
       return {
-        membership,
-        profile,
+        membership: normalizedMembership,
+        profile: canViewProgramDetails ? profile : null,
         pendingInvite,
         invitedBy: inviteBy
           ? {
@@ -7467,9 +7537,9 @@ export const appRouter = router({
               role: inviteBy.role,
             }
           : null,
-        commitment,
-        progress,
-        openViolations: violations,
+        commitment: canViewProgramDetails ? commitment : null,
+        progress: canViewProgramDetails ? progress : null,
+        openViolations: canViewProgramDetails ? violations : [],
       };
     }),
 
@@ -7985,12 +8055,17 @@ export const appRouter = router({
         if (!trainer || trainer.role !== "trainer") {
           notFound("Trainer");
         }
+        const previousMembership = await db.getTrainerSocialMembership(trainer.id);
 
         const membership = await db.upsertTrainerSocialMembership({
           trainerId: trainer.id,
           status: "invited",
           invitedBy: ctx.user.id,
           invitedAt: new Date().toISOString(),
+          acceptedAt: null,
+          pausedAt: null,
+          bannedAt: null,
+          declinedAt: null,
           reason: null,
         });
         if (!membership) {
@@ -8106,6 +8181,14 @@ export const appRouter = router({
             conversationId,
           },
         });
+        await db.logUserActivity({
+          targetUserId: trainer.id,
+          performedBy: ctx.user.id,
+          action: "invited",
+          previousValue: previousMembership?.status || "none",
+          newValue: "invited",
+          notes: `social_program_invited:${inviteId}`,
+        });
         notifyBadgeCounts([trainer.id]);
         return { success: true, inviteId, membershipId: membership.id };
       }),
@@ -8124,15 +8207,67 @@ export const appRouter = router({
         }
         const trainer = await db.getUserById(input.trainerId);
         if (!trainer || trainer.role !== "trainer") notFound("Trainer");
+        const previousMembership = await db.getTrainerSocialMembership(trainer.id);
+        const previousStatus = previousMembership?.status || "none";
+        const normalizedReason = input.reason?.trim() || null;
         const nowIso = new Date().toISOString();
-        const nextData: db.InsertTrainerSocialMembership = {
-          trainerId: trainer.id,
-          status: input.status,
-          reason: input.reason?.trim() || null,
-        };
-        if (input.status === "paused") nextData.pausedAt = nowIso;
-        if (input.status === "banned") nextData.bannedAt = nowIso;
-        if (input.status === "active") nextData.acceptedAt = nowIso;
+        const invites = await db.getTrainerSocialInvitesByTrainer(trainer.id);
+        const pendingInvites = invites.filter((row) => row.status === "pending");
+        if (input.status === "active" && pendingInvites.length > 0) {
+          await Promise.all(
+            pendingInvites.map((invite) =>
+              db.updateTrainerSocialInvite(invite.id, {
+                status: "accepted",
+                acceptedAt: nowIso,
+              }),
+            ),
+          );
+        }
+        if ((input.status === "paused" || input.status === "banned") && pendingInvites.length > 0) {
+          await Promise.all(
+            pendingInvites.map((invite) =>
+              db.updateTrainerSocialInvite(invite.id, {
+                status: "revoked",
+              }),
+            ),
+          );
+        }
+        const nextData: db.InsertTrainerSocialMembership =
+          input.status === "banned"
+            ? {
+                trainerId: trainer.id,
+                status: "uninvited",
+                invitedBy: previousMembership?.invitedBy || null,
+                invitedAt: previousMembership?.invitedAt || nowIso,
+                acceptedAt: null,
+                pausedAt: null,
+                declinedAt: null,
+                bannedAt: nowIso,
+                reason: normalizedReason || "Removed from Social Posts by management",
+              }
+            : input.status === "paused"
+              ? {
+                  trainerId: trainer.id,
+                  status: "paused",
+                  invitedBy: previousMembership?.invitedBy || null,
+                  invitedAt: previousMembership?.invitedAt || nowIso,
+                  acceptedAt: previousMembership?.acceptedAt || nowIso,
+                  pausedAt: nowIso,
+                  declinedAt: null,
+                  bannedAt: null,
+                  reason: normalizedReason || "Paused by management",
+                }
+              : {
+                  trainerId: trainer.id,
+                  status: "active",
+                  invitedBy: previousMembership?.invitedBy || ctx.user.id,
+                  invitedAt: previousMembership?.invitedAt || nowIso,
+                  acceptedAt: previousMembership?.acceptedAt || nowIso,
+                  pausedAt: null,
+                  declinedAt: null,
+                  bannedAt: null,
+                  reason: null,
+                };
         const membership = await db.upsertTrainerSocialMembership(nextData);
         if (!membership) {
           throw new TRPCError({
@@ -8151,7 +8286,80 @@ export const appRouter = router({
             notes: input.reason || null,
           });
         }
-        return { success: true, membership };
+        const trainerAlert =
+          input.status === "paused"
+            ? {
+                severity: "warning" as const,
+                title: "Social access paused",
+                body:
+                  normalizedReason ||
+                  "Your coordinator paused your Social Posts access. You can reconnect when they reactivate you.",
+                eventType: "social_program.paused",
+              }
+            : input.status === "banned"
+              ? {
+                  severity: "warning" as const,
+                  title: "Social access removed",
+                  body:
+                    normalizedReason ||
+                    "Your coordinator removed your Social Posts access. You are no longer invited to the program.",
+                  eventType: "social_program.removed",
+                }
+              : {
+                  severity: "info" as const,
+                  title: "Social access active",
+                  body:
+                    previousStatus === "paused"
+                      ? "Your coordinator restored your Social Posts access."
+                      : "Your Social Posts access is active.",
+                  eventType: "social_program.activated",
+                };
+
+        await db.createSocialEventNotification({
+          recipientUserId: trainer.id,
+          trainerId: trainer.id,
+          severity: trainerAlert.severity,
+          category: "social_event",
+          title: trainerAlert.title,
+          body: trainerAlert.body,
+          metadata: {
+            eventType: trainerAlert.eventType,
+            status: membership.status,
+            showInApp: true,
+          },
+        });
+        notifySocialAlert([trainer.id], {
+          severity: trainerAlert.severity,
+          title: trainerAlert.title,
+          body: trainerAlert.body,
+          trainerId: trainer.id,
+          eventType: trainerAlert.eventType,
+          showInApp: true,
+        });
+        await sendPushToUsers([trainer.id], {
+          title: trainerAlert.title,
+          body: trainerAlert.body,
+          data: {
+            type: "social_program_status",
+            trainerId: trainer.id,
+            status: membership.status,
+          },
+        });
+        await db.logUserActivity({
+          targetUserId: trainer.id,
+          performedBy: ctx.user.id,
+          action: "status_changed",
+          previousValue: previousStatus,
+          newValue: membership.status,
+          notes:
+            input.status === "paused"
+              ? `social_program_paused:${normalizedReason || ""}`
+              : input.status === "banned"
+                ? `social_program_banned_reset:${previousStatus}`
+                : `social_program_activated:${previousStatus}`,
+        });
+        notifyBadgeCounts([trainer.id]);
+        return { success: true, membership, effectiveStatus: membership.status };
       }),
 
     membershipByTrainerIds: protectedProcedure

@@ -8,6 +8,11 @@ import {
   normalizePhylloWebhookEvents,
   type PhylloWebhookEvent,
 } from "./phyllo";
+import {
+  findTrainerSocialIdentityConflict,
+  formatTrainerSocialIdentityConflictMessage,
+  notifyTrainerSocialIdentityConflict,
+} from "./social-account-ownership";
 import { notifySocialAlert } from "./websocket";
 
 const PHYLLO_CONTENT_PULL_LIMIT = 25;
@@ -593,6 +598,28 @@ async function refreshTrainerSnapshotFromPhyllo(params: {
   ]);
   const accounts = normalizeRows(accountsRaw);
   const profiles = normalizeRows(profilesRaw);
+  const phylloAccountIds = accounts.map((a: any) => String(a?.id)).filter(Boolean);
+  const socialIdentityConflict = await findTrainerSocialIdentityConflict({
+    trainerId: params.trainerId,
+    phylloUserId: params.phylloUserId,
+    phylloAccountIds,
+    profiles,
+    accounts,
+  });
+  if (socialIdentityConflict) {
+    await notifyTrainerSocialIdentityConflict({
+      trainerId: params.trainerId,
+      source: params.eventType,
+      conflict: socialIdentityConflict,
+    }).catch((error) => {
+      logWarn("social.account_conflict_notification_failed", {
+        trainerId: params.trainerId,
+        source: params.eventType,
+        error: error instanceof Error ? error.message : String(error || "unknown_error"),
+      });
+    });
+    throw new Error(formatTrainerSocialIdentityConflictMessage(socialIdentityConflict));
+  }
   const platformNames = Array.from(
     new Set([...profiles, ...accounts].map((row: any) => resolvePlatform(row)).filter(Boolean)),
   );
@@ -630,7 +657,7 @@ async function refreshTrainerSnapshotFromPhyllo(params: {
   await db.upsertTrainerSocialProfile({
     trainerId: params.trainerId,
     phylloUserId: params.phylloUserId,
-    phylloAccountIds: accounts.map((a: any) => String(a?.id)).filter(Boolean),
+    phylloAccountIds,
     platforms: normalizedPlatformNames,
     followerCount,
     avgViewsPerMonth,

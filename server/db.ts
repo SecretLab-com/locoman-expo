@@ -4452,6 +4452,22 @@ export async function listTrainerSocialProfilesForSync(options?: {
   return mapRowsFromDb<TrainerSocialProfile>(data || []);
 }
 
+export async function listOtherTrainerSocialProfiles(
+  trainerId: string,
+): Promise<TrainerSocialProfile[]> {
+  const id = String(trainerId || "").trim();
+  if (!id) return [];
+  const { data, error } = await sb()
+    .from("trainer_social_profiles")
+    .select("*")
+    .neq("trainer_id", id);
+  if (error) {
+    console.error("[Database] listOtherTrainerSocialProfiles:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerSocialProfile>(data || []);
+}
+
 export async function upsertTrainerSocialProfile(
   data: InsertTrainerSocialProfile,
 ): Promise<TrainerSocialProfile | undefined> {
@@ -5682,7 +5698,10 @@ export async function listSocialMembers(options?: {
   const limit = options?.limit || 100;
   const offset = options?.offset || 0;
   let query = sb().from("trainer_social_memberships").select("*");
-  if (options?.status && options.status !== "all") {
+  if (!options?.status || options.status === "all") {
+    query = query.neq("status", "banned");
+    query = query.neq("status", "uninvited");
+  } else if (options?.status) {
     query = query.eq("status", options.status);
   }
   const { data, error } = await query

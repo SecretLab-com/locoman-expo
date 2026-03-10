@@ -162,7 +162,7 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
       "checkout": "Checkout",
       "approvals": "Approvals",
       "users": "Users",
-      "bundles": "Bundles",
+      "bundles": "Offers",
       "logs": "Logs",
       "orders": "Orders",
       "subscriptions": "Subscriptions",

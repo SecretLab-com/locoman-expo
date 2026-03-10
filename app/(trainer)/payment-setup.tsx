@@ -8,10 +8,11 @@ import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { COUNTRY_OPTIONS } from "@/shared/countries";
 import {
-  getPayoutKycTrackerState,
+  getPayoutKycStatusDescription,
   getPayoutKycStatusLabel,
   getPayoutKycTrainerMessage,
-  PAYOUT_KYC_TRACKER_STEPS,
+  normalizePayoutKycStatus,
+  PAYOUT_KYC_STATUS_DETAILS,
   type PayoutKycAccountHolderType,
   type PayoutKycStatus,
 } from "@/shared/payout-kyc";
@@ -203,6 +204,7 @@ export default function PaymentSetupScreen() {
     "country" | "countryOfRegistration" | null
   >(null);
   const [countrySearch, setCountrySearch] = useState("");
+  const [showStatusInfo, setShowStatusInfo] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -215,6 +217,8 @@ export default function PaymentSetupScreen() {
   const statusTone = getStatusTone(status, colors);
   const isSaving = submitMutation.isPending || updateMutation.isPending;
   const shouldShowForm = status === "start_setup" || showEditForm;
+  const normalizedStatus = normalizePayoutKycStatus(status);
+  const currentStatusDescription = getPayoutKycStatusDescription(status);
   const visibleCountries = useMemo(() => {
     const search = countrySearch.trim().toLowerCase();
     if (!search) return COUNTRY_OPTIONS;
@@ -341,59 +345,56 @@ export default function PaymentSetupScreen() {
 
               <View className="px-4 mb-4">
                 <SurfaceCard>
-                  <Text className="text-sm font-semibold text-foreground mb-3">
-                    Account setup status
-                  </Text>
-                  <View className="gap-3">
-                    {PAYOUT_KYC_TRACKER_STEPS.map((step, index) => {
-                      const state = getPayoutKycTrackerState(status, step.id);
-                      const completed = state === "completed";
-                      const current = state === "current";
-                      return (
-                        <View key={step.id} className="flex-row items-center">
-                          <View
-                            style={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: 12,
-                              backgroundColor: completed || current
-                                ? `${colors.primary}22`
-                                : colors.surface,
-                              borderWidth: 1,
-                              borderColor: completed || current
-                                ? colors.primary
-                                : colors.border,
-                              alignItems: "center",
-                              justifyContent: "center",
-                              marginRight: 10,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: completed || current
-                                  ? colors.primary
-                                  : colors.muted,
-                                fontSize: 11,
-                                fontWeight: "700",
-                              }}
-                            >
-                              {completed ? "✓" : index + 1}
-                            </Text>
-                          </View>
-                          <Text
-                            className="text-sm"
-                            style={{
-                              color: completed || current
-                                ? colors.foreground
-                                : colors.muted,
-                              fontWeight: current ? "700" : "500",
-                            }}
-                          >
-                            {step.label}
-                          </Text>
-                        </View>
-                      );
-                    })}
+                  <View className="flex-row items-start justify-between mb-3">
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text className="text-sm font-semibold text-foreground">
+                        Account setup status
+                      </Text>
+                      <Text className="text-xs text-muted mt-1">
+                        Current status and Adyen status guide.
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setShowStatusInfo(true)}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surface,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Show payout status details"
+                      testID="payment-setup-status-info"
+                    >
+                      <IconSymbol
+                        name="info.circle.fill"
+                        size={18}
+                        color={colors.primary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.surface,
+                      borderRadius: 14,
+                      padding: 14,
+                    }}
+                  >
+                    <Text className="text-xs uppercase tracking-wide text-muted">
+                      Current status
+                    </Text>
+                    <Text className="text-base font-semibold text-foreground mt-2">
+                      {getPayoutKycStatusLabel(status)}
+                    </Text>
+                    <Text className="text-sm text-muted mt-2 leading-5">
+                      {currentStatusDescription}
+                    </Text>
                   </View>
                   {data?.onboarding?.currentStepNote ? (
                     <Text className="text-xs text-muted mt-4">
@@ -754,6 +755,112 @@ export default function PaymentSetupScreen() {
           <View className="pb-8" />
         </ScrollView>
       </ScreenContainer>
+
+      <Modal
+        visible={showStatusInfo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStatusInfo(false)}
+      >
+        <Pressable
+          onPress={() => setShowStatusInfo(false)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.45)",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              padding: 20,
+              maxHeight: "80%",
+            }}
+          >
+            <View className="flex-row items-start justify-between mb-4">
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text className="text-base font-semibold text-foreground">
+                  Account setup statuses
+                </Text>
+                <Text className="text-sm text-muted mt-1 leading-5">
+                  Based on Adyen onboarding and verification status guidance.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowStatusInfo(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Close payout status details"
+                testID="payment-setup-close-status-info"
+              >
+                <IconSymbol name="xmark" size={14} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View className="gap-3">
+                {PAYOUT_KYC_STATUS_DETAILS.map((detail) => {
+                  const isCurrent = detail.id === normalizedStatus;
+                  return (
+                    <View
+                      key={detail.id}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: isCurrent ? colors.primary : colors.border,
+                        backgroundColor: isCurrent
+                          ? `${colors.primary}14`
+                          : colors.surface,
+                        borderRadius: 14,
+                        padding: 14,
+                      }}
+                    >
+                      <View className="flex-row items-center justify-between">
+                        <Text className="text-sm font-semibold text-foreground">
+                          {detail.label}
+                        </Text>
+                        {isCurrent ? (
+                          <View
+                            style={{
+                              borderRadius: 999,
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              backgroundColor: `${colors.primary}22`,
+                            }}
+                          >
+                            <Text
+                              className="text-xs font-semibold"
+                              style={{ color: colors.primary }}
+                            >
+                              Current
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text className="text-sm text-muted mt-2 leading-5">
+                        {detail.description}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={Boolean(countryTarget)}

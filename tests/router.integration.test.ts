@@ -11,6 +11,7 @@ import * as db from "../server/db";
 vi.mock("../server/_core/websocket", () => ({
   notifyBadgeCounts: vi.fn(),
   notifyNewMessage: vi.fn(),
+  notifySocialAlert: vi.fn(),
 }));
 vi.mock("../server/_core/push", () => ({
   sendPushToUsers: vi.fn().mockResolvedValue(undefined),
@@ -524,8 +525,13 @@ describe("router integration", () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     } as any);
+    vi.spyOn(db, "getTrainerSocialMembership").mockResolvedValue(undefined as any);
     vi.spyOn(db, "createMessage").mockResolvedValue("message-1");
     vi.spyOn(db, "createTrainerSocialInvite").mockResolvedValue("invite-1");
+    vi.spyOn(db, "createSocialEventNotification").mockResolvedValue({
+      id: "notification-1",
+    } as any);
+    const logUserActivitySpy = vi.spyOn(db, "logUserActivity").mockResolvedValue(undefined as any);
 
     const result = await caller.socialProgram.inviteTrainer({
       trainerId: "trainer-abc",
@@ -538,6 +544,111 @@ describe("router integration", () => {
       membershipId: "membership-1",
     });
     expect(db.createTrainerSocialInvite).toHaveBeenCalledTimes(1);
+    expect(logUserActivitySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetUserId: "trainer-abc",
+        action: "invited",
+        newValue: "invited",
+        notes: "social_program_invited:invite-1",
+      }),
+    );
+  });
+
+  it("resets banned social members to uninvited and revokes pending invites", async () => {
+    const caller = createCaller("manager");
+
+    vi.spyOn(db, "getUserById").mockResolvedValue({
+      ...createUser("trainer"),
+      id: "trainer-abc",
+      name: "Coach Alex",
+      email: "coach@example.com",
+    } as any);
+    vi.spyOn(db, "getTrainerSocialMembership").mockResolvedValue({
+      id: "membership-1",
+      trainerId: "trainer-abc",
+      status: "active",
+      invitedBy: "manager-1",
+      invitedAt: new Date().toISOString(),
+      acceptedAt: new Date().toISOString(),
+      pausedAt: null,
+      bannedAt: null,
+      declinedAt: null,
+      reason: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(db, "getTrainerSocialInvitesByTrainer").mockResolvedValue([
+      {
+        id: "invite-1",
+        trainerId: "trainer-abc",
+        invitedBy: "manager-1",
+        membershipId: "membership-1",
+        status: "pending",
+        summary: null,
+        sentInApp: true,
+        sentMessage: true,
+        sentEmail: false,
+        messageConversationId: null,
+        messageId: null,
+        emailMessageId: null,
+        expiresAt: null,
+        acceptedAt: null,
+        declinedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ] as any);
+    const updateInviteSpy = vi.spyOn(db, "updateTrainerSocialInvite").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "upsertTrainerSocialMembership").mockResolvedValue({
+      id: "membership-1",
+      trainerId: "trainer-abc",
+      status: "uninvited",
+      invitedBy: "manager-1",
+      invitedAt: new Date().toISOString(),
+      acceptedAt: null,
+      pausedAt: null,
+      bannedAt: new Date().toISOString(),
+      declinedAt: null,
+      reason: "Removed from Social Posts by management",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any);
+    vi.spyOn(db, "upsertTrainerSocialCommitmentProgress").mockResolvedValue({
+      id: "progress-1",
+    } as any);
+    vi.spyOn(db, "createSocialEventNotification").mockResolvedValue({
+      id: "notification-1",
+    } as any);
+    const logUserActivitySpy = vi.spyOn(db, "logUserActivity").mockResolvedValue(undefined as any);
+
+    const result = await caller.socialProgram.setMemberStatus({
+      trainerId: "trainer-abc",
+      status: "banned",
+      reason: "Removed from Social Posts by management",
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      effectiveStatus: "uninvited",
+      membership: expect.objectContaining({
+        status: "uninvited",
+      }),
+    });
+    expect(updateInviteSpy).toHaveBeenCalledWith(
+      "invite-1",
+      expect.objectContaining({
+        status: "revoked",
+      }),
+    );
+    expect(logUserActivitySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetUserId: "trainer-abc",
+        action: "status_changed",
+        previousValue: "active",
+        newValue: "uninvited",
+        notes: "social_program_banned_reset:active",
+      }),
+    );
   });
 
   it("starts phyllo connect and auto-accepts pending invite", async () => {

@@ -294,17 +294,17 @@ export default function TrainerProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Bundles Section */}
+        {/* Offers Section */}
         <View className="px-6 mb-6">
           <Text className="text-lg font-bold text-foreground mb-4">
-            Available Bundles ({trainerBundles.length})
+            Available Offers ({trainerBundles.length})
           </Text>
 
           {trainerBundles.length === 0 ? (
             <View className="bg-surface rounded-xl p-6 items-center">
               <IconSymbol name="cube.box" size={32} color={colors.muted} />
               <Text className="text-muted mt-2 text-center">
-                No bundles available yet
+                No offers available yet
               </Text>
             </View>
           ) : (

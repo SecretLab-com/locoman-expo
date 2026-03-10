@@ -163,6 +163,7 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets.bottom, 8);
   const fabOffset = Math.max(8, bottomNavHeight - bottomPadding - 6);
+  const profileFabClearance = Math.max(72, insets.right + 60);
   const roleBase =
     effectiveRole === "client"
       ? "/(client)"
@@ -366,8 +367,19 @@ export default function MessagesScreen() {
     <ScreenContainer className="flex-1 relative">
       <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
       {/* Header */}
-      <View className="px-4 pt-2 pb-4 flex-row items-center justify-between">
-        <View>
+      <View
+        className="px-4 pt-2 pb-4"
+        style={{
+          flexDirection: "row",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          rowGap: 12,
+          columnGap: 12,
+          paddingRight: profileFabClearance,
+        }}
+      >
+        <View style={{ flexShrink: 1, minWidth: 180 }}>
           <Text className="text-2xl font-bold text-foreground">Messages</Text>
           <Text className="text-sm text-muted">
             {showAssistant ? "Chat with your clients" : "Chat with your trainers"}
@@ -380,6 +392,7 @@ export default function MessagesScreen() {
             accessibilityRole="button"
             accessibilityLabel="Open Loco Assistant chat"
             testID="messages-open-assistant"
+            style={{ alignSelf: "flex-start" }}
           >
             <IconSymbol name="sparkles" size={14} color={colors.primary} />
             <Text className="text-xs font-semibold text-primary ml-1.5">Assistant</Text>

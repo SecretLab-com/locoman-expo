@@ -22,6 +22,8 @@
 - **Styling**: NativeWind with inline style fallbacks for modals on web
 - **Campaign post attribution**: Campaign posting rules are stored on campaign account metadata, Phyllo content is attributed to campaign offers via hashtag/mention/link/platform/window checks, and campaign dashboards now read attribution-backed compliance counts
 - **Trainer social card load behavior**: The trainer home screen now uses cached social membership/profile state plus a skeleton fallback so signed-up trainers do not briefly see the invite card on initial load
+- **Exclusive social account ownership**: Trainer social connect/sync now blocks duplicate Phyllo/platform identities across trainers, and the database enforces unique `phyllo_user_id` ownership so one social account cannot be reused to defraud the program
+- **Social conflict audit trail**: Coordinator/manager social management now shows recent duplicate-account blocks from `social_event_notifications`, so anti-fraud ownership conflicts are visible without digging through logs
 - **Phyllo content recovery**: Manual sync/connect flows now pull recent content directly from Phyllo, webhook ingestion still applies live updates, and the server periodically backfills connected profiles into Supabase so social UI can recover from missed webhook delivery
 - **Phyllo empty-post recovery**: When a connected trainer opens recent posts and Supabase is still empty, the backend now performs an on-demand Phyllo pull and returns the imported content in the same request
 - **Phyllo manual sync button**: The social detail screen's `Sync now` button now triggers the full backend sync path and refreshes status, recent posts, and campaign metrics queries after completion
@@ -29,7 +31,9 @@
 - **Connected services impressions**: The trainer social detail screen now folds imported recent-post views into per-platform connected-service stats, so YouTube impressions/month reflects synced post data instead of stale zero-valued profile metadata
 - **Payout onboarding workflow**: Trainers now complete an internal payout/KYC intake form instead of opening Adyen directly, trainers can track manual-first KYC state in-app, coordinators/managers can process and update KYC state from a dedicated queue, and social management now shows payout KYC summary/status alongside social metrics
 - **Adyen status coverage**: The payout/KYC flow now tracks and displays the full app-facing Adyen status set requested by product, including retryable failure states and final rejection states, with trainer/admin UI and docs aligned to that model
+- **Social member dashboard UX**: Social management now keeps the overview compact with a top-10 subscriber-ranked member list, uses tap-through member details for pause/activate/remove actions, and moves full-list search/sort/filter controls behind a `Manage` modal
 - **Offer image generation**: The real trainer offer wizard now exposes AI image generation, and generated image URLs persist correctly through offer create/update reads instead of being confined to the legacy bundle editor path
+- **Social membership lifecycle**: Coordinators/managers can now invite/pause/ban with visible in-screen feedback, trainers receive invite alerts plus invitation messages/notifications, non-invited trainers no longer receive social-program details from `myStatus`, and ban transitions are logged as `status_changed` entries that reset membership to `uninvited`
 
 ## What's Left
 - **Campaign attribution tooling**: No dedicated admin/manual reprocessing control yet for large historical backfills

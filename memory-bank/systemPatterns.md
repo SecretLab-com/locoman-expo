@@ -29,6 +29,8 @@
 - **Phyllo Dual Sync Path**: Social profile/content ingestion should use webhooks as the fast path but also support direct API pull syncs that write the same Supabase tables (`trainer_social_profiles`, `trainer_social_metrics_daily`, `trainer_social_contents`, `trainer_social_content_activity_daily`) so periodic polling and manual refreshes can heal missed webhook deliveries
 - **Trainer Home State Caching**: The trainer dashboard may hydrate sensitive UI state from local `AsyncStorage` snapshots first, then refresh with live tRPC data; stale "connected/active" social states are trusted to avoid invite flicker, while stale invite-only states are not
 - **WebSocket Offline Gating**: Client websocket reconnects should respect device connectivity and pause retries/log spam while offline, then resume automatically when the network returns
+- **Social Membership Lifecycle**: Social program access is controlled by both `trainer_social_memberships` and `trainer_social_invites`; banning a trainer should revoke pending invites and reset membership to `uninvited` rather than leaving a sticky banned state, and trainer-facing `myStatus` responses must hide profile/commitment/progress details whenever the trainer is not currently invited
+- **Social Realtime Invalidation**: Client realtime invalidation must listen to `trainer_social_memberships`, `trainer_social_invites`, `trainer_social_profiles`, and `social_event_notifications` so invite/pause/ban flows refresh both coordinator management surfaces and trainer home/detail surfaces without manual reloads
 
 ## Component Relationships
 - **Screens**: Organized by user role in `app/(role)/` directories

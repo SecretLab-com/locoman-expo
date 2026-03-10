@@ -512,7 +512,7 @@ export default function ProductsScreen() {
             onPress={() => setViewMode("bundles")}
             className={`flex-1 py-2 rounded-lg ${viewMode === "bundles" ? "bg-primary" : ""}`}
             accessibilityRole="button"
-            accessibilityLabel="Browse trainer bundles"
+            accessibilityLabel="Browse trainer offers"
             testID="products-tab-bundles"
           >
             <Text
@@ -520,7 +520,7 @@ export default function ProductsScreen() {
                 viewMode === "bundles" ? "text-background" : "text-foreground"
               }`}
             >
-              Bundles
+              Offers
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -559,13 +559,13 @@ export default function ProductsScreen() {
         </View>
       </View>
 
-      {/* Search Bar - Bundles mode */}
+      {/* Search Bar - Offers mode */}
       {viewMode === "bundles" && (
         <View className="px-4 mb-3">
           <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
             <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
             <TextInput
-              placeholder="Search bundles..."
+              placeholder="Search offers..."
               placeholderTextColor={colors.muted}
               value={bundleSearchQuery}
               onChangeText={setBundleSearchQuery}
@@ -583,12 +583,12 @@ export default function ProductsScreen() {
               onPress={() => setShowHiddenBundles(!showHiddenBundles)}
               className="flex-row items-center mt-2"
               accessibilityRole="button"
-              accessibilityLabel={showHiddenBundles ? "Hide withdrawn bundles" : "Show withdrawn bundles"}
+              accessibilityLabel={showHiddenBundles ? "Hide withdrawn offers" : "Show withdrawn offers"}
             >
               <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: showHiddenBundles ? colors.primary : colors.muted, backgroundColor: showHiddenBundles ? colors.primary : "transparent", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
                 {showHiddenBundles && <IconSymbol name="checkmark" size={12} color="#fff" />}
               </View>
-              <Text className="text-sm text-muted">Show hidden / withdrawn bundles</Text>
+              <Text className="text-sm text-muted">Show hidden / withdrawn offers</Text>
             </TouchableOpacity>
           )}
         </View>
