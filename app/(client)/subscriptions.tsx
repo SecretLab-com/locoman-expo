@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Image } from "expo-image";
 import {
   View,
   Text,
@@ -25,6 +26,7 @@ type Subscription = {
   bundleId?: string;
   bundleTitle: string;
   trainerName: string;
+  imageUrl?: string | null;
   price: string;
   cadence: "weekly" | "monthly";
   status: SubscriptionStatus;
@@ -45,6 +47,7 @@ export default function SubscriptionsScreen() {
 
   // Fetch real subscriptions
   const { data: rawSubscriptions, isLoading, refetch, isRefetching } = trpc.subscriptions.mySubscriptions.useQuery();
+  const { data: bundles = [] } = trpc.catalog.bundles.useQuery(undefined, { staleTime: 60000 });
   const pauseSubscription = trpc.subscriptions.pause.useMutation({
     onSuccess: () => {
       refetch();
@@ -65,11 +68,15 @@ export default function SubscriptionsScreen() {
   });
 
   // Map API data to UI type
+  const bundleImageById = new Map(
+    (bundles as any[]).map((bundle) => [String(bundle.id), bundle.imageUrl || null]),
+  );
   const subscriptions: Subscription[] = (rawSubscriptions || []).map((sub: any) => ({
     id: sub.id,
     bundleId: sub.bundleDraftId,
     bundleTitle: sub.bundleTitle || sub.title || "Subscription",
     trainerName: sub.trainerName || "Trainer",
+    imageUrl: sub.bundleDraftId ? bundleImageById.get(String(sub.bundleDraftId)) || null : null,
     price: sub.price || "0.00",
     cadence: sub.subscriptionType === "weekly" ? "weekly" : "monthly",
     status: (sub.status || "active") as SubscriptionStatus,
@@ -218,7 +225,7 @@ export default function SubscriptionsScreen() {
               No active subscriptions
             </Text>
             <Text className="text-muted text-sm text-center mt-1">
-              Browse bundles to get started
+              Browse programs to get started
             </Text>
           </View>
         ) : (
@@ -233,11 +240,27 @@ export default function SubscriptionsScreen() {
             >
               {/* Header */}
               <View className="flex-row items-start justify-between mb-3">
-                <View className="flex-1">
-                  <Text className="text-lg font-semibold text-foreground">
-                    {subscription.bundleTitle}
-                  </Text>
-                  <Text className="text-sm text-muted">{subscription.trainerName}</Text>
+                <View className="flex-row flex-1 mr-3">
+                  {subscription.imageUrl ? (
+                    <Image
+                      source={{ uri: subscription.imageUrl }}
+                      className="w-20 h-20 rounded-xl"
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View className="w-20 h-20 rounded-xl bg-primary/10 items-center justify-center">
+                      <IconSymbol name="bag.fill" size={28} color={colors.primary} />
+                    </View>
+                  )}
+                  <View className="flex-1 ml-4">
+                    <Text className="text-lg font-semibold text-foreground">
+                      {subscription.bundleTitle}
+                    </Text>
+                    <Text className="text-sm text-muted mt-1">{subscription.trainerName}</Text>
+                    <Text className="text-xs text-muted mt-2">
+                      Tap for full program details
+                    </Text>
+                  </View>
                 </View>
                 <View
                   className="px-3 py-1 rounded-full"

@@ -163,6 +163,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           router.push(`/client-detail/${data.clientId}` as any);
         }
         break;
+      case "social_program_invite":
+      case "social_program_status":
+        router.push("/(trainer)/social-progress" as any);
+        break;
       default:
         // Default to home
         router.push("/(tabs)" as any);

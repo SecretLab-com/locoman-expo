@@ -3,6 +3,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { normalizeAssetUrl } from "@/lib/asset-url";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -41,6 +42,12 @@ const SPECIALTIES = [
 
 import { sanitizeHtml } from "@/lib/html-utils";
 
+function getTrainerFallbackPhotoUrl(trainer: Pick<DiscoverableTrainer, "id" | "name">) {
+  const safeName = encodeURIComponent(String(trainer.name || "Trainer").trim() || "Trainer");
+  const safeSeed = encodeURIComponent(String(trainer.id || "trainer"));
+  return `https://ui-avatars.com/api/?name=${safeName}&background=111827&color=93c5fd&size=256&rounded=true&bold=true&format=png&seed=${safeSeed}`;
+}
+
 function TrainerDiscoveryCard({ 
   trainer, 
   onPress, 
@@ -54,12 +61,16 @@ function TrainerDiscoveryCard({
 }) {
   const colors = useColors();
   const { width } = useWindowDimensions();
+  const [trainerPhotoFailed, setTrainerPhotoFailed] = useState(false);
 
   const specialty = Array.isArray(trainer.specialties) && trainer.specialties.length > 0
     ? trainer.specialties[0]
     : "Personal Training";
 
   const descriptionHtml = trainer.presentationHtml || trainer.bio;
+  const trainerPhotoUrl =
+    (!trainerPhotoFailed ? normalizeAssetUrl(trainer.photoUrl) : null) ||
+    getTrainerFallbackPhotoUrl(trainer);
 
   return (
     <TouchableOpacity
@@ -72,11 +83,18 @@ function TrainerDiscoveryCard({
     >
       <View className="p-4">
         <View className="flex-row items-start">
-          <Image
-            source={{ uri: trainer.photoUrl || `https://i.pravatar.cc/150?u=${trainer.id}` }}
-            className="w-16 h-16 rounded-full"
-            contentFit="cover"
-          />
+          <View
+            className="rounded-2xl overflow-hidden bg-background border border-border"
+            style={{ width: 92, height: 92 }}
+          >
+            <Image
+              source={{ uri: trainerPhotoUrl }}
+              style={{ width: "100%", height: "100%" }}
+              contentFit="cover"
+              transition={120}
+              onError={() => setTrainerPhotoFailed(true)}
+            />
+          </View>
           <View className="flex-1 ml-4">
             <Text className="text-lg font-semibold text-foreground" numberOfLines={1}>
               {trainer.name || "Trainer"}
@@ -85,7 +103,7 @@ function TrainerDiscoveryCard({
             {descriptionHtml && (
               <View style={{ maxHeight: 64, overflow: "hidden" }}>
                 <RenderHTML
-                  contentWidth={Math.max(0, width - 64)}
+                  contentWidth={Math.max(0, width - 170)}
                   source={{ html: sanitizeHtml(descriptionHtml) }}
                   tagsStyles={{
                     p: { color: colors.muted, lineHeight: 18, marginTop: 0, marginBottom: 6 },
@@ -108,11 +126,18 @@ function TrainerDiscoveryCard({
             )}
             {trainer.bundles && trainer.bundles.length > 0 ? (
               <View className="flex-row flex-wrap mt-2 gap-2">
-                {trainer.bundles.map((bundle) => (
-                  <View key={bundle.id} className="flex-row items-center bg-background border border-border rounded-lg px-2 py-1 max-w-[160px]">
-                    <View className="w-6 h-6 rounded-md bg-surface items-center justify-center overflow-hidden mr-2">
-                      {bundle.imageUrl ? (
-                        <Image source={{ uri: bundle.imageUrl }} className="w-6 h-6" contentFit="cover" />
+                {trainer.bundles.map((bundle) => {
+                  const bundleImageUrl = normalizeAssetUrl(bundle.imageUrl);
+                  return (
+                  <View key={bundle.id} className="flex-row items-center bg-background border border-border rounded-lg px-2 py-1 max-w-[170px]">
+                    <View className="w-8 h-8 rounded-md bg-surface items-center justify-center overflow-hidden mr-2">
+                      {bundleImageUrl ? (
+                        <Image
+                          source={{ uri: bundleImageUrl }}
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                          transition={100}
+                        />
                       ) : (
                         <IconSymbol name="cube.box" size={14} color={colors.muted} />
                       )}
@@ -121,7 +146,7 @@ function TrainerDiscoveryCard({
                       {bundle.title}
                     </Text>
                   </View>
-                ))}
+                );})}
               </View>
             ) : (
               <Text className="text-xs text-muted mt-2">No bundles yet</Text>

@@ -58,6 +58,9 @@ function CartItemCard({
           <TouchableOpacity
             className="w-8 h-8 rounded-full bg-background border border-border items-center justify-center"
             onPress={() => onUpdateQuantity(Math.max(1, item.quantity - 1))}
+            accessibilityRole="button"
+            accessibilityLabel={`Decrease quantity for ${item.title}`}
+            testID={`cart-decrease-${item.id}`}
           >
             <IconSymbol name="minus" size={16} color={colors.foreground} />
           </TouchableOpacity>
@@ -65,6 +68,9 @@ function CartItemCard({
           <TouchableOpacity
             className="w-8 h-8 rounded-full bg-background border border-border items-center justify-center"
             onPress={() => onUpdateQuantity(item.quantity + 1)}
+            accessibilityRole="button"
+            accessibilityLabel={`Increase quantity for ${item.title}`}
+            testID={`cart-increase-${item.id}`}
           >
             <IconSymbol name="plus" size={16} color={colors.foreground} />
           </TouchableOpacity>
@@ -73,6 +79,9 @@ function CartItemCard({
         <TouchableOpacity
           className="flex-row items-center"
           onPress={onRemove}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${item.title} from cart`}
+          testID={`cart-remove-${item.id}`}
         >
           <IconSymbol name="trash.fill" size={18} color={colors.error} />
           <Text className="text-error ml-1">Remove</Text>
@@ -86,6 +95,7 @@ export default function CartScreen() {
   const colors = useColors();
   const { isAuthenticated, isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
   const { items, subtotal, updateQuantity, removeItem, isLoading } = useCart();
+  const browseCatalogRoute = isClient ? "/(client)/products" : "/(tabs)/products";
 
   const tax = subtotal * 0.08; // 8% tax
   const total = subtotal + tax;
@@ -159,13 +169,16 @@ export default function CartScreen() {
           Your cart is empty
         </Text>
         <Text className="text-muted text-center mt-2">
-          Browse our catalog to find amazing fitness programs
+          Browse products and categories to build your order
         </Text>
         <TouchableOpacity
           className="bg-primary px-6 py-3 rounded-full mt-6"
-          onPress={() => router.push("/(tabs)")}
+          onPress={() => router.push(browseCatalogRoute as any)}
+          accessibilityRole="button"
+          accessibilityLabel="Browse products"
+          testID="cart-browse-products"
         >
-          <Text className="text-background font-semibold">Browse Catalog</Text>
+          <Text className="text-background font-semibold">Browse Products</Text>
         </TouchableOpacity>
       </ScreenContainer>
     );
@@ -213,6 +226,9 @@ export default function CartScreen() {
           className="bg-primary rounded-xl py-4 items-center"
           onPress={handleCheckout}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Proceed to checkout"
+          testID="cart-proceed-checkout"
         >
           <Text className="text-background font-semibold text-lg">
             Proceed to Checkout

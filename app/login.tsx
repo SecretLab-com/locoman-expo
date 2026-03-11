@@ -38,6 +38,10 @@ export default function LoginScreen() {
     video.play();
   });
   const { inviteToken } = useLocalSearchParams<{ inviteToken?: string }>();
+  const normalizedInviteToken =
+    typeof inviteToken === "string" && inviteToken.trim().length > 0
+      ? inviteToken.trim()
+      : null;
   const { isAuthenticated, loading: authLoading, effectiveRole } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,11 +71,19 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (authLoading || !isAuthenticated) return;
+    if (normalizedInviteToken) return;
     const timer = setTimeout(() => {
       router.replace(getHomeRoute(effectiveRole) as any);
     }, 800);
     return () => clearTimeout(timer);
-  }, [authLoading, effectiveRole, isAuthenticated]);
+  }, [authLoading, effectiveRole, isAuthenticated, normalizedInviteToken]);
+
+  useEffect(() => {
+    if (!normalizedInviteToken) return;
+    void savePendingOnboardingContext({ inviteToken: normalizedInviteToken }).catch((err) => {
+      console.error("[Login] Failed to persist invite token context:", err);
+    });
+  }, [normalizedInviteToken]);
 
   // Web autoplay can fail on initial mount; retry when tab gains focus/visibility.
   useEffect(() => {
@@ -152,8 +164,8 @@ export default function LoginScreen() {
       }
 
       if (data.session) {
-        if (typeof inviteToken === "string" && inviteToken.trim().length > 0) {
-          await savePendingOnboardingContext({ inviteToken: inviteToken.trim() });
+        if (normalizedInviteToken) {
+          await savePendingOnboardingContext({ inviteToken: normalizedInviteToken });
         } else {
           await clearPendingOnboardingContext();
         }
@@ -167,7 +179,9 @@ export default function LoginScreen() {
         // Small delay to allow auth state to propagate
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        router.replace(getHomeRoute(effectiveRole) as any);
+        if (!normalizedInviteToken) {
+          router.replace(getHomeRoute(effectiveRole) as any);
+        }
       } else {
         await haptics.error();
         setError("Login failed — no session returned");
@@ -183,10 +197,10 @@ export default function LoginScreen() {
 
   const handleRegisterPress = async () => {
     await haptics.light();
-    if (typeof inviteToken === "string" && inviteToken.trim().length > 0) {
+    if (normalizedInviteToken) {
       router.push({
         pathname: "/register",
-        params: { inviteToken: inviteToken.trim() },
+        params: { inviteToken: normalizedInviteToken },
       } as any);
       return;
     }
@@ -257,7 +271,9 @@ export default function LoginScreen() {
             {/* OAuth Buttons (Apple & Google) */}
             <OAuthButtons
               onSuccess={() => {
-                router.replace(getHomeRoute(effectiveRole) as any);
+                if (!normalizedInviteToken) {
+                  router.replace(getHomeRoute(effectiveRole) as any);
+                }
               }}
               onError={(err) => {
                 setError(err.message || "OAuth login failed");

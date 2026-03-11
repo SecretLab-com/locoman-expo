@@ -441,11 +441,20 @@ export default function ActivityScreen() {
                       : ""
                   }`}
                   activeOpacity={0.8}
-                  onPress={() => {
+                  onPress={async () => {
+                    await haptics.light();
                     if (!notification.readAt) {
                       markNotificationReadMutation.mutate({
                         notificationId: notification.id,
                       });
+                    }
+                    const deepLink = String(notification?.metadata?.deepLink || "").trim();
+                    const eventType = String(notification?.metadata?.eventType || "").trim();
+                    if (
+                      deepLink === "social-program" ||
+                      (isTrainer && eventType.startsWith("social_program."))
+                    ) {
+                      router.push("/(trainer)/social-progress" as any);
                     }
                   }}
                   accessibilityRole="button"

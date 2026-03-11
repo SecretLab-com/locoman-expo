@@ -94,7 +94,7 @@ export default function ProductsScreen() {
   const [mediaIndex, setMediaIndex] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
-  const { q, productId: productIdParam } = useLocalSearchParams();
+  const { q, productId: productIdParam, id: legacyProductIdParam } = useLocalSearchParams();
 
   useEffect(() => {
     const searchParam = Array.isArray(q) ? q[0] : q;
@@ -149,15 +149,16 @@ export default function ProductsScreen() {
   const syncInFlight = isSyncing || shopifySync.isPending;
 
   useEffect(() => {
-    if (productIdParam && products) {
-      const pid = Array.isArray(productIdParam) ? productIdParam[0] : productIdParam;
+    const rawProductId = productIdParam ?? legacyProductIdParam;
+    if (rawProductId && products) {
+      const pid = Array.isArray(rawProductId) ? rawProductId[0] : rawProductId;
       const match = products.find((p) => p.id === pid);
       if (match) {
         setSelectedProduct(match);
         setDetailModalOpen(true);
       }
     }
-  }, [productIdParam, products]);
+  }, [legacyProductIdParam, productIdParam, products]);
 
   // Spinning animation for sync icon
   const spinAnim = useRef(new Animated.Value(0)).current;
@@ -632,7 +633,7 @@ export default function ProductsScreen() {
             {filteredBundles.map((bundle) => (
               <TouchableOpacity
                 key={bundle.id}
-                onPress={() => router.push(`/bundle/${bundle.id}` as any)}
+                onPress={() => router.push((isClient ? `/(client)/bundle/${bundle.id}` : `/bundle/${bundle.id}`) as any)}
                 className="mb-6 bg-surface rounded-2xl overflow-hidden border border-border"
                 accessibilityRole="button"
                 accessibilityLabel={`View ${bundle.title} bundle`}

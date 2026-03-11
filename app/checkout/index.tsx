@@ -66,7 +66,13 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
           </View>
         </View>
 
-        <TouchableOpacity onPress={onRemove} className="p-2 -mr-2 -mt-2">
+        <TouchableOpacity
+          onPress={onRemove}
+          className="p-2 -mr-2 -mt-2"
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${item.title} from checkout`}
+          testID={`checkout-remove-${item.id}`}
+        >
           <IconSymbol name="xmark.circle.fill" size={22} color={colors.muted} />
         </TouchableOpacity>
       </View>
@@ -78,6 +84,9 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
           <TouchableOpacity
             className="p-2"
             onPress={() => onUpdateQuantity(item.quantity - 1)}
+            accessibilityRole="button"
+            accessibilityLabel={`Decrease quantity for ${item.title}`}
+            testID={`checkout-decrease-${item.id}`}
           >
             <IconSymbol name="minus" size={16} color={colors.foreground} />
           </TouchableOpacity>
@@ -85,6 +94,9 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
           <TouchableOpacity
             className="p-2"
             onPress={() => onUpdateQuantity(item.quantity + 1)}
+            accessibilityRole="button"
+            accessibilityLabel={`Increase quantity for ${item.title}`}
+            testID={`checkout-increase-${item.id}`}
           >
             <IconSymbol name="plus" size={16} color={colors.foreground} />
           </TouchableOpacity>
@@ -95,6 +107,9 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
       <TouchableOpacity
         className="flex-row items-center justify-between px-4 py-3 border-t border-border"
         onPress={() => setShowFulfillment(!showFulfillment)}
+        accessibilityRole="button"
+        accessibilityLabel={`Choose fulfillment method for ${item.title}`}
+        testID={`checkout-fulfillment-toggle-${item.id}`}
       >
         <View className="flex-row items-center">
           <IconSymbol name={currentFulfillment?.icon as any || "shippingbox.fill"} size={18} color={colors.primary} />
@@ -124,6 +139,9 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
                 onUpdateFulfillment(option.value);
                 setShowFulfillment(false);
               }}
+              accessibilityRole="button"
+              accessibilityLabel={`Select ${option.label} for ${item.title}`}
+              testID={`checkout-fulfillment-${item.id}-${option.value}`}
             >
               <IconSymbol
                 name={option.icon as any}
@@ -157,6 +175,7 @@ export default function CheckoutScreen() {
   const { items, subtotal, updateQuantity, updateFulfillment, removeItem, clearCart } = useCart();
   const [processing, setProcessing] = useState(false);
   const utils = trpc.useUtils();
+  const browseCatalogRoute = isClient ? "/(client)/products" : "/(tabs)/products";
   const createOrder = trpc.orders.create.useMutation({
     onSuccess: async () => {
       await Promise.all([
@@ -309,13 +328,16 @@ export default function CheckoutScreen() {
           <IconSymbol name="cart.fill" size={64} color={colors.muted} />
           <Text className="text-xl font-semibold text-foreground mt-4">Your cart is empty</Text>
           <Text className="text-muted text-center mt-2">
-            Browse our catalog to find great fitness bundles
+            Browse products and categories to start your order
           </Text>
           <TouchableOpacity
             className="bg-primary px-8 py-3 rounded-full mt-6"
-            onPress={() => router.replace("/(tabs)" as any)}
+            onPress={() => router.replace(browseCatalogRoute as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Browse products"
+            testID="checkout-browse-products"
           >
-            <Text className="text-background font-semibold">Browse Catalog</Text>
+            <Text className="text-background font-semibold">Browse Products</Text>
           </TouchableOpacity>
         </View>
       </ScreenContainer>
@@ -392,6 +414,9 @@ export default function CheckoutScreen() {
           }`}
           onPress={handlePlaceOrder}
           disabled={processing}
+          accessibilityRole="button"
+          accessibilityLabel={`Place order for $${total.toFixed(2)}`}
+          testID="checkout-place-order"
         >
           {processing ? (
             <>

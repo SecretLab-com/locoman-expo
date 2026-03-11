@@ -9,9 +9,9 @@ import { useRoleGuard } from "@/hooks/use-role-guard";
  *
  * Consistent bottom navigation for client workflows:
  * - Home: Dashboard
- * - Shop: Active bundles and purchases
+ * - Products: Browse offers, categories, and products
  * - Trainer: Your trainers and chat
- * - Basket: Subscriptions and cart
+ * - Cart: Review items before checkout
  * - Account: Insights and billing
  */
 export default function ClientTabLayout() {
@@ -20,9 +20,9 @@ export default function ClientTabLayout() {
 
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(client)/dashboard", testID: "tab-home" },
-    { label: "Shop", icon: "storefront.fill", href: "/(client)/orders", testID: "tab-orders" },
+    { label: "Products", icon: "storefront.fill", href: "/(client)/products", testID: "tab-products" },
     { label: "Trainer", icon: "person.2.fill", href: "/my-trainers", testID: "tab-trainer" },
-    { label: "Basket", icon: "cart.fill", href: "/(client)/subscriptions", testID: "tab-basket" },
+    { label: "Cart", icon: "cart.fill", href: "/(client)/cart", testID: "tab-cart" },
     { label: "Account", icon: "person.circle.fill", href: "/(client)/spending", testID: "tab-revenue" },
   ];
   const hideBottomNav = pathname.includes("/conversation/") || pathname.endsWith("/messages/new");

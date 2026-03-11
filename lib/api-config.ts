@@ -31,23 +31,30 @@ const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
 // Web API URL derivation from current hostname
 function getWebApiUrl(): string {
   const explicitApiUrl = getExplicitApiUrl();
-
-  // Prefer explicit API URL whenever provided, unless local override is explicitly requested.
-  if (explicitApiUrl && !PREFER_LOCAL_WEB_API) {
-    return explicitApiUrl;
-  }
-
   const location = typeof window !== "undefined" ? window.location : undefined;
+
   if (location) {
     const { protocol, hostname, port } = location;
     const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    // In local web development, prefer the colocated dev server even when
+    // an explicit remote API URL is configured for native builds.
+    if (isLocalHost) {
+      const apiPort = port === "8081" ? "3000" : "3000";
+      return `${protocol}//${hostname}:${apiPort}`;
+    }
+
+    // Prefer explicit API URL whenever provided, unless local override is explicitly requested.
+    if (explicitApiUrl && !PREFER_LOCAL_WEB_API) {
+      return explicitApiUrl;
+    }
 
     // Force explicit API URL when requested.
     if (explicitApiUrl && FORCE_SINGLE_API_URL) {
       return explicitApiUrl;
     }
 
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
+    if (isLocalHost) {
       const apiPort = port === "8081" ? "3000" : "3000";
       return `${protocol}//${hostname}:${apiPort}`;
     }

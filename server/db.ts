@@ -1424,7 +1424,6 @@ export async function getAllBundles(): Promise<BundleDraft[]> {
   const { data, error } = await sb()
     .from("bundle_drafts")
     .select("*")
-    .not("shopify_product_id", "is", null)
     .order("updated_at", { ascending: false });
   if (error) { console.error("[Database] getAllBundles:", error.message); return []; }
   return mapRowsFromDb<BundleDraft>(data || []);
@@ -1435,7 +1434,6 @@ export async function getPublishedBundles(): Promise<BundleDraft[]> {
     .from("bundle_drafts")
     .select("*")
     .eq("status", "published")
-    .not("shopify_product_id", "is", null)
     .order("updated_at", { ascending: false });
   if (error) { console.error("[Database] getPublishedBundles:", error.message); return []; }
   return mapRowsFromDb<BundleDraft>(data || []);
@@ -1726,7 +1724,6 @@ export async function getPublishedBundlesByTrainerIds(trainerIds: string[]): Pro
     .from("bundle_drafts")
     .select("*")
     .eq("status", "published")
-    .not("shopify_product_id", "is", null)
     .in("trainer_id", trainerIds)
     .order("updated_at", { ascending: false });
   if (error) { console.error("[Database] getPublishedBundlesByTrainerIds:", error.message); return []; }

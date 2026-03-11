@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { Image } from "expo-image";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
@@ -22,6 +23,7 @@ type SpendingItem = {
   date: Date;
   category: SpendingCategory;
   trainerName?: string;
+  imageUrl?: string | null;
 };
 
 type MonthlySpending = {
@@ -73,6 +75,7 @@ export default function SpendingScreen() {
         date: new Date(order.createdAt),
         category,
         trainerName: order.trainerName,
+        imageUrl: (order.orderData as any)?.imageUrl ?? null,
       };
     });
   }, [orders]);
@@ -160,8 +163,8 @@ export default function SpendingScreen() {
             <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <View>
-            <Text className="text-2xl font-bold text-foreground">Revenue</Text>
-            <Text className="text-sm text-muted mt-1">Track your fitness income</Text>
+            <Text className="text-2xl font-bold text-foreground">Spending</Text>
+            <Text className="text-sm text-muted mt-1">Track your program and purchase history</Text>
           </View>
         </View>
       </View>
@@ -309,16 +312,24 @@ export default function SpendingScreen() {
           <View className="bg-surface rounded-xl divide-y divide-border">
             {spendingItems.map((item) => (
               <View key={item.id} className="flex-row items-center p-4">
-                <View
-                  className="w-10 h-10 rounded-full items-center justify-center"
-                  style={{ backgroundColor: `${CATEGORY_COLORS[item.category]}20` }}
-                >
-                  <IconSymbol
-                    name={CATEGORY_ICONS[item.category]}
-                    size={20}
-                    color={CATEGORY_COLORS[item.category]}
+                {item.imageUrl ? (
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    className="w-14 h-14 rounded-xl"
+                    contentFit="cover"
                   />
-                </View>
+                ) : (
+                  <View
+                    className="w-14 h-14 rounded-xl items-center justify-center"
+                    style={{ backgroundColor: `${CATEGORY_COLORS[item.category]}20` }}
+                  >
+                    <IconSymbol
+                      name={CATEGORY_ICONS[item.category]}
+                      size={22}
+                      color={CATEGORY_COLORS[item.category]}
+                    />
+                  </View>
+                )}
                 <View className="flex-1 ml-3">
                   <Text className="text-foreground font-medium">{item.description}</Text>
                   <Text className="text-sm text-muted">

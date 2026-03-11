@@ -37,6 +37,22 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 
 const CART_STORAGE_KEY = "locomotivate_cart";
 
+function getCartItemKey(item: Pick<CartItem, "type" | "bundleId" | "productId" | "shopifyVariantId" | "shopifyProductId" | "title" | "trainerId">) {
+  if (item.type === "bundle" && item.bundleId) {
+    return `bundle:${item.bundleId}`;
+  }
+  if (item.type === "product" && item.productId) {
+    return `product:${item.productId}`;
+  }
+  if (item.shopifyVariantId != null) {
+    return `variant:${item.shopifyVariantId}`;
+  }
+  if (item.shopifyProductId) {
+    return `shopify:${item.shopifyProductId}`;
+  }
+  return `${item.type}:${item.title}:${item.trainerId || "global"}`;
+}
+
 function triggerHaptic(type: "success" | "warning" | "heavy") {
   if (Platform.OS === "web") return;
   
@@ -92,20 +108,18 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const addItem = useCallback((item: Omit<CartItem, "id">) => {
     triggerHaptic("success");
     setItems((prev) => {
-      // Check if bundle is already in cart
-      const existing = prev.find((i) => i.bundleId === item.bundleId);
+      const nextItemKey = getCartItemKey(item);
+      const existing = prev.find((i) => getCartItemKey(i) === nextItemKey);
       if (existing) {
-        // Update quantity instead of adding duplicate
         return prev.map((i) =>
-          i.bundleId === item.bundleId
+          getCartItemKey(i) === nextItemKey
             ? { ...i, quantity: i.quantity + item.quantity }
             : i
         );
       }
-      // Add new item with unique id
       const newItem: CartItem = {
         ...item,
-        id: `${item.bundleId}-${Date.now()}`,
+        id: `${nextItemKey}-${Date.now()}`,
       };
       return [...prev, newItem];
     });
@@ -141,7 +155,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const isInCart = useCallback(
-    (bundleId: string) => items.some((item) => item.bundleId === bundleId),
+    (bundleId: string) =>
+      items.some((item) => getCartItemKey(item) === `bundle:${bundleId}`),
     [items]
   );
 

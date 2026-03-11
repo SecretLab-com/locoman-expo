@@ -131,23 +131,26 @@ async function startServer() {
   const allowedOrigins = Array.from(
     new Set([...configuredAllowedOrigins, ...derivedProdOrigins]),
   );
-  const localDevOrigins = new Set([
-    "http://localhost:8081",
-    "http://localhost:3000",
-    "http://127.0.0.1:8081",
-    "http://127.0.0.1:3000",
-    "https://localhost:8081",
-    "https://localhost:3000",
-    "https://127.0.0.1:8081",
-    "https://127.0.0.1:3000",
-  ]);
   const allowAnyDevOrigin =
     process.env.NODE_ENV !== "production" && allowedOrigins.length === 0;
 
   // CORS: allow configured origins; in development only, allow all when no allowlist is set.
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    const isLocalDevOrigin = Boolean(origin && localDevOrigins.has(origin));
+    const isLocalDevOrigin = Boolean(
+      origin &&
+        (() => {
+          try {
+            const parsed = new URL(origin);
+            return (
+              (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+              (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1")
+            );
+          } catch {
+            return false;
+          }
+        })(),
+    );
     const isAllowedOrigin =
       !origin || isLocalDevOrigin || allowAnyDevOrigin || allowedOrigins.includes(origin);
 

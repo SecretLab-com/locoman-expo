@@ -188,28 +188,7 @@ async function ensureActiveSocialMembershipForConnect(params: {
     forbidden("Your social membership is paused");
   }
 
-  let pendingInviteAccepted = false;
-  if (
-    pendingInvite &&
-    (!membership ||
-      membership.status === "invited" ||
-      membership.status === "uninvited" ||
-      membership.status === "declined" ||
-      membership.status === "banned")
-  ) {
-    await db.updateTrainerSocialInvite(pendingInvite.id, {
-      status: "accepted",
-      acceptedAt: new Date().toISOString(),
-    });
-    membership = await db.upsertTrainerSocialMembership({
-      trainerId: params.trainerId,
-      status: "active",
-      acceptedAt: membership?.acceptedAt || new Date().toISOString(),
-      invitedBy: pendingInvite.invitedBy,
-      reason: null,
-    });
-    pendingInviteAccepted = true;
-  }
+  const pendingInviteAccepted = false;
 
   if (!membership || membership.status === "invited") {
     const existingProfile = await db.getTrainerSocialProfile(params.trainerId);
@@ -297,6 +276,36 @@ async function reconcileTrainerSocialMembershipState(params: {
   }
 
   return { membership, pendingInvite };
+}
+
+function getTrainerVisibleSocialMembership(params: {
+  membership?: db.TrainerSocialMembership;
+  pendingInvite?: db.TrainerSocialInvite;
+}): db.TrainerSocialMembership | undefined {
+  const { membership, pendingInvite } = params;
+  if (!membership) return undefined;
+  if (membership.status === "banned" && !pendingInvite?.id) {
+    return {
+      ...membership,
+      status: "uninvited",
+      reason: null,
+    };
+  }
+  return membership;
+}
+
+function shouldRedactTrainerSocialProgramDetails(params: {
+  membership?: db.TrainerSocialMembership;
+  pendingInvite?: db.TrainerSocialInvite;
+}) {
+  const status = params.membership?.status || "not_enrolled";
+  return (
+    Boolean(params.pendingInvite?.id) ||
+    status === "invited" ||
+    status === "uninvited" ||
+    status === "declined" ||
+    status === "not_enrolled"
+  );
 }
 
 async function preparePhylloConnectSession(params: {
@@ -2172,21 +2181,7 @@ export const appRouter = router({
   // CATALOG (Public bundle browsing)
   // ============================================================================
   catalog: router({
-    bundles: publicProcedure.query(async ({ ctx }) => {
-      // Clients only see bundles from trainers they are actively assigned to.
-      // Shoppers/guests keep full catalog browsing behavior.
-      if (ctx.user?.role === "client") {
-        const myTrainers = await db.getMyTrainers(ctx.user.id);
-        const activeTrainerIds = myTrainers
-          .filter((trainer: any) => trainer.relationshipStatus === "active")
-          .map((trainer: any) => trainer.id)
-          .filter(
-            (id: unknown): id is string =>
-              typeof id === "string" && id.length > 0,
-          );
-        if (activeTrainerIds.length === 0) return [];
-        return db.getPublishedBundlesByTrainerIds(activeTrainerIds);
-      }
+    bundles: publicProcedure.query(async () => {
       return db.getPublishedBundles();
     }),
 
@@ -6860,7 +6855,9 @@ export const appRouter = router({
                 description = `${performer} changed ${target}'s role: ${log.previousValue || "?"} → ${log.newValue || "?"}`;
                 break;
               case "status_changed":
-                if (String(log.notes || "").startsWith("social_program_invite_declined:")) {
+                if (String(log.notes || "").startsWith("social_program_invite_accepted:")) {
+                  description = `${performer} accepted the exclusive Social Posts invitation.`;
+                } else if (String(log.notes || "").startsWith("social_program_invite_declined:")) {
                   description = `${performer} declined the exclusive Social Posts invitation and reset to uninvited.`;
                 } else if (String(log.notes || "").startsWith("social_program_paused:")) {
                   description = `${performer} paused ${target}'s Social Posts access.`;
@@ -7516,19 +7513,18 @@ export const appRouter = router({
       const inviteBy =
         pendingInvite?.invitedBy &&
         (await db.getUserById(pendingInvite.invitedBy));
-      const normalizedMembership =
-        membership?.status === "banned"
-          ? ({ ...membership, status: "uninvited" } as db.TrainerSocialMembership)
-          : membership;
-      const canViewProgramDetails =
-        Boolean(pendingInvite?.id) ||
-        normalizedMembership?.status === "active" ||
-        normalizedMembership?.status === "paused" ||
-        normalizedMembership?.status === "invited";
+      const visibleMembership = getTrainerVisibleSocialMembership({
+        membership,
+        pendingInvite,
+      });
+      const shouldRedactDetails = shouldRedactTrainerSocialProgramDetails({
+        membership: visibleMembership,
+        pendingInvite,
+      });
 
       return {
-        membership: normalizedMembership,
-        profile: canViewProgramDetails ? profile : null,
+        membership: visibleMembership,
+        profile: shouldRedactDetails ? null : profile,
         pendingInvite,
         invitedBy: inviteBy
           ? {
@@ -7537,9 +7533,9 @@ export const appRouter = router({
               role: inviteBy.role,
             }
           : null,
-        commitment: canViewProgramDetails ? commitment : null,
-        progress: canViewProgramDetails ? progress : null,
-        openViolations: canViewProgramDetails ? violations : [],
+        commitment: shouldRedactDetails ? null : commitment,
+        progress: shouldRedactDetails ? null : progress,
+        openViolations: shouldRedactDetails ? [] : violations,
       };
     }),
 
@@ -7552,15 +7548,33 @@ export const appRouter = router({
         if (invite.status !== "pending") {
           forbidden(`Invite is ${invite.status}`);
         }
+        const previousMembership = await db.getTrainerSocialMembership(ctx.user.id);
+        const nowIso = new Date().toISOString();
+        const otherPendingInvites = invites.filter(
+          (row) => row.status === "pending" && row.id !== invite.id,
+        );
+        if (otherPendingInvites.length > 0) {
+          await Promise.all(
+            otherPendingInvites.map((row) =>
+              db.updateTrainerSocialInvite(row.id, {
+                status: "revoked",
+              }),
+            ),
+          );
+        }
         await db.updateTrainerSocialInvite(invite.id, {
           status: "accepted",
-          acceptedAt: new Date().toISOString(),
+          acceptedAt: nowIso,
         });
         const membership = await db.upsertTrainerSocialMembership({
           trainerId: ctx.user.id,
           status: "active",
-          acceptedAt: new Date().toISOString(),
+          invitedAt: previousMembership?.invitedAt || invite.createdAt,
+          acceptedAt: nowIso,
           invitedBy: invite.invitedBy,
+          pausedAt: null,
+          bannedAt: null,
+          declinedAt: null,
           reason: null,
         });
         if (!membership) {
@@ -7584,7 +7598,7 @@ export const appRouter = router({
             minimumCtr: 0.008,
             minimumShareSaveRate: 0.007,
             active: true,
-            effectiveFrom: new Date().toISOString(),
+            effectiveFrom: nowIso,
           });
           commitment = await db.getActiveTrainerSocialCommitment(ctx.user.id);
         }
@@ -7605,6 +7619,50 @@ export const appRouter = router({
           postsRequired: commitment?.minimumPosts || 4,
         });
 
+        const coordinator = invite.invitedBy
+          ? await db.getUserById(invite.invitedBy)
+          : null;
+        if (coordinator?.id) {
+          const acceptedBody = `${
+            ctx.user.name || "Trainer"
+          } accepted the Social Posts invitation.`;
+          await db.createSocialEventNotification({
+            recipientUserId: coordinator.id,
+            trainerId: ctx.user.id,
+            severity: "info",
+            category: "social_event",
+            title: "Social invite accepted",
+            body: acceptedBody,
+            metadata: {
+              inviteId: invite.id,
+              eventType: "social_program.accepted",
+            },
+          });
+          notifySocialAlert([coordinator.id], {
+            severity: "info",
+            title: "Social invite accepted",
+            body: acceptedBody,
+            trainerId: ctx.user.id,
+            eventType: "social_program.accepted",
+          });
+          await sendPushToUsers([coordinator.id], {
+            title: "Social invite accepted",
+            body: acceptedBody,
+            data: {
+              type: "social_program_accepted",
+              trainerId: ctx.user.id,
+              inviteId: invite.id,
+            },
+          });
+        }
+        await db.logUserActivity({
+          targetUserId: ctx.user.id,
+          performedBy: ctx.user.id,
+          action: "status_changed",
+          previousValue: previousMembership?.status || "none",
+          newValue: "active",
+          notes: `social_program_invite_accepted:${invite.id}`,
+        });
         notifyBadgeCounts(await db.getUserIdsByRoles(["manager", "coordinator"]));
         return { success: true, membership };
       }),
@@ -7829,9 +7887,17 @@ export const appRouter = router({
       const inviteBy =
         pendingInvite?.invitedBy &&
         (await db.getUserById(pendingInvite.invitedBy));
-      return {
+      const visibleMembership = getTrainerVisibleSocialMembership({
         membership,
-        profile,
+        pendingInvite,
+      });
+      const shouldRedactDetails = shouldRedactTrainerSocialProgramDetails({
+        membership: visibleMembership,
+        pendingInvite,
+      });
+      return {
+        membership: visibleMembership,
+        profile: shouldRedactDetails ? null : profile,
         pendingInvite,
         invitedBy: inviteBy
           ? {
@@ -7840,10 +7906,10 @@ export const appRouter = router({
               role: inviteBy.role,
             }
           : null,
-        progress,
-        commitment,
-        violations,
-        recentMetrics,
+        progress: shouldRedactDetails ? null : progress,
+        commitment: shouldRedactDetails ? null : commitment,
+        violations: shouldRedactDetails ? [] : violations,
+        recentMetrics: shouldRedactDetails ? [] : recentMetrics,
       };
     }),
 
@@ -8056,6 +8122,17 @@ export const appRouter = router({
           notFound("Trainer");
         }
         const previousMembership = await db.getTrainerSocialMembership(trainer.id);
+        const existingInvites = await db.getTrainerSocialInvitesByTrainer(trainer.id);
+        const pendingInvites = existingInvites.filter((row) => row.status === "pending");
+        if (pendingInvites.length > 0) {
+          await Promise.all(
+            pendingInvites.map((invite) =>
+              db.updateTrainerSocialInvite(invite.id, {
+                status: "revoked",
+              }),
+            ),
+          );
+        }
 
         const membership = await db.upsertTrainerSocialMembership({
           trainerId: trainer.id,
@@ -8161,6 +8238,7 @@ export const appRouter = router({
             inviteId,
             eventType: "social_program.invited",
             showInApp: true,
+            deepLink: "social-program",
           },
         });
         notifySocialAlert([trainer.id], {
@@ -8179,6 +8257,7 @@ export const appRouter = router({
             type: "social_program_invite",
             inviteId,
             conversationId,
+            deepLink: "social-program",
           },
         });
         await db.logUserActivity({
@@ -8236,10 +8315,10 @@ export const appRouter = router({
           input.status === "banned"
             ? {
                 trainerId: trainer.id,
-                status: "uninvited",
+                status: "banned",
                 invitedBy: previousMembership?.invitedBy || null,
                 invitedAt: previousMembership?.invitedAt || nowIso,
-                acceptedAt: null,
+                acceptedAt: previousMembership?.acceptedAt || null,
                 pausedAt: null,
                 declinedAt: null,
                 bannedAt: nowIso,
@@ -8326,6 +8405,7 @@ export const appRouter = router({
             eventType: trainerAlert.eventType,
             status: membership.status,
             showInApp: true,
+            deepLink: "social-program",
           },
         });
         notifySocialAlert([trainer.id], {
@@ -8343,6 +8423,7 @@ export const appRouter = router({
             type: "social_program_status",
             trainerId: trainer.id,
             status: membership.status,
+            deepLink: "social-program",
           },
         });
         await db.logUserActivity({
@@ -8359,7 +8440,11 @@ export const appRouter = router({
                 : `social_program_activated:${previousStatus}`,
         });
         notifyBadgeCounts([trainer.id]);
-        return { success: true, membership, effectiveStatus: membership.status };
+        return {
+          success: true,
+          membership,
+          effectiveStatus: input.status === "banned" ? "uninvited" : membership.status,
+        };
       }),
 
     membershipByTrainerIds: protectedProcedure

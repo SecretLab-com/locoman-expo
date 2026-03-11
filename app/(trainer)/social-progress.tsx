@@ -1,3 +1,4 @@
+import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
@@ -608,6 +609,26 @@ export default function TrainerSocialProgressScreen() {
       ]);
     },
   });
+  const acceptInviteMutation = trpc.socialProgram.acceptInvite.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.socialProgram.myStatus.invalidate(),
+        utils.socialProgram.myProgramDashboard.invalidate(),
+        utils.socialProgram.recentPosts.invalidate(),
+        utils.socialProgram.campaignMetrics.invalidate(),
+      ]);
+    },
+  });
+  const declineInviteMutation = trpc.socialProgram.declineInvite.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.socialProgram.myStatus.invalidate(),
+        utils.socialProgram.myProgramDashboard.invalidate(),
+        utils.socialProgram.recentPosts.invalidate(),
+        utils.socialProgram.campaignMetrics.invalidate(),
+      ]);
+    },
+  });
   const bundlesQuery = trpc.bundles.list.useQuery();
   const membership = data?.membership;
   const pendingInvite = data?.pendingInvite;
@@ -825,7 +846,7 @@ export default function TrainerSocialProgressScreen() {
     membershipStatus === 'paused' || membershipStatus === 'banned';
   const canAttemptConnect =
     !isRestrictedStatus &&
-    (membershipStatus === 'active' || hasPendingInvite || isConnected);
+    (membershipStatus === 'active' || isConnected);
   const platformStats = useMemo(() => {
     const rawProfiles = Array.isArray((profile as any)?.metadata?.rawProfiles)
       ? ((profile as any)?.metadata?.rawProfiles as any[])
@@ -1288,8 +1309,8 @@ export default function TrainerSocialProgressScreen() {
       return {
         title: 'Invite waiting',
         body: invitedBy?.name
-          ? `${invitedBy.name} invited you to Social Posts. Connect your first platform when you are ready.`
-          : 'You have a pending Social Posts invitation waiting for connection.',
+          ? `${invitedBy.name} invited you to Social Posts. Accept or decline the invitation below.`
+          : 'You have a pending Social Posts invitation waiting for your response.',
         color: '#60A5FA',
       };
     }
@@ -1303,10 +1324,45 @@ export default function TrainerSocialProgressScreen() {
     return null;
   }, [hasPendingInvite, invitedBy?.name, isConnected, membershipStatus]);
   const shouldHideProgramDetails =
+    membershipStatus === 'invited' ||
     membershipStatus === 'uninvited' ||
     membershipStatus === 'declined' ||
     membershipStatus === 'not_enrolled' ||
     membershipStatus === 'banned';
+
+  const handleAcceptInvite = async () => {
+    const inviteId = String(pendingInvite?.id || '').trim();
+    if (!inviteId || acceptInviteMutation.isPending) return;
+    try {
+      await acceptInviteMutation.mutateAsync({ inviteId });
+      setConnectActionError(null);
+      setConnectActionSuccess('Invite accepted. Connect your first platform when you are ready.');
+    } catch (error: any) {
+      Alert.alert(
+        'Could not accept invite',
+        String(error?.message || 'Unable to accept your Social Posts invite right now.'),
+      );
+    }
+  };
+
+  const handleDeclineInvite = async () => {
+    const inviteId = String(pendingInvite?.id || '').trim();
+    if (!inviteId || declineInviteMutation.isPending) return;
+    try {
+      await declineInviteMutation.mutateAsync({ inviteId });
+      setConnectActionSuccess(null);
+      setConnectActionError(null);
+      Alert.alert(
+        'Invite declined',
+        'Your Social Posts invitation was declined. Membership details will stay hidden until you are invited again.',
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Could not decline invite',
+        String(error?.message || 'Unable to decline your Social Posts invite right now.'),
+      );
+    }
+  };
 
   if (shouldHideProgramDetails) {
     return (
@@ -1348,12 +1404,38 @@ export default function TrainerSocialProgressScreen() {
             ) : null}
             <SurfaceCard>
               <Text className="text-base font-semibold text-foreground">
-                Social Posts is invite-only
+                {hasPendingInvite ? 'Review your Social Posts invite' : 'Social Posts is invite-only'}
               </Text>
               <Text className="text-sm text-muted mt-2">
-                Your membership details stay hidden until a coordinator invites you back into the
-                program.
+                {hasPendingInvite
+                  ? 'Accept the invitation to unlock social connection, campaign tracking, and program details.'
+                  : 'Your membership details stay hidden until a coordinator invites you back into the program.'}
               </Text>
+              {hasPendingInvite ? (
+                <View className="flex-row gap-3 mt-4">
+                  <ActionButton
+                    className="flex-1"
+                    onPress={handleAcceptInvite}
+                    loading={acceptInviteMutation.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Accept social program invitation"
+                    testID="social-progress-accept-invite"
+                  >
+                    Accept invite
+                  </ActionButton>
+                  <ActionButton
+                    className="flex-1"
+                    variant="secondary"
+                    onPress={handleDeclineInvite}
+                    loading={declineInviteMutation.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Decline social program invitation"
+                    testID="social-progress-decline-invite"
+                  >
+                    Decline
+                  </ActionButton>
+                </View>
+              ) : null}
             </SurfaceCard>
           </View>
         </ScrollView>
@@ -1664,15 +1746,15 @@ export default function TrainerSocialProgressScreen() {
                     accessibilityRole='button'
                     accessibilityLabel={
                       isConnected
-                        ? 'Connect more platforms'
-                        : 'Connect your first platform'
+                        ? 'Manage social connections'
+                        : 'Set up social connections'
                     }
                     testID='social-progress-connect-more-fab'
                   >
                     {isLaunchingConnect ? (
                       <ActivityIndicator size='small' color='#fff' />
                     ) : (
-                      <MaterialCommunityIcons name='plus' size={18} color='#fff' />
+                      <MaterialCommunityIcons name='cog-outline' size={22} color='#fff' />
                     )}
                   </TouchableOpacity>
                 ) : null}

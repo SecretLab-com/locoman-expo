@@ -526,6 +526,7 @@ describe("router integration", () => {
       updatedAt: new Date().toISOString(),
     } as any);
     vi.spyOn(db, "getTrainerSocialMembership").mockResolvedValue(undefined as any);
+    vi.spyOn(db, "getTrainerSocialInvitesByTrainer").mockResolvedValue([] as any);
     vi.spyOn(db, "createMessage").mockResolvedValue("message-1");
     vi.spyOn(db, "createTrainerSocialInvite").mockResolvedValue("invite-1");
     vi.spyOn(db, "createSocialEventNotification").mockResolvedValue({
@@ -554,7 +555,7 @@ describe("router integration", () => {
     );
   });
 
-  it("resets banned social members to uninvited and revokes pending invites", async () => {
+  it("stores banned social members internally and revokes pending invites", async () => {
     const caller = createCaller("manager");
 
     vi.spyOn(db, "getUserById").mockResolvedValue({
@@ -602,10 +603,10 @@ describe("router integration", () => {
     vi.spyOn(db, "upsertTrainerSocialMembership").mockResolvedValue({
       id: "membership-1",
       trainerId: "trainer-abc",
-      status: "uninvited",
+      status: "banned",
       invitedBy: "manager-1",
       invitedAt: new Date().toISOString(),
-      acceptedAt: null,
+      acceptedAt: new Date().toISOString(),
       pausedAt: null,
       bannedAt: new Date().toISOString(),
       declinedAt: null,
@@ -631,7 +632,7 @@ describe("router integration", () => {
       success: true,
       effectiveStatus: "uninvited",
       membership: expect.objectContaining({
-        status: "uninvited",
+        status: "banned",
       }),
     });
     expect(updateInviteSpy).toHaveBeenCalledWith(
@@ -645,13 +646,13 @@ describe("router integration", () => {
         targetUserId: "trainer-abc",
         action: "status_changed",
         previousValue: "active",
-        newValue: "uninvited",
+        newValue: "banned",
         notes: "social_program_banned_reset:active",
       }),
     );
   });
 
-  it("starts phyllo connect and auto-accepts pending invite", async () => {
+  it("blocks phyllo connect until a pending invite is explicitly accepted", async () => {
     const caller = createCaller("trainer");
 
     vi.spyOn(db, "getTrainerSocialMembership").mockResolvedValue({
@@ -689,53 +690,10 @@ describe("router integration", () => {
         updatedAt: new Date().toISOString(),
       },
     ] as any);
-    vi.spyOn(db, "updateTrainerSocialInvite").mockResolvedValue(undefined as any);
-    vi.spyOn(db, "upsertTrainerSocialMembership").mockResolvedValue({
-      id: "membership-1",
-      trainerId: "00000000-0000-0000-0000-000000000001",
-      status: "active",
-      invitedBy: "manager-1",
-      invitedAt: new Date().toISOString(),
-      acceptedAt: new Date().toISOString(),
-      pausedAt: null,
-      bannedAt: null,
-      declinedAt: null,
-      reason: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } as any);
-    vi.spyOn(db, "getActiveTrainerSocialCommitment").mockResolvedValue({
-      id: "commitment-1",
-      trainerId: "00000000-0000-0000-0000-000000000001",
-      minimumPosts: 4,
-    } as any);
-    vi.spyOn(db, "upsertTrainerSocialCommitmentProgress").mockResolvedValue({
-      id: "progress-1",
-    } as any);
     vi.spyOn(db, "getTrainerSocialProfile").mockResolvedValue(null as any);
-    vi.spyOn(phyllo, "getBootstrapPhylloUserFromEnv").mockReturnValue({
-      id: "phyllo-user-1",
-      name: "Trainer",
-      externalId: null,
-    } as any);
-    vi.spyOn(phyllo, "getBootstrapSdkTokenFromEnv").mockReturnValue({
-      sdkToken: "sdk-token-1",
-      expiresAt: "2099-01-01T00:00:00.000Z",
-    } as any);
-    vi.spyOn(phyllo, "decodePhylloSdkTokenClaims").mockReturnValue({
-      exp: Date.now() / 1000 + 3600,
-      iss: "https://api.staging.getphyllo.com",
-    } as any);
-    vi.spyOn(phyllo, "inferPhylloTokenEnvironment").mockReturnValue("sandbox");
-
-    const result = await caller.socialProgram.startConnect({});
-
-    expect(result.success).toBe(true);
-    expect(result.pendingInviteAccepted).toBe(true);
-    expect(result.sdkToken).toBe("sdk-token-1");
-    expect(result.phylloUserId).toBe("phyllo-user-1");
-    expect(phyllo.createPhylloUser).not.toHaveBeenCalled();
-    expect(phyllo.createPhylloSdkToken).not.toHaveBeenCalled();
+    await expect(caller.socialProgram.startConnect({})).rejects.toThrow(
+      /accept your exclusive social program invite/i,
+    );
   });
 
   it("completes phyllo connect and returns refreshed profile", async () => {
@@ -788,6 +746,7 @@ describe("router integration", () => {
       iss: "https://api.staging.getphyllo.com",
     } as any);
     vi.spyOn(phyllo, "inferPhylloTokenEnvironment").mockReturnValue("sandbox");
+    vi.spyOn(db, "listOtherTrainerSocialProfiles").mockResolvedValue([] as any);
     vi.spyOn(db, "upsertTrainerSocialProfile").mockResolvedValue({
       id: "profile-1",
       trainerId: "00000000-0000-0000-0000-000000000001",

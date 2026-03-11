@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { Image } from "expo-image";
 import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -41,6 +42,11 @@ type Delivery = {
   disputeReason: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+type ProductLookup = {
+  id: string;
+  imageUrl: string | null;
 };
 
 const STATUS_TABS: { key: DeliveryStatus | "all"; label: string }[] = [
@@ -111,6 +117,7 @@ export default function ClientDeliveriesScreen() {
 
   // Use real API
   const { data: deliveries = [], isLoading, refetch, isRefetching } = trpc.deliveries.myDeliveries.useQuery();
+  const { data: products = [] } = trpc.catalog.products.useQuery(undefined, { staleTime: 60000 });
   const confirmReceiptMutation = trpc.deliveries.confirmReceipt.useMutation({
     onSuccess: () => utils.deliveries.myDeliveries.invalidate(),
   });
@@ -123,6 +130,9 @@ export default function ClientDeliveriesScreen() {
 
   const filteredDeliveries = (deliveries as Delivery[]).filter(
     (d) => activeTab === "all" || d.status === activeTab
+  );
+  const productImageById = new Map(
+    (products as ProductLookup[]).map((product) => [String(product.id), product.imageUrl || null]),
   );
 
   const onRefresh = useCallback(async () => {
@@ -274,13 +284,30 @@ export default function ClientDeliveriesScreen() {
 
   const renderDelivery = ({ item }: { item: Delivery }) => {
     const rescheduleRequest = parseRescheduleRequest(item.clientNotes);
+    const productImageUrl = item.productId ? productImageById.get(String(item.productId)) || null : null;
     return (
       <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
       {/* Header */}
       <View className="flex-row justify-between items-start mb-3">
-        <View className="flex-1">
-          <Text className="text-lg font-semibold text-foreground">{item.productName}</Text>
-          <Text className="text-sm text-muted">Quantity: {item.quantity}</Text>
+        <View className="flex-row flex-1 mr-3">
+          {productImageUrl ? (
+            <Image
+              source={{ uri: productImageUrl }}
+              className="w-20 h-20 rounded-xl"
+              contentFit="cover"
+            />
+          ) : (
+            <View className="w-20 h-20 rounded-xl bg-primary/10 items-center justify-center">
+              <IconSymbol name="shippingbox.fill" size={28} color={colors.primary} />
+            </View>
+          )}
+          <View className="flex-1 ml-4">
+            <Text className="text-lg font-semibold text-foreground">{item.productName}</Text>
+            <Text className="text-sm text-muted mt-1">Quantity: {item.quantity}</Text>
+            <Text className="text-xs text-muted mt-2">
+              {item.deliveryMethod ? METHOD_LABELS[item.deliveryMethod] : "Delivery details pending"}
+            </Text>
+          </View>
         </View>
         <View
           className="px-3 py-1 rounded-full"

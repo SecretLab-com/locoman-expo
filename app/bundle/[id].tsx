@@ -3,6 +3,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { ShareButton } from "@/components/share-button";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useCart } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
 import { normalizeAssetUrl } from "@/lib/asset-url";
 import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
@@ -34,6 +35,7 @@ export default function BundleDetailScreen() {
   const [bundleImageLoadFailed, setBundleImageLoadFailed] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const { effectiveRole, isTrainer, isManager, isCoordinator, isClient, isAuthenticated } = useAuthContext();
+  const { addItem } = useCart();
   const isAdmin = isCoordinator || isManager;
   const isTrainerRoleRoute =
     segmentList.includes("(trainer)") || segmentList.includes("(manager)") || segmentList.includes("(coordinator)");
@@ -122,6 +124,7 @@ export default function BundleDetailScreen() {
       totalTrainerBonus: rawBundle.totalTrainerBonus ? parseFloat(rawBundle.totalTrainerBonus) : null,
       status: rawBundle.status || "draft",
       trainerId: rawBundle.trainerId,
+      trainerName: (rawBundle as any).trainerName || null,
     };
   }, [rawBundle, catalogLookup]);
 
@@ -163,7 +166,33 @@ export default function BundleDetailScreen() {
   }
 
   const handleAddToCart = () => {
-    Alert.alert("Added to Cart", `${bundle.title} has been added to your cart!`);
+    if (!bundle) return;
+    addItem({
+      type: "bundle",
+      bundleId: String(bundle.id),
+      title: bundle.title,
+      trainer: bundle.trainerName || undefined,
+      trainerId: bundle.trainerId || undefined,
+      price: Number(bundle.price || 0),
+      quantity: 1,
+      imageUrl: bundleImageUrl || undefined,
+      cadence:
+        bundle.duration === "weekly" || bundle.duration === "monthly"
+          ? bundle.duration
+          : "one_time",
+      fulfillment: "home_ship",
+    });
+    Alert.alert(
+      "Added to cart",
+      `${bundle.title} is ready in your cart.`,
+      [
+        { text: "Keep shopping", style: "cancel" },
+        {
+          text: "View cart",
+          onPress: () => router.push("/(tabs)/cart" as any),
+        },
+      ],
+    );
   };
 
   const handleInviteClient = () => {

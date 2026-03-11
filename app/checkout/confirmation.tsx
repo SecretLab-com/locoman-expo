@@ -18,6 +18,7 @@ import Animated, {
 export default function OrderConfirmationScreen() {
   const colors = useColors();
   const { isClient } = useAuthContext();
+  const browseCatalogRoute = isClient ? "/(client)/products" : "/(tabs)/products";
   const { orderId } = useLocalSearchParams<{ orderId?: string }>();
   const orderIdValue = typeof orderId === "string" ? orderId : undefined;
   const orderQuery = trpc.orders.get.useQuery(
@@ -65,7 +66,7 @@ export default function OrderConfirmationScreen() {
   };
 
   const handleContinueShopping = () => {
-    router.navigate("/(tabs)" as any);
+    router.navigate(browseCatalogRoute as any);
   };
 
   const orderNumber = orderId || `LM-${Date.now().toString().slice(-8)}`;
@@ -195,9 +196,12 @@ export default function OrderConfirmationScreen() {
         <TouchableOpacity
           className="bg-surface border border-border py-4 rounded-xl flex-row items-center justify-center"
           onPress={handleContinueShopping}
+          accessibilityRole="button"
+          accessibilityLabel="Browse more products"
+          testID="confirmation-browse-products"
         >
           <IconSymbol name="magnifyingglass" size={20} color={colors.foreground} />
-          <Text className="text-foreground font-semibold ml-2">Browse More Programs</Text>
+          <Text className="text-foreground font-semibold ml-2">Browse More Products</Text>
         </TouchableOpacity>
       </Animated.View>
 
