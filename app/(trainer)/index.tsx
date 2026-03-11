@@ -3,6 +3,15 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useAuthContext } from "@/contexts/auth-context";
+import {
+  buildTrainerDashboardPalette,
+  createTrainerActivityStatusStyles,
+  createTrainerOfferStatusStyles,
+  type TrainerDashboardPalette,
+  trainerDialSegmentColors,
+} from "@/design-system/trainer-dashboard";
+import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { trackLaunchEvent } from "@/lib/analytics";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
@@ -89,39 +98,22 @@ const TIER_MIN_POINTS: Record<TierName, number> = {
 };
 
 const TEST_STATE_SEQUENCE: NextAction[] = ["invite", "offer", "pay", "done"];
+const DASH = {} as TrainerDashboardPalette;
 
-const DASH = {
-  page: "#0A0A14",
-  surface: "#151520",
-  card: "#171C2B",
-  cardSoft: "#141A28",
-  primary: "#60A5FA",
-  text: "#F8FAFC",
-  muted: "#94A3B8",
-  border: "rgba(148,163,184,0.22)",
-  borderStrong: "rgba(96,165,250,0.5)",
-  chipBg: "rgba(96,165,250,0.16)",
-  chipText: "#BFDBFE",
-};
-
-const CARD_STYLE = { backgroundColor: DASH.card, borderColor: DASH.border };
-const CARD_SOFT_STYLE = { backgroundColor: DASH.cardSoft, borderColor: DASH.border };
-const HERO_STYLE = { backgroundColor: "#312E81", borderColor: "rgba(167,139,250,0.65)" };
+const getCardStyle = () => ({ backgroundColor: DASH.card, borderColor: DASH.border });
+const getCardSoftStyle = () => ({ backgroundColor: DASH.cardSoft, borderColor: DASH.border });
+const getHeroStyle = () => ({ backgroundColor: DASH.heroBg, borderColor: DASH.heroBorder });
 const SECTION_SPACING_CLASS = "px-6 mb-7";
-const ACTION_ICON_WRAP_STYLE = { backgroundColor: "rgba(96,165,250,0.2)" };
-const ACTION_TILE_STYLE = { backgroundColor: "rgba(21,21,32,0.94)", borderColor: "rgba(148,163,184,0.22)" };
+const getActionIconWrapStyle = () => ({ backgroundColor: DASH.actionIconWrapBg });
+const getActionTileStyle = () => ({ backgroundColor: DASH.actionTileBg, borderColor: DASH.actionTileBorder });
 const ACTION_TILE_FIXED_HEIGHT = 140;
-const HERO_GLOW_MAIN_STYLE = { backgroundColor: "rgba(168,85,247,0.5)" };
-const HERO_GLOW_SECOND_STYLE = { backgroundColor: "rgba(59,130,246,0.38)" };
-const CHIP_STYLE = { backgroundColor: "rgba(167,139,250,0.22)", borderColor: "rgba(196,181,253,0.44)" };
-const MUTED_BADGE_STYLE = { backgroundColor: "rgba(255,255,255,0.05)", borderColor: "rgba(255,255,255,0.12)" };
+const getHeroGlowMainStyle = () => ({ backgroundColor: DASH.heroGlowMain });
+const getHeroGlowSecondStyle = () => ({ backgroundColor: DASH.heroGlowSecond });
+const getChipStyle = () => ({ backgroundColor: DASH.chipBg, borderColor: DASH.borderStrong });
+const getMutedBadgeStyle = () => ({ backgroundColor: DASH.mutedBadgeBg, borderColor: DASH.mutedBadgeBorder });
 
-const ACTIVITY_STATUS_STYLE: Record<PaymentStatus, { bg: string; text: string; label: string }> = {
-  awaiting_payment: { bg: "rgba(250,204,21,0.15)", text: "#FACC15", label: "Awaiting payment" },
-  paid: { bg: "rgba(52,211,153,0.18)", text: "#34D399", label: "Paid" },
-  paid_out: { bg: "rgba(96,165,250,0.18)", text: DASH.primary, label: "Paid out" },
-  cancelled: { bg: "rgba(248,113,113,0.15)", text: "#F87171", label: "Cancelled" },
-};
+const getActivityStatusStyle = (): Record<PaymentStatus, { bg: string; text: string; label: string }> =>
+  createTrainerActivityStatusStyles(DASH.primary);
 
 const DEV_SOCIAL_PREVIEW_OWNER_EMAILS = [
   "jason@secretlab.com",
@@ -138,12 +130,8 @@ const DEV_SOCIAL_PREVIEW_DATA: DevSocialPreviewData = {
 };
 const SOCIAL_VIZ_ANIMATION_MS = 1500;
 
-const OFFER_STATUS_STYLE: Record<OfferStatus, { bg: string; border: string; text: string; label: string }> = {
-  draft: { bg: "rgba(250,204,21,0.15)", border: "rgba(250,204,21,0.3)", text: "#FACC15", label: "Draft" },
-  in_review: { bg: "rgba(96,165,250,0.2)", border: "rgba(96,165,250,0.34)", text: DASH.primary, label: "In review" },
-  published: { bg: "rgba(52,211,153,0.18)", border: "rgba(52,211,153,0.35)", text: "#34D399", label: "Published" },
-  archived: { bg: "rgba(248,113,113,0.16)", border: "rgba(248,113,113,0.32)", text: "#F87171", label: "Archived" },
-};
+const getOfferStatusStyle = (): Record<OfferStatus, { bg: string; border: string; text: string; label: string }> =>
+  createTrainerOfferStatusStyles(DASH.primary);
 
 function formatDateShort(value: string | Date) {
   return new Date(value).toLocaleDateString("en-GB", {
@@ -274,13 +262,13 @@ function QuickActionButton({
     <View className="w-1/2 p-1.5">
       <TouchableOpacity
         className="rounded-xl border p-4 items-center justify-center"
-        style={{ ...ACTION_TILE_STYLE, height: ACTION_TILE_FIXED_HEIGHT }}
+        style={{ ...getActionTileStyle(), height: ACTION_TILE_FIXED_HEIGHT }}
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={label}
         testID={testID}
       >
-        <View className={`w-12 h-12 rounded-full items-center justify-center ${subtitle || value ? "mb-1.5" : "mb-2"}`} style={ACTION_ICON_WRAP_STYLE}>
+        <View className={`w-12 h-12 rounded-full items-center justify-center ${subtitle || value ? "mb-1.5" : "mb-2"}`} style={getActionIconWrapStyle()}>
           <IconSymbol name={icon} size={20} color={DASH.primary} />
         </View>
         <Text className="text-sm font-semibold text-center" style={{ color: DASH.text }} numberOfLines={1}>
@@ -313,17 +301,17 @@ function EmptyModuleCard({
   onPress: () => void;
 }) {
   return (
-    <SurfaceCard style={CARD_STYLE}>
+    <SurfaceCard style={getCardStyle()}>
       <View className="items-center py-4">
-        <View className="w-16 h-16 rounded-full items-center justify-center mb-3" style={{ backgroundColor: "rgba(255,255,255,0.06)" }}>
-          <IconSymbol name={icon} size={28} color="#64748B" />
+        <View className="w-16 h-16 rounded-full items-center justify-center mb-3" style={{ backgroundColor: DASH.emptyIconBg }}>
+          <IconSymbol name={icon} size={28} color={DASH.emptyIconColor} />
         </View>
-        <Text className="text-sm text-center leading-5 px-2" style={{ color: "#A7B5CC" }}>
+        <Text className="text-sm text-center leading-5 px-2" style={{ color: DASH.emptyText }}>
           {description}
         </Text>
         <TouchableOpacity
           className="mt-3 px-5 py-2 rounded-full border"
-          style={MUTED_BADGE_STYLE}
+          style={getMutedBadgeStyle()}
           onPress={onPress}
           accessibilityRole="button"
           accessibilityLabel={cta}
@@ -350,18 +338,18 @@ function StepPill({
     <View
       className="flex-row items-center rounded-full px-2.5 py-1 border"
       style={{
-        backgroundColor: isDone || isCurrent ? "rgba(96,165,250,0.16)" : "rgba(255,255,255,0.05)",
-        borderColor: isDone || isCurrent ? "rgba(96,165,250,0.36)" : "rgba(255,255,255,0.12)",
+        backgroundColor: isDone || isCurrent ? DASH.chipBg : DASH.stepInactiveBg,
+        borderColor: isDone || isCurrent ? DASH.borderStrong : DASH.stepInactiveBorder,
       }}
     >
       <View
         className="w-4 h-4 rounded-full items-center justify-center mr-1.5"
-        style={{ backgroundColor: isDone || isCurrent ? "rgba(96,165,250,0.24)" : "rgba(148,163,184,0.25)" }}
+        style={{ backgroundColor: isDone || isCurrent ? DASH.actionIconWrapBg : DASH.stepInactiveBg }}
       >
         {isDone ? (
           <IconSymbol name="checkmark" size={10} color={DASH.primary} />
         ) : (
-          <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isCurrent ? DASH.primary : "#94A3A0" }} />
+          <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isCurrent ? DASH.primary : DASH.stepInactiveDot }} />
         )}
       </View>
       <Text className="text-[11px] font-medium" style={{ color: isDone || isCurrent ? DASH.text : DASH.muted }}>
@@ -374,7 +362,7 @@ function StepPill({
 const DIAL_START_ANGLE = 240;
 const DIAL_SWEEP_ANGLE = 240;
 const DIAL_SEGMENT_GAP_ANGLE = 8;
-const DIAL_SEGMENT_COLORS = ["#F87171", "#FBBF24", "#34D399"] as const;
+const DIAL_SEGMENT_COLORS = trainerDialSegmentColors;
 
 function polarToCartesian(
   centerX: number,
@@ -449,14 +437,14 @@ function SocialMetricDial({
     <View
       className="flex-1 rounded-xl border px-2 py-3 items-center"
       style={{
-        backgroundColor: "rgba(11,16,32,0.4)",
-        borderColor: "rgba(148,163,184,0.18)",
+        backgroundColor: DASH.socialStatBg,
+        borderColor: DASH.socialStatBorder,
         minHeight: 148,
       }}
     >
       <Text
         className="text-[9px] font-semibold uppercase tracking-[0.4px]"
-        style={{ color: "#93C5FD" }}
+        style={{ color: DASH.socialAccentText }}
         numberOfLines={1}
         adjustsFontSizeToFit
         minimumFontScale={0.8}
@@ -634,9 +622,9 @@ function SocialLineChart({
         height,
         borderRadius: 12,
         overflow: "hidden",
-        backgroundColor: "rgba(15,23,42,0.42)",
+        backgroundColor: DASH.chartBg,
         borderWidth: 1,
-        borderColor: "rgba(148,163,184,0.14)",
+        borderColor: DASH.chartBorder,
         paddingHorizontal: 4,
         paddingVertical: 4,
       }}
@@ -661,7 +649,7 @@ function SocialLineChart({
             <Path
               key={`social-grid-${ratio}`}
               d={`M ${paddingX} ${y.toFixed(2)} L ${width - paddingX} ${y.toFixed(2)}`}
-              stroke="rgba(148,163,184,0.16)"
+              stroke={DASH.chartGrid}
               strokeWidth={1}
               strokeDasharray="4 6"
               fill="none"
@@ -736,9 +724,9 @@ function SocialLineChartPlaceholder() {
         height,
         borderRadius: 12,
         overflow: "hidden",
-        backgroundColor: "rgba(15,23,42,0.42)",
+        backgroundColor: DASH.chartBg,
         borderWidth: 1,
-        borderColor: "rgba(148,163,184,0.14)",
+        borderColor: DASH.chartBorder,
         paddingHorizontal: 4,
         paddingVertical: 4,
         justifyContent: "center",
@@ -751,7 +739,7 @@ function SocialLineChartPlaceholder() {
             <Path
               key={`social-placeholder-grid-${ratio}`}
               d={`M ${paddingX} ${y.toFixed(2)} L ${width - paddingX} ${y.toFixed(2)}`}
-              stroke="rgba(148,163,184,0.08)"
+              stroke={DASH.chartBorder}
               strokeWidth={1}
               strokeDasharray="4 6"
               fill="none"
@@ -760,11 +748,11 @@ function SocialLineChartPlaceholder() {
         })}
         <Path
           d={placeholderArea}
-          fill="rgba(148,163,184,0.05)"
+          fill={DASH.chartPlaceholderFill}
         />
         <Path
           d={placeholderLine}
-          stroke="rgba(148,163,184,0.18)"
+          stroke={DASH.chartBorder}
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -788,14 +776,14 @@ function SocialLineChartPlaceholder() {
             borderRadius: 999,
             paddingHorizontal: 14,
             paddingVertical: 7,
-            backgroundColor: "rgba(15,23,42,0.6)",
+            backgroundColor: DASH.chartOverlayBg,
             borderWidth: 1,
-            borderColor: "rgba(148,163,184,0.14)",
+            borderColor: DASH.chartBorder,
           }}
         >
           <Text
             className="text-xs font-medium"
-            style={{ color: "rgba(148,163,184,0.72)" }}
+            style={{ color: DASH.chartPlaceholderText }}
           >
             No data available.. Yet.
           </Text>
@@ -864,7 +852,7 @@ function SocialCardSkeleton() {
   return (
     <SurfaceCard
       style={{
-        ...CARD_SOFT_STYLE,
+        ...getCardSoftStyle(),
         borderColor: DASH.borderStrong,
         overflow: "hidden",
       }}
@@ -888,7 +876,7 @@ function SocialCardSkeleton() {
               width: "68%",
               height: 16,
               borderRadius: 999,
-              backgroundColor: "rgba(255,255,255,0.12)",
+              backgroundColor: DASH.skeletonStrong,
             }}
           />
           <View
@@ -896,7 +884,7 @@ function SocialCardSkeleton() {
               width: "92%",
               height: 12,
               borderRadius: 999,
-              backgroundColor: "rgba(255,255,255,0.08)",
+              backgroundColor: DASH.skeletonSoft,
               marginTop: 10,
             }}
           />
@@ -905,7 +893,7 @@ function SocialCardSkeleton() {
               width: "78%",
               height: 12,
               borderRadius: 999,
-              backgroundColor: "rgba(255,255,255,0.08)",
+              backgroundColor: DASH.skeletonSoft,
               marginTop: 8,
             }}
           />
@@ -914,14 +902,14 @@ function SocialCardSkeleton() {
               <View
                 key={`social-skeleton-pill-${idx}`}
                 className="rounded-full px-2.5 py-1"
-                style={{ backgroundColor: "rgba(15,23,42,0.55)" }}
+                style={{ backgroundColor: DASH.skeletonPillBg }}
               >
                 <View
                   style={{
                     width: 54,
                     height: 10,
                     borderRadius: 999,
-                    backgroundColor: "rgba(199,210,254,0.16)",
+                    backgroundColor: DASH.skeletonPillBar,
                   }}
                 />
               </View>
@@ -938,12 +926,18 @@ function SocialCardSkeleton() {
 
 export default function TrainerHomeScreen() {
   const { effectiveUser, user } = useAuthContext();
+  const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === "light";
+  Object.assign(DASH, buildTrainerDashboardPalette(colors, isLight));
+  const activityStatusStyles = getActivityStatusStyle();
+  const offerStatusStyles = getOfferStatusStyle();
   const utils = trpc.useUtils();
   const [testStateOverride, setTestStateOverride] = useState<NextAction | null>(null);
   const [earningsExpanded, setEarningsExpanded] = useState(false);
   const [showDevSocialPreview, setShowDevSocialPreview] = useState(false);
   const devSocialPreviewInitialized = useRef(false);
-  const [devSocialPreviewHydrated, setDevSocialPreviewHydrated] = useState(false);
+  const [, setDevSocialPreviewHydrated] = useState(false);
   const socialVizProgressAnim = useRef(new Animated.Value(0)).current;
   const [socialVizProgress, setSocialVizProgress] = useState(0);
   const heroScaleAnim = useRef(new Animated.Value(1)).current;
@@ -1186,8 +1180,6 @@ export default function TrainerHomeScreen() {
   ).toLowerCase();
   const isActiveSocialMember =
     socialMembershipStatus === "active";
-  const isRestrictedSocialMember =
-    socialMembershipStatus === "banned" || socialMembershipStatus === "paused";
   const socialProfile = resolvedSocialStatus?.profile as any;
   const socialCommitment = resolvedSocialStatus?.commitment as any;
   const socialFollowers = Number(socialProfile?.followerCount || 0);
@@ -1198,13 +1190,6 @@ export default function TrainerHomeScreen() {
   const socialOpenViolationsCount = Array.isArray(resolvedSocialStatus?.openViolations)
     ? resolvedSocialStatus.openViolations.length
     : 0;
-  const socialReadinessColor =
-    socialOpenViolationsCount > 0
-      ? "#F59E0B"
-      : DASH.primary;
-  const socialStatusLine = socialOpenViolationsCount > 0
-    ? "Momentum is strong, but there is a compliance issue to resolve."
-    : `Connected from ${connectedSocialPlatforms.length} platform${connectedSocialPlatforms.length === 1 ? "" : "s"} with live Phyllo sync.`;
   const recentSocialPosts = socialRecentPostsQuery.data || [];
   const socialViewsPerMonthFromPosts = recentSocialPosts.reduce(
     (sum: number, post: any) => sum + Number(post?.latestViews || 0),
@@ -1244,31 +1229,18 @@ export default function TrainerHomeScreen() {
   const socialReadinessPct = Math.round(
     (socialFollowerProgressPct + socialViewsProgressPct) / 2,
   );
-  const socialFollowerGap = Math.max(0, socialFollowerTarget - socialFollowers);
-  const socialViewsGap = Math.max(0, socialViewsTarget - socialViewsPerMonth);
   const resolvedSocialReadinessColor =
     socialOpenViolationsCount > 0
       ? "#F59E0B"
       : socialReadinessPct >= 100
         ? "#34D399"
         : DASH.primary;
-  const socialReadinessMessage = socialOpenViolationsCount > 0
-    ? `${socialOpenViolationsCount} open concern${socialOpenViolationsCount === 1 ? "" : "s"} to review`
-    : socialFollowerGap <= 0 && socialViewsGap <= 0
-      ? "Ready for campaign review"
-      : socialFollowerProgressPct <= socialViewsProgressPct
-        ? `Needs ${formatCompactNumber(socialFollowerGap)} more followers`
-        : `Needs ${formatCompactNumber(socialViewsGap)} more monthly views`;
   const latestSocialPost = recentSocialPosts[0] || null;
   const latestSocialPostSummary = latestSocialPost
     ? `Latest post: ${formatCompactNumber(Number(latestSocialPost.latestEngagements || 0))} engagements`
     : socialRecentPostsQuery.isLoading
       ? "Syncing first post signals..."
       : "Syncing first post signals...";
-  const socialPlatformSummary = connectedSocialPlatforms
-    .slice(0, 2)
-    .map((platform) => normalizeSocialPlatformLabel(platform))
-    .join(" · ");
   const platformDialTarget = 3;
   const shouldAutoEnableDevPreview =
     canUseDevSocialPreview &&
@@ -1916,9 +1888,9 @@ export default function TrainerHomeScreen() {
 
   return (
     <ScreenContainer
-      containerClassName="bg-[#0A0A14]"
-      safeAreaClassName="bg-[#0A0A14]"
-      className="bg-[#0A0A14]"
+      containerClassName="bg-background"
+      safeAreaClassName="bg-background"
+      className="bg-background"
     >
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -1939,11 +1911,11 @@ export default function TrainerHomeScreen() {
 
         <View className={SECTION_SPACING_CLASS}>
           <Animated.View style={{ transform: [{ scale: heroScaleAnim }] }}>
-            <SurfaceCard className="relative overflow-hidden" style={HERO_STYLE}>
+            <SurfaceCard className="relative overflow-hidden" style={getHeroStyle()}>
             <Animated.View
               pointerEvents="none"
               style={[
-                HERO_GLOW_MAIN_STYLE,
+                getHeroGlowMainStyle(),
                 {
                   position: "absolute",
                   top: -70,
@@ -1962,7 +1934,7 @@ export default function TrainerHomeScreen() {
             <Animated.View
               pointerEvents="none"
               style={[
-                HERO_GLOW_SECOND_STYLE,
+                getHeroGlowSecondStyle(),
                 {
                   position: "absolute",
                   bottom: -72,
@@ -1979,7 +1951,7 @@ export default function TrainerHomeScreen() {
               ]}
             />
 
-            <View className="self-start flex-row items-center px-3 py-1 rounded-full border mb-3" style={CHIP_STYLE}>
+            <View className="self-start flex-row items-center px-3 py-1 rounded-full border mb-3" style={getChipStyle()}>
               <Text className="text-[11px] font-bold tracking-[1px]" style={{ color: DASH.chipText }}>
                 WHAT IS NEXT
               </Text>
@@ -1993,13 +1965,13 @@ export default function TrainerHomeScreen() {
               </Animated.Text>
             </View>
 
-            <Text className="text-[12px] uppercase tracking-[1px] mb-1" style={{ color: "#A7B4CA" }}>
+            <Text className="text-[12px] uppercase tracking-[1px] mb-1" style={{ color: DASH.muted }}>
               Progress
             </Text>
             <Text className="text-xl font-bold mb-2" style={{ color: DASH.text }}>
               {heroConfig.title}
             </Text>
-            <Text className="text-sm mb-5" style={{ color: "#B6C2D6" }}>
+            <Text className="text-sm mb-5" style={{ color: DASH.heroSubtitle }}>
               {heroConfig.subtitle}
             </Text>
 
@@ -2009,7 +1981,7 @@ export default function TrainerHomeScreen() {
                   key={step}
                   className="flex-1 h-2 rounded-full"
                   style={{
-                    backgroundColor: step <= heroStep ? DASH.primary : "rgba(255,255,255,0.10)",
+                    backgroundColor: step <= heroStep ? DASH.primary : DASH.divider,
                     opacity: stepProgressAnim.interpolate({
                       inputRange: [step - 0.5, step],
                       outputRange: [0.5, 1],
@@ -2041,7 +2013,7 @@ export default function TrainerHomeScreen() {
             {nextAction === "done" ? (
               <View
                 className="rounded-xl border px-3 py-3 mb-5"
-                style={{ backgroundColor: "rgba(15,23,42,0.28)", borderColor: "rgba(167,139,250,0.35)" }}
+                style={{ backgroundColor: DASH.ratingPanelBg, borderColor: DASH.ratingPanelBorder }}
               >
                 <View className="flex-row items-center justify-between">
                   <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
@@ -2049,22 +2021,22 @@ export default function TrainerHomeScreen() {
                   </Text>
                   <View className="flex-row items-center">
                     <IconSymbol name="star.fill" size={14} color="#FBBF24" />
-                    <Text className="text-sm font-semibold ml-1" style={{ color: "#FDE68A" }}>
+                    <Text className="text-sm font-semibold ml-1" style={{ color: DASH.ratingText }}>
                       {statusTier}
                     </Text>
                   </View>
                 </View>
-                <View className="mt-2 h-2 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.12)" }}>
+                <View className="mt-2 h-2 rounded-full" style={{ backgroundColor: DASH.progressTrackBg }}>
                   <View
                     className="h-2 rounded-full"
                     style={{ width: `${Math.round(tierProgress * 100)}%`, backgroundColor: "#A78BFA" }}
                   />
                 </View>
                 <View className="mt-2 flex-row items-center justify-between">
-                  <Text className="text-xs" style={{ color: "#C4B5FD" }}>
+                  <Text className="text-xs" style={{ color: DASH.ratingText }}>
                     {totalPoints.toLocaleString()} pts
                   </Text>
-                  <Text className="text-xs" style={{ color: "#C4B5FD" }}>
+                  <Text className="text-xs" style={{ color: DASH.ratingText }}>
                     {nextTier ? `${pointsToNextTier.toLocaleString()} pts to ${nextTier}` : "Top tier reached"}
                   </Text>
                 </View>
@@ -2089,7 +2061,7 @@ export default function TrainerHomeScreen() {
 
             <TouchableOpacity
               className="w-full rounded-lg py-4 mt-3 border items-center"
-              style={{ borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)" }}
+              style={{ borderColor: DASH.secondaryButtonBorder, backgroundColor: DASH.secondaryButtonBg }}
               onPress={() => openGetPaid("hero_secondary")}
               accessibilityRole="button"
               accessibilityLabel="Take payment now"
@@ -2101,7 +2073,7 @@ export default function TrainerHomeScreen() {
             </TouchableOpacity>
 
             {__DEV__ ? (
-              <View className="mt-4 pt-3 border-t" style={{ borderColor: "rgba(255,255,255,0.10)" }}>
+              <View className="mt-4 pt-3 border-t" style={{ borderColor: DASH.divider }}>
                 <Text className="text-xs mb-2" style={{ color: DASH.muted }}>
                   Testing controls
                   {testStateOverride ? ` (${testStateOverride})` : " (live)"}
@@ -2109,7 +2081,7 @@ export default function TrainerHomeScreen() {
                 <View className="flex-row gap-2">
                   <TouchableOpacity
                     className="flex-1 rounded-xl py-2.5 items-center border"
-                    style={MUTED_BADGE_STYLE}
+                    style={getMutedBadgeStyle()}
                     onPress={handleAdvanceTestState}
                     accessibilityRole="button"
                     accessibilityLabel="Advance trainer state for testing"
@@ -2121,7 +2093,7 @@ export default function TrainerHomeScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     className="flex-1 rounded-xl py-2.5 items-center border"
-                    style={MUTED_BADGE_STYLE}
+                    style={getMutedBadgeStyle()}
                     onPress={handleResetTestState}
                     accessibilityRole="button"
                     accessibilityLabel="Reset trainer state walkthrough"
@@ -2135,7 +2107,7 @@ export default function TrainerHomeScreen() {
                 {testStateOverride ? (
                   <TouchableOpacity
                     className="mt-2 rounded-xl py-2.5 items-center border"
-                    style={MUTED_BADGE_STYLE}
+                    style={getMutedBadgeStyle()}
                     onPress={() => setTestStateOverride(null)}
                     accessibilityRole="button"
                     accessibilityLabel="Use live trainer state"
@@ -2154,13 +2126,13 @@ export default function TrainerHomeScreen() {
           </>
         ) : (
           <View className="px-6 pt-4 pb-6">
-            <View style={{ borderRadius: 20, overflow: "hidden", backgroundColor: "#1E1B4B", padding: 28, position: "relative" }}>
+            <View style={{ borderRadius: 20, overflow: "hidden", backgroundColor: DASH.heroBg, padding: 28, position: "relative", borderWidth: 1, borderColor: DASH.heroBorder }}>
               <View pointerEvents="none" style={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(129,140,248,0.18)" }} />
               <View pointerEvents="none" style={{ position: "absolute", bottom: -50, left: -20, width: 130, height: 130, borderRadius: 65, backgroundColor: "rgba(96,165,250,0.14)" }} />
-              <Text style={{ fontSize: 28, fontWeight: "800", color: "#F8FAFC", letterSpacing: -0.5 }}>
+              <Text style={{ fontSize: 28, fontWeight: "800", color: DASH.fallbackHeroText, letterSpacing: -0.5 }}>
                 Hi, {firstName} 👋
               </Text>
-              <Text style={{ fontSize: 15, color: "#C7D2FE", marginTop: 6, lineHeight: 22 }}>
+              <Text style={{ fontSize: 15, color: DASH.fallbackHeroSubtitle, marginTop: 6, lineHeight: 22 }}>
                 Manage clients, create offers, and grow your business.
               </Text>
             </View>
@@ -2174,7 +2146,7 @@ export default function TrainerHomeScreen() {
             <View testID="trainer-social-program-card">
               <SurfaceCard
                 style={{
-                  ...CARD_SOFT_STYLE,
+                  ...getCardSoftStyle(),
                   borderColor: DASH.borderStrong,
                   overflow: "hidden",
                 }}
@@ -2313,14 +2285,14 @@ export default function TrainerHomeScreen() {
                         <View
                           className="mt-3 rounded-xl border px-3 py-3"
                           style={{
-                            backgroundColor: "rgba(11,16,32,0.42)",
-                            borderColor: "rgba(148,163,184,0.18)",
+                            backgroundColor: DASH.socialStatBg,
+                            borderColor: DASH.socialStatBorder,
                           }}
                         >
                           <View className="flex-row items-center justify-between">
                             <Text
                               className="text-[11px] font-semibold uppercase tracking-[0.8px]"
-                              style={{ color: "#93C5FD" }}
+                              style={{ color: DASH.socialAccentText }}
                             >
                               Recent engagement
                             </Text>
@@ -2350,14 +2322,14 @@ export default function TrainerHomeScreen() {
                                 key={pill}
                                 className="mr-2 mb-2 rounded-full px-2.5 py-1"
                                 style={{
-                                  backgroundColor: "rgba(15,23,42,0.55)",
+                                  backgroundColor: DASH.socialPillBg,
                                   borderWidth: 1,
-                                  borderColor: "rgba(148,163,184,0.25)",
+                                  borderColor: DASH.socialPillBorder,
                                 }}
                               >
                                 <Text
                                   className="text-[10px] font-semibold"
-                                  style={{ color: "#C7D2FE" }}
+                                  style={{ color: DASH.socialPillText }}
                                 >
                                   {pill}
                                 </Text>
@@ -2369,14 +2341,14 @@ export default function TrainerHomeScreen() {
                         <View
                           className="mt-3 rounded-xl border px-3 py-3"
                           style={{
-                            backgroundColor: "rgba(11,16,32,0.42)",
-                            borderColor: "rgba(148,163,184,0.18)",
+                            backgroundColor: DASH.socialStatBg,
+                            borderColor: DASH.socialStatBorder,
                           }}
                         >
                           <View className="flex-row items-center justify-between mb-2">
                             <Text
                               className="text-[11px] font-semibold uppercase tracking-[0.8px]"
-                              style={{ color: "#93C5FD" }}
+                              style={{ color: DASH.socialAccentText }}
                             >
                               Program readiness
                             </Text>
@@ -2390,8 +2362,8 @@ export default function TrainerHomeScreen() {
                           <View
                             className="h-2 rounded-full border overflow-hidden"
                             style={{
-                              backgroundColor: "rgba(255,255,255,0.05)",
-                              borderColor: "rgba(148,163,184,0.18)",
+                              backgroundColor: DASH.progressTrackBg,
+                              borderColor: DASH.socialStatBorder,
                             }}
                           >
                             <View
@@ -2418,14 +2390,14 @@ export default function TrainerHomeScreen() {
                               key={pill}
                               className="mr-2 rounded-full px-2.5 py-1"
                               style={{
-                                backgroundColor: "rgba(15,23,42,0.55)",
+                                backgroundColor: DASH.socialPillBg,
                                 borderWidth: 1,
-                                borderColor: "rgba(148,163,184,0.25)",
+                                borderColor: DASH.socialPillBorder,
                               }}
                             >
                               <Text
                                 className="text-[10px] font-semibold"
-                                style={{ color: "#C7D2FE" }}
+                                style={{ color: DASH.socialPillText }}
                               >
                                 {pill}
                               </Text>
@@ -2501,7 +2473,7 @@ export default function TrainerHomeScreen() {
             >
               <SurfaceCard
                 style={{
-                  ...CARD_SOFT_STYLE,
+                  ...getCardSoftStyle(),
                   borderColor: DASH.borderStrong,
                   overflow: "hidden",
                 }}
@@ -2602,14 +2574,14 @@ export default function TrainerHomeScreen() {
                         <View
                           className="mt-3 rounded-xl border px-3 py-3"
                           style={{
-                            backgroundColor: "rgba(11,16,32,0.42)",
-                            borderColor: "rgba(148,163,184,0.18)",
+                            backgroundColor: DASH.socialStatBg,
+                            borderColor: DASH.socialStatBorder,
                           }}
                         >
                           <View className="flex-row items-center justify-between">
                             <Text
                               className="text-[11px] font-semibold uppercase tracking-[0.8px]"
-                              style={{ color: "#93C5FD" }}
+                              style={{ color: DASH.socialAccentText }}
                             >
                               Recent engagement
                             </Text>
@@ -2636,14 +2608,14 @@ export default function TrainerHomeScreen() {
                                 key={pill}
                                 className="mr-2 mb-2 rounded-full px-2.5 py-1"
                                 style={{
-                                  backgroundColor: "rgba(15,23,42,0.55)",
+                                  backgroundColor: DASH.socialPillBg,
                                   borderWidth: 1,
-                                  borderColor: "rgba(148,163,184,0.25)",
+                                  borderColor: DASH.socialPillBorder,
                                 }}
                               >
                                 <Text
                                   className="text-[10px] font-semibold"
-                                  style={{ color: "#C7D2FE" }}
+                                  style={{ color: DASH.socialPillText }}
                                 >
                                   {pill}
                                 </Text>
@@ -2655,14 +2627,14 @@ export default function TrainerHomeScreen() {
                         <View
                           className="mt-3 rounded-xl border px-3 py-3"
                           style={{
-                            backgroundColor: "rgba(11,16,32,0.42)",
-                            borderColor: "rgba(148,163,184,0.18)",
+                            backgroundColor: DASH.socialStatBg,
+                            borderColor: DASH.socialStatBorder,
                           }}
                         >
                           <View className="flex-row items-center justify-between mb-2">
                             <Text
                               className="text-[11px] font-semibold uppercase tracking-[0.8px]"
-                              style={{ color: "#93C5FD" }}
+                              style={{ color: DASH.socialAccentText }}
                             >
                               Program readiness
                             </Text>
@@ -2676,8 +2648,8 @@ export default function TrainerHomeScreen() {
                           <View
                             className="h-2 rounded-full border overflow-hidden"
                             style={{
-                              backgroundColor: "rgba(255,255,255,0.05)",
-                              borderColor: "rgba(148,163,184,0.18)",
+                              backgroundColor: DASH.progressTrackBg,
+                              borderColor: DASH.socialStatBorder,
                             }}
                           >
                             <View
@@ -2704,14 +2676,14 @@ export default function TrainerHomeScreen() {
                               key={pill}
                               className="mr-2 rounded-full px-2.5 py-1"
                               style={{
-                                backgroundColor: "rgba(15,23,42,0.55)",
+                                backgroundColor: DASH.socialPillBg,
                                 borderWidth: 1,
-                                borderColor: "rgba(148,163,184,0.25)",
+                                borderColor: DASH.socialPillBorder,
                               }}
                             >
                               <Text
                                 className="text-[10px] font-semibold"
-                                style={{ color: "#C7D2FE" }}
+                                style={{ color: DASH.socialPillText }}
                               >
                                 {pill}
                               </Text>
@@ -2788,19 +2760,19 @@ export default function TrainerHomeScreen() {
           {!displayHasPayment ? (
             <SurfaceCard
               style={{
-                backgroundColor: "rgba(23,28,43,0.75)",
-                borderColor: "rgba(96,165,250,0.22)",
+                backgroundColor: DASH.surfaceDashedBg,
+                borderColor: DASH.surfaceDashedBorder,
                 borderStyle: "dashed",
               }}
             >
               <View className="items-center py-2">
-                <View className="w-14 h-14 rounded-full items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.05)" }}>
-                  <IconSymbol name="lock.fill" size={24} color="#64748B" />
+                <View className="w-14 h-14 rounded-full items-center justify-center" style={{ backgroundColor: DASH.lockIconBg }}>
+                  <IconSymbol name="lock.fill" size={24} color={DASH.lockIconColor} />
                 </View>
-                <Text className="text-3xl font-bold mt-3" style={{ color: "#64748B" }}>
+                <Text className="text-3xl font-bold mt-3" style={{ color: DASH.lockIconColor }}>
                   £0.00
                 </Text>
-                <Text className="text-[10px] uppercase tracking-[2px] mt-1" style={{ color: "#64748B" }}>
+                <Text className="text-[10px] uppercase tracking-[2px] mt-1" style={{ color: DASH.lockIconColor }}>
                   Pending setup
                 </Text>
                 <TouchableOpacity className="mt-3 flex-row items-center" onPress={() => router.push("/(trainer)/get-paid" as any)}>
@@ -2812,14 +2784,14 @@ export default function TrainerHomeScreen() {
               </View>
             </SurfaceCard>
           ) : (
-            <SurfaceCard style={CARD_SOFT_STYLE}>
+            <SurfaceCard style={getCardSoftStyle()}>
               <View className="flex-row items-center justify-between">
                 <Text className="text-sm font-semibold" style={{ color: DASH.text }}>
                   Payout overview
                 </Text>
                 <TouchableOpacity
                   className="rounded-full px-3 py-1.5 border"
-                  style={MUTED_BADGE_STYLE}
+                  style={getMutedBadgeStyle()}
                   onPress={() => setEarningsExpanded((prev) => !prev)}
                   accessibilityRole="button"
                   accessibilityLabel={earningsExpanded ? "Hide earnings details" : "Show earnings details"}
@@ -2852,7 +2824,7 @@ export default function TrainerHomeScreen() {
               </Text>
               {earningsExpanded ? (
                 <>
-                  <View className="h-px my-3" style={{ backgroundColor: "rgba(255,255,255,0.10)" }} />
+                  <View className="h-px my-3" style={{ backgroundColor: DASH.divider }} />
                   <View className="flex-row items-center justify-between">
                     <Text className="text-sm" style={{ color: DASH.muted }}>
                       Available
@@ -2893,12 +2865,12 @@ export default function TrainerHomeScreen() {
               onPress={() => router.push("/(trainer)/invite" as any)}
             />
           ) : (
-            <SurfaceCard style={CARD_STYLE}>
+            <SurfaceCard style={getCardStyle()}>
               {previewClients.map((client, index) => (
                 <TouchableOpacity
                   key={client.id}
                   className={index < previewClients.length - 1 ? "pb-3 mb-3 border-b" : ""}
-                  style={index < previewClients.length - 1 ? { borderColor: "rgba(255,255,255,0.10)" } : undefined}
+                  style={index < previewClients.length - 1 ? { borderColor: DASH.divider } : undefined}
                   onPress={() => router.push(`/client-detail/${client.id}` as any)}
                   accessibilityRole="button"
                   accessibilityLabel={`Open ${client.name} status`}
@@ -2967,7 +2939,7 @@ export default function TrainerHomeScreen() {
                             <Text className="text-[11px]" style={{ color: DASH.muted }}>
                               Sessions: {sessionsUsed}/{sessionsIncluded}
                             </Text>
-                            <View className="h-1.5 rounded-full mt-1 mb-2 overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+                            <View className="h-1.5 rounded-full mt-1 mb-2 overflow-hidden" style={{ backgroundColor: DASH.progressTrackBg }}>
                               <View
                                 className="h-full rounded-full"
                                 style={{ width: `${sessionsPct}%`, backgroundColor: sessionsPct >= 80 ? "#F59E0B" : DASH.primary }}
@@ -2976,7 +2948,7 @@ export default function TrainerHomeScreen() {
                             <Text className="text-[11px]" style={{ color: DASH.muted }}>
                               Products: {productsUsed}/{productsIncluded}
                             </Text>
-                            <View className="h-1.5 rounded-full mt-1 overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+                            <View className="h-1.5 rounded-full mt-1 overflow-hidden" style={{ backgroundColor: DASH.progressTrackBg }}>
                               <View
                                 className="h-full rounded-full"
                                 style={{ width: `${productsPct}%`, backgroundColor: productsPct >= 80 ? "#F59E0B" : "#34D399" }}
@@ -3020,12 +2992,12 @@ export default function TrainerHomeScreen() {
               onPress={() => router.push("/(trainer)/offers/new" as any)}
             />
           ) : (
-            <SurfaceCard style={CARD_STYLE}>
+            <SurfaceCard style={getCardStyle()}>
               {previewOffers.map((offer, index) => (
                 <View
                   key={offer.id}
                   className={index < previewOffers.length - 1 ? "pb-3 mb-3 border-b" : ""}
-                  style={index < previewOffers.length - 1 ? { borderColor: "rgba(255,255,255,0.10)" } : undefined}
+                  style={index < previewOffers.length - 1 ? { borderColor: DASH.divider } : undefined}
                 >
                   {(() => {
                     const offerImageUrl = getOfferImageUrl(offer);
@@ -3052,7 +3024,7 @@ export default function TrainerHomeScreen() {
                         </Text>
                       </View>
                       <View className="flex-row items-center mt-2">
-                        <View className="px-2 py-1 rounded-full border mr-2" style={MUTED_BADGE_STYLE}>
+                        <View className="px-2 py-1 rounded-full border mr-2" style={getMutedBadgeStyle()}>
                           <Text className="text-[11px]" style={{ color: DASH.muted }}>
                             {formatOfferType(offer.type)}
                           </Text>
@@ -3060,15 +3032,15 @@ export default function TrainerHomeScreen() {
                         <View
                           className="px-2 py-1 rounded-full border"
                           style={{
-                            backgroundColor: (OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).bg,
-                            borderColor: (OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).border,
+                            backgroundColor: (offerStatusStyles[(offer.status as OfferStatus) || "draft"] || offerStatusStyles.draft).bg,
+                            borderColor: (offerStatusStyles[(offer.status as OfferStatus) || "draft"] || offerStatusStyles.draft).border,
                           }}
                         >
                           <Text
                             className="text-[11px] font-medium"
-                            style={{ color: (OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).text }}
+                            style={{ color: (offerStatusStyles[(offer.status as OfferStatus) || "draft"] || offerStatusStyles.draft).text }}
                           >
-                            {(OFFER_STATUS_STYLE[(offer.status as OfferStatus) || "draft"] || OFFER_STATUS_STYLE.draft).label}
+                            {(offerStatusStyles[(offer.status as OfferStatus) || "draft"] || offerStatusStyles.draft).label}
                           </Text>
                         </View>
                       </View>
@@ -3093,7 +3065,7 @@ export default function TrainerHomeScreen() {
               <ActivityIndicator size="small" color={DASH.primary} />
             </View>
           ) : activityRows.length === 0 ? (
-            <SurfaceCard style={{ ...CARD_STYLE, paddingVertical: 28 }}>
+            <SurfaceCard style={{ ...getCardStyle(), paddingVertical: 28 }}>
               <View className="items-center">
                 <IconSymbol name="clock.arrow.circlepath" size={34} color="#475569" />
                 <Text className="text-sm text-center mt-3 px-3" style={{ color: "#B6C2D6" }}>
@@ -3102,17 +3074,17 @@ export default function TrainerHomeScreen() {
               </View>
             </SurfaceCard>
           ) : (
-            <SurfaceCard style={CARD_STYLE}>
+            <SurfaceCard style={getCardStyle()}>
               {activityRows.map((item, index) => {
                 const status = (item.status as PaymentStatus) || "awaiting_payment";
-                const statusStyle = ACTIVITY_STATUS_STYLE[status] || ACTIVITY_STATUS_STYLE.awaiting_payment;
+                const statusStyle = activityStatusStyles[status] || activityStatusStyles.awaiting_payment;
                 const methodLabel = item.method === "link" ? "Payment Link" : "Tap to Pay";
                 const canCancel = status === "awaiting_payment" && item.merchantReference;
                 return (
                   <View
                     key={item.id}
                     className={index < activityRows.length - 1 ? "pb-3 mb-3 border-b" : ""}
-                    style={index < activityRows.length - 1 ? { borderColor: "rgba(255,255,255,0.10)" } : undefined}
+                    style={index < activityRows.length - 1 ? { borderColor: DASH.divider } : undefined}
                   >
                     <View className="flex-row items-start justify-between">
                       <View className="flex-1 pr-2">
@@ -3120,7 +3092,7 @@ export default function TrainerHomeScreen() {
                           {item.description || "Training session"}
                         </Text>
                         <View className="flex-row items-center mt-1">
-                          <View className="px-2 py-1 rounded-full mr-2 border" style={MUTED_BADGE_STYLE}>
+                          <View className="px-2 py-1 rounded-full mr-2 border" style={getMutedBadgeStyle()}>
                             <Text className="text-[11px]" style={{ color: DASH.muted }}>
                               {methodLabel}
                             </Text>

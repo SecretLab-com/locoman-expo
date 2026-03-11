@@ -10,7 +10,6 @@ import {
     Alert,
     FlatList,
     Linking,
-    Platform,
     RefreshControl,
     Text,
     TouchableOpacity,

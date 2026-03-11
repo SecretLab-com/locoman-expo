@@ -1,5 +1,7 @@
+import { AppText } from "@/components/ui/app-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { useColors } from "@/hooks/use-colors";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { getApiBaseUrl } from "@/lib/api-config";
@@ -9,7 +11,7 @@ import { trpc } from "@/lib/trpc";
 import { router, usePathname } from "expo-router";
 import { Image } from "expo-image";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Pressable, Text, View } from "react-native";
+import { Animated, Easing, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type IncomingMessageState = {
@@ -25,6 +27,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function IncomingMessageFAB() {
   const colors = useColors();
+  const ds = useDesignSystem();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const { user, effectiveRole } = useAuthContext();
@@ -349,14 +352,10 @@ export function IncomingMessageFAB() {
           borderRadius: 18,
           paddingHorizontal: 14,
           paddingVertical: 12,
-          backgroundColor: colors.surface,
+          backgroundColor: ds.colors.surface.overlay,
           borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.22,
-          shadowRadius: 12,
-          elevation: 10,
+          borderColor: ds.colors.border.default,
+          ...ds.elevation.lg,
           zIndex: 9999,
         },
         animatedStyle,
@@ -385,19 +384,22 @@ export function IncomingMessageFAB() {
           )}
         </View>
         <View style={{ flex: 1 }}>
-          <Text
+          <AppText
             numberOfLines={1}
-            style={{ color: colors.foreground, fontWeight: "700", fontSize: 13 }}
+            variant="label"
+            weight="bold"
           >
             {label}
-          </Text>
-          <Text
+          </AppText>
+          <AppText
             numberOfLines={1}
-            style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}
+            variant="caption"
+            tone="secondary"
+            style={{ marginTop: 1 }}
           >
             {subtitle}
             {renderedIncoming.preview ? `: ${renderedIncoming.preview}` : ""}
-          </Text>
+          </AppText>
         </View>
       </View>
       <View
@@ -408,15 +410,15 @@ export function IncomingMessageFAB() {
           minWidth: 20,
           height: 20,
           borderRadius: 10,
-          backgroundColor: "#ef4444",
+          backgroundColor: ds.colors.status.error,
           alignItems: "center",
           justifyContent: "center",
           paddingHorizontal: 5,
         }}
       >
-        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>
+        <AppText variant="caption2" tone="inverse" weight="heavy">
           {renderedIncoming.count > 99 ? "99+" : renderedIncoming.count}
-        </Text>
+        </AppText>
       </View>
     </AnimatedPressable>
   );

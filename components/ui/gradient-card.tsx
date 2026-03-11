@@ -1,8 +1,7 @@
 import { View, type ViewProps } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { cn } from "@/lib/utils";
-import { useColors } from "@/hooks/use-colors";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useDesignSystem } from "@/hooks/use-design-system";
 
 export type GradientVariant = "primary" | "success" | "warning" | "surface" | "dark";
 
@@ -49,9 +48,7 @@ export function GradientCard({
   style,
   ...props
 }: GradientCardProps) {
-  const themeColors = useColors();
-  const colorScheme = useColorScheme();
-  const isLight = colorScheme === "light";
+  const ds = useDesignSystem();
 
   // Define gradient color presets based on variant
   const getGradientColors = (): readonly [string, string, ...string[]] => {
@@ -59,20 +56,20 @@ export function GradientCard({
 
     switch (variant) {
       case "primary":
-        return [themeColors.primary, "#2563EB"] as const; // Blue gradient
+        return [ds.colors.brand.primary, ds.raw["primary-foreground"] === "#FFFFFF" ? "#1D4ED8" : "#2563EB"] as const;
       case "success":
-        return [themeColors.success, "#059669"] as const; // Green gradient
+        return [ds.colors.status.success, "#059669"] as const;
       case "warning":
-        return [themeColors.warning, "#D97706"] as const; // Orange gradient
+        return [ds.colors.status.warning, "#D97706"] as const;
       case "dark":
-        return isLight
-          ? [themeColors.surface, themeColors.background]
-          : ["#1E293B", "#0F172A"];
+        return ds.colorScheme === "light"
+          ? [ds.colors.surface.card, ds.colors.surface.page]
+          : [ds.raw["surface-elevated"], ds.raw.background];
       case "surface":
       default:
-        return isLight
-          ? [themeColors.surface, themeColors.background]
-          : ["#1A1A2E", "#16162A"];
+        return ds.colorScheme === "light"
+          ? [ds.colors.surface.card, ds.colors.surface.page]
+          : [ds.raw["surface-alt"], ds.raw.surface];
     }
   };
 

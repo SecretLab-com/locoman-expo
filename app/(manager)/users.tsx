@@ -2,6 +2,13 @@ import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { withAlpha } from "@/design-system/color-utils";
+import {
+  getManagedUserActionColors,
+  getManagedUserRoleColors,
+  getManagedUserStatusColors,
+} from "@/design-system/user-management";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { useColors } from "@/hooks/use-colors";
 import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
@@ -56,19 +63,6 @@ type ActivityLogEntry = {
 
 const PAGE_SIZE = 20;
 
-const ROLE_COLORS: Record<UserRole, string> = {
-  shopper: "#6B7280",
-  client: "#3B82F6",
-  trainer: "#10B981",
-  manager: "#F59E0B",
-  coordinator: "#8B5CF6",
-};
-
-const STATUS_COLORS: Record<UserStatus, string> = {
-  active: "#10B981",
-  inactive: "#EF4444",
-};
-
 const ACTION_LABELS: Record<string, string> = {
   role_changed: "Role Changed",
   status_changed: "Status Changed",
@@ -89,18 +83,12 @@ const ACTION_ICONS: Record<string, string> = {
   deleted: "trash.fill",
 };
 
-const ACTION_COLORS: Record<string, string> = {
-  role_changed: "#3B82F6",
-  status_changed: "#F59E0B",
-  impersonation_started: "#8B5CF6",
-  impersonation_ended: "#8B5CF6",
-  profile_updated: "#10B981",
-  invited: "#06B6D4",
-  deleted: "#EF4444",
-};
-
 export default function UsersScreen() {
   const colors = useColors();
+  const ds = useDesignSystem();
+  const ROLE_COLORS = useMemo(() => getManagedUserRoleColors(ds), [ds]);
+  const STATUS_COLORS = useMemo(() => getManagedUserStatusColors(ds), [ds]);
+  const ACTION_COLORS = useMemo(() => getManagedUserActionColors(ds), [ds]);
   const router = useRouter();
   const params = useLocalSearchParams();
   const {
@@ -892,7 +880,7 @@ export default function UsersScreen() {
                 accessibilityLabel="Bulk actions"
                 testID="users-bulk-actions"
               >
-                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                <Text style={{ color: colors.background, fontSize: 12, fontWeight: "600" }}>
                   Actions ({selectedUserIds.size})
                 </Text>
               </TouchableOpacity>
@@ -959,7 +947,7 @@ export default function UsersScreen() {
                 style={[
                   styles.filterPillText,
                   {
-                    color: selectedRole === role ? "#fff" : colors.foreground,
+                    color: selectedRole === role ? colors.background : colors.foreground,
                   },
                 ]}
               >
@@ -987,7 +975,7 @@ export default function UsersScreen() {
             >
               <Text
                 style={{
-                  color: selectedStatus === status ? "#fff" : colors.foreground,
+                  color: selectedStatus === status ? colors.background : colors.foreground,
                   fontSize: 12,
                   fontWeight: "500",
                 }}
@@ -1010,11 +998,11 @@ export default function UsersScreen() {
             <IconSymbol
               name="calendar"
               size={14}
-              color={(joinedAfter || joinedBefore) ? "#fff" : colors.foreground}
+              color={(joinedAfter || joinedBefore) ? colors.background : colors.foreground}
             />
             <Text
               style={{
-                color: (joinedAfter || joinedBefore) ? "#fff" : colors.foreground,
+                color: (joinedAfter || joinedBefore) ? colors.background : colors.foreground,
                 fontSize: 12,
                 fontWeight: "500",
                 marginLeft: 4,
@@ -1150,7 +1138,7 @@ export default function UsersScreen() {
               ]}
             >
               {selectedUserIds.size === displayUsers.length && (
-                <IconSymbol name="checkmark" size={12} color="#fff" />
+                <IconSymbol name="checkmark" size={12} color={colors.background} />
               )}
             </View>
             <Text style={{ color: colors.foreground, marginLeft: 8 }}>
@@ -1228,7 +1216,7 @@ export default function UsersScreen() {
                     ]}
                   >
                     {selectedUserIds.has(user.id) && (
-                      <IconSymbol name="checkmark" size={12} color="#fff" />
+                      <IconSymbol name="checkmark" size={12} color={colors.background} />
                     )}
                   </View>
                 )}
@@ -1236,7 +1224,7 @@ export default function UsersScreen() {
                 {/* Avatar */}
                 <View
                   className="w-12 h-12 rounded-full items-center justify-center mr-3 overflow-hidden"
-                  style={{ backgroundColor: `${ROLE_COLORS[user.role]}20` }}
+                  style={{ backgroundColor: withAlpha(ROLE_COLORS[user.role], 0.12) }}
                 >
                   {user.photoUrl ? (
                     <Image
@@ -1310,7 +1298,7 @@ export default function UsersScreen() {
                   )}
                   <View
                     className="px-3 py-1 rounded-full"
-                    style={{ backgroundColor: `${ROLE_COLORS[user.role]}20` }}
+                    style={{ backgroundColor: withAlpha(ROLE_COLORS[user.role], 0.12) }}
                   >
                     <Text
                       className="text-xs font-semibold capitalize"
@@ -1380,7 +1368,7 @@ export default function UsersScreen() {
                     <View
                       style={[
                         styles.largeAvatar,
-                        { backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` },
+                        { backgroundColor: withAlpha(ROLE_COLORS[selectedUser.role], 0.12) },
                       ]}
                     >
                       <Text
@@ -1396,7 +1384,7 @@ export default function UsersScreen() {
                       <View
                         style={[
                           styles.roleBadge,
-                          { backgroundColor: `${ROLE_COLORS[selectedUser.role]}20` },
+                          { backgroundColor: withAlpha(ROLE_COLORS[selectedUser.role], 0.12) },
                         ]}
                       >
                         <Text style={{ color: ROLE_COLORS[selectedUser.role], fontWeight: "600" }}>
@@ -1482,7 +1470,7 @@ export default function UsersScreen() {
                             {
                               backgroundColor:
                                 selectedUser.role === role
-                                  ? `${ROLE_COLORS[role]}20`
+                                  ? withAlpha(ROLE_COLORS[role], 0.12)
                                   : colors.surface,
                               borderColor:
                                 selectedUser.role === role ? ROLE_COLORS[role] : colors.border,
@@ -1847,7 +1835,7 @@ export default function UsersScreen() {
                       styles.roleOption,
                       {
                         backgroundColor:
-                          inviteRole === role ? `${ROLE_COLORS[role]}20` : colors.surface,
+                          inviteRole === role ? withAlpha(ROLE_COLORS[role], 0.12) : colors.surface,
                         borderColor: inviteRole === role ? ROLE_COLORS[role] : colors.border,
                       },
                     ]}
@@ -1877,11 +1865,11 @@ export default function UsersScreen() {
                 ]}
               >
                 {inviting ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={colors.background} />
                 ) : (
                   <>
-                    <IconSymbol name="paperplane.fill" size={18} color="#fff" />
-                    <Text style={{ color: "#fff", fontWeight: "600", marginLeft: 8 }}>
+                    <IconSymbol name="paperplane.fill" size={18} color={colors.background} />
+                    <Text style={{ color: colors.background, fontWeight: "600", marginLeft: 8 }}>
                       Send Invitation
                     </Text>
                   </>
@@ -1903,7 +1891,7 @@ export default function UsersScreen() {
           accessibilityLabel="Invite user"
           testID="users-invite-fab"
         >
-          <IconSymbol name="plus" size={24} color="#fff" />
+          <IconSymbol name="plus" size={24} color={colors.background} />
         </TouchableOpacity>
       )}
     </ScreenContainer>
@@ -2044,13 +2032,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   exportButtonText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontWeight: "600",
     fontSize: 14,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
+    backgroundColor: "rgba(2,6,23,0.72)",
     justifyContent: "flex-end",
   },
   modalContent: {

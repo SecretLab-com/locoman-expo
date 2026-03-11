@@ -16,6 +16,7 @@ export type Offer = {
   sessionCount: number | null;
   paymentType: OfferPaymentType;
   status: OfferStatus;
+  productsJson: any[];
   legacyBundleId: string;
   createdAt: string;
   updatedAt: string;
@@ -28,6 +29,7 @@ export type CreateOfferInput = {
   type: OfferType;
   priceMinor: number;
   included?: string[];
+  productsJson?: unknown;
   sessionCount?: number;
   paymentType: OfferPaymentType;
   publish?: boolean;
@@ -118,6 +120,7 @@ export function mapBundleToOffer(bundle: BundleDraft): Offer {
     sessionCount,
     paymentType: resolvePaymentType(bundle),
     status: resolveOfferStatus(bundle),
+    productsJson: Array.isArray(bundle.productsJson) ? bundle.productsJson : [],
     legacyBundleId: bundle.id,
     createdAt: bundle.createdAt,
     updatedAt: bundle.updatedAt,
@@ -127,6 +130,7 @@ export function mapBundleToOffer(bundle: BundleDraft): Offer {
 export function mapOfferInputToBundleDraft(input: CreateOfferInput) {
   const cadence = input.paymentType === "recurring" ? "monthly" : "one_time";
   const included = (input.included || []).map((value) => value.trim()).filter((value) => value.length > 0);
+  const structuredProducts = Array.isArray(input.productsJson) ? input.productsJson : [];
 
   const requestedSessionCountRaw = Number(input.sessionCount ?? 0);
   const requestedSessionCount =
@@ -152,12 +156,14 @@ export function mapOfferInputToBundleDraft(input: CreateOfferInput) {
             sessions: 1,
           })),
     productsJson:
-      input.type === "product_bundle"
-        ? included.map((name) => ({
-            name,
-            price: "0.00",
-          }))
-        : [],
+      structuredProducts.length > 0
+        ? structuredProducts
+        : input.type === "product_bundle"
+          ? included.map((name) => ({
+              name,
+              price: "0.00",
+            }))
+          : [],
     goalsJson: {
       offerType: input.type,
       ...(normalizedSessionCount ? { sessionCount: normalizedSessionCount } : {}),

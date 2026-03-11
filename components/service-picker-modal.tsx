@@ -1,4 +1,5 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { withAlpha } from "@/design-system/color-utils";
 import { useColors } from "@/hooks/use-colors";
 import { SERVICE_SUGGESTIONS } from "@/shared/service-suggestions";
 import { useState } from "react";
@@ -134,7 +135,7 @@ export function ServicePickerModal({
             accessibilityLabel="Add custom service"
             testID="service-picker-custom-add"
           >
-            <IconSymbol name="plus" size={20} color="#fff" />
+            <IconSymbol name="plus" size={20} color={colors["foreground-inverse"]} />
           </TouchableOpacity>
         </View>
 
@@ -151,11 +152,11 @@ export function ServicePickerModal({
         animationType="slide"
         onRequestClose={onClose}
       >
-        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: withAlpha(colors.foreground, 0.85) }}>
           <TouchableOpacity className="flex-1" activeOpacity={1} onPress={onClose} />
           <View className="bg-background rounded-t-3xl" style={{ maxHeight: "75%" }}>
             <View className="items-center py-2">
-              <View className="w-10 h-1 rounded-full" style={{ backgroundColor: "rgba(148,163,184,0.55)" }} />
+              <View className="w-10 h-1 rounded-full" style={{ backgroundColor: withAlpha(colors.muted, 0.55) }} />
             </View>
             {content}
           </View>

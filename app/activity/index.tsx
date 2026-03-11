@@ -28,7 +28,7 @@ type ActivityTab = "all" | "orders" | "deliveries" | "notifications";
  */
 export default function ActivityScreen() {
   const colors = useColors();
-  const { isAuthenticated, effectiveRole, isTrainer, isClient } = useAuthContext();
+  const { isAuthenticated, effectiveRole, isTrainer, isClient, user } = useAuthContext();
   const [activeTab, setActiveTab] = useState<ActivityTab>("all");
   const [liveAlert, setLiveAlert] = useState<{
     title: string;
@@ -112,7 +112,7 @@ export default function ActivityScreen() {
       unsubscribe();
       disconnect();
     };
-  }, [isAuthenticated, connect, disconnect, subscribe, refetchNotifications]);
+  }, [isAuthenticated, connect, disconnect, subscribe, refetchNotifications, user?.id]);
 
   const onRefresh = async () => {
     await haptics.light();

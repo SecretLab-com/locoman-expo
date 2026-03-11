@@ -5,6 +5,12 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useAuthContext } from "@/contexts/auth-context";
 import {
+  buildTrainerDashboardPalette,
+  type TrainerDashboardPalette,
+  trainerDialSegmentColors,
+} from "@/design-system/trainer-dashboard";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import {
   getCachedTrainerSocialPreviewMode,
   setCachedTrainerSocialPreviewMode,
 } from "@/lib/social-status-cache";
@@ -144,13 +150,7 @@ type DevSocialPreviewData = {
   latestPostSummary: string;
 };
 
-const DASH = {
-  text: '#F8FAFC',
-  muted: '#94A3B8',
-  primary: '#60A5FA',
-  borderStrong: 'rgba(96,165,250,0.5)',
-  cardSoft: '#141A28',
-};
+const DASH = {} as TrainerDashboardPalette;
 
 const CARD_SOFT_STYLE = {
   backgroundColor: DASH.cardSoft,
@@ -176,7 +176,7 @@ const SOCIAL_VIZ_ANIMATION_MS = 1500;
 const DIAL_START_ANGLE = 240;
 const DIAL_SWEEP_ANGLE = 240;
 const DIAL_SEGMENT_GAP_ANGLE = 8;
-const DIAL_SEGMENT_COLORS = ['#F87171', '#FBBF24', '#34D399'] as const;
+const DIAL_SEGMENT_COLORS = trainerDialSegmentColors;
 
 function formatCompactNumber(value: number) {
   const numeric = Number(value || 0);
@@ -576,11 +576,14 @@ function SocialLineChartPlaceholder() {
 export default function TrainerSocialProgressScreen() {
   const { user } = useAuthContext();
   const colors = useColors();
+  const colorScheme = useColorScheme();
+  const isLight = colorScheme === 'light';
+  Object.assign(DASH, buildTrainerDashboardPalette(colors, isLight));
   const utils = trpc.useUtils();
   const params = useLocalSearchParams<{ bundleId?: string; templateId?: string }>();
   const [showDevSocialPreview, setShowDevSocialPreview] = useState(false);
   const devSocialPreviewInitialized = useRef(false);
-  const [devSocialPreviewHydrated, setDevSocialPreviewHydrated] = useState(false);
+  const [, setDevSocialPreviewHydrated] = useState(false);
   const socialVizProgressAnim = useRef(new Animated.Value(0)).current;
   const [socialVizProgress, setSocialVizProgress] = useState(0);
   const { data } = trpc.socialProgram.myProgramDashboard.useQuery();
@@ -759,20 +762,6 @@ export default function TrainerSocialProgressScreen() {
     measured.views,
     targetCpc,
   ]);
-
-  const trendRows = useMemo(
-    () =>
-      (data?.recentMetrics || [])
-        .slice()
-        .reverse()
-        .slice(-14)
-        .map((row: any) => ({
-          date: String(row?.metricDate || ""),
-          views: Number(row?.views || 0),
-          clicks: Number(row?.clicks || 0),
-        })),
-    [data?.recentMetrics],
-  );
 
   const connectedPlatforms = useMemo(() => {
     const keys = new Set<string>();
@@ -1149,10 +1138,6 @@ export default function TrainerSocialProgressScreen() {
   const latestSocialPostSummary = latestSocialPost
     ? `Latest post: ${formatCompactNumber(Number(latestSocialPost.latestEngagements || 0))} engagements`
     : 'No data available.. Yet.';
-  const socialPlatformSummary = connectedPlatforms
-    .slice(0, 2)
-    .map((platform) => normalizeSocialPlatformLabel(platform))
-    .join(' · ');
   const platformDialTarget = 3;
   const shouldAutoEnableDevPreview =
     canUseDevSocialPreview &&

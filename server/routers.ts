@@ -1214,23 +1214,46 @@ function parseBundleProducts(productsJson: unknown) {
       const quantityRaw = Number(product.quantity ?? product.qty ?? 1);
       const quantity =
         Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+      const source = String(product.source || "").trim() === "custom" ||
+        Boolean(product.customProductId)
+        ? "custom"
+        : "catalog";
       const productId = product.productId
         ? String(product.productId)
         : undefined;
+      const customProductId = product.customProductId
+        ? String(product.customProductId)
+        : undefined;
+      const price = String(product.price || "0").trim() || "0";
+      const imageUrl = typeof product.imageUrl === "string" ? product.imageUrl : null;
+      const fulfillmentMethod = String(
+        product.fulfillmentMethod ||
+          (source === "custom" ? "trainer_delivery" : ""),
+      ).trim() || null;
       if (!name) return null;
       return {
         id: String(product.id ?? productId ?? index),
+        source,
         productId,
+        customProductId,
         name,
+        price,
+        imageUrl,
+        fulfillmentMethod,
         quantity,
       };
     })
     .filter((item) => item !== null) as Array<{
-    id: string;
-    productId?: string;
-    name: string;
-    quantity: number;
-  }>;
+      id: string;
+      source: "catalog" | "custom";
+      productId?: string;
+      customProductId?: string;
+      name: string;
+      price: string;
+      imageUrl: string | null;
+      fulfillmentMethod: string | null;
+      quantity: number;
+    }>;
   return parsed;
 }
 
@@ -1952,6 +1975,17 @@ function toDeliveryMethod(
   }
 }
 
+async function resolveCatalogProductReference(id: string) {
+  const normalizedId = String(id || "").trim();
+  if (!normalizedId) return undefined;
+  const direct = await db.getProductById(normalizedId);
+  if (direct) return direct;
+  if (/^\d+$/.test(normalizedId)) {
+    return db.getProductByShopifyProductId(Number(normalizedId));
+  }
+  return undefined;
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -2420,7 +2454,11 @@ export const appRouter = router({
           id: string;
           name: string;
           quantity: number;
+          price?: string;
           productId?: string;
+          customProductId?: string;
+          imageUrl?: string | null;
+          fulfillmentMethod?: string | null;
         }> =
           bundleProducts.length > 0
             ? bundleProducts
@@ -2435,13 +2473,20 @@ export const appRouter = router({
 
         const deliveryIds: string[] = [];
         for (const lineItem of orderLineItems) {
-          const lineTotal = safeAmount * lineItem.quantity;
+          const lineUnitPriceRaw = Number.parseFloat(
+            String((lineItem as any).price || safeAmount),
+          );
+          const lineUnitPrice =
+            Number.isFinite(lineUnitPriceRaw) && lineUnitPriceRaw >= 0
+              ? lineUnitPriceRaw
+              : safeAmount;
+          const lineTotal = lineUnitPrice * lineItem.quantity;
           await db.createOrderItem({
             orderId,
             productId: lineItem.productId,
             name: lineItem.name,
             quantity: lineItem.quantity,
-            price: safeAmount.toFixed(2),
+            price: lineUnitPrice.toFixed(2),
             totalPrice: lineTotal.toFixed(2),
             fulfillmentStatus: "unfulfilled",
           });
@@ -2452,10 +2497,15 @@ export const appRouter = router({
               trainerId,
               clientId: ctx.user.id,
               productId: lineItem.productId,
+              customProductId: (lineItem as any).customProductId || null,
               productName: lineItem.name,
+              productImageUrl: (lineItem as any).imageUrl || null,
+              unitPrice: lineUnitPrice.toFixed(2),
               quantity: lineItem.quantity,
               status: "pending",
-              deliveryMethod: "in_person",
+              deliveryMethod: toDeliveryMethod(
+                ((lineItem as any).fulfillmentMethod as any) || "trainer_delivery",
+              ),
             });
             deliveryIds.push(deliveryId);
           }
@@ -2861,6 +2911,7 @@ export const appRouter = router({
           ]),
           priceMinor: z.number().int().min(1),
           included: z.array(z.string()).default([]),
+          productsJson: z.any().optional(),
           sessionCount: z.number().int().min(1).optional(),
           paymentType: z.enum(["one_off", "recurring"]),
           publish: z.boolean().optional(),
@@ -2875,6 +2926,7 @@ export const appRouter = router({
             type: OfferType;
             priceMinor: number;
             included?: string[];
+            productsJson?: unknown;
             sessionCount?: number;
             paymentType: OfferPaymentType;
             publish?: boolean;
@@ -2915,6 +2967,7 @@ export const appRouter = router({
             .optional(),
           priceMinor: z.number().int().min(1).optional(),
           included: z.array(z.string()).optional(),
+          productsJson: z.any().optional(),
           sessionCount: z.number().int().min(1).optional(),
           paymentType: z.enum(["one_off", "recurring"]).optional(),
           publish: z.boolean().optional(),
@@ -2934,6 +2987,7 @@ export const appRouter = router({
             input.priceMinor ??
             Math.round((parseFloat(bundle.price || "0") || 0) * 100),
           included: input.included || mapBundleToOffer(bundle).included,
+          productsJson: input.productsJson ?? bundle.productsJson ?? undefined,
           sessionCount:
             input.sessionCount ??
             mapBundleToOffer(bundle).sessionCount ??
@@ -3968,6 +4022,7 @@ export const appRouter = router({
                 quantity: z.number().int().min(1),
                 bundleId: z.string().optional(),
                 productId: z.string().optional(),
+                customProductId: z.string().optional(),
                 trainerId: z.string().optional(),
                 unitPrice: z.number().min(0),
                 fulfillment: z
@@ -3998,6 +4053,12 @@ export const appRouter = router({
             let unitPrice = item.unitPrice;
             let trainerId = item.trainerId;
             let productId = item.productId;
+            let customProductId = item.customProductId;
+            let productImageUrl: string | null = null;
+            let bundleProducts: ReturnType<typeof parseBundleProducts> = [];
+            let bundleCadence: string | null = null;
+            let bundleServicesJson: unknown = null;
+            let bundleGoalsJson: unknown = null;
 
             if (item.bundleId) {
               const bundle = await db.getBundleDraftById(item.bundleId);
@@ -4013,11 +4074,15 @@ export const appRouter = router({
                 );
                 unitPrice = Number.isFinite(price) ? price : unitPrice;
                 trainerId = trainerId || bundle.trainerId || undefined;
+                bundleProducts = parseBundleProducts(bundle.productsJson);
+                bundleCadence = bundle.cadence || null;
+                bundleServicesJson = bundle.servicesJson;
+                bundleGoalsJson = bundle.goalsJson;
               } else {
                 notFound("Bundle");
               }
             } else if (item.productId) {
-              const product = await db.getProductById(item.productId);
+              const product = await resolveCatalogProductReference(item.productId);
               if (product) {
                 name = product.name || name;
                 const price = Number.parseFloat(
@@ -4025,6 +4090,19 @@ export const appRouter = router({
                 );
                 unitPrice = Number.isFinite(price) ? price : unitPrice;
                 productId = product.id;
+                productImageUrl = product.imageUrl || null;
+              }
+            } else if (item.customProductId) {
+              const customProduct = await db.getTrainerCustomProductById(item.customProductId);
+              if (customProduct) {
+                name = customProduct.name || name;
+                const price = Number.parseFloat(
+                  String(customProduct.price || unitPrice),
+                );
+                unitPrice = Number.isFinite(price) ? price : unitPrice;
+                customProductId = customProduct.id;
+                trainerId = trainerId || customProduct.trainerId;
+                productImageUrl = customProduct.imageUrl || null;
               }
             }
 
@@ -4034,6 +4112,12 @@ export const appRouter = router({
               unitPrice,
               trainerId,
               productId,
+              customProductId,
+              productImageUrl,
+              bundleProducts,
+              bundleCadence,
+              bundleServicesJson,
+              bundleGoalsJson,
             };
           }),
         );
@@ -4083,29 +4167,77 @@ export const appRouter = router({
 
         const deliveryIds: string[] = [];
         for (const item of resolvedItems) {
-          const lineTotal = item.unitPrice * item.quantity;
-          await db.createOrderItem({
-            orderId,
-            productId: item.productId,
-            name: item.name,
-            quantity: item.quantity,
-            price: item.unitPrice.toFixed(2),
-            totalPrice: lineTotal.toFixed(2),
-            fulfillmentStatus: "unfulfilled",
-          });
+          const expandedBundleProducts =
+            item.bundleId && item.bundleProducts.length > 0
+              ? item.bundleProducts
+              : null;
 
-          if (item.trainerId) {
-            const deliveryId = await db.createDelivery({
+          if (expandedBundleProducts) {
+            for (const bundleProduct of expandedBundleProducts) {
+              const lineUnitPrice = Number.parseFloat(String(bundleProduct.price || "0"));
+              const safeLineUnitPrice =
+                Number.isFinite(lineUnitPrice) && lineUnitPrice >= 0
+                  ? lineUnitPrice
+                  : 0;
+              const lineTotal = safeLineUnitPrice * bundleProduct.quantity;
+              await db.createOrderItem({
+                orderId,
+                productId: bundleProduct.productId || null,
+                name: bundleProduct.name,
+                quantity: bundleProduct.quantity,
+                price: safeLineUnitPrice.toFixed(2),
+                totalPrice: lineTotal.toFixed(2),
+                fulfillmentStatus: "unfulfilled",
+              });
+              if (item.trainerId) {
+                const deliveryId = await db.createDelivery({
+                  orderId,
+                  trainerId: item.trainerId,
+                  clientId: ctx.user.id,
+                  productId: bundleProduct.productId || null,
+                  customProductId: bundleProduct.customProductId || null,
+                  productName: bundleProduct.name,
+                  productImageUrl: bundleProduct.imageUrl || null,
+                  unitPrice: safeLineUnitPrice.toFixed(2),
+                  quantity: bundleProduct.quantity,
+                  status: "pending",
+                  deliveryMethod: toDeliveryMethod(
+                    (bundleProduct.fulfillmentMethod as any) ||
+                      item.fulfillment ||
+                      "trainer_delivery",
+                  ),
+                });
+                deliveryIds.push(deliveryId);
+              }
+            }
+          } else {
+            const lineTotal = item.unitPrice * item.quantity;
+            await db.createOrderItem({
               orderId,
-              trainerId: item.trainerId,
-              clientId: ctx.user.id,
               productId: item.productId,
-              productName: item.name,
+              name: item.name,
               quantity: item.quantity,
-              status: "pending",
-              deliveryMethod: toDeliveryMethod(item.fulfillment),
+              price: item.unitPrice.toFixed(2),
+              totalPrice: lineTotal.toFixed(2),
+              fulfillmentStatus: "unfulfilled",
             });
-            deliveryIds.push(deliveryId);
+
+            if (item.trainerId) {
+              const deliveryId = await db.createDelivery({
+                orderId,
+                trainerId: item.trainerId,
+                clientId: ctx.user.id,
+                productId: item.productId,
+                customProductId: item.customProductId || null,
+                productName: item.name,
+                productImageUrl: item.productImageUrl || null,
+                unitPrice: item.unitPrice.toFixed(2),
+                quantity: item.quantity,
+                status: "pending",
+                deliveryMethod: toDeliveryMethod(item.fulfillment),
+              });
+              deliveryIds.push(deliveryId);
+            }
           }
         }
 
@@ -5447,6 +5579,47 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await db.upsertUserPushToken(ctx.user.id, input.token, input.platform);
         return { success: true };
+      }),
+  }),
+
+  customProducts: router({
+    list: trainerProcedure.query(async ({ ctx }) => {
+      return db.listTrainerCustomProducts(ctx.user.id, { activeOnly: true });
+    }),
+
+    create: trainerProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(1).max(255),
+          description: z.string().trim().max(2000).optional(),
+          imageUrl: z.string().trim().max(2000).optional(),
+          price: z.string().trim().min(1).max(32),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const numericPrice = Number.parseFloat(input.price);
+        if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Enter a valid custom product price greater than 0.",
+          });
+        }
+        const created = await db.createTrainerCustomProduct({
+          trainerId: ctx.user.id,
+          name: input.name,
+          description: input.description?.trim() || null,
+          imageUrl: input.imageUrl?.trim() || null,
+          price: numericPrice.toFixed(2),
+          fulfillmentMethod: "trainer_delivery",
+          active: true,
+        });
+        if (!created) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Unable to create custom product.",
+          });
+        }
+        return created;
       }),
   }),
 

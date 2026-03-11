@@ -18,6 +18,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
+import { ServicePickerModal } from "@/components/service-picker-modal";
+import { withAlpha } from "@/design-system/color-utils";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
@@ -35,9 +38,21 @@ type ServiceItem = {
   unit: string;
 };
 
-// Product item for bundles - matching original locoman ShopifyProduct
+type CatalogProductItem = {
+  id: string;
+  shopifyProductId: number | null;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  price: string;
+  brand: string | null;
+  category: string | null;
+  inventoryQuantity: number | null;
+  availability: string | null;
+};
+
 type ProductItem = {
-  id: number;
+  id: string | number;
   title: string;
   description: string | null;
   vendor: string | null;
@@ -49,10 +64,28 @@ type ProductItem = {
   inventory: number;
   imageUrl: string | null;
   quantity?: number;
+  source?: "shopify" | "custom";
+  productId?: string | number;
+  customProductId?: string;
+  shopifyProductId?: number | null;
+  fulfillmentMethod?: "trainer_delivery" | "home_ship" | "vending" | "cafeteria";
+};
+
+type TrainerCustomProductItem = {
+  id: string;
+  trainerId: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  price: string;
+  fulfillmentMethod: "trainer_delivery" | "home_ship" | "vending" | "cafeteria";
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 // Product item with quantity (for bundle products)
-type BundleProductItem = ProductItem & { quantity: number; productId?: string | number };
+type BundleProductItem = ProductItem & { quantity: number };
 
 // Bundle form state - matching original locoman
 type BundleFormState = {
@@ -77,9 +110,6 @@ const CADENCE_OPTIONS = [
   { value: "monthly" as const, label: "Monthly" },
 ];
 
-import { ServicePickerModal } from "@/components/service-picker-modal";
-import { SERVICE_SUGGESTIONS } from "@/shared/service-suggestions";
-
 // Goal suggestions - matching original locoman
 const GOAL_SUGGESTIONS = [
   "Weight Loss",
@@ -98,6 +128,7 @@ const GOAL_SUGGESTIONS = [
 
 export default function BundleEditorScreen() {
   const colors = useColors();
+  const ds = useDesignSystem();
   const { id, admin: adminParam, templateId } = useLocalSearchParams<{ id: string; admin?: string; templateId?: string }>();
   const isNewBundle = id === "new";
   const isAdminMode = adminParam === "1";
@@ -115,6 +146,12 @@ export default function BundleEditorScreen() {
   const [showProductModal, setShowProductModal] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [productTypeFilter, setProductTypeFilter] = useState<string>("all");
+  const [productSourceFilter, setProductSourceFilter] = useState<"shopify" | "custom">("shopify");
+  const [showCustomProductModal, setShowCustomProductModal] = useState(false);
+  const [customProductName, setCustomProductName] = useState("");
+  const [customProductDescription, setCustomProductDescription] = useState("");
+  const [customProductPrice, setCustomProductPrice] = useState("");
+  const [customProductImageUrl, setCustomProductImageUrl] = useState("");
   
   // Barcode scanner
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
@@ -164,6 +201,29 @@ export default function BundleEditorScreen() {
   // Fetch products from Shopify/database
   const { data: shopifyProducts, isLoading: productsLoading } = trpc.shopify.products.useQuery(undefined, {
     staleTime: 60000,
+  });
+  const { data: catalogProducts } = trpc.catalog.products.useQuery(undefined, {
+    staleTime: 60000,
+  });
+  const customProductsQuery = trpc.customProducts.list.useQuery(undefined, {
+    staleTime: 60000,
+  });
+  const createCustomProductMutation = trpc.customProducts.create.useMutation({
+    onSuccess: async (created) => {
+      await customProductsQuery.refetch();
+      addCustomProductWithQuantity(created, 1);
+      setCustomProductName("");
+      setCustomProductDescription("");
+      setCustomProductPrice("");
+      setCustomProductImageUrl("");
+      setShowCustomProductModal(false);
+      setProductSourceFilter("custom");
+      haptics.success();
+    },
+    onError: (error) => {
+      haptics.error();
+      platformAlert("Unable to create custom product", error.message);
+    },
   });
 
   // Fetch existing bundle if editing
@@ -346,33 +406,14 @@ export default function BundleEditorScreen() {
         suggestedGoal: (templateBundle.suggestedGoal as string) || prev.suggestedGoal,
       }));
 
-      if (templateBundle.productsJson && shopifyProducts) {
-        const parsedProducts = templateBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number; productId?: string }[];
-        const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
-          const matchId = p.productId || p.id;
-          const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === matchId);
-          if (shopifyProduct) {
-            return { ...shopifyProduct, quantity: p.quantity || 1 };
-          }
-          return {
-            id: p.id,
-            title: p.name,
-            description: null,
-            vendor: "",
-            productType: "",
-            status: "active",
-            price: p.price,
-            sku: "",
-            inventory: 0,
-            imageUrl: p.imageUrl || null,
-            quantity: p.quantity || 1,
-          };
-        });
+      if (templateBundle.productsJson) {
+        const parsedProducts = templateBundle.productsJson as Array<Record<string, any>>;
+        const matchedProducts: BundleProductItem[] = parsedProducts.map(mapStoredBundleProductToForm);
         setForm((prev) => ({ ...prev, products: matchedProducts }));
       }
       setLoading(false);
     }
-  }, [isNewBundle, templateBundle, templateId, shopifyProducts]);
+  }, [isNewBundle, templateBundle, templateId, mapStoredBundleProductToForm]);
 
   // Populate form when editing
   useEffect(() => {
@@ -393,27 +434,9 @@ export default function BundleEditorScreen() {
         reviewComments: (effectiveBundle as any).reviewComments || undefined,
       });
 
-      if (effectiveBundle.productsJson && shopifyProducts) {
-        const parsedProducts = effectiveBundle.productsJson as { id: number; name: string; price: string; imageUrl?: string; quantity?: number }[];
-        const matchedProducts: BundleProductItem[] = parsedProducts.map((p) => {
-          const shopifyProduct = shopifyProducts.find((sp: ProductItem) => sp.id === p.id);
-          if (shopifyProduct) {
-            return { ...shopifyProduct, quantity: p.quantity || 1 };
-          }
-          return {
-            id: p.id,
-            title: p.name,
-            description: null,
-            vendor: "",
-            productType: "",
-            status: "active",
-            price: p.price,
-            sku: "",
-            inventory: 0,
-            imageUrl: p.imageUrl || null,
-            quantity: p.quantity || 1,
-          };
-        });
+      if (effectiveBundle.productsJson) {
+        const parsedProducts = effectiveBundle.productsJson as Array<Record<string, any>>;
+        const matchedProducts: BundleProductItem[] = parsedProducts.map(mapStoredBundleProductToForm);
         setForm((prev) => ({ ...prev, products: matchedProducts }));
       }
       setLoading(false);
@@ -422,7 +445,7 @@ export default function BundleEditorScreen() {
     } else {
       setLoading(false);
     }
-  }, [effectiveBundle, shopifyProducts, isNewBundle]);
+  }, [effectiveBundle, isNewBundle, mapStoredBundleProductToForm]);
 
   const updateForm = useCallback(<K extends keyof BundleFormState>(key: K, value: BundleFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -444,10 +467,151 @@ export default function BundleEditorScreen() {
     updateForm("price", total.toFixed(2));
   }, [productTotal, servicesTotal, updateForm]);
 
+  const getBundleProductKey = useCallback(
+    (product: {
+      id?: string | number;
+      productId?: string | number;
+      customProductId?: string | null;
+      source?: string | null;
+      shopifyProductId?: number | null;
+    }) => {
+      if (product.source === "custom" || product.customProductId) {
+        return `custom:${String(product.customProductId || product.id || "")}`;
+      }
+      return `shopify:${String(product.productId || product.shopifyProductId || product.id || "")}`;
+    },
+    [],
+  );
+
+  const catalogProductOptions: ProductItem[] = useMemo(() => {
+    return ((catalogProducts || []) as CatalogProductItem[]).map((product) => ({
+      id: product.id,
+      productId: product.id,
+      shopifyProductId: product.shopifyProductId,
+      source: "shopify" as const,
+      title: product.name,
+      description: product.description,
+      vendor: product.brand,
+      productType: product.category,
+      status: product.availability === "available" ? "active" : "draft",
+      price: product.price || "0.00",
+      sku: "",
+      inventory: Number(product.inventoryQuantity || 0),
+      imageUrl: product.imageUrl,
+      fulfillmentMethod: "trainer_delivery" as const,
+    }));
+  }, [catalogProducts]);
+
+  const customProductOptions: ProductItem[] = useMemo(() => {
+    return ((customProductsQuery.data || []) as TrainerCustomProductItem[]).map((product) => ({
+      id: product.id,
+      productId: undefined,
+      customProductId: product.id,
+      shopifyProductId: null,
+      source: "custom" as const,
+      title: product.name,
+      description: product.description,
+      vendor: "My custom product",
+      productType: "custom",
+      status: product.active ? "active" : "draft",
+      price: product.price || "0.00",
+      sku: "",
+      inventory: 0,
+      imageUrl: product.imageUrl,
+      fulfillmentMethod: "trainer_delivery" as const,
+    }));
+  }, [customProductsQuery.data]);
+
+  function mapStoredBundleProductToForm(product: {
+      id?: string | number;
+      productId?: string | number;
+      customProductId?: string;
+      name?: string;
+      title?: string;
+      price?: string;
+      imageUrl?: string | null;
+      quantity?: number;
+      source?: string;
+    }): BundleProductItem {
+      const isCustom = product.source === "custom" || Boolean(product.customProductId);
+      if (isCustom) {
+        const match = customProductOptions.find(
+          (item) =>
+            String(item.customProductId || item.id) ===
+            String(product.customProductId || product.id || ""),
+        );
+        return {
+          ...(match || {
+            id: String(product.customProductId || product.id || Date.now()),
+            customProductId: String(product.customProductId || product.id || ""),
+            source: "custom" as const,
+            title: String(product.name || product.title || "Custom Product"),
+            description: null,
+            vendor: "My custom product",
+            productType: "custom",
+            status: "active",
+            price: String(product.price || "0.00"),
+            sku: "",
+            inventory: 0,
+            imageUrl: product.imageUrl || null,
+            fulfillmentMethod: "trainer_delivery" as const,
+          }),
+          quantity: Number(product.quantity) || 1,
+        };
+      }
+
+      const lookupValue = String(product.productId || product.id || "");
+      const match = catalogProductOptions.find(
+        (item) =>
+          String(item.productId || "") === lookupValue ||
+          String(item.id) === lookupValue ||
+          String(item.shopifyProductId || "") === lookupValue ||
+          String(item.shopifyProductId || "") === String(product.id || ""),
+      );
+      return {
+        ...(match || {
+          id: String(product.productId || product.id || Date.now()),
+          productId: String(product.productId || product.id || ""),
+          source: "shopify" as const,
+          title: String(product.name || product.title || "Product"),
+          description: null,
+          vendor: null,
+          productType: null,
+          status: "active",
+          price: String(product.price || "0.00"),
+          sku: "",
+          inventory: 0,
+          imageUrl: product.imageUrl || null,
+          fulfillmentMethod: "trainer_delivery" as const,
+        }),
+        quantity: Number(product.quantity) || 1,
+      };
+    }
+
+  const mapShopifyProductToBundleItem = useCallback(
+    (product: ProductItem): ProductItem => {
+      const catalogMatch = catalogProductOptions.find(
+        (item) =>
+          item.shopifyProductId != null &&
+          String(item.shopifyProductId) === String(product.id),
+      );
+      return (
+        catalogMatch || {
+          ...product,
+          source: "shopify",
+          productId:
+            typeof product.productId === "string" ? product.productId : undefined,
+          shopifyProductId: Number(product.id) || null,
+          fulfillmentMethod: "trainer_delivery",
+        }
+      );
+    },
+    [catalogProductOptions],
+  );
+
   // Filter products for modal (bundles are shown but disabled)
   const filteredProducts = useMemo(() => {
-    if (!shopifyProducts) return [];
-    return shopifyProducts.filter((product: ProductItem) => {
+    return catalogProductOptions.filter((product: ProductItem) => {
       const matchesSearch = !productSearch ||
         product.title.toLowerCase().includes(productSearch.toLowerCase()) ||
         (product.vendor && product.vendor.toLowerCase().includes(productSearch.toLowerCase())) ||
@@ -455,18 +619,28 @@ export default function BundleEditorScreen() {
       const matchesType = productTypeFilter === "all" || product.productType === productTypeFilter;
       return matchesSearch && matchesType;
     });
-  }, [shopifyProducts, productSearch, productTypeFilter]);
+  }, [catalogProductOptions, productSearch, productTypeFilter]);
+
+  const filteredCustomProducts = useMemo(() => {
+    return customProductOptions.filter((product) => {
+      const search = productSearch.trim().toLowerCase();
+      if (!search) return true;
+      return (
+        product.title.toLowerCase().includes(search) ||
+        (product.description || "").toLowerCase().includes(search)
+      );
+    });
+  }, [customProductOptions, productSearch]);
 
   // Extract unique product types and vendors
   const uniqueProductTypes = useMemo(() => {
-    if (!shopifyProducts) return [];
     const types = new Set(
-      shopifyProducts
+      catalogProductOptions
         .map((p: ProductItem) => p.productType)
         .filter((type): type is string => Boolean(type))
     );
     return Array.from(types).sort();
-  }, [shopifyProducts]);
+  }, [catalogProductOptions]);
 
   // Add service
   const addService = (type: string) => {
@@ -503,11 +677,12 @@ export default function BundleEditorScreen() {
 
   // Toggle product selection
   const toggleProduct = (product: ProductItem) => {
-    const isSelected = form.products.some((p) => p.id === product.id);
+    const productKey = getBundleProductKey(product);
+    const isSelected = form.products.some((p) => getBundleProductKey(p) === productKey);
     if (isSelected) {
       updateForm(
         "products",
-        form.products.filter((p) => p.id !== product.id)
+        form.products.filter((p) => getBundleProductKey(p) !== productKey)
       );
     } else {
       // Add product with default quantity of 1
@@ -521,20 +696,23 @@ export default function BundleEditorScreen() {
   };
 
   // Update product quantity
-  const updateProductQuantity = (productId: number, quantity: number) => {
+  const updateProductQuantity = (productKey: string, quantity: number) => {
     if (quantity < 1) return;
     updateForm(
       "products",
-      form.products.map((p) => (p.id === productId ? { ...p, quantity } : p))
+      form.products.map((p) =>
+        getBundleProductKey(p) === productKey ? { ...p, quantity } : p
+      )
     );
   };
 
   // Add product with specific quantity (for detail modal)
   const addProductWithQuantity = (product: ProductItem, quantity: number) => {
-    const isSelected = form.products.some((p) => p.id === product.id);
+    const productKey = getBundleProductKey(product);
+    const isSelected = form.products.some((p) => getBundleProductKey(p) === productKey);
     if (isSelected) {
       // Update quantity if already selected
-      updateProductQuantity(product.id, quantity);
+      updateProductQuantity(productKey, quantity);
     } else {
       // Add new product with specified quantity
       const productWithQuantity: BundleProductItem = {
@@ -546,13 +724,37 @@ export default function BundleEditorScreen() {
     haptics.light();
   };
 
+  const addCustomProductWithQuantity = (
+    product: TrainerCustomProductItem | ProductItem,
+    quantity: number,
+  ) => {
+    const normalized: ProductItem =
+      "title" in product
+        ? product
+        : {
+            id: product.id,
+            customProductId: product.id,
+            source: "custom",
+            title: product.name,
+            description: product.description,
+            vendor: "My custom product",
+            productType: "custom",
+            status: product.active ? "active" : "draft",
+            price: product.price,
+            sku: "",
+            inventory: 0,
+            imageUrl: product.imageUrl,
+            fulfillmentMethod: "trainer_delivery",
+          };
+    addProductWithQuantity(normalized, quantity);
+  };
+
   // Get recommended products based on current product
   const getRecommendedProducts = (product: ProductItem) => {
-    if (!shopifyProducts) return [];
-    return shopifyProducts
+    return catalogProductOptions
       .filter((p: ProductItem) => {
         // Exclude current product and bundles
-        if (p.id === product.id) return false;
+        if (getBundleProductKey(p) === getBundleProductKey(product)) return false;
         if (p.productType && p.productType.toLowerCase() === 'bundle') return false;
         // Match by type or vendor
         return p.productType === product.productType || p.vendor === product.vendor;
@@ -574,15 +776,21 @@ export default function BundleEditorScreen() {
       );
       
       if (matchedProduct) {
+        const normalizedProduct = mapShopifyProductToBundleItem(matchedProduct);
         // Check if already added
-        const existingProduct = form.products.find((p) => p.id === matchedProduct.id);
+        const existingProduct = form.products.find(
+          (p) => getBundleProductKey(p) === getBundleProductKey(normalizedProduct),
+        );
         if (existingProduct) {
           // Increment quantity
-          updateProductQuantity(matchedProduct.id, existingProduct.quantity + 1);
+          updateProductQuantity(
+            getBundleProductKey(existingProduct),
+            existingProduct.quantity + 1,
+          );
           haptics.success();
           platformAlert(
             "Product Found",
-            `Added another ${matchedProduct.title} (now ${existingProduct.quantity + 1} total)`,
+            `Added another ${normalizedProduct.title} (now ${existingProduct.quantity + 1} total)`,
             [{ text: "OK", onPress: () => {
               setBarcodeScanned(false);
               setShowBarcodeScanner(false);
@@ -591,14 +799,14 @@ export default function BundleEditorScreen() {
         } else {
           // Add new product
           const productWithQuantity: BundleProductItem = {
-            ...matchedProduct,
+            ...normalizedProduct,
             quantity: 1,
           };
           updateForm("products", [...form.products, productWithQuantity]);
           haptics.success();
           platformAlert(
             "Product Added",
-            `${matchedProduct.title} added to bundle`,
+            `${normalizedProduct.title} added to bundle`,
             [{ text: "OK", onPress: () => {
               setBarcodeScanned(false);
               setShowBarcodeScanner(false);
@@ -661,6 +869,25 @@ export default function BundleEditorScreen() {
     }
   };
 
+  const handleCreateCustomProduct = async () => {
+    const trimmedName = customProductName.trim();
+    const parsedPrice = Number.parseFloat(customProductPrice.trim());
+    if (!trimmedName) {
+      platformAlert("Custom product name required", "Enter a product name.");
+      return;
+    }
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      platformAlert("Custom product price required", "Enter a valid product price greater than 0.");
+      return;
+    }
+    await createCustomProductMutation.mutateAsync({
+      name: trimmedName,
+      description: customProductDescription.trim() || undefined,
+      imageUrl: customProductImageUrl.trim() || undefined,
+      price: parsedPrice.toFixed(2),
+    });
+  };
+
   // Validate form
   // Cross-platform alert helper
   const showAlert = (title: string, message: string, buttons?: { text: string; style?: "default" | "cancel" | "destructive"; onPress?: () => void }[]) => {
@@ -709,10 +936,14 @@ export default function BundleEditorScreen() {
         imageSource: form.imageSource,
         productsJson: form.products.map((p) => ({
           id: p.id,
-          productId: p.productId || p.id,
+          source: p.source || "shopify",
+          productId: p.productId || undefined,
+          customProductId: p.customProductId || undefined,
+          shopifyProductId: p.shopifyProductId || undefined,
           name: p.title,
           price: p.price,
           imageUrl: p.imageUrl,
+          fulfillmentMethod: p.fulfillmentMethod || "trainer_delivery",
           quantity: p.quantity || 1,
         })),
         servicesJson: form.services,
@@ -757,9 +988,15 @@ export default function BundleEditorScreen() {
           imageSource: form.imageSource,
           productsJson: form.products.map((p) => ({
             id: p.id,
+            source: p.source || "shopify",
+            productId: p.productId || undefined,
+            customProductId: p.customProductId || undefined,
+            shopifyProductId: p.shopifyProductId || undefined,
             name: p.title,
             price: p.price,
             imageUrl: p.imageUrl,
+            fulfillmentMethod: p.fulfillmentMethod || "trainer_delivery",
+            quantity: p.quantity || 1,
           })),
           servicesJson: form.services,
           goalsJson: form.goals,
@@ -926,8 +1163,8 @@ export default function BundleEditorScreen() {
         {form.status === "changes_requested" && form.reviewComments && (
           <View className="mx-4 mt-3 bg-orange-500/10 border border-orange-500/30 rounded-xl p-3">
             <View className="flex-row items-center">
-              <IconSymbol name="exclamationmark.triangle.fill" size={18} color="#F97316" />
-              <Text className="font-medium ml-2" style={{ color: "#F97316" }}>Changes Requested</Text>
+              <IconSymbol name="exclamationmark.triangle.fill" size={18} color={colors.warning} />
+              <Text className="font-medium ml-2" style={{ color: colors.warning }}>Changes Requested</Text>
             </View>
             <Text className="text-foreground mt-2 text-sm">{form.reviewComments}</Text>
             <Text className="text-muted mt-2 text-xs">Please address the feedback above and resubmit for review.</Text>
@@ -1255,7 +1492,7 @@ export default function BundleEditorScreen() {
                 <View className="gap-3">
                   {form.products.map((product) => (
                     <View
-                      key={product.id}
+                      key={getBundleProductKey(product)}
                       className="bg-surface border border-border rounded-xl p-3"
                     >
                       <View className="flex-row items-center">
@@ -1277,7 +1514,16 @@ export default function BundleEditorScreen() {
                           <Text className="text-foreground font-medium" numberOfLines={1}>
                             {product.title}
                           </Text>
-                          <Text className="text-muted text-sm">{product.vendor}</Text>
+                          <View className="flex-row items-center mt-1">
+                            <Text className="text-muted text-sm">
+                              {product.vendor || "Product"}
+                            </Text>
+                            {product.source === "custom" ? (
+                              <View className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                                <Text className="text-[11px] text-primary font-medium">Custom</Text>
+                              </View>
+                            ) : null}
+                          </View>
                           <Text className="text-primary font-semibold">${product.price}</Text>
                         </View>
                         <TouchableOpacity
@@ -1293,7 +1539,7 @@ export default function BundleEditorScreen() {
                         <Text className="text-muted text-sm">Quantity</Text>
                         <View className="flex-row items-center gap-3">
                           <TouchableOpacity
-                            onPress={() => updateProductQuantity(product.id, product.quantity - 1)}
+                            onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity - 1)}
                             style={{
                               width: 32,
                               height: 32,
@@ -1316,7 +1562,7 @@ export default function BundleEditorScreen() {
                             {product.quantity}
                           </Text>
                           <TouchableOpacity
-                            onPress={() => updateProductQuantity(product.id, product.quantity + 1)}
+                            onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity + 1)}
                             style={{
                               width: 32,
                               height: 32,
@@ -1549,7 +1795,7 @@ export default function BundleEditorScreen() {
               alignItems: "center",
               justifyContent: "center",
               paddingHorizontal: 16,
-              backgroundColor: "rgba(0,0,0,0.85)",
+              backgroundColor: ds.colors.overlay.scrim,
             }}
           >
             <View className="bg-surface rounded-2xl p-6 w-full max-w-md">
@@ -1639,13 +1885,49 @@ export default function BundleEditorScreen() {
                 </TouchableOpacity>
               </View>
 
+              {/* Source Filter */}
+              <View className="px-4 pt-3">
+                <View className="flex-row bg-surface border border-border rounded-xl p-1">
+                  <TouchableOpacity
+                    onPress={() => setProductSourceFilter("shopify")}
+                    className={`flex-1 py-2 rounded-lg ${productSourceFilter === "shopify" ? "bg-primary" : ""}`}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show Shopify synced products"
+                    testID="bundle-products-source-shopify"
+                  >
+                    <Text
+                      className={`text-center font-medium ${
+                        productSourceFilter === "shopify" ? "text-background" : "text-foreground"
+                      }`}
+                    >
+                      Shopify Products
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setProductSourceFilter("custom")}
+                    className={`flex-1 py-2 rounded-lg ${productSourceFilter === "custom" ? "bg-primary" : ""}`}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show my custom products"
+                    testID="bundle-products-source-custom"
+                  >
+                    <Text
+                      className={`text-center font-medium ${
+                        productSourceFilter === "custom" ? "text-background" : "text-foreground"
+                      }`}
+                    >
+                      My Custom Products
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               {/* Search Bar */}
               <View className="px-4 py-3">
                 <View className="flex-row items-center bg-surface border border-border rounded-xl px-4 py-2">
                   <IconSymbol name="magnifyingglass" size={18} color={colors.muted} />
                   <TextInput
                     className="flex-1 ml-2 text-foreground"
-                    placeholder="Search products..."
+                    placeholder={productSourceFilter === "custom" ? "Search custom products..." : "Search products..."}
                     placeholderTextColor={colors.muted}
                     value={productSearch}
                     onChangeText={setProductSearch}
@@ -1659,7 +1941,7 @@ export default function BundleEditorScreen() {
               </View>
 
               {/* Category Filter */}
-              {uniqueProductTypes.length > 0 && (
+              {productSourceFilter === "shopify" && uniqueProductTypes.length > 0 && (
                 <View style={{ paddingBottom: 12 }}>
                   <ScrollView
                     horizontal
@@ -1680,7 +1962,7 @@ export default function BundleEditorScreen() {
                   >
                     <Text style={{
                       fontSize: 14,
-                      color: productTypeFilter === "all" ? '#FFFFFF' : colors.foreground,
+                      color: productTypeFilter === "all" ? colors["primary-foreground"] : colors.foreground,
                       fontWeight: productTypeFilter === "all" ? '600' : '400',
                     }}>
                       All Types
@@ -1701,7 +1983,7 @@ export default function BundleEditorScreen() {
                     >
                       <Text style={{
                         fontSize: 14,
-                        color: productTypeFilter === type ? '#FFFFFF' : colors.foreground,
+                        color: productTypeFilter === type ? colors["primary-foreground"] : colors.foreground,
                         fontWeight: productTypeFilter === type ? '600' : '400',
                       }}>
                         {type}
@@ -1713,17 +1995,22 @@ export default function BundleEditorScreen() {
               )}
 
               {/* Product List */}
-              {productsLoading ? (
+              {productSourceFilter === "shopify" && productsLoading ? (
+                <View className="flex-1 items-center justify-center">
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+              ) : productSourceFilter === "custom" && customProductsQuery.isLoading ? (
                 <View className="flex-1 items-center justify-center">
                   <ActivityIndicator size="large" color={colors.primary} />
                 </View>
               ) : (
                 <FlatList
-                  data={filteredProducts}
-                  keyExtractor={(item) => item.id.toString()}
+                  data={productSourceFilter === "custom" ? filteredCustomProducts : filteredProducts}
+                  keyExtractor={(item) => String(getBundleProductKey(item))}
                   contentContainerStyle={{ padding: 16 }}
                   renderItem={({ item }) => {
-                    const isSelected = form.products.some((p) => p.id === item.id);
+                    const itemKey = getBundleProductKey(item);
+                    const isSelected = form.products.some((p) => getBundleProductKey(p) === itemKey);
                     const isBundle = item.productType?.toLowerCase() === "bundle";
                     return (
                       <View
@@ -1753,7 +2040,7 @@ export default function BundleEditorScreen() {
                           activeOpacity={0.7}
                           accessibilityRole="button"
                           accessibilityLabel={`View details for ${item.title}`}
-                          testID={`bundle-product-detail-${item.id}`}
+                          testID={`bundle-product-detail-${itemKey}`}
                         >
                           {/* Product Image - always show with placeholder fallback */}
                           <View style={{ width: 56, height: 56, borderRadius: 8, marginRight: 12, backgroundColor: colors.surface, overflow: 'hidden' }}>
@@ -1773,12 +2060,23 @@ export default function BundleEditorScreen() {
                             <Text className="text-foreground font-medium" numberOfLines={1}>
                               {item.title}
                             </Text>
-                            <Text className="text-muted text-sm">{item.vendor}</Text>
+                            <View className="flex-row items-center mt-0.5">
+                              <Text className="text-muted text-sm">{item.vendor}</Text>
+                              {item.source === "custom" ? (
+                                <View className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                                  <Text className="text-[10px] font-medium text-primary">Custom</Text>
+                                </View>
+                              ) : null}
+                            </View>
                             <View className="flex-row items-center mt-1">
                               <Text className="text-primary font-semibold">${item.price}</Text>
-                              <Text className="text-muted text-xs ml-2">
-                                {item.inventory > 0 ? `${item.inventory} in stock` : "Out of stock"}
-                              </Text>
+                              {item.source === "custom" ? (
+                                <Text className="text-muted text-xs ml-2">Trainer delivery only</Text>
+                              ) : (
+                                <Text className="text-muted text-xs ml-2">
+                                  {item.inventory > 0 ? `${item.inventory} in stock` : "Out of stock"}
+                                </Text>
+                              )}
                             </View>
                           </View>
                         </TouchableOpacity>
@@ -1788,7 +2086,20 @@ export default function BundleEditorScreen() {
                           style={{ padding: 12, marginRight: -8 }}
                           onPress={() => {
                             if (!isBundle) {
-                              toggleProduct(item);
+                              if (item.source === "custom") {
+                                isSelected
+                                  ? updateForm(
+                                      "products",
+                                      form.products.filter(
+                                        (product) =>
+                                          getBundleProductKey(product) !== itemKey,
+                                      ),
+                                    )
+                                  : addCustomProductWithQuantity(item, 1);
+                                haptics.light();
+                              } else {
+                                toggleProduct(item);
+                              }
                             }
                           }}
                           activeOpacity={0.7}
@@ -1810,11 +2121,42 @@ export default function BundleEditorScreen() {
                   ListEmptyComponent={
                     <View className="items-center py-8">
                       <IconSymbol name="bag.fill" size={40} color={colors.muted} />
-                      <Text className="text-muted mt-2">No products found</Text>
+                      <Text className="text-muted mt-2">
+                        {productSourceFilter === "custom"
+                          ? "No custom products yet"
+                          : "No products found"}
+                      </Text>
+                      {productSourceFilter === "custom" ? (
+                        <Text className="text-muted text-sm mt-1 text-center">
+                          Create trainer-delivered custom products such as tennis balls or gloves.
+                        </Text>
+                      ) : null}
                     </View>
                   }
                 />
               )}
+
+              {productSourceFilter === "custom" ? (
+                <TouchableOpacity
+                  onPress={() => setShowCustomProductModal(true)}
+                  style={{
+                    position: "absolute",
+                    right: 16,
+                    bottom: 96,
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    backgroundColor: colors.primary,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create custom product"
+                  testID="bundle-products-add-custom-fab"
+                >
+                  <IconSymbol name="plus" size={24} color={colors.background} />
+                </TouchableOpacity>
+              ) : null}
 
               {/* Done Button */}
               <SafeAreaView edges={["bottom"]} style={{ backgroundColor: colors.background }}>
@@ -1833,6 +2175,97 @@ export default function BundleEditorScreen() {
           </SafeAreaView>
         </Modal>
 
+        <Modal
+          visible={showCustomProductModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCustomProductModal(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              justifyContent: "center",
+              paddingHorizontal: 16,
+              backgroundColor: "rgba(0,0,0,0.75)",
+            }}
+          >
+            <View className="bg-surface rounded-2xl p-5 border border-border">
+              <Text className="text-xl font-bold text-foreground">Create Custom Product</Text>
+              <Text className="text-sm text-muted mt-1 mb-4">
+                This product is reusable, trainer-owned, and delivered by you through the app.
+              </Text>
+
+              <Text className="text-sm font-medium text-muted mb-2">Name</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+                placeholder="e.g. Tennis balls"
+                placeholderTextColor={colors.muted}
+                value={customProductName}
+                onChangeText={setCustomProductName}
+              />
+
+              <Text className="text-sm font-medium text-muted mb-2">Price</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+                placeholder="e.g. 12.50"
+                placeholderTextColor={colors.muted}
+                value={customProductPrice}
+                onChangeText={setCustomProductPrice}
+                keyboardType="decimal-pad"
+              />
+
+              <Text className="text-sm font-medium text-muted mb-2">Description (optional)</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground min-h-[88px] mb-3"
+                placeholder="Describe the product and what the trainer delivers."
+                placeholderTextColor={colors.muted}
+                value={customProductDescription}
+                onChangeText={setCustomProductDescription}
+                multiline
+                textAlignVertical="top"
+              />
+
+              <Text className="text-sm font-medium text-muted mb-2">Image URL (optional)</Text>
+              <TextInput
+                className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+                placeholder="https://..."
+                placeholderTextColor={colors.muted}
+                value={customProductImageUrl}
+                onChangeText={setCustomProductImageUrl}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <View className="flex-row gap-3">
+                <TouchableOpacity
+                  className="flex-1 bg-background border border-border rounded-xl py-3 items-center"
+                  onPress={() => setShowCustomProductModal(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel custom product creation"
+                  testID="bundle-custom-product-cancel"
+                >
+                  <Text className="text-foreground font-medium">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="flex-1 bg-primary rounded-xl py-3 items-center"
+                  onPress={handleCreateCustomProduct}
+                  disabled={createCustomProductMutation.isPending}
+                  style={{ opacity: createCustomProductMutation.isPending ? 0.7 : 1 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save custom product"
+                  testID="bundle-custom-product-save"
+                >
+                  {createCustomProductMutation.isPending ? (
+                    <ActivityIndicator size="small" color={colors.background} />
+                  ) : (
+                    <Text className="text-background font-semibold">Save Product</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Barcode Scanner Modal */}
         <Modal
           visible={showBarcodeScanner}
@@ -1840,8 +2273,8 @@ export default function BundleEditorScreen() {
           presentationStyle="fullScreen"
           onRequestClose={() => setShowBarcodeScanner(false)}
         >
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={["top"]}>
-            <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+            <View style={{ flex: 1, backgroundColor: colors.background }}>
               {/* Header */}
               <View style={{ 
                 flexDirection: 'row', 
@@ -1849,11 +2282,11 @@ export default function BundleEditorScreen() {
                 justifyContent: 'space-between', 
                 paddingHorizontal: 16, 
                 paddingVertical: 16,
-                backgroundColor: 'rgba(0,0,0,0.8)'
+                backgroundColor: ds.colors.overlay.scrim
               }}>
-                <Text style={{ fontSize: 18, fontWeight: '600', color: '#fff' }}>Scan Product Barcode</Text>
+                <Text style={{ fontSize: 18, fontWeight: '600', color: colors["foreground-inverse"] }}>Scan Product Barcode</Text>
                 <TouchableOpacity onPress={() => setShowBarcodeScanner(false)}>
-                  <IconSymbol name="xmark" size={24} color="#fff" />
+                  <IconSymbol name="xmark" size={24} color={colors["foreground-inverse"]} />
                 </TouchableOpacity>
               </View>
 
@@ -1887,7 +2320,7 @@ export default function BundleEditorScreen() {
                     backgroundColor: 'transparent',
                   }} />
                   <Text style={{ 
-                    color: '#fff', 
+                    color: colors["foreground-inverse"], 
                     marginTop: 20, 
                     fontSize: 14,
                     textAlign: 'center',
@@ -1937,8 +2370,13 @@ export default function BundleEditorScreen() {
                     haptics.light();
                   }}
                   style={{ padding: 4 }}
+                  disabled={selectedProductDetail?.source === "custom"}
                 >
-                  <IconSymbol name="barcode.viewfinder" size={24} color={colors.foreground} />
+                  <IconSymbol
+                    name="barcode.viewfinder"
+                    size={24}
+                    color={selectedProductDetail?.source === "custom" ? colors.muted : colors.foreground}
+                  />
                 </TouchableOpacity>
               </View>
 
@@ -1946,9 +2384,9 @@ export default function BundleEditorScreen() {
                 <ScrollView className="flex-1">
                   {/* Product Image */}
                   <View style={{ width: '100%', height: 300, backgroundColor: colors.surface }}>
-                    {selectedProductDetail.imageUrl ? (
+                    {selectedProductDetail!.imageUrl ? (
                       <Image
-                        source={{ uri: selectedProductDetail.imageUrl }}
+                        source={{ uri: selectedProductDetail!.imageUrl || undefined }}
                         style={{ width: '100%', height: 300 }}
                         contentFit="cover"
                       />
@@ -1962,25 +2400,25 @@ export default function BundleEditorScreen() {
                   {/* Product Info */}
                   <View className="p-4">
                     <Text className="text-2xl font-bold text-foreground mb-1">
-                      {selectedProductDetail.title}
+                        {selectedProductDetail!.title}
                     </Text>
                     <Text className="text-muted text-base mb-4">
-                      {selectedProductDetail.vendor}
+                        {selectedProductDetail!.vendor}
                     </Text>
 
                     {/* Price and Stock */}
                     <View className="flex-row items-center mb-4">
                       <Text className="text-2xl font-bold text-primary">
-                        ${selectedProductDetail.price}
+                        ${selectedProductDetail!.price}
                       </Text>
                       <View className={`ml-3 px-3 py-1 rounded-full ${
-                        selectedProductDetail.inventory > 0 ? 'bg-success/20' : 'bg-error/20'
+                        selectedProductDetail!.inventory > 0 ? 'bg-success/20' : 'bg-error/20'
                       }`}>
                         <Text className={`text-sm font-medium ${
-                          selectedProductDetail.inventory > 0 ? 'text-success' : 'text-error'
+                          selectedProductDetail!.inventory > 0 ? 'text-success' : 'text-error'
                         }`}>
-                          {selectedProductDetail.inventory > 0 
-                            ? `${selectedProductDetail.inventory} in stock` 
+                          {selectedProductDetail!.inventory > 0 
+                            ? `${selectedProductDetail!.inventory} in stock` 
                             : 'Out of stock'}
                         </Text>
                       </View>
@@ -2016,7 +2454,7 @@ export default function BundleEditorScreen() {
                           </Text>
                           <TouchableOpacity
                             onPress={() => {
-                              if (detailQuantity < selectedProductDetail.inventory || selectedProductDetail.inventory === 0) {
+                              if (detailQuantity < selectedProductDetail!.inventory || selectedProductDetail!.inventory === 0) {
                                 setDetailQuantity(detailQuantity + 1);
                                 haptics.light();
                               }
@@ -2035,7 +2473,10 @@ export default function BundleEditorScreen() {
                         </View>
                       </View>
                       {(() => {
-                        const existingProduct = form.products.find((p) => p.id === selectedProductDetail.id);
+                        const selectedKey = getBundleProductKey(selectedProductDetail!);
+                        const existingProduct = form.products.find(
+                          (p) => getBundleProductKey(p) === selectedKey,
+                        );
                         if (existingProduct) {
                           return (
                             <Text className="text-primary text-sm mt-2">
@@ -2053,38 +2494,38 @@ export default function BundleEditorScreen() {
                       
                       <View className="flex-row justify-between py-2 border-b border-border">
                         <Text className="text-muted">Type</Text>
-                        <Text className="text-foreground">{selectedProductDetail.productType || 'N/A'}</Text>
+                        <Text className="text-foreground">{selectedProductDetail!.productType || 'N/A'}</Text>
                       </View>
                       
                       <View className="flex-row justify-between py-2 border-b border-border">
                         <Text className="text-muted">SKU</Text>
-                        <Text className="text-foreground">{selectedProductDetail.sku || 'N/A'}</Text>
+                        <Text className="text-foreground">{selectedProductDetail!.sku || 'N/A'}</Text>
                       </View>
                       
                       <View className="flex-row justify-between py-2 border-b border-border">
                         <Text className="text-muted">Vendor</Text>
-                        <Text className="text-foreground">{selectedProductDetail.vendor || 'N/A'}</Text>
+                        <Text className="text-foreground">{selectedProductDetail!.vendor || 'N/A'}</Text>
                       </View>
                       
                       <View className="flex-row justify-between py-2">
                         <Text className="text-muted">Status</Text>
-                        <Text className="text-foreground capitalize">{selectedProductDetail.status || 'active'}</Text>
+                        <Text className="text-foreground capitalize">{selectedProductDetail!.status || 'active'}</Text>
                       </View>
                     </View>
 
                     {/* Description */}
-                    {selectedProductDetail.description && (
+                    {selectedProductDetail!.description && (
                       <View className="mb-4">
                         <Text className="text-foreground font-semibold mb-2">Description</Text>
                         <Text className="text-muted leading-6">
-                          {selectedProductDetail.description}
+                          {selectedProductDetail!.description}
                         </Text>
                       </View>
                     )}
 
                     {/* Product Recommendations */}
                     {(() => {
-                      const recommendations = getRecommendedProducts(selectedProductDetail);
+                      const recommendations = getRecommendedProducts(selectedProductDetail!);
                       if (recommendations.length === 0) return null;
                       return (
                         <View className="mb-4">
@@ -2143,14 +2584,17 @@ export default function BundleEditorScreen() {
               <SafeAreaView edges={["bottom"]} style={{ backgroundColor: colors.background }}>
                 <View className="p-4 border-t border-border">
                   {selectedProductDetail && (() => {
-                    const existingProduct = form.products.find((p) => p.id === selectedProductDetail.id);
+                    const selectedKey = getBundleProductKey(selectedProductDetail!);
+                    const existingProduct = form.products.find(
+                      (p) => getBundleProductKey(p) === selectedKey,
+                    );
                     const isSelected = !!existingProduct;
                     return (
                       <View>
                         <TouchableOpacity
                           className="bg-primary rounded-xl py-4 items-center mb-2"
                           onPress={() => {
-                            addProductWithQuantity(selectedProductDetail, detailQuantity);
+                            addProductWithQuantity(selectedProductDetail!, detailQuantity);
                             closeProductDetail();
                           }}
                         >
@@ -2164,7 +2608,7 @@ export default function BundleEditorScreen() {
                           <TouchableOpacity
                             className="bg-error rounded-xl py-4 items-center"
                             onPress={() => {
-                              toggleProduct(selectedProductDetail);
+                              toggleProduct(selectedProductDetail!);
                               closeProductDetail();
                             }}
                           >
@@ -2189,8 +2633,8 @@ export default function BundleEditorScreen() {
           presentationStyle="fullScreen"
           onRequestClose={() => setShowDetailBarcodeScanner(false)}
         >
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={["top"]}>
-            <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>
+            <View style={{ flex: 1, backgroundColor: colors.background }}>
               {/* Header */}
               <View style={{ 
                 flexDirection: 'row', 
@@ -2198,12 +2642,12 @@ export default function BundleEditorScreen() {
                 justifyContent: 'space-between', 
                 paddingHorizontal: 16, 
                 paddingVertical: 16,
-                backgroundColor: 'rgba(0,0,0,0.8)'
+                backgroundColor: ds.colors.overlay.scrim
               }}>
                 <TouchableOpacity onPress={() => setShowDetailBarcodeScanner(false)}>
-                  <IconSymbol name="xmark" size={24} color="#FFF" />
+                  <IconSymbol name="xmark" size={24} color={colors["foreground-inverse"]} />
                 </TouchableOpacity>
-                <Text style={{ color: '#FFF', fontSize: 18, fontWeight: '600' }}>Scan Product</Text>
+                <Text style={{ color: colors["foreground-inverse"], fontSize: 18, fontWeight: '600' }}>Scan Product</Text>
                 <View style={{ width: 24 }} />
               </View>
 
@@ -2223,7 +2667,7 @@ export default function BundleEditorScreen() {
                       );
                       if (matchedProduct) {
                         haptics.success();
-                        setSelectedProductDetail(matchedProduct);
+                        setSelectedProductDetail(mapShopifyProductToBundleItem(matchedProduct));
                         setDetailQuantity(1);
                         setShowDetailBarcodeScanner(false);
                       } else {
@@ -2239,11 +2683,11 @@ export default function BundleEditorScreen() {
                       width: 250,
                       height: 250,
                       borderWidth: 2,
-                      borderColor: 'rgba(255,255,255,0.5)',
+                      borderColor: withAlpha(colors["foreground-inverse"], 0.5),
                       borderRadius: 16,
                     }} />
                     <Text style={{ 
-                      color: '#FFF', 
+                      color: colors["foreground-inverse"], 
                       marginTop: 20, 
                       fontSize: 14,
                       textAlign: 'center',
@@ -2254,7 +2698,7 @@ export default function BundleEditorScreen() {
                 </CameraView>
               ) : (
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: '#FFF', marginBottom: 16 }}>Camera permission required</Text>
+                  <Text style={{ color: colors["foreground-inverse"], marginBottom: 16 }}>Camera permission required</Text>
                   <TouchableOpacity
                     onPress={requestCameraPermission}
                     style={{

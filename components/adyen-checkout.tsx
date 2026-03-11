@@ -42,6 +42,8 @@ export function AdyenCheckout({
   onPaymentComplete,
   onError,
 }: AdyenCheckoutProps) {
+  const colors = useColors();
+
   if (Platform.OS === "web") {
     return (
       <AdyenWebCheckout
@@ -55,9 +57,9 @@ export function AdyenCheckout({
     );
   }
 
-  const colors = useColors();
   return (
     <View className="items-center justify-center py-8 px-4">
+      <ActivityIndicator color={colors.primary} />
       <Text className="text-foreground font-semibold text-center mb-2">
         Card checkout requires native module setup
       </Text>

@@ -35,8 +35,13 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
 }) {
   const colors = useColors();
   const [showFulfillment, setShowFulfillment] = useState(false);
+  const availableFulfillmentOptions =
+    item.type === "bundle"
+      ? FULFILLMENT_OPTIONS.filter((option) => option.value === "trainer_delivery")
+      : FULFILLMENT_OPTIONS;
 
-  const currentFulfillment = FULFILLMENT_OPTIONS.find((f) => f.value === item.fulfillment);
+  const currentFulfillment = availableFulfillmentOptions.find((f) => f.value === item.fulfillment) ||
+    FULFILLMENT_OPTIONS.find((f) => f.value === item.fulfillment);
 
   return (
     <View className="bg-surface border border-border rounded-xl mb-4 overflow-hidden">
@@ -127,7 +132,7 @@ function CartItemCard({ item, onUpdateQuantity, onUpdateFulfillment, onRemove }:
 
       {showFulfillment && (
         <View className="px-4 pb-4 gap-2">
-          {FULFILLMENT_OPTIONS.map((option) => (
+          {availableFulfillmentOptions.map((option) => (
             <TouchableOpacity
               key={option.value}
               className={`flex-row items-center p-3 rounded-lg border ${

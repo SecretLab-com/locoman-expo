@@ -98,7 +98,6 @@ export function ShareButton({
       }
 
       // Generate the shareable link
-      const deepLink = generateShareableLink(content);
       const webLink = generateWebShareableLink(content);
 
       // Build the share message

@@ -12,6 +12,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "lint": "expo lint",
+    "lint:design-system": "eslint 'app/**/*.tsx' 'components/**/*.tsx' 'features/**/*.tsx'",
     "format": "prettier --write .",
     "test": "vitest run",
     "android": "expo run:android",

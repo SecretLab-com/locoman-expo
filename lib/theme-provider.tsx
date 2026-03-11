@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Appearance, View, useColorScheme as useSystemColorScheme, Platform } from "react-native";
+import { Appearance, View, useColorScheme as useSystemColorScheme } from "react-native";
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -23,7 +23,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Default to dark mode to match Bright Express style
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>("dark");
   const [colorScheme, setColorSchemeState] = useState<ColorScheme>("dark");
-  const [isInitialized, setIsInitialized] = useState(false);
 
   // Load saved theme preference on mount
   useEffect(() => {
@@ -39,7 +38,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error("Failed to load theme preference:", error);
       } finally {
-        setIsInitialized(true);
+        // no-op; theme application continues after hydration
       }
     }
     loadThemePreference();
@@ -94,17 +93,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const themeVariables = useMemo(
     () =>
-      vars({
-        "color-primary": SchemeColors[colorScheme].primary,
-        "color-background": SchemeColors[colorScheme].background,
-        "color-surface": SchemeColors[colorScheme].surface,
-        "color-foreground": SchemeColors[colorScheme].foreground,
-        "color-muted": SchemeColors[colorScheme].muted,
-        "color-border": SchemeColors[colorScheme].border,
-        "color-success": SchemeColors[colorScheme].success,
-        "color-warning": SchemeColors[colorScheme].warning,
-        "color-error": SchemeColors[colorScheme].error,
-      }),
+      vars(
+        Object.fromEntries(
+          Object.entries(SchemeColors[colorScheme]).map(([token, value]) => [
+            `color-${token}`,
+            value,
+          ]),
+        ),
+      ),
     [colorScheme],
   );
 

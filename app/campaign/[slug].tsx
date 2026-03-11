@@ -1,10 +1,12 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 export default function PublicCampaignPage() {
+  const colors = useColors();
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const query = trpc.catalog.campaignByShareSlug.useQuery(
     { slug: String(slug || "") },
@@ -25,12 +27,12 @@ export default function PublicCampaignPage() {
             accessibilityLabel="Go back"
             testID="public-campaign-back"
           >
-            <IconSymbol name="arrow.left" size={20} color="#111827" />
+            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
           </TouchableOpacity>
 
           {query.isLoading ? (
             <View className="py-20 items-center">
-              <ActivityIndicator size="large" color="#2563EB" />
+              <ActivityIndicator size="large" color={colors.primary} />
               <Text className="text-muted mt-3">Loading campaign...</Text>
             </View>
           ) : !campaign ? (

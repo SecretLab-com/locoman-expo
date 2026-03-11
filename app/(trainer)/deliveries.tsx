@@ -15,6 +15,7 @@ import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
 import { trpc } from "@/lib/trpc";
+import { Image } from "expo-image";
 
 type DeliveryStatus = "pending" | "ready" | "scheduled" | "out_for_delivery" | "delivered" | "confirmed" | "disputed" | "cancelled";
 type DeliveryMethod = "in_person" | "locker" | "front_desk" | "shipped";
@@ -26,7 +27,10 @@ type Delivery = {
   trainerId: string;
   clientId: string;
   productId: string | null;
+  customProductId: string | null;
   productName: string;
+  productImageUrl: string | null;
+  unitPrice: string | null;
   quantity: number;
   status: DeliveryStatus | null;
   scheduledDate: string | null;
@@ -101,6 +105,7 @@ export default function TrainerDeliveriesScreen() {
 
   // Use real API
   const { data: deliveries = [], isLoading, refetch, isRefetching } = trpc.deliveries.list.useQuery();
+  const { data: products = [] } = trpc.catalog.products.useQuery(undefined, { staleTime: 60000 });
   const markReadyMutation = trpc.deliveries.markReady.useMutation({
     onSuccess: () => utils.deliveries.list.invalidate(),
   });
@@ -116,6 +121,12 @@ export default function TrainerDeliveriesScreen() {
 
   const filteredDeliveries = (deliveries as Delivery[]).filter(
     (d) => activeTab === "all" || d.status === activeTab
+  );
+  const productImageById = new Map(
+    (products as { id: string; imageUrl: string | null }[]).map((product) => [
+      String(product.id),
+      product.imageUrl || null,
+    ]),
   );
 
   const onRefresh = useCallback(async () => {
@@ -266,8 +277,24 @@ export default function TrainerDeliveriesScreen() {
     return new Date(date).toLocaleDateString();
   };
 
-  const hasRescheduleRequest = (delivery: Delivery) => {
-    return Boolean(parseRescheduleRequest(delivery.clientNotes));
+  const renderProductImage = (delivery: Delivery) => {
+    const resolvedImage =
+      delivery.productImageUrl ||
+      (delivery.productId ? productImageById.get(String(delivery.productId)) || null : null);
+    if (resolvedImage) {
+      return (
+        <Image
+          source={{ uri: resolvedImage }}
+          style={{ width: 64, height: 64 }}
+          contentFit="cover"
+        />
+      );
+    }
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <IconSymbol name="shippingbox.fill" size={24} color={colors.primary} />
+      </View>
+    );
   };
 
   const renderDelivery = ({ item }: { item: Delivery }) => {
@@ -295,24 +322,36 @@ export default function TrainerDeliveriesScreen() {
 
       {/* Product Info */}
       <View className="bg-background rounded-lg p-3 mb-3">
-        <Text className="text-foreground font-medium">{item.productName}</Text>
-        <Text className="text-muted text-sm">Quantity: {item.quantity}</Text>
-        <View className="flex-row items-center mt-1">
-          <IconSymbol name="calendar" size={14} color={colors.muted} />
-          <Text className="text-muted text-sm ml-1">{formatDate(item.scheduledDate)}</Text>
-        </View>
-        <View className="flex-row items-center mt-1">
-          <IconSymbol name="shippingbox.fill" size={14} color={colors.muted} />
-          <Text className="text-muted text-sm ml-1">
-            {item.deliveryMethod ? METHOD_LABELS[item.deliveryMethod] : "Not set"}
-          </Text>
-        </View>
-        {item.trackingNumber && (
-          <View className="flex-row items-center mt-1">
-            <IconSymbol name="barcode" size={14} color={colors.muted} />
-            <Text className="text-muted text-sm ml-1">{item.trackingNumber}</Text>
+        <View className="flex-row">
+          <View style={{ width: 64, height: 64, borderRadius: 8, marginRight: 12, backgroundColor: colors.border, overflow: "hidden" }}>
+            {renderProductImage(item)}
           </View>
-        )}
+          <View className="flex-1">
+            <Text className="text-foreground font-medium">{item.productName}</Text>
+            <Text className="text-muted text-sm mt-1">Quantity: {item.quantity}</Text>
+            {item.unitPrice ? (
+              <Text className="text-primary text-sm mt-1">
+                £{Number(item.unitPrice || 0).toFixed(2)} each
+              </Text>
+            ) : null}
+            <View className="flex-row items-center mt-2">
+              <IconSymbol name="calendar" size={14} color={colors.muted} />
+              <Text className="text-muted text-sm ml-1">{formatDate(item.scheduledDate)}</Text>
+            </View>
+            <View className="flex-row items-center mt-1">
+              <IconSymbol name="shippingbox.fill" size={14} color={colors.muted} />
+              <Text className="text-muted text-sm ml-1">
+                {item.deliveryMethod ? METHOD_LABELS[item.deliveryMethod] : "Not set"}
+              </Text>
+            </View>
+            {item.trackingNumber && (
+              <View className="flex-row items-center mt-1">
+                <IconSymbol name="barcode" size={14} color={colors.muted} />
+                <Text className="text-muted text-sm ml-1">{item.trackingNumber}</Text>
+              </View>
+            )}
+          </View>
+        </View>
       </View>
 
       {/* Reschedule Request */}

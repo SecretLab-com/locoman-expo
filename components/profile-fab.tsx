@@ -1,7 +1,10 @@
+import { AppText } from "@/components/ui/app-text";
+import { FAB } from "@/components/ui/fab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { ModalSurface } from "@/components/ui/modal-surface";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useBadgeContext } from "@/contexts/badge-context";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { useColors } from "@/hooks/use-colors";
 import { getApiBaseUrl } from "@/lib/api-config";
 import { trpc } from "@/lib/trpc";
@@ -14,7 +17,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -30,9 +32,9 @@ type MenuItem = {
 
 export function ProfileFAB() {
   const colors = useColors();
-  const colorScheme = useColorScheme();
+  const ds = useDesignSystem();
   const insets = useSafeAreaInsets();
-  const { user, effectiveUser, isAuthenticated, logout, isTrainer, effectiveRole } = useAuthContext();
+  const { user, effectiveUser, isAuthenticated, logout, effectiveRole } = useAuthContext();
   const { counts } = useBadgeContext();
   const { data: latestProfile } = trpc.profile.get.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -115,24 +117,12 @@ export function ProfileFAB() {
     router.push(`${roleBase}/profile` as any);
   };
 
-  // Navigate to settings - for trainers use their settings, others use profile
-  const navigateToSettings = () => {
-    if (isTrainer) {
-      router.push("/(trainer)/settings" as any);
-    } else {
-      router.push(`${roleBase}/profile` as any);
-    }
-  };
-
   const isUserAuthenticated = isAuthenticated || Boolean(effectiveUser);
   const rawAvatarUrl = latestProfile?.photoUrl || effectiveUser?.photoUrl || user?.photoUrl || undefined;
   const avatarVersion = latestProfile?.updatedAt || effectiveUser?.updatedAt || user?.updatedAt || "";
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
-  const isDark = colorScheme === "dark";
-  const shadowColor = isDark ? "#000" : colors.border;
-  const fabBackgroundColor = isDark ? "rgba(21, 21, 32, 0.96)" : colors.surface;
-  const fabBorderColor = isDark ? "rgba(96, 165, 250, 0.55)" : colors.border;
-  const fabShadowOpacity = isDark ? 0.4 : 0.12;
+  const fabBackgroundColor = ds.colors.surface.overlay;
+  const fabBorderColor = ds.colors.border.strong;
 
   const avatarUrl = useMemo(() => {
     if (!rawAvatarUrl) return undefined;
@@ -211,7 +201,8 @@ export function ProfileFAB() {
   return (
     <>
       {showFloatingAlerts ? (
-        <TouchableOpacity
+        <FAB
+          icon="bell.fill"
           onPress={() => router.push("/(trainer)/alerts" as any)}
           activeOpacity={0.8}
           accessibilityRole="button"
@@ -222,10 +213,9 @@ export function ProfileFAB() {
             {
               top: insets.top + 10,
               right: alertFabRightOffset,
-              backgroundColor: fabBackgroundColor,
-              borderColor: fabBorderColor,
-              shadowColor,
-              shadowOpacity: fabShadowOpacity,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
             },
           ]}
         >
@@ -234,19 +224,20 @@ export function ProfileFAB() {
             {alertBadgeCount > 0 ? (
               <View
                 className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] rounded-full px-1 items-center justify-center"
-                style={{ backgroundColor: "#EF4444" }}
+                style={{ backgroundColor: ds.colors.status.error }}
               >
-                <Text className="text-[10px] font-bold text-white">
+                <AppText variant="caption2" tone="inverse" weight="bold">
                   {alertBadgeCount > 99 ? "99+" : alertBadgeCount}
-                </Text>
+                </AppText>
               </View>
             ) : null}
           </View>
-        </TouchableOpacity>
+        </FAB>
       ) : null}
 
       {/* FAB Button */}
-      <TouchableOpacity
+      <FAB
+        icon="person.circle.fill"
         onPress={handlePress}
         activeOpacity={0.8}
         accessibilityRole="button"
@@ -257,10 +248,6 @@ export function ProfileFAB() {
           {
             top: insets.top + 8,
             right: profileFabRightOffset,
-            backgroundColor: fabBackgroundColor,
-            borderColor: fabBorderColor,
-            shadowColor,
-            shadowOpacity: fabShadowOpacity,
           },
         ]}
       >
@@ -276,7 +263,9 @@ export function ProfileFAB() {
           />
         ) : isUserAuthenticated ? (
           <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
-            <Text style={[styles.avatarInitials, { color: colors.background }]}>{getInitials()}</Text>
+            <AppText variant="bodySm" weight="semibold" style={{ color: colors.background }}>
+              {getInitials()}
+            </AppText>
           </View>
         ) : (
           <IconSymbol name="person.circle.fill" size={30} color={colors.foreground} />
@@ -291,13 +280,13 @@ export function ProfileFAB() {
               width: 10,
               height: 10,
               borderRadius: 5,
-              backgroundColor: "#EF4444",
+              backgroundColor: ds.colors.status.error,
               borderWidth: 1,
               borderColor: fabBackgroundColor,
             }}
           />
         ) : null}
-      </TouchableOpacity>
+      </FAB>
 
       {/* Menu Modal */}
       <Modal
@@ -306,32 +295,32 @@ export function ProfileFAB() {
         animationType="fade"
         onRequestClose={closeMenu}
       >
-        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)" }} onPress={closeMenu}>
-          <View
+        <Pressable style={{ flex: 1, backgroundColor: ds.colors.overlay.scrim }} onPress={closeMenu}>
+          <ModalSurface
             style={[
               styles.menu,
               {
                 top: insets.top + 56,
                 right: profileFabRightOffset,
-                backgroundColor: isDark ? "#1E1E2E" : "#FFFFFF",
-                borderColor: colors.border,
-                shadowColor,
+                backgroundColor: ds.colors.surface.elevated,
+                borderColor: ds.colors.border.default,
+                ...ds.elevation.lg,
               },
             ]}
           >
             {/* User Info Header (if authenticated) */}
             {isUserAuthenticated && (effectiveUser || user) && (
               <View style={[styles.menuHeader, { borderBottomColor: colors.border }]}>
-                <Text style={[styles.userName, { color: colors.foreground }]}>
+                <AppText variant="body" weight="semibold">
                   {effectiveUser?.name || user?.name || effectiveUser?.email || user?.email}
-                </Text>
-                <Text style={[styles.userRole, { color: colors.muted }]}>
+                </AppText>
+                <AppText variant="label" tone="secondary" style={{ marginTop: 2 }}>
                   {effectiveUser?.role
                     ? effectiveUser.role.charAt(0).toUpperCase() + effectiveUser.role.slice(1)
                     : user?.role
                       ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
                       : "User"}
-                </Text>
+                </AppText>
               </View>
             )}
 
@@ -351,14 +340,13 @@ export function ProfileFAB() {
                   size={20}
                   color={item.destructive ? colors.error : colors.foreground}
                 />
-                <Text
-                  style={[
-                    styles.menuItemText,
-                    { color: item.destructive ? colors.error : colors.foreground },
-                  ]}
+                <AppText
+                  variant="bodySm"
+                  tone={item.destructive ? "error" : "default"}
+                  style={styles.menuItemText}
                 >
                   {item.label}
-                </Text>
+                </AppText>
                 {item.showDot ? (
                   <View
                     pointerEvents="none"
@@ -367,13 +355,13 @@ export function ProfileFAB() {
                       width: 10,
                       height: 10,
                       borderRadius: 5,
-                      backgroundColor: "#EF4444",
+                      backgroundColor: ds.colors.status.error,
                     }}
                   />
                 ) : null}
               </TouchableOpacity>
             ))}
-          </View>
+          </ModalSurface>
         </Pressable>
       </Modal>
     </>
@@ -384,32 +372,10 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     zIndex: 1000,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 5,
   },
   alertFab: {
     position: "absolute",
     zIndex: 999,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 5,
   },
   fabRing: {
     ...StyleSheet.absoluteFillObject,
@@ -429,34 +395,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarInitials: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
   menu: {
     position: "absolute",
     minWidth: 200,
     borderRadius: 12,
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
     overflow: "hidden",
   },
   menuHeader: {
     padding: 16,
     borderBottomWidth: 1,
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  userRole: {
-    fontSize: 13,
-    marginTop: 2,
   },
   menuItem: {
     flexDirection: "row",
@@ -465,7 +413,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   menuItemText: {
-    fontSize: 15,
     marginLeft: 12,
   },
 });

@@ -2,14 +2,15 @@ import React from "react";
 import {
   TouchableOpacity,
   TouchableOpacityProps,
-  Text,
   ActivityIndicator,
   StyleSheet,
   View,
 } from "react-native";
+import { AppText } from "@/components/ui/app-text";
+import { getButtonRecipe } from "@/design-system/recipes";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { haptics } from "@/hooks/use-haptics";
 import { cn } from "@/lib/utils";
-import { useColors } from "@/hooks/use-colors";
 
 interface HapticButtonProps extends TouchableOpacityProps {
   variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
@@ -39,7 +40,7 @@ export function HapticButton({
   style,
   ...props
 }: HapticButtonProps) {
-  const colors = useColors();
+  const ds = useDesignSystem();
   const handlePress = async (e: any) => {
     if (disabled || loading) return;
 
@@ -61,35 +62,12 @@ export function HapticButton({
     onPress?.(e);
   };
 
-  const variantStyles = {
-    primary: "bg-primary",
-    secondary: "bg-surface border border-border",
-    outline: "bg-transparent border border-primary",
-    ghost: "bg-transparent",
-    danger: "bg-error",
-  };
-
-  const variantTextStyles = {
-    primary: "text-white",
-    secondary: "text-foreground",
-    outline: "text-primary",
-    ghost: "text-primary",
-    danger: "text-white",
-  };
-
-  const sizeStyles = {
-    sm: "px-3 py-1.5",
-    md: "px-4 py-2.5",
-    lg: "px-6 py-3.5",
-  };
-
-  const sizeTextStyles = {
-    sm: "text-sm",
-    md: "text-base",
-    lg: "text-lg",
-  };
-
-  const spinnerColor = variant === "primary" || variant === "danger" ? colors.background : colors.primary;
+  const recipe = getButtonRecipe(ds, {
+    variant,
+    size,
+    disabled: disabled || loading,
+  });
+  const spinnerColor = recipe.iconColor;
 
   const computedAccessibilityLabel =
     props.accessibilityLabel ||
@@ -105,14 +83,10 @@ export function HapticButton({
       accessibilityLabel={computedAccessibilityLabel}
       style={[
         styles.button,
-        disabled && styles.disabled,
+        recipe.container,
         style,
       ]}
       className={cn(
-        "rounded-xl flex-row items-center justify-center",
-        variantStyles[variant],
-        sizeStyles[size],
-        (disabled || loading) && "opacity-60",
         fullWidth && "w-full",
         className
       )}
@@ -122,32 +96,28 @@ export function HapticButton({
         loadingText ? (
           <View className="flex-row items-center justify-center">
             <ActivityIndicator size="small" color={spinnerColor} />
-            <Text
-              className={cn(
-                "font-semibold text-center ml-2",
-                variantTextStyles[variant],
-                sizeTextStyles[size],
-                textClassName
-              )}
+            <AppText
+              className={cn("ml-2", textClassName)}
+              variant={recipe.labelVariant}
+              tone={recipe.labelTone}
+              weight="semibold"
             >
               {loadingText}
-            </Text>
+            </AppText>
           </View>
         ) : (
           <ActivityIndicator size="small" color={spinnerColor} />
         )
       ) : (
         typeof children === "string" ? (
-          <Text
-            className={cn(
-              "font-semibold text-center",
-              variantTextStyles[variant],
-              sizeTextStyles[size],
-              textClassName
-            )}
+          <AppText
+            className={cn("text-center", textClassName)}
+            variant={recipe.labelVariant}
+            tone={recipe.labelTone}
+            weight="semibold"
           >
             {children}
-          </Text>
+          </AppText>
         ) : (
           children
         )
@@ -159,8 +129,5 @@ export function HapticButton({
 const styles = StyleSheet.create({
   button: {
     minHeight: 44,
-  },
-  disabled: {
-    opacity: 0.5,
   },
 });

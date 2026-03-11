@@ -180,7 +180,7 @@ export default function BundleDetailScreen() {
         bundle.duration === "weekly" || bundle.duration === "monthly"
           ? bundle.duration
           : "one_time",
-      fulfillment: "home_ship",
+      fulfillment: "trainer_delivery",
     });
     Alert.alert(
       "Added to cart",

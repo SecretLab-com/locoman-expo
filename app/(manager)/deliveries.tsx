@@ -98,7 +98,7 @@ export default function ManagerDeliveriesScreen() {
       case "delivered":
         return colors.success;
       case "confirmed":
-        return "#22C55E";
+        return colors.success;
       case "disputed":
         return colors.error;
       default:

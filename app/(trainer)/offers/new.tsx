@@ -28,6 +28,18 @@ type TemplateCandidate = {
   isPromoted?: boolean;
 };
 
+type SelectedOfferProduct = {
+  id: string;
+  name: string;
+  price: string;
+  imageUrl?: string | null;
+  quantity: number;
+  source?: "shopify" | "custom";
+  productId?: string;
+  customProductId?: string;
+  fulfillmentMethod?: "trainer_delivery" | "home_ship" | "vending" | "cafeteria";
+};
+
 const OFFER_TYPES: Array<{ value: OfferType; label: string; subtitle: string }> = [
   { value: "one_off_session", label: "One-off session", subtitle: "Single session payment" },
   { value: "multi_session_package", label: "Multi-session package", subtitle: "Bundle multiple sessions" },
@@ -115,7 +127,7 @@ export default function OfferWizardScreen() {
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [selectedProducts, setSelectedProducts] = useState<Array<{ id: string; name: string; price: string; imageUrl?: string | null; quantity: number }>>([]);
+  const [selectedProducts, setSelectedProducts] = useState<SelectedOfferProduct[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const { data: profileData } = trpc.profile.get.useQuery();
@@ -139,6 +151,22 @@ export default function OfferWizardScreen() {
     setImageUrl(offerData.imageUrl || "");
     setIncludedInput((offerData.included || []).join("\n"));
     setSessionCountInput(offerData.sessionCount ? String(offerData.sessionCount) : "");
+    const hydratedProducts: SelectedOfferProduct[] = Array.isArray((offerData as any).productsJson)
+      ? ((offerData as any).productsJson as Array<Record<string, any>>).map((product) => ({
+          id: String(product.productId || product.customProductId || product.id || ""),
+          productId: product.productId ? String(product.productId) : undefined,
+          customProductId: product.customProductId ? String(product.customProductId) : undefined,
+          source: (String(product.source || "").trim() === "custom" || product.customProductId
+            ? "custom"
+            : "shopify") as "shopify" | "custom",
+          name: String(product.name || product.title || "Product"),
+          price: String(product.price || "0.00"),
+          imageUrl: product.imageUrl || null,
+          quantity: Number(product.quantity) || 1,
+          fulfillmentMethod: (product.fulfillmentMethod || "trainer_delivery") as SelectedOfferProduct["fulfillmentMethod"],
+        }))
+      : [];
+    setSelectedProducts(hydratedProducts);
   }, [offerData]);
 
   const createOffer = trpc.offers.create.useMutation();
@@ -250,10 +278,17 @@ export default function OfferWizardScreen() {
 
         return {
           id: catalogMatch?.id ? String(catalogMatch.id) : pid,
+          productId: catalogMatch?.id ? String(catalogMatch.id) : (p.productId ? String(p.productId) : undefined),
+          customProductId: p.customProductId ? String(p.customProductId) : undefined,
+          source:
+            String(p.source || "").trim() === "custom" || p.customProductId
+              ? "custom"
+              : "shopify",
           name: String(catalogMatch?.name || p.name || p.title || "Product"),
           price: String(catalogMatch?.price || p.price || "0"),
           imageUrl: catalogMatch?.imageUrl || p.imageUrl || null,
           quantity: Number(p.quantity) || 1,
+          fulfillmentMethod: p.fulfillmentMethod || "trainer_delivery",
         };
       }));
     }
@@ -366,10 +401,13 @@ export default function OfferWizardScreen() {
 
     const productsForPayload = selectedProducts.map((p) => ({
       id: p.id,
-      productId: p.id,
+      source: p.source || "shopify",
+      productId: p.productId || (p.source === "shopify" ? p.id : undefined),
+      customProductId: p.customProductId || undefined,
       name: p.name,
       price: p.price,
       imageUrl: p.imageUrl,
+      fulfillmentMethod: p.fulfillmentMethod || "trainer_delivery",
       quantity: p.quantity,
     }));
 
@@ -486,7 +524,7 @@ export default function OfferWizardScreen() {
           {!isEditMode && step === 1 && (
             <View className="mb-4">
               <View className="flex-row items-center justify-between mb-3">
-                <Text className="text-base font-semibold text-foreground">1. Browse templates</Text>
+                <Text className="text-base font-semibold text-foreground">1. Browse Campaigns</Text>
                 <TouchableOpacity
                   onPress={() => {
                     setSelectedTemplateId("scratch");

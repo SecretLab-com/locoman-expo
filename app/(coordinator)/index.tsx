@@ -78,7 +78,7 @@ export default function CoordinatorHomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   // Fetch data from tRPC
-  const { data: coordinatorStats, isLoading: statsLoading, refetch: refetchStats } = trpc.coordinator.stats.useQuery();
+  const { data: coordinatorStats, refetch: refetchStats } = trpc.coordinator.stats.useQuery();
   const { data: topTrainersData, refetch: refetchTrainers } = trpc.coordinator.topTrainers.useQuery();
   const { data: topBundlesData, refetch: refetchBundles } = trpc.coordinator.topBundles.useQuery();
   const { data: pendingBundlesData, refetch: refetchPendingBundles } = trpc.admin.pendingBundles.useQuery();

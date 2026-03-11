@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Animated, PanResponder, type StyleProp, View, type ViewStyle } from "react-native";
 
+import { withAlpha } from "@/design-system/color-utils";
+import { useDesignSystem } from "@/hooks/use-design-system";
+
 type SwipeDownSheetProps = {
   visible: boolean;
   onClose: () => void;
@@ -20,6 +23,7 @@ export function SwipeDownSheet({
   dismissThreshold = 110,
   testID = "swipe-down-sheet-handle",
 }: SwipeDownSheetProps) {
+  const ds = useDesignSystem();
   const translateY = useRef(new Animated.Value(0)).current;
 
   const panResponder = useMemo(
@@ -73,7 +77,7 @@ export function SwipeDownSheet({
       >
         <View
           className="w-10 h-1 rounded-full"
-          style={{ backgroundColor: "rgba(148,163,184,0.55)" }}
+          style={{ backgroundColor: withAlpha(ds.colors.text.secondary, 0.55) }}
         />
       </View>
       {children}

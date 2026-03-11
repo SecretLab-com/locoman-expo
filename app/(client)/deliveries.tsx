@@ -29,7 +29,10 @@ type Delivery = {
   trainerId: string;
   clientId: string;
   productId: string | null;
+  customProductId: string | null;
   productName: string;
+  productImageUrl: string | null;
+  unitPrice: string | null;
   quantity: number;
   status: DeliveryStatus | null;
   scheduledDate: string | null;
@@ -284,7 +287,9 @@ export default function ClientDeliveriesScreen() {
 
   const renderDelivery = ({ item }: { item: Delivery }) => {
     const rescheduleRequest = parseRescheduleRequest(item.clientNotes);
-    const productImageUrl = item.productId ? productImageById.get(String(item.productId)) || null : null;
+    const productImageUrl =
+      item.productImageUrl ||
+      (item.productId ? productImageById.get(String(item.productId)) || null : null);
     return (
       <View className="bg-surface rounded-xl p-4 mb-3 border border-border">
       {/* Header */}
@@ -304,6 +309,11 @@ export default function ClientDeliveriesScreen() {
           <View className="flex-1 ml-4">
             <Text className="text-lg font-semibold text-foreground">{item.productName}</Text>
             <Text className="text-sm text-muted mt-1">Quantity: {item.quantity}</Text>
+            {item.unitPrice ? (
+              <Text className="text-sm text-primary mt-1">
+                £{Number(item.unitPrice || 0).toFixed(2)} each
+              </Text>
+            ) : null}
             <Text className="text-xs text-muted mt-2">
               {item.deliveryMethod ? METHOD_LABELS[item.deliveryMethod] : "Delivery details pending"}
             </Text>

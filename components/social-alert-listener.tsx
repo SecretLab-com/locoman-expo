@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { Alert } from "react-native";
 
 export function SocialAlertListener() {
-  const { isAuthenticated, isTrainer } = useAuthContext();
+  const { isAuthenticated, isTrainer, user } = useAuthContext();
   const { connect, disconnect, subscribe } = useWebSocket();
   const lastAlertKeyRef = useRef("");
 
@@ -25,7 +25,7 @@ export function SocialAlertListener() {
       unsubscribe();
       disconnect();
     };
-  }, [isAuthenticated, isTrainer, connect, disconnect, subscribe]);
+  }, [isAuthenticated, isTrainer, connect, disconnect, subscribe, user?.id]);
 
   return null;
 }

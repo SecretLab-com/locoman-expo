@@ -262,6 +262,27 @@ export type InsertBundleDraft = Partial<Omit<BundleDraft, "id" | "createdAt" | "
   title: string;
 };
 
+export type TrainerCustomProduct = {
+  id: string;
+  trainerId: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  price: string;
+  fulfillmentMethod: "trainer_delivery" | "home_ship" | "vending" | "cafeteria";
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertTrainerCustomProduct = Partial<
+  Omit<TrainerCustomProduct, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+  name: string;
+  price: string;
+};
+
 export type TemplateSettings = {
   templateVisibility?: string[];
   discountType?: string | null;
@@ -522,7 +543,10 @@ export type ProductDelivery = {
   trainerId: string;
   clientId: string;
   productId: string | null;
+  customProductId: string | null;
   productName: string;
+  productImageUrl: string | null;
+  unitPrice: string | null;
   quantity: number;
   status: string | null;
   scheduledDate: string | null;
@@ -1078,6 +1102,41 @@ export async function upsertUserPushToken(
     },
   };
 
+  const { data: otherRows, error: otherFetchError } = await sb()
+    .from("users")
+    .select("id, metadata")
+    .neq("id", userId);
+  if (otherFetchError) {
+    console.error("[Database] upsertUserPushToken fetch others:", otherFetchError.message);
+    throw otherFetchError;
+  }
+  for (const otherUser of otherRows || []) {
+    const otherMetadata = normalizeMetadata(otherUser.metadata);
+    const otherPushMeta = normalizeMetadata(otherMetadata.push);
+    const otherTokens = normalizePushTokenRecords(otherPushMeta.expoTokens);
+    const filteredTokens = otherTokens.filter((entry) => entry.token !== normalizedToken);
+    if (filteredTokens.length === otherTokens.length) continue;
+    const nextOtherMetadata = {
+      ...otherMetadata,
+      push: {
+        ...otherPushMeta,
+        expoTokens: filteredTokens,
+        updatedAt: now,
+      },
+    };
+    const { error: otherUpdateError } = await sb()
+      .from("users")
+      .update({ metadata: nextOtherMetadata })
+      .eq("id", otherUser.id);
+    if (otherUpdateError) {
+      console.error(
+        "[Database] upsertUserPushToken detach others:",
+        otherUpdateError.message,
+      );
+      throw otherUpdateError;
+    }
+  }
+
   const { error: updateError } = await sb()
     .from("users")
     .update({ metadata: nextMetadata })
@@ -1394,6 +1453,80 @@ export async function updateBundleDraft(id: string, data: Partial<InsertBundleDr
 export async function deleteBundleDraft(id: string) {
   const { error } = await sb().from("bundle_drafts").delete().eq("id", id);
   if (error) { console.error("[Database] deleteBundleDraft:", error.message); throw error; }
+}
+
+export async function listTrainerCustomProducts(
+  trainerId: string,
+  options?: { activeOnly?: boolean },
+): Promise<TrainerCustomProduct[]> {
+  let query = sb()
+    .from("trainer_custom_products")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("updated_at", { ascending: false });
+  if (options?.activeOnly !== false) {
+    query = query.eq("active", true);
+  }
+  const { data, error } = await query;
+  if (error) {
+    console.error("[Database] listTrainerCustomProducts:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerCustomProduct>(data || []);
+}
+
+export async function getTrainerCustomProductById(
+  id: string,
+): Promise<TrainerCustomProduct | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_custom_products")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getTrainerCustomProductById:", error.message);
+    return undefined;
+  }
+  return mapFromDb<TrainerCustomProduct>(data);
+}
+
+export async function getTrainerCustomProductsByIds(
+  ids: string[],
+  trainerId?: string,
+): Promise<TrainerCustomProduct[]> {
+  if (!ids.length) return [];
+  let query = sb()
+    .from("trainer_custom_products")
+    .select("*")
+    .in("id", ids);
+  if (trainerId) {
+    query = query.eq("trainer_id", trainerId);
+  }
+  const { data, error } = await query;
+  if (error) {
+    console.error("[Database] getTrainerCustomProductsByIds:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<TrainerCustomProduct>(data || []);
+}
+
+export async function createTrainerCustomProduct(
+  data: InsertTrainerCustomProduct,
+): Promise<TrainerCustomProduct | undefined> {
+  const payload = mapToDb({
+    ...data,
+    fulfillmentMethod: data.fulfillmentMethod || "trainer_delivery",
+  });
+  const { data: row, error } = await sb()
+    .from("trainer_custom_products")
+    .insert(payload)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] createTrainerCustomProduct:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerCustomProduct>(row);
 }
 
 export async function upsertBundleFromShopify(data: {

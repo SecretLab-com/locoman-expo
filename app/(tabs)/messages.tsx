@@ -11,7 +11,7 @@ import { trpc } from "@/lib/trpc";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
 import { router, Stack } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -187,7 +187,7 @@ export default function MessagesScreen() {
       try {
         const stored = await AsyncStorage.getItem(`messageGroups:${user.id}`);
         if (!stored) return;
-        const groups = JSON.parse(stored) as Array<{ id: string; name: string }>;
+        const groups = JSON.parse(stored) as { id: string; name: string }[];
         const map: Record<string, string> = {};
         for (const g of groups) {
           if (g.id && g.name) map[g.id] = g.name;
@@ -228,7 +228,7 @@ export default function MessagesScreen() {
       unsubscribe();
       disconnect();
     };
-  }, [isAuthenticated, connect, disconnect, subscribe, refetch]);
+  }, [isAuthenticated, connect, disconnect, subscribe, refetch, user?.id]);
 
   const onRefresh = useCallback(async () => {
     await haptics.light();

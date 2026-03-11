@@ -25,6 +25,8 @@
 - **Shared Utilities**: Common utilities in `lib/` directory
 - **Type Exports**: Database types exported from `server/db.ts`
 - **Error Handling**: All DB queries wrapped with try/catch and proper error responses
+- **Design System Layer**: Global visual tokens now live in `theme.config.js`, are resolved at runtime in `lib/_core/theme.ts` / `lib/theme-provider.tsx`, and feed shared semantic helpers in `design-system/` plus reusable UI primitives in `components/ui/`
+- **Enforced UI Tokens**: New raw UI literals should be blocked by the custom `design-system/no-raw-design-values` ESLint rule; legacy screens that still need cleanup must be called out explicitly in `eslint/design-system-exceptions.js`
 - **Attribution Pipeline**: Social post compliance uses explicit campaign posting rules stored in campaign-account metadata, durable attribution rows per post/campaign match, then derives campaign metrics from those matched facts instead of trainer-wide snapshot fan-out
 - **Phyllo Dual Sync Path**: Social profile/content ingestion should use webhooks as the fast path but also support direct API pull syncs that write the same Supabase tables (`trainer_social_profiles`, `trainer_social_metrics_daily`, `trainer_social_contents`, `trainer_social_content_activity_daily`) so periodic polling and manual refreshes can heal missed webhook deliveries
 - **Trainer Home State Caching**: The trainer dashboard may hydrate sensitive UI state from local `AsyncStorage` snapshots first, then refresh with live tRPC data; stale "connected/active" social states are trusted to avoid invite flicker, while stale invite-only states are not

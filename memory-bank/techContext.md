@@ -6,6 +6,7 @@
 - **Database**: Supabase (PostgreSQL)
 - **Auth**: Supabase Auth
 - **Styling**: NativeWind (Tailwind CSS for React Native)
+- **Design System**: `theme.config.js` + `design-system/` semantic tokens, recipes, and shared primitives
 - **Language**: TypeScript
 - **Package Manager**: PNPM
 
@@ -69,6 +70,7 @@
 - Set up environment variables in `.env`
 - Run migrations: Supabase migrations in `supabase/` directory
 - Start dev server: `pnpm dev` or `expo start`
+- Design-system lint gate: `pnpm lint:design-system`
 
 ## Constraints
 - **Platform**: iOS, Android, Web (via Expo)

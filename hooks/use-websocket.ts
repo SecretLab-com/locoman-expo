@@ -39,6 +39,7 @@ type WSConnection = {
   networkOnline: boolean;
   networkMonitorUnsubscribe: (() => void) | null;
   connectInvoker: (() => void) | null;
+  identityKey: string | null;
 };
 
 const sharedConnection: WSConnection = {
@@ -54,6 +55,7 @@ const sharedConnection: WSConnection = {
   networkOnline: true,
   networkMonitorUnsubscribe: null,
   connectInvoker: null,
+  identityKey: null,
 };
 
 function clearReconnectTimeout() {
@@ -146,13 +148,22 @@ export function useWebSocket() {
       }
       sharedConnection.lastConnectAt = connectNow;
 
+      const impersonated = await AsyncStorage.getItem("locomotivate_impersonation");
+      const impersonateUserId = impersonated ? JSON.parse(impersonated)?.id : null;
+      const identityKey = `${token}:${String(impersonateUserId || "")}`;
+
       if (sharedConnection.ws) {
         const state = sharedConnection.ws.readyState;
         if (
-          state === WebSocket.OPEN ||
-          state === WebSocket.CONNECTING ||
-          state === WebSocket.CLOSING
+          sharedConnection.identityKey === identityKey &&
+          (state === WebSocket.OPEN ||
+            state === WebSocket.CONNECTING ||
+            state === WebSocket.CLOSING)
         ) {
+          if (state === WebSocket.OPEN) {
+            setIsConnected(true);
+            setConnectionError(null);
+          }
           return;
         }
       }
@@ -166,8 +177,22 @@ export function useWebSocket() {
       const apiUrl = getApiBaseUrl() || process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000";
       const wsBase = apiUrl.replace(/^http/, "ws");
 
-      const impersonated = await AsyncStorage.getItem("locomotivate_impersonation");
-      const impersonateUserId = impersonated ? JSON.parse(impersonated)?.id : null;
+      if (sharedConnection.identityKey && sharedConnection.identityKey !== identityKey) {
+        clearReconnectTimeout();
+        sharedConnection.isConnecting = false;
+        sharedConnection.failedToken = null;
+        sharedConnection.authBlockedUntil = 0;
+        if (sharedConnection.ws) {
+          try {
+            sharedConnection.ws.close(1000, "Auth user switched");
+          } catch {
+            // Ignore close failures while rotating identities.
+          }
+          sharedConnection.ws = null;
+        }
+        setIsConnected(false);
+        setConnectionError(null);
+      }
 
       let wsUrl = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
 
@@ -178,8 +203,11 @@ export function useWebSocket() {
       console.log("[WebSocket] Connecting to:", wsUrl.split("?")[0]);
 
       const ws = new WebSocket(wsUrl);
+      sharedConnection.identityKey = identityKey;
+      sharedConnection.ws = ws;
 
       ws.onopen = () => {
+        if (sharedConnection.ws !== ws) return;
         console.log("[WebSocket] Connected");
         setIsConnected(true);
         setConnectionError(null);
@@ -188,6 +216,7 @@ export function useWebSocket() {
       };
 
       ws.onmessage = (event) => {
+        if (sharedConnection.ws !== ws) return;
         try {
           const message = JSON.parse(event.data) as WSMessage;
           sharedConnection.handlers.forEach((handler) => handler(message));
@@ -197,6 +226,7 @@ export function useWebSocket() {
       };
 
       ws.onerror = (error) => {
+        if (sharedConnection.ws !== ws) return;
         if (!sharedConnection.networkOnline) {
           setConnectionError(null);
           return;
@@ -211,9 +241,11 @@ export function useWebSocket() {
       };
 
       ws.onclose = (event) => {
+        if (sharedConnection.ws !== ws) return;
         setIsConnected(false);
         sharedConnection.ws = null;
         sharedConnection.isConnecting = false;
+        sharedConnection.identityKey = null;
         if (isNetworkDownClose(event)) {
           clearReconnectTimeout();
           setConnectionError(null);
@@ -236,8 +268,6 @@ export function useWebSocket() {
           }, 5000);
         }
       };
-
-      sharedConnection.ws = ws;
     } catch (e) {
       console.warn("[WebSocket] Connection failed:", e);
       setConnectionError("Failed to connect");

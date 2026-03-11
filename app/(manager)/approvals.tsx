@@ -2,7 +2,6 @@ import { ActionButton } from "@/components/action-button";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { trpc } from "@/lib/trpc";
@@ -53,7 +52,6 @@ type Bundle = {
 export default function ManagerApprovalsScreen() {
   const colors = useColors();
   const { isAuthenticated, effectiveUser } = useAuthContext();
-  const colorScheme = useColorScheme();
   const overlayColor = "rgba(0,0,0,0.85)";
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<BundleStatus | "all">("all");
@@ -317,13 +315,16 @@ export default function ManagerApprovalsScreen() {
           >
             Approve
           </ActionButton>
-          <TouchableOpacity
-            className="flex-1 bg-warning py-3 rounded-lg items-center"
+          <ActionButton
+            className="flex-1 bg-warning py-3 rounded-lg items-center justify-center"
             onPress={() => handleRequestChanges(item)}
-            disabled={requestChangesMutation.isPending}
+            loading={requestChangesMutation.isPending}
+            loadingText="Opening..."
+            accessibilityLabel="Request changes for bundle"
+            testID="approvals-request-changes"
           >
             <Text className="text-background font-semibold">Request Changes</Text>
-          </TouchableOpacity>
+          </ActionButton>
           <ActionButton
             className="flex-1 bg-error py-3 rounded-lg items-center"
             onPress={() => handleReject(item)}

@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Focus
+- **Design system centralization**: Semantic tokens, shared primitives, and lint enforcement for raw UI literals
 - **Calendar UI redesign**: Google Calendar-style layout with fixed compact grid at top, scrollable sessions below
 - **Reschedule requests**: Full workflow with approve/reject/counter-propose UI on calendar alerts
 - **AI Assistant**: OpenRouter LLM (Gemini 2.5 Flash) with tool-calling, vision, and voice input
@@ -11,6 +12,11 @@
 - **Social membership lifecycle hardening**: Invite/pause/ban flows now need to keep `trainer_social_memberships`, `trainer_social_invites`, trainer-facing visibility, and admin audit logs in sync
 
 ## Recent Changes
+- **Design system foundation**: Expanded `theme.config.js` into a broader token source of truth for semantic colors, spacing, radii, typography, and elevation; exposed those through `lib/_core/theme.ts`, `tailwind.config.js`, and `lib/theme-provider.tsx`
+- **Shared UI primitives**: Added reusable design-system helpers and primitives for typography, cards, badges, icon buttons, inputs, FABs, modal surfaces, and divider recipes, then moved shared FAB/menu surfaces plus major trainer/admin screens toward them
+- **Raw-style lint gate**: Added a custom ESLint rule plus a temporary exception list so new raw hex/rgba/font/shadow literals are blocked outside the approved migration surface
+- **Exception-list burn-down**: Removed already-clean files like `components/profile-fab.tsx`, `components/impersonation-banner.tsx`, `components/adyen-checkout.tsx`, and `app/(trainer)/templates.tsx` from the design-system exception list while trimming warnings in the touched trainer/shared files
+- **Second burn-down pass**: Removed additional low-risk files such as `app/(client)/orders.tsx`, `app/oauth/callback.tsx`, `app/share-intent.tsx`, `app/(coordinator)/index.tsx`, `app/(trainer)/payment-history.tsx`, `app/(manager)/deliveries.tsx`, `app/campaign/[slug].tsx`, and `components/service-picker-modal.tsx` from the design-system exception list while keeping `pnpm lint:design-system` error-free
 - **Phyllo dual-path sync**: Social data now syncs through both webhook ingestion and direct API pulls; manual/connect syncs backfill content rows, and the server periodically polls connected Phyllo profiles into Supabase so missed webhooks no longer leave the UI empty
 - **Exclusive trainer social ownership**: Phyllo connect/sync now rejects duplicate social identities across trainers by checking `phyllo_user_id`, account ids, and platform-specific identifiers like `platform_profile_id`, usernames, and profile URLs before persisting profile updates
 - **Conflict audit surface**: Duplicate social-account blocks now create manager/coordinator `social_event_notifications` entries and appear in the social management dashboard as an account-conflict audit card

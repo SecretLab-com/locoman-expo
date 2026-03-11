@@ -1,7 +1,9 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { withAlpha } from "@/design-system/color-utils";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { useColors } from "@/hooks/use-colors";
 import { getRoleConversationPath } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
@@ -53,18 +55,6 @@ type DashboardPendingRequest = {
     specialties: string[] | null;
   };
 };
-
-function withAlpha(hexColor: string, alpha: number) {
-  const normalized = hexColor.replace("#", "");
-  const hex = normalized.length === 3
-    ? normalized.split("").map((char) => char + char).join("")
-    : normalized.padStart(6, "0");
-  const value = parseInt(hex, 16);
-  const r = (value >> 16) & 255;
-  const g = (value >> 8) & 255;
-  const b = value & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 
 function formatDate(value?: Date | string | null) {
   if (!value) return "TBD";
@@ -157,6 +147,7 @@ function SectionHeading({
 
 export default function ClientDashboardScreen() {
   const colors = useColors();
+  const ds = useDesignSystem();
   const colorScheme = useColorScheme();
   const isLight = colorScheme === "light";
   const { user, effectiveRole } = useAuthContext();
@@ -261,15 +252,15 @@ export default function ClientDashboardScreen() {
       : "Personal training";
 
   const heroColors = isLight
-    ? (["#F8FBFF", "#EEF4FF", "#EEF8F2"] as const)
-    : ([withAlpha(colors.primary, 0.48), "#10192F", "#0B1020"] as const);
-  const heroText = isLight ? "#0F172A" : "#F8FAFC";
+    ? ([ds.colors.surface.brand, ds.colors.surface.page, withAlpha(ds.colors.status.success, 0.12)] as const)
+    : ([withAlpha(colors.primary, 0.48), ds.raw["surface-alt"], colors.background] as const);
+  const heroText = ds.colors.text.primary;
   const heroSubtext = isLight ? "#334155" : "#CBD5E1";
-  const heroMuted = isLight ? "#475569" : "#94A3B8";
-  const metricText = isLight ? "#0F172A" : "#F8FAFC";
-  const metricMuted = isLight ? "#475569" : withAlpha("#FFFFFF", 0.72);
-  const heroChipBackground = isLight ? "rgba(255,255,255,0.74)" : "rgba(15,23,42,0.36)";
-  const heroChipBorder = isLight ? "rgba(148,163,184,0.24)" : "rgba(255,255,255,0.08)";
+  const heroMuted = ds.colors.text.secondary;
+  const metricText = ds.colors.text.primary;
+  const metricMuted = isLight ? ds.colors.text.secondary : withAlpha(ds.colors.text.inverse, 0.72);
+  const heroChipBackground = isLight ? withAlpha(ds.colors.surface.cardAlt, 0.74) : "rgba(15,23,42,0.36)";
+  const heroChipBorder = isLight ? withAlpha(ds.colors.text.secondary, 0.24) : withAlpha(ds.colors.text.inverse, 0.08);
 
   const openTrainerProfile = (trainerId: string) => {
     router.push(`/trainer/${trainerId}` as any);
@@ -413,7 +404,7 @@ export default function ClientDashboardScreen() {
                     accessibilityLabel="View my program"
                     testID="client-home-view-program"
                   >
-                    <Text className="font-semibold" style={{ color: isLight ? "#FFFFFF" : "#0B1020" }}>
+                    <Text className="font-semibold" style={{ color: colors["primary-foreground"] }}>
                       View Program
                     </Text>
                   </TouchableOpacity>
@@ -459,7 +450,7 @@ export default function ClientDashboardScreen() {
                     accessibilityLabel="View pending trainer profile"
                     testID="client-home-view-pending-trainer"
                   >
-                    <Text className="font-semibold" style={{ color: isLight ? "#FFFFFF" : "#0B1020" }}>
+                    <Text className="font-semibold" style={{ color: colors["primary-foreground"] }}>
                       View Profile
                     </Text>
                   </TouchableOpacity>
@@ -504,7 +495,7 @@ export default function ClientDashboardScreen() {
                     accessibilityLabel="Browse products"
                     testID="client-home-browse-products"
                   >
-                    <Text className="font-semibold" style={{ color: isLight ? "#FFFFFF" : "#0B1020" }}>
+                    <Text className="font-semibold" style={{ color: colors["primary-foreground"] }}>
                       Browse Products
                     </Text>
                   </TouchableOpacity>
@@ -549,7 +540,7 @@ export default function ClientDashboardScreen() {
                     accessibilityLabel="Find a trainer"
                     testID="client-home-find-trainer"
                   >
-                    <Text className="font-semibold" style={{ color: isLight ? "#FFFFFF" : "#0B1020" }}>
+                    <Text className="font-semibold" style={{ color: colors["primary-foreground"] }}>
                       Find a Trainer
                     </Text>
                   </TouchableOpacity>

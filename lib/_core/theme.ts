@@ -5,6 +5,10 @@ import themeConfig from "@/theme.config";
 export type ColorScheme = "light" | "dark";
 
 export const ThemeColors = themeConfig.themeColors;
+export const ThemeSpacing = themeConfig.themeSpacing;
+export const ThemeRadii = themeConfig.themeRadii;
+export const ThemeTypography = themeConfig.themeTypography;
+export const ThemeShadows = themeConfig.themeShadows;
 
 type ThemeColorTokens = typeof ThemeColors;
 type ThemeColorName = keyof ThemeColorTokens;
@@ -36,19 +40,25 @@ type RuntimePalette = SchemePaletteItem & {
   tabIconDefault: string;
   tabIconSelected: string;
   border: string;
+  surface: string;
+  muted: string;
+  colorScheme: ColorScheme;
 };
 
 function buildRuntimePalette(scheme: ColorScheme): RuntimePalette {
   const base = SchemeColors[scheme];
   return {
     ...base,
+    colorScheme: scheme,
     text: base.foreground,
     background: base.background,
     tint: base.primary,
-    icon: base.muted,
-    tabIconDefault: base.muted,
+    icon: base.icon,
+    tabIconDefault: base["icon-muted"],
     tabIconSelected: base.primary,
     border: base.border,
+    surface: base.surface,
+    muted: base.muted,
   };
 }
 
@@ -58,6 +68,10 @@ export const Colors = {
 } satisfies Record<ColorScheme, RuntimePalette>;
 
 export type ThemeColorPalette = (typeof Colors)[ColorScheme];
+export const Spacing = ThemeSpacing;
+export const Radii = ThemeRadii;
+export const Typography = ThemeTypography;
+export const Shadows = ThemeShadows;
 
 export const Fonts = Platform.select({
   ios: {

@@ -1,10 +1,12 @@
 import { useColors } from "@/hooks/use-colors";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { registerInAppAlertHandler, type InAppAlertRequest } from "@/lib/in-app-alert";
 import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, Text, TouchableOpacity, View } from "react-native";
 
 export function InAppAlertHost() {
   const colors = useColors();
+  const ds = useDesignSystem();
   const [queue, setQueue] = useState<InAppAlertRequest[]>([]);
 
   useEffect(() => {
@@ -44,7 +46,7 @@ export function InAppAlertHost() {
       <Pressable
         style={{
           flex: 1,
-          backgroundColor: "rgba(0,0,0,0.65)",
+          backgroundColor: ds.colors.overlay.scrim,
           justifyContent: "center",
           alignItems: "center",
           paddingHorizontal: 16,

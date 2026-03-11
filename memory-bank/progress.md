@@ -1,6 +1,10 @@
 # Progress
 
 ## What Works
+- **Design system foundation**: Semantic color/spacing/radius/typography/elevation tokens now flow from `theme.config.js` through runtime theme helpers and NativeWind, so shared components have a centralized styling source of truth
+- **Shared UI primitives**: Typography, surface, badge, icon-button, input, FAB, modal-surface, and divider primitives/recipes now exist and are being adopted by trainer/admin/shared UI
+- **Raw-style enforcement**: A custom ESLint design-system rule now blocks new raw hex/rgba/font/shadow literals outside the explicit migration exception list, and `pnpm lint:design-system` verifies the gate
+- **Exception-list reduction**: The follow-up design-system passes removed several already-clean files from `eslint/design-system-exceptions.js`, including `app/(client)/orders.tsx`, `app/oauth/callback.tsx`, `app/share-intent.tsx`, `app/(coordinator)/index.tsx`, `app/(trainer)/payment-history.tsx`, `app/(manager)/deliveries.tsx`, `app/campaign/[slug].tsx`, and `components/service-picker-modal.tsx`, while keeping `pnpm lint:design-system` at `0` errors
 - **AI Assistant (Loco Assistant)**: Full chat with OpenRouter LLM (Gemini 2.5 Flash), tool-calling for business data, vision support, voice input via Groq Whisper
 - **Google Calendar integration**: OAuth connect, auto-create "Locomotivate" calendar, two-way sync, event creation/deletion, reschedule request workflow (approve/reject/counter-propose)
 - **Calendar UI**: Google Calendar-style layout with fixed compact grid, scrollable session list, schedule form with light mode, field chaining, validation
@@ -36,6 +40,7 @@
 - **Social membership lifecycle**: Coordinators/managers can now invite/pause/ban with visible in-screen feedback, trainers receive invite alerts plus invitation messages/notifications, non-invited trainers no longer receive social-program details from `myStatus`, and ban transitions are logged as `status_changed` entries that reset membership to `uninvited`
 
 ## What's Left
+- **Exception-list burn-down**: `eslint/design-system-exceptions.js` still contains legacy screens/components that need deeper migration before the raw-style ban can be fully universal
 - **Campaign attribution tooling**: No dedicated admin/manual reprocessing control yet for large historical backfills
 - **Google Calendar webhook**: Push notifications for real-time sync (currently poll-based)
 - **Partnerships**: Still using mock data
