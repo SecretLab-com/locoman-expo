@@ -5,14 +5,14 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
+import { mapBundleDraftToOfferView, type BundleOfferStatus } from "@/shared/bundle-offer";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
+import { useMemo } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
-type OfferStatus = "draft" | "in_review" | "published" | "archived";
-
-const OFFER_STATUS_META: Record<OfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
+const OFFER_STATUS_META: Record<BundleOfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
   draft: { label: "Draft", colorKey: "warning" },
   in_review: { label: "In review", colorKey: "primary" },
   published: { label: "Published", colorKey: "success" },
@@ -28,7 +28,11 @@ function formatOfferType(value: string | undefined) {
 
 export default function OffersListScreen() {
   const colors = useColors();
-  const { data: offers = [], isLoading, isRefetching, refetch } = trpc.offers.list.useQuery();
+  const { data: bundles = [], isLoading, isRefetching, refetch } = trpc.bundles.list.useQuery();
+  const offers = useMemo(
+    () => (bundles as any[]).map((bundle) => mapBundleDraftToOfferView(bundle)),
+    [bundles],
+  );
 
   return (
     <ScreenContainer>
@@ -77,7 +81,7 @@ export default function OffersListScreen() {
               </Text>
               <TouchableOpacity
                 className="flex-row items-center mt-4"
-                onPress={() => router.push("/(trainer)/offers/new" as any)}
+                onPress={() => router.push("/bundle-editor/new" as any)}
                 accessibilityRole="button"
                 accessibilityLabel="Create new offer"
               >
@@ -93,7 +97,7 @@ export default function OffersListScreen() {
               <TouchableOpacity
                 key={offer.id}
                 className="rounded-xl mb-3"
-                onPress={() => router.push({ pathname: "/(trainer)/offers/new", params: { id: offer.id } } as any)}
+                onPress={() => router.push(`/bundle-editor/${offer.id}` as any)}
                 accessibilityRole="button"
                 accessibilityLabel={`Open offer ${offer.title}`}
                 testID={`offer-row-${offer.id}`}
@@ -134,7 +138,7 @@ export default function OffersListScreen() {
                             </Text>
                           </View>
                           {(() => {
-                            const status = ((offer.status as OfferStatus) || "draft");
+                            const status = ((offer.status as BundleOfferStatus) || "draft");
                             const meta = OFFER_STATUS_META[status] || OFFER_STATUS_META.draft;
                             const tone =
                               meta.colorKey === "success"
@@ -189,7 +193,7 @@ export default function OffersListScreen() {
       </ScrollView>
 
       <TouchableOpacity
-        onPress={() => router.push("/(trainer)/offers/new" as any)}
+        onPress={() => router.push("/bundle-editor/new" as any)}
         className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
         style={{ right: 16, bottom: 16 }}
         accessibilityRole="button"

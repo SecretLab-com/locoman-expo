@@ -23,8 +23,8 @@ const TABLE_INVALIDATION_MAP: Record<string, (utils: ReturnType<typeof trpc.useU
   bundle_drafts: (utils) => {
     utils.catalog.bundles.invalidate();
     utils.bundles.list.invalidate();
+    utils.bundles.get.invalidate();
     utils.bundles.templates.invalidate();
-    utils.offers.list.invalidate();
   },
   orders: (utils) => {
     utils.orders.myOrders.invalidate();

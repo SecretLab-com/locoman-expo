@@ -88,7 +88,7 @@ export default function TemplateGalleryScreen() {
                 </Text>
                 <TouchableOpacity
                   className="flex-row items-center mt-4"
-                  onPress={() => router.push("/(trainer)/offers/new" as any)}
+                  onPress={() => router.push("/bundle-editor/new" as any)}
                   accessibilityRole="button"
                   accessibilityLabel="Create new offer"
                 >
@@ -262,7 +262,7 @@ export default function TemplateGalleryScreen() {
           </View>
         </ScrollView>
       <TouchableOpacity
-        onPress={() => router.push("/(trainer)/offers/new" as any)}
+        onPress={() => router.push("/bundle-editor/new" as any)}
         className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
         style={{ right: 16, bottom: 16 }}
         accessibilityRole="button"

@@ -11,6 +11,7 @@ import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
 import { getInviteLink } from "@/lib/invite-links";
 import { sanitizeHtml } from "@/lib/html-utils";
+import { mapBundleDraftToOfferView, type BundleOfferPaymentType, type BundleOfferStatus, type BundleOfferType } from "@/shared/bundle-offer";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -18,19 +19,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import RenderHTML from "react-native-render-html";
 import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
-type OfferType = "one_off_session" | "multi_session_package" | "product_bundle";
-type OfferPaymentType = "one_off" | "recurring";
-type OfferStatus = "draft" | "in_review" | "published" | "archived";
-
 type OfferOption = {
   id: string;
   title: string;
   description: string | null;
   imageUrl: string | null;
   priceMinor: number;
-  paymentType: OfferPaymentType;
-  type: OfferType;
-  status: OfferStatus;
+  paymentType: BundleOfferPaymentType;
+  type: BundleOfferType;
+  status: BundleOfferStatus;
   sessionCount: number | null;
   included: string[];
 };
@@ -41,14 +38,14 @@ type CatalogProduct = {
   imageUrl: string | null;
 };
 
-const OFFER_STATUS_META: Record<OfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
+const OFFER_STATUS_META: Record<BundleOfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
   draft: { label: "Draft", colorKey: "warning" },
   in_review: { label: "In review", colorKey: "primary" },
   published: { label: "Published", colorKey: "success" },
   archived: { label: "Archived", colorKey: "error" },
 };
 
-function formatOfferTypeLabel(type: OfferType): string {
+function formatOfferTypeLabel(type: BundleOfferType): string {
   if (type === "one_off_session") return "One-off session";
   if (type === "multi_session_package") return "Multi-session package";
   return "Product bundle";
@@ -95,22 +92,23 @@ export default function InviteScreen() {
   const hasPrefilledFromParamsRef = useRef(false);
   const pendingBundleIdRef = useRef<string | null>(null);
 
-  const { data: offers = [] } = trpc.offers.list.useQuery();
+  const { data: bundles = [] } = trpc.bundles.list.useQuery();
   const { data: products = [] } = trpc.catalog.products.useQuery();
   const inviteMutation = trpc.clients.invite.useMutation({
     onError: (err) => showAlert("Invite failed", `${err.message}\n\nA Server message with next steps has been sent to your inbox.`),
   });
 
-  const options: OfferOption[] = offers
-    .map((offer: any) => ({
+  const options: OfferOption[] = (bundles as any[])
+    .map((bundle) => mapBundleDraftToOfferView(bundle))
+    .map((offer) => ({
     id: offer.id,
     title: String(offer.title || "Offer"),
     description: typeof offer.description === "string" ? offer.description : null,
     imageUrl: typeof offer.imageUrl === "string" ? offer.imageUrl : null,
     priceMinor: Number(offer.priceMinor || 0),
-    paymentType: (offer.paymentType === "recurring" ? "recurring" : "one_off") as OfferPaymentType,
-    type: (offer.type as OfferType) || "one_off_session",
-    status: (offer.status as OfferStatus) || "draft",
+    paymentType: (offer.paymentType === "recurring" ? "recurring" : "one_off") as BundleOfferPaymentType,
+    type: offer.type || "one_off_session",
+    status: offer.status || "draft",
     sessionCount: Number.isFinite(Number(offer.sessionCount)) ? Number(offer.sessionCount) : null,
     included: Array.isArray(offer.included)
       ? offer.included.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
@@ -118,7 +116,7 @@ export default function InviteScreen() {
     }))
     .filter((offer) => offer.status === "published")
     .sort((a, b) => {
-      const rank = (status: OfferStatus) =>
+      const rank = (status: BundleOfferStatus) =>
         status === "published" ? 0 : status === "in_review" ? 1 : status === "draft" ? 2 : 3;
       return rank(a.status) - rank(b.status);
     });
@@ -400,7 +398,7 @@ export default function InviteScreen() {
                 title="No offers yet"
                 description="You can still invite clients now and add offers later."
                 ctaLabel="Create Offer"
-                onCtaPress={() => router.push("/(trainer)/offers/new" as any)}
+                onCtaPress={() => router.push("/bundle-editor/new" as any)}
               />
             ) : (
               options.map((offer) => {

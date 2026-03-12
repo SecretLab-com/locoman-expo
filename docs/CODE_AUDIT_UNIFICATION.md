@@ -140,14 +140,13 @@ Recommended strategy:
 
 **Evidence**
 - Repeated `showAlert` style helpers in:
-  - `app/(trainer)/offers/new.tsx`
+  - `app/bundle-editor/[id].tsx`
   - `app/(trainer)/payment-setup.tsx`
   - `app/(trainer)/request-payment.tsx`
   - `app/(trainer)/invite.tsx`
   - `app/(coordinator)/templates.tsx`
   - `app/(coordinator)/template-settings.tsx`
   - `app/(trainer)/clients.tsx`
-  - `app/bundle-editor/[id].tsx`
 - Many direct `window.confirm` usages across app screens.
 
 **Why it matters**
@@ -196,7 +195,7 @@ Recommended strategy:
 - Multiple local `JSON.parse` wrappers parse product/service/goal arrays differently.
 
 **Evidence**
-- `app/(trainer)/offers/new.tsx`
+- retired duplicate trainer offer wizard (now consolidated onto `app/bundle-editor/[id].tsx`)
 - `app/template-editor/[id].tsx`
 - `app/(trainer)/templates.tsx`
 - `app/bundle/[id].tsx`

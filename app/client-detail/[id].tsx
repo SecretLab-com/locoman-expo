@@ -6,6 +6,7 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBP } from "@/lib/currency";
+import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -42,10 +43,14 @@ export default function ClientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const offerAttentionAnim = useRef(new Animated.Value(0)).current;
   const { data, isLoading } = trpc.clients.detail.useQuery({ id: id || "" }, { enabled: !!id });
-  const { data: trainerOffers = [], isLoading: offersLoading } = trpc.offers.list.useQuery(undefined, {
+  const { data: trainerBundles = [], isLoading: offersLoading } = trpc.bundles.list.useQuery(undefined, {
     enabled: !!id,
   });
   const { data: products = [] } = trpc.catalog.products.useQuery();
+  const trainerOffers = useMemo(
+    () => (trainerBundles as any[]).map((bundle) => mapBundleDraftToOfferView(bundle)),
+    [trainerBundles],
+  );
 
   const topOffers = useMemo(() => {
     const ranked = [...(trainerOffers as any[])].sort((a, b) => {
@@ -340,7 +345,7 @@ export default function ClientDetailScreen() {
               title="No offers available"
               description="Create an offer first, then invite this client directly from here."
               ctaLabel="Create Offer"
-              onCtaPress={() => router.push("/(trainer)/offers/new" as any)}
+              onCtaPress={() => router.push("/bundle-editor/new" as any)}
             />
           ) : (
             <>

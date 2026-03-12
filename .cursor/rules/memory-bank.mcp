@@ -21,7 +21,7 @@
 - Realtime invalidation for social lifecycle changes must include `trainer_social_memberships` and `trainer_social_invites` in addition to `trainer_social_profiles` and `social_event_notifications`, otherwise invite/pause/ban state changes will look broken in the UI.
 - Trainer payout onboarding is now manual-first: replace direct Adyen trainer link-outs with an internal intake form, store normalized KYC status/history in dedicated payout onboarding tables, show trainer status in `payment-setup` / `get-paid`, and manage state from coordinator/manager KYC screens plus summary visibility inside social management.
 - For payout/KYC, use the app-facing status model `Start setup`, `Details submitted`, `Verification required`, `Under review`, `More information required`, `Active`, `Verification failed`, and `Account rejected`, and map Adyen's lower-level verification outcomes into those labels rather than exposing raw provider codes directly to trainers.
-- Offer image generation should be implemented in the actual trainer offer wizard (`app/(trainer)/offers/new.tsx`), not only in the legacy bundle editor, and `imageUrl` must be persisted through the offer create/update router path.
+- Offer creation is now consolidated on the original bundle editor flow (`app/bundle-editor/[id].tsx`); trainer create/edit entry points should use `/bundle-editor/new` and `/bundle-editor/{id}` rather than a duplicate trainer wizard route.
 
 ## User Preferences
 - Use single quotes in static CLI parameters.

@@ -37,9 +37,10 @@ function getWebApiUrl(): string {
     const { protocol, hostname, port } = location;
     const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
 
-    // In local web development, prefer the colocated dev server even when
-    // an explicit remote API URL is configured for native builds.
-    if (isLocalHost) {
+    // For localhost web, only use the colocated API when explicitly requested.
+    // Otherwise prefer the configured remote backend so the default Expo web
+    // session still works when a local API server is not running.
+    if (isLocalHost && PREFER_LOCAL_WEB_API) {
       const apiPort = port === "8081" ? "3000" : "3000";
       return `${protocol}//${hostname}:${apiPort}`;
     }

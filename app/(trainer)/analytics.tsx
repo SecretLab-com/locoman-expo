@@ -5,15 +5,21 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBP } from "@/lib/currency";
+import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
+import { useMemo } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 
 export default function TrainerAnalyticsScreen() {
   const colors = useColors();
   const { data: earningsSummary, isLoading: summaryLoading } = trpc.earnings.summary.useQuery();
-  const { data: offers = [], isLoading: offersLoading } = trpc.offers.list.useQuery();
+  const { data: bundles = [], isLoading: offersLoading } = trpc.bundles.list.useQuery();
+  const offers = useMemo(
+    () => (bundles as any[]).map((bundle) => mapBundleDraftToOfferView(bundle)),
+    [bundles],
+  );
 
   if (summaryLoading || offersLoading) {
     return (
@@ -52,7 +58,7 @@ export default function TrainerAnalyticsScreen() {
               title="No offer data yet"
               description="Create your first offer to start seeing performance insights."
               ctaLabel="Create Offer"
-              onCtaPress={() => router.push("/(trainer)/offers/new" as any)}
+              onCtaPress={() => router.push("/bundle-editor/new" as any)}
             />
           ) : (
             topOffers.map((offer: any) => (

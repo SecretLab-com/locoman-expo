@@ -69,7 +69,7 @@ export function getTypographyStyle(options: {
     fontFamily: Fonts[family],
     fontSize: ThemeTypography.fontSize[variant],
     lineHeight: ThemeTypography.lineHeight[variant],
-    fontWeight: ThemeTypography.fontWeight[weight],
+    fontWeight: ThemeTypography.fontWeight[weight] as TextStyle['fontWeight'],
     textAlign: align,
   };
 }

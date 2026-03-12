@@ -532,7 +532,7 @@ export default function BundleEditorScreen() {
       imageUrl?: string | null;
       quantity?: number;
       source?: string;
-    }): BundleProductItem {
+    }) {
       const isCustom = product.source === "custom" || Boolean(product.customProductId);
       if (isCustom) {
         const match = customProductOptions.find(

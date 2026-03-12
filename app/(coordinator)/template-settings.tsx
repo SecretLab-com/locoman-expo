@@ -584,7 +584,7 @@ export default function TemplateSettingsScreen() {
                   className="flex-row items-center"
                 >
                   <View className={`w-5 h-5 rounded border-2 items-center justify-center mr-2 ${availableNow ? "bg-primary border-primary" : "border-border"}`}>
-                    {availableNow && <IconSymbol name="checkmark" size={12} color="#fff" />}
+                    {availableNow && <IconSymbol name="checkmark" size={12} color={colors["foreground-inverse"]} />}
                   </View>
                   <Text className="text-sm text-foreground">Available immediately</Text>
                 </TouchableOpacity>
@@ -605,7 +605,7 @@ export default function TemplateSettingsScreen() {
                   className="flex-row items-center"
                 >
                   <View className={`w-5 h-5 rounded border-2 items-center justify-center mr-2 ${noEndDate ? "bg-primary border-primary" : "border-border"}`}>
-                    {noEndDate && <IconSymbol name="checkmark" size={12} color="#fff" />}
+                    {noEndDate && <IconSymbol name="checkmark" size={12} color={colors["foreground-inverse"]} />}
                   </View>
                   <Text className="text-sm text-foreground">No end date</Text>
                 </TouchableOpacity>
@@ -695,7 +695,7 @@ export default function TemplateSettingsScreen() {
               testID="template-settings-save"
             >
               {isSaving ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors["foreground-inverse"]} />
               ) : (
                 <Text className="text-background font-semibold text-base">
                   {isAlreadyTemplate ? "Update Settings" : "Promote to Template"}

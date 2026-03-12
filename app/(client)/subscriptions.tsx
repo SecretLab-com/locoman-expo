@@ -15,8 +15,8 @@ import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { withAlpha } from "@/design-system/color-utils";
 import { useColors } from "@/hooks/use-colors";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { trpc } from "@/lib/trpc";
 
 type SubscriptionStatus = "active" | "paused" | "cancelled" | "expired";
@@ -40,8 +40,7 @@ type Subscription = {
 
 export default function SubscriptionsScreen() {
   const colors = useColors();
-  const colorScheme = useColorScheme();
-  const overlayColor = "rgba(0,0,0,0.85)";
+  const overlayColor = withAlpha(colors.foreground, 0.85);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
@@ -93,11 +92,11 @@ export default function SubscriptionsScreen() {
   const getStatusColor = (status: SubscriptionStatus) => {
     switch (status) {
       case "active":
-        return "#22C55E";
+        return colors.success;
       case "paused":
-        return "#F59E0B";
+        return colors.warning;
       case "cancelled":
-        return "#EF4444";
+        return colors.error;
       case "expired":
         return colors.muted;
       default:
@@ -300,7 +299,7 @@ export default function SubscriptionsScreen() {
                       style={{
                         width: `${getProgressPercentage(subscription.sessionsUsed, subscription.sessionsIncluded)}%`,
                         backgroundColor: subscription.sessionsUsed >= subscription.sessionsIncluded
-                          ? "#EF4444"
+                          ? colors.error
                           : colors.primary,
                       }}
                     />
@@ -326,7 +325,7 @@ export default function SubscriptionsScreen() {
                       style={{
                         width: `${getProgressPercentage(subscription.checkInsUsed, subscription.checkInsIncluded)}%`,
                         backgroundColor: subscription.checkInsUsed >= subscription.checkInsIncluded
-                          ? "#EF4444"
+                          ? colors.error
                           : colors.primary,
                       }}
                     />

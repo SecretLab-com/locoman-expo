@@ -293,7 +293,7 @@ export default function TemplatesScreen() {
             >
               <Text className="text-sm text-muted mr-2">Tap the</Text>
               <View className="w-8 h-8 rounded-full bg-primary items-center justify-center">
-                <IconSymbol name="plus" size={16} color="#fff" />
+                <IconSymbol name="plus" size={16} color={colors["foreground-inverse"]} />
               </View>
               <Text className="text-sm text-muted ml-2">to get started</Text>
             </TouchableOpacity>
@@ -450,7 +450,7 @@ export default function TemplatesScreen() {
         accessibilityLabel="Create new campaign"
         testID="templates-add-fab"
       >
-        <IconSymbol name="plus" size={24} color="#fff" />
+        <IconSymbol name="plus" size={24} color={colors["foreground-inverse"]} />
       </TouchableOpacity>
     </ScreenContainer>
   );

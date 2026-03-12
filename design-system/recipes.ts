@@ -103,7 +103,7 @@ export function getBadgeRecipe(
         text: {
           color: tokens.colors.brand.primary,
           fontSize: tokens.typography.fontSize.caption,
-          fontWeight: tokens.typography.fontWeight.semibold,
+          fontWeight: tokens.typography.fontWeight.semibold as TextStyle['fontWeight'],
         },
       };
     case 'success':
@@ -124,7 +124,7 @@ export function getBadgeRecipe(
         text: {
           color,
           fontSize: tokens.typography.fontSize.caption,
-          fontWeight: tokens.typography.fontWeight.semibold,
+          fontWeight: tokens.typography.fontWeight.semibold as TextStyle['fontWeight'],
         },
       };
     }
@@ -142,7 +142,7 @@ export function getBadgeRecipe(
         text: {
           color: tokens.colors.text.secondary,
           fontSize: tokens.typography.fontSize.caption,
-          fontWeight: tokens.typography.fontWeight.medium,
+          fontWeight: tokens.typography.fontWeight.medium as TextStyle['fontWeight'],
         },
       };
   }
@@ -279,7 +279,7 @@ export function getInputRecipe(
       color: tokens.colors.text.primary,
       fontSize: tokens.typography.fontSize.body,
       lineHeight: tokens.typography.lineHeight.body,
-      fontWeight: tokens.typography.fontWeight.regular,
+      fontWeight: tokens.typography.fontWeight.regular as TextStyle['fontWeight'],
     },
   };
 }

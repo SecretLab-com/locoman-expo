@@ -15,6 +15,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { trackLaunchEvent } from "@/lib/analytics";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
+import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
 import {
   getCachedTrainerSocialPreviewMode,
   getCachedTrainerSocialStatus,
@@ -973,11 +974,15 @@ export default function TrainerHomeScreen() {
     refetch: refetchClients,
   } = trpc.clients.list.useQuery();
   const {
-    data: offers = [],
+    data: trainerBundles = [],
     isLoading: offersLoading,
     isRefetching: offersRefetching,
     refetch: refetchOffers,
-  } = trpc.offers.list.useQuery();
+  } = trpc.bundles.list.useQuery();
+  const offers = useMemo(
+    () => (trainerBundles as any[]).map((bundle) => mapBundleDraftToOfferView(bundle)),
+    [trainerBundles],
+  );
   const { data: products = [] } = trpc.catalog.products.useQuery();
   const {
     data: paymentStats,
@@ -1532,7 +1537,7 @@ export default function TrainerHomeScreen() {
         ctaIcon: "sparkles",
         onPress: () => {
           trackLaunchEvent("trainer_home_next_action_tapped", { step: "offer" });
-          router.push("/(trainer)/offers/new" as any);
+          router.push("/bundle-editor/new" as any);
         },
       };
     }
@@ -1854,7 +1859,7 @@ export default function TrainerHomeScreen() {
       label: "Create offer",
       onPress: () => {
         trackLaunchEvent("trainer_home_next_action_tapped", { step: "offer" });
-        router.push("/(trainer)/offers/new" as any);
+        router.push("/bundle-editor/new" as any);
       },
       testID: "trainer-quick-offer",
     },
@@ -2977,7 +2982,7 @@ export default function TrainerHomeScreen() {
         <SectionHeader
           title="Offers"
           actionLabel={offers.length > 0 ? "Manage" : "New"}
-          onActionPress={() => router.push((offers.length > 0 ? "/(trainer)/offers" : "/(trainer)/offers/new") as any)}
+          onActionPress={() => router.push((offers.length > 0 ? "/(trainer)/offers" : "/bundle-editor/new") as any)}
         />
         <View className={SECTION_SPACING_CLASS}>
           {offersLoading ? (
@@ -2989,7 +2994,7 @@ export default function TrainerHomeScreen() {
               icon="cube.box.fill"
               description="Package your expertise into professional training plans."
               cta="New offer"
-              onPress={() => router.push("/(trainer)/offers/new" as any)}
+              onPress={() => router.push("/bundle-editor/new" as any)}
             />
           ) : (
             <SurfaceCard style={getCardStyle()}>
