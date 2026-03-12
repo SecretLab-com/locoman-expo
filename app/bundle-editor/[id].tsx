@@ -492,6 +492,17 @@ export default function BundleEditorScreen() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const selectImageSource = useCallback((nextSource: BundleFormState["imageSource"]) => {
+    setForm((prev) => {
+      if (prev.imageSource === nextSource) return prev;
+      return {
+        ...prev,
+        imageSource: nextSource,
+        imageUrl: "",
+      };
+    });
+  }, []);
+
   // Calculate product total
   const productTotal = useMemo(() => {
     return form.products.reduce((sum, product) => sum + (parseFloat(product.price || "0") * product.quantity), 0);
@@ -958,6 +969,10 @@ export default function BundleEditorScreen() {
       setFirstInvalid("details", "title");
     }
 
+    if (form.imageSource === "custom" && !form.imageUrl.trim()) {
+      setFirstInvalid("details", "image-upload");
+    }
+
     if (form.services.length === 0 && form.products.length === 0) {
       setFirstInvalid("services", "services-entry");
       tabErrors.add("products");
@@ -969,12 +984,12 @@ export default function BundleEditorScreen() {
       firstInvalidField,
       tabComplete: {
         campaign: campaignMode === "scratch" || Boolean(selectedCampaignId),
-        details: form.title.trim().length > 0,
+        details: form.title.trim().length > 0 && (form.imageSource === "ai" || form.imageUrl.trim().length > 0),
         services: form.services.length > 0,
         products: form.products.length > 0,
       } satisfies Record<BuilderTab, boolean>,
     };
-  }, [campaignMode, form.products.length, form.services.length, form.title, selectedCampaignId]);
+  }, [campaignMode, form.imageSource, form.imageUrl, form.products.length, form.services.length, form.title, selectedCampaignId]);
 
   const recordFieldOffset = (key: string) => (event: any) => {
     fieldOffsetsRef.current[key] = event.nativeEvent.layout.y;
@@ -1040,12 +1055,13 @@ export default function BundleEditorScreen() {
 
     setSaving(true);
     try {
+      const imageUrl = form.imageUrl.trim() || undefined;
       const bundleData = {
         title: form.title,
         description: form.description,
         price: form.price,
         cadence: form.cadence,
-        imageUrl: form.imageUrl || undefined,
+        imageUrl,
         imageSource: form.imageSource,
         productsJson: form.products.map((p) => ({
           id: p.id,
@@ -1096,12 +1112,24 @@ export default function BundleEditorScreen() {
     const doSubmit = async () => {
       setSaving(true);
       try {
+        let imageUrl = form.imageUrl.trim() || undefined;
+        if (form.imageSource === "ai") {
+          try {
+            imageUrl = await ensureAiCoverImage();
+          } catch (error) {
+            console.error("Failed to prepare AI cover image:", error);
+            platformAlert("Unable to generate image", "Please make sure the title is filled in and try again.");
+            haptics.error();
+            return;
+          }
+        }
+
         const bundleData = {
           title: form.title,
           description: form.description,
           price: form.price,
           cadence: form.cadence,
-          imageUrl: form.imageUrl || undefined,
+          imageUrl,
           imageSource: form.imageSource,
           productsJson: form.products.map((p) => ({
             id: p.id,
@@ -1168,11 +1196,18 @@ export default function BundleEditorScreen() {
     }
   };
 
-  // Generate AI image
-  const handleGenerateImage = async () => {
+  const ensureAiCoverImage = useCallback(async () => {
+    if (form.imageSource !== "ai") {
+      return form.imageUrl.trim() || undefined;
+    }
+
+    const existingImageUrl = form.imageUrl.trim();
+    if (existingImageUrl) {
+      return existingImageUrl;
+    }
+
     if (!form.title.trim()) {
-      showAlert("Title Required", `Please enter a ${entityLabelLower} title first to generate an image.`);
-      return;
+      throw new Error(`Please enter a ${entityLabelLower} title before generating an image.`);
     }
 
     setGeneratingImage(true);
@@ -1183,18 +1218,27 @@ export default function BundleEditorScreen() {
         goals: form.goals.length > 0 ? form.goals : undefined,
         style: "fitness",
       });
-      if (result.url) {
-        updateForm("imageUrl", result.url);
-        updateForm("imageSource", "ai");
-        haptics.success();
+
+      const generatedUrl = result.url?.trim();
+      if (!generatedUrl) {
+        throw new Error("No image was returned.");
       }
-    } catch (error) {
-      console.error("Failed to generate image:", error);
-      platformAlert("Error", "Failed to generate image. Please try again.");
+
+      updateForm("imageUrl", generatedUrl);
+      return generatedUrl;
     } finally {
       setGeneratingImage(false);
     }
-  };
+  }, [
+    entityLabelLower,
+    form.description,
+    form.goals,
+    form.imageSource,
+    form.imageUrl,
+    form.title,
+    generateImageMutation,
+    updateForm,
+  ]);
 
   // Delete bundle
   const handleDelete = () => {
@@ -1482,44 +1526,99 @@ export default function BundleEditorScreen() {
 
           {/* Details Tab */}
           {activeTab === "details" && (
-            <View className="p-4 gap-4" onLayout={recordFieldOffset("title")}>
+            <View className="p-4 gap-4">
               {/* Bundle Image */}
-              <View>
+              <View onLayout={recordFieldOffset("image-upload")}>
                 <Text className="text-sm font-medium text-foreground mb-2">{entityLabel} Cover Image</Text>
-                <SingleImagePicker
-                  image={form.imageUrl || null}
-                  onImageChange={(uri) => {
-                    updateForm("imageUrl", uri || "");
-                    updateForm("imageSource", "custom");
-                  }}
-                  aspectRatio={[16, 9]}
-                  placeholder={`Add ${entityLabel} Cover Image to Override AI generation of an image`}
-                />
+                <View className="flex-row gap-2 mb-3">
+                  <TouchableOpacity
+                    className={`flex-1 rounded-xl border px-4 py-3 ${
+                      form.imageSource === "ai" ? "border-primary bg-primary/10" : "border-border bg-surface"
+                    }`}
+                    onPress={() => selectImageSource("ai")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use AI to create the ${entityLabelLower} cover image`}
+                    testID="bundle-image-source-ai"
+                  >
+                    <Text
+                      className={`text-center font-medium ${
+                        form.imageSource === "ai" ? "text-primary" : "text-foreground"
+                      }`}
+                    >
+                      Generate with AI
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    className={`flex-1 rounded-xl border px-4 py-3 ${
+                      form.imageSource === "custom" ? "border-primary bg-primary/10" : "border-border bg-surface"
+                    }`}
+                    onPress={() => selectImageSource("custom")}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Upload a custom ${entityLabelLower} cover image`}
+                    testID="bundle-image-source-upload"
+                  >
+                    <Text
+                      className={`text-center font-medium ${
+                        form.imageSource === "custom" ? "text-primary" : "text-foreground"
+                      }`}
+                    >
+                      Upload an Image
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-                {/* AI Generate Button */}
-                <TouchableOpacity
-                  className={`mt-2 flex-row items-center justify-center py-3 rounded-xl border ${
-                    generatingImage ? "bg-surface border-border" : "bg-primary/10 border-primary"
-                  }`}
-                  onPress={handleGenerateImage}
-                  disabled={generatingImage}
-                >
-                  {generatingImage ? (
-                    <>
-                      <ActivityIndicator size="small" color={colors.primary} />
-                      <Text className="text-primary font-medium ml-2">Generating...</Text>
-                    </>
+                {form.imageSource === "ai" ? (
+                  form.imageUrl ? (
+                    <View className="rounded-xl overflow-hidden border border-border bg-surface">
+                      <Image
+                        source={{ uri: form.imageUrl }}
+                        style={{ width: "100%", aspectRatio: 16 / 9 }}
+                        contentFit="cover"
+                      />
+                    </View>
                   ) : (
-                    <>
-                      <IconSymbol name="sparkles" size={18} color={colors.primary} />
-                      <Text className="text-primary font-medium ml-2">Generate with AI</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                    <View className="rounded-xl border border-border bg-surface px-4 py-3">
+                      <View className="flex-row items-center">
+                        {generatingImage ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <IconSymbol name="sparkles" size={18} color={colors.primary} />
+                        )}
+                        <Text className="text-sm font-medium text-foreground ml-2">
+                          {generatingImage ? "Generating image..." : "Will be generated on submit"}
+                        </Text>
+                      </View>
+                    </View>
+                  )
+                ) : (
+                  <>
+                    <SingleImagePicker
+                      image={form.imageUrl || null}
+                      onImageChange={(uri) => {
+                        updateForm("imageUrl", uri || "");
+                      }}
+                      aspectRatio={[16, 9]}
+                      compactWhenEmpty
+                      emptyButtonLabel="Upload cover image"
+                      placeholder={`Upload a ${entityLabelLower} cover image`}
+                      accessibilityLabel={`Upload ${entityLabelLower} cover image`}
+                      testID="bundle-cover-image-upload"
+                    />
+                    {submitAttempted && !form.imageUrl.trim() ? (
+                      <Text className="text-xs text-error mt-2">
+                        Upload a cover image or switch back to Generate with AI.
+                      </Text>
+                    ) : (
+                      <Text className="text-xs text-muted mt-2">
+                        Uploaded images are shown here and used instead of AI generation.
+                      </Text>
+                    )}
+                  </>
+                )}
               </View>
 
               {/* Title */}
-              <View>
+              <View onLayout={recordFieldOffset("title")}>
                 <Text className="text-sm font-medium text-muted mb-2">{entityLabel} Title *</Text>
                 <TextInput
                   ref={titleInputRef}

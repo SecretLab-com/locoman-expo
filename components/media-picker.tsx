@@ -322,12 +322,20 @@ export function SingleImagePicker({
   aspectRatio,
   quality = 0.8,
   placeholder = "Add Image",
+  compactWhenEmpty = false,
+  emptyButtonLabel,
+  accessibilityLabel,
+  testID,
 }: {
   image: string | null;
   onImageChange: (uri: string | null) => void;
   aspectRatio?: [number, number];
   quality?: number;
   placeholder?: string;
+  compactWhenEmpty?: boolean;
+  emptyButtonLabel?: string;
+  accessibilityLabel?: string;
+  testID?: string;
 }) {
   const colors = useColors();
   const colorScheme = useColorScheme();
@@ -373,8 +381,13 @@ export function SingleImagePicker({
   return (
     <View>
       <TouchableOpacity
-        onPress={() => (image ? onImageChange(null) : setShowOptions(true))}
-        className="w-full aspect-video rounded-xl bg-surface border border-border overflow-hidden"
+        onPress={() => setShowOptions(true)}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel || placeholder}
+        testID={testID}
+        className={`w-full rounded-xl bg-surface border border-border overflow-hidden ${
+          image ? "aspect-video" : compactWhenEmpty ? "px-4 py-3 border-dashed" : "aspect-video"
+        }`}
       >
         {image ? (
           <View className="relative w-full h-full">
@@ -397,9 +410,13 @@ export function SingleImagePicker({
             </TouchableOpacity>
           </View>
         ) : (
-          <View className="flex-1 items-center justify-center px-6">
-            <IconSymbol name="photo" size={32} color={colors.muted} />
-            <Text className="text-muted mt-2 text-xs text-center">{placeholder}</Text>
+          <View className={`items-center justify-center ${compactWhenEmpty ? "flex-row" : "flex-1 px-6"}`}>
+            <IconSymbol name="photo" size={compactWhenEmpty ? 18 : 32} color={colors.muted} />
+            <Text
+              className={`text-muted text-center ${compactWhenEmpty ? "ml-2 text-sm font-medium" : "mt-2 text-xs"}`}
+            >
+              {emptyButtonLabel || placeholder}
+            </Text>
           </View>
         )}
       </TouchableOpacity>
