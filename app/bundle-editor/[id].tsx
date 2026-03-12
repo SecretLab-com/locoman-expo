@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Text,
   View,
@@ -26,6 +26,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { trpc } from "@/lib/trpc";
 import { SingleImagePicker } from "@/components/media-picker";
 import { haptics } from "@/hooks/use-haptics";
+import { CAMPAIGN_COPY } from "@/lib/campaign-copy";
 
 // Service types for bundles - matching original locoman
 type ServiceItem = {
@@ -110,6 +111,19 @@ const CADENCE_OPTIONS = [
   { value: "monthly" as const, label: "Monthly" },
 ];
 
+function countItems(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
 // Goal suggestions - matching original locoman
 const GOAL_SUGGESTIONS = [
   "Weight Loss",
@@ -132,6 +146,8 @@ export default function BundleEditorScreen() {
   const { id, admin: adminParam, templateId } = useLocalSearchParams<{ id: string; admin?: string; templateId?: string }>();
   const isNewBundle = id === "new";
   const isAdminMode = adminParam === "1";
+  const entityLabel = isAdminMode ? "Bundle" : "Offer";
+  const entityLabelLower = entityLabel.toLowerCase();
   
   // Parse id safely
   const bundleIdParam = (id && id !== "new") ? id : "";
@@ -140,7 +156,19 @@ export default function BundleEditorScreen() {
   const [loading, setLoading] = useState(!isNewBundle);
   const [saving, setSaving] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
-  const [activeTab, setActiveTab] = useState<"details" | "services" | "products" | "goals">("details");
+  type BuilderTab = "campaign" | "details" | "services" | "products";
+  const [activeTab, setActiveTab] = useState<BuilderTab>(isNewBundle ? "campaign" : "details");
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
+    templateId ? String(templateId) : null,
+  );
+  const [campaignMode, setCampaignMode] = useState<"scratch" | "template">(
+    templateId ? "template" : "scratch",
+  );
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [pendingFocusTarget, setPendingFocusTarget] = useState<string | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const titleInputRef = useRef<TextInput>(null);
+  const fieldOffsetsRef = useRef<Record<string, number>>({});
   
   // Product selection modal
   const [showProductModal, setShowProductModal] = useState(false);
@@ -171,6 +199,7 @@ export default function BundleEditorScreen() {
   const [reopenProductPickerAfterDetail, setReopenProductPickerAfterDetail] = useState(false);
   const [showReviewResponseModal, setShowReviewResponseModal] = useState(false);
   const [reviewResponse, setReviewResponse] = useState("");
+  const builderTabs: BuilderTab[] = ["campaign", "details", "services", "products"];
 
   const closeProductDetail = () => {
     setShowProductDetail(false);
@@ -205,6 +234,12 @@ export default function BundleEditorScreen() {
   const { data: catalogProducts } = trpc.catalog.products.useQuery(undefined, {
     staleTime: 60000,
   });
+  const {
+    data: templates = [],
+    isLoading: templatesLoading,
+    isRefetching: templatesRefetching,
+    refetch: refetchTemplates,
+  } = trpc.bundles.templates.useQuery();
   const customProductsQuery = trpc.customProducts.list.useQuery(undefined, {
     staleTime: 60000,
   });
@@ -257,7 +292,7 @@ export default function BundleEditorScreen() {
   const trainerCreateMutation = trpc.bundles.create.useMutation({
     onSuccess: () => {
       haptics.success();
-      platformAlert("Success", "Bundle saved as draft", [
+      platformAlert("Success", `${entityLabel} saved as draft`, [
         { text: "OK", onPress: () => router.back() },
       ]);
     },
@@ -274,7 +309,7 @@ export default function BundleEditorScreen() {
       if (isAdminMode) {
         promptTemplatePromotion(typeof newBundleId === "string" ? newBundleId : "");
       } else {
-        platformAlert("Success", "Bundle saved as draft", [
+        platformAlert("Success", `${entityLabel} saved as draft`, [
           { text: "OK", onPress: () => router.back() },
         ]);
       }
@@ -291,7 +326,7 @@ export default function BundleEditorScreen() {
   const trainerUpdateMutation = trpc.bundles.update.useMutation({
     onSuccess: () => {
       haptics.success();
-      platformAlert("Success", "Bundle updated", [
+      platformAlert("Success", `${entityLabel} updated`, [
         { text: "OK", onPress: () => effectiveRefetch() },
       ]);
     },
@@ -305,7 +340,7 @@ export default function BundleEditorScreen() {
   const adminUpdateMutation = trpc.admin.updateBundle.useMutation({
     onSuccess: () => {
       haptics.success();
-      platformAlert("Success", "Bundle updated", [
+      platformAlert("Success", `${entityLabel} updated`, [
         { text: "OK", onPress: () => effectiveRefetch() },
       ]);
     },
@@ -319,14 +354,14 @@ export default function BundleEditorScreen() {
 
   const promptTemplatePromotion = (bundleId: string) => {
     if (Platform.OS === "web") {
-      const yes = window.confirm("Bundle saved!\n\nWould you like to make this a template?");
+      const yes = window.confirm(`${entityLabel} saved!\n\nWould you like to make this a template?`);
       if (yes && bundleId) {
         router.replace({ pathname: "/(coordinator)/template-settings", params: { bundleId } } as any);
       } else {
         router.back();
       }
     } else {
-      Alert.alert("Bundle Saved", "Would you like to make this a template?", [
+      Alert.alert(`${entityLabel} Saved`, "Would you like to make this a template?", [
         { text: "Not Now", style: "cancel", onPress: () => router.back() },
         {
           text: "Yes, Make Template",
@@ -346,7 +381,7 @@ export default function BundleEditorScreen() {
   const submitForReviewMutation = trpc.bundles.submitForReview.useMutation({
     onSuccess: () => {
       haptics.success();
-      platformAlert("Success", "Bundle submitted for review! You'll be notified when it's approved.", [
+      platformAlert("Success", `${entityLabel} submitted for review! You'll be notified when it's approved.`, [
         { text: "OK", onPress: () => router.back() },
       ]);
     },
@@ -375,7 +410,7 @@ export default function BundleEditorScreen() {
   const deleteBundleMutation = trpc.bundles.delete.useMutation({
     onSuccess: () => {
       haptics.success();
-      platformAlert("Deleted", "Bundle deleted successfully.", [
+      platformAlert("Deleted", `${entityLabel} deleted successfully.`, [
         { text: "OK", onPress: () => router.back() },
       ]);
     },
@@ -385,15 +420,17 @@ export default function BundleEditorScreen() {
     },
   });
 
-  // Fetch template data when creating from template
+  const activeTemplateId = selectedCampaignId || null;
+
+  // Fetch template data when a campaign/template is selected
   const { data: templateBundle } = trpc.bundles.get.useQuery(
-    { id: templateId || "" },
-    { enabled: isNewBundle && !!templateId },
+    { id: activeTemplateId || "" },
+    { enabled: !!activeTemplateId },
   );
 
   // Populate form from template when creating a new bundle
   useEffect(() => {
-    if (isNewBundle && templateBundle && templateId) {
+    if (isNewBundle && templateBundle && activeTemplateId) {
       setForm((prev) => ({
         ...prev,
         title: templateBundle.title || prev.title,
@@ -413,11 +450,15 @@ export default function BundleEditorScreen() {
       }
       setLoading(false);
     }
-  }, [isNewBundle, templateBundle, templateId, mapStoredBundleProductToForm]);
+  }, [isNewBundle, templateBundle, activeTemplateId, mapStoredBundleProductToForm]);
 
   // Populate form when editing
   useEffect(() => {
     if (effectiveBundle) {
+      if (effectiveBundle.templateId) {
+        setSelectedCampaignId((current) => current ?? effectiveBundle.templateId ?? null);
+        setCampaignMode("template");
+      }
       setForm({
         title: effectiveBundle.title || "",
         description: effectiveBundle.description || "",
@@ -869,6 +910,18 @@ export default function BundleEditorScreen() {
     }
   };
 
+  const handleSelectCampaign = async (campaignId: string) => {
+    await haptics.light();
+    setCampaignMode("template");
+    setSelectedCampaignId(campaignId);
+  };
+
+  const handleStartFromScratch = async () => {
+    await haptics.light();
+    setCampaignMode("scratch");
+    setSelectedCampaignId(null);
+  };
+
   const handleCreateCustomProduct = async () => {
     const trimmedName = customProductName.trim();
     const parsedPrice = Number.parseFloat(customProductPrice.trim());
@@ -887,6 +940,66 @@ export default function BundleEditorScreen() {
       price: parsedPrice.toFixed(2),
     });
   };
+
+  const reviewValidation = useMemo(() => {
+    const tabErrors = new Set<BuilderTab>();
+    let firstInvalidTab: BuilderTab | null = null;
+    let firstInvalidField: string | null = null;
+
+    const setFirstInvalid = (tab: BuilderTab, field: string) => {
+      if (!firstInvalidTab) {
+        firstInvalidTab = tab;
+        firstInvalidField = field;
+      }
+      tabErrors.add(tab);
+    };
+
+    if (!form.title.trim()) {
+      setFirstInvalid("details", "title");
+    }
+
+    if (form.services.length === 0 && form.products.length === 0) {
+      setFirstInvalid("services", "services-entry");
+      tabErrors.add("products");
+    }
+
+    return {
+      tabErrors,
+      firstInvalidTab,
+      firstInvalidField,
+      tabComplete: {
+        campaign: campaignMode === "scratch" || Boolean(selectedCampaignId),
+        details: form.title.trim().length > 0,
+        services: form.services.length > 0,
+        products: form.products.length > 0,
+      } satisfies Record<BuilderTab, boolean>,
+    };
+  }, [campaignMode, form.products.length, form.services.length, form.title, selectedCampaignId]);
+
+  const recordFieldOffset = (key: string) => (event: any) => {
+    fieldOffsetsRef.current[key] = event.nativeEvent.layout.y;
+  };
+
+  const jumpToValidationTarget = useCallback((tab: BuilderTab | null, field: string | null) => {
+    if (!tab) return;
+    setActiveTab(tab);
+    setPendingFocusTarget(field);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingFocusTarget) return;
+    const target = pendingFocusTarget;
+    const run = () => {
+      const y = fieldOffsetsRef.current[target] ?? 0;
+      scrollViewRef.current?.scrollTo({ y, animated: true });
+      if (target === "title") {
+        titleInputRef.current?.focus();
+      }
+      setPendingFocusTarget(null);
+    };
+    const timer = setTimeout(run, 120);
+    return () => clearTimeout(timer);
+  }, [activeTab, pendingFocusTarget]);
 
   // Validate form
   // Cross-platform alert helper
@@ -908,7 +1021,7 @@ export default function BundleEditorScreen() {
 
   const validateForm = (): boolean => {
     if (!form.title.trim()) {
-      showAlert("Validation Error", "Please enter a bundle title");
+      showAlert("Validation Error", `Please enter a ${entityLabelLower} title`);
       return false;
     }
     if (!form.price || parseFloat(form.price) <= 0) {
@@ -921,7 +1034,7 @@ export default function BundleEditorScreen() {
   // Save as draft
   const handleSave = async () => {
     if (!form.title.trim()) {
-      showAlert("Validation Error", "Please enter a bundle title");
+      showAlert("Validation Error", `Please enter a ${entityLabelLower} title`);
       return;
     }
 
@@ -969,10 +1082,14 @@ export default function BundleEditorScreen() {
 
   // Submit for review (trainers) / Save & optionally promote (admins)
   const handleSubmitForReview = async () => {
-    if (!validateForm()) return;
-
-    if (form.products.length === 0 && form.services.length === 0) {
-      showAlert("Validation Error", "Please add at least one product or service");
+    setSubmitAttempted(true);
+    if (reviewValidation.firstInvalidTab) {
+      haptics.error();
+      jumpToValidationTarget(
+        reviewValidation.firstInvalidTab,
+        reviewValidation.firstInvalidField,
+      );
+      showAlert("Missing information", "Please fix the highlighted tab before submitting for review.");
       return;
     }
 
@@ -1032,8 +1149,8 @@ export default function BundleEditorScreen() {
 
     if (isAdminMode) {
       showAlert(
-        "Save Bundle",
-        "Save this bundle and optionally promote it to a template?",
+        `Save ${entityLabel}`,
+        `Save this ${entityLabelLower} and optionally promote it to a template?`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Save", onPress: doSubmit },
@@ -1042,7 +1159,7 @@ export default function BundleEditorScreen() {
     } else {
       showAlert(
         "Submit for Review",
-        "Your bundle will be reviewed by the admin team. You'll be notified once it's approved.",
+        `Your ${entityLabelLower} will be reviewed by the admin team. You'll be notified once it's approved.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Submit", onPress: doSubmit },
@@ -1054,7 +1171,7 @@ export default function BundleEditorScreen() {
   // Generate AI image
   const handleGenerateImage = async () => {
     if (!form.title.trim()) {
-      showAlert("Title Required", "Please enter a bundle title first to generate an image.");
+      showAlert("Title Required", `Please enter a ${entityLabelLower} title first to generate an image.`);
       return;
     }
 
@@ -1087,8 +1204,8 @@ export default function BundleEditorScreen() {
     };
 
     platformAlert(
-      "Delete Bundle",
-      "Are you sure you want to delete this bundle? This action cannot be undone.",
+      `Delete ${entityLabel}`,
+      `Are you sure you want to delete this ${entityLabelLower}? This action cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -1118,6 +1235,19 @@ export default function BundleEditorScreen() {
     }
   };
 
+  const isFinalBuilderTab = activeTab === builderTabs[builderTabs.length - 1];
+
+  const handlePrimaryBuilderAction = async () => {
+    if (!isFinalBuilderTab) {
+      const currentIndex = builderTabs.indexOf(activeTab);
+      const nextTab = builderTabs[Math.min(currentIndex + 1, builderTabs.length - 1)];
+      setActiveTab(nextTab);
+      await haptics.light();
+      return;
+    }
+    await handleSubmitForReview();
+  };
+
   if (loading) {
     return (
       <ScreenContainer className="items-center justify-center">
@@ -1135,7 +1265,7 @@ export default function BundleEditorScreen() {
       >
         {/* Header with confirmation for unsaved changes */}
         <NavigationHeader
-          title={isNewBundle ? "Create Bundle" : "Edit Bundle"}
+          title={isNewBundle ? `Create ${entityLabel}` : `Edit ${entityLabel}`}
           showBack
           showHome
           confirmBack={{
@@ -1195,33 +1325,167 @@ export default function BundleEditorScreen() {
 
         {/* Tab Navigation */}
         <View className="flex-row bg-surface border-b border-border">
-          {(["details", "services", "products", "goals"] as const).map((tab) => (
+          {(
+            [
+              { key: "campaign", label: "Campaign" },
+              { key: "details", label: "Details" },
+              { key: "services", label: "Services" },
+              { key: "products", label: "Products" },
+            ] as const
+          ).map(({ key, label }) => (
             <TouchableOpacity
-              key={tab}
-              className={`flex-1 py-3 ${activeTab === tab ? "border-b-2 border-primary" : ""}`}
+              key={key}
+              className={`flex-1 py-3 ${activeTab === key ? "border-b-2 border-primary" : ""}`}
               onPress={() => {
-                setActiveTab(tab);
+                setActiveTab(key);
                 haptics.light();
               }}
             >
-              <Text
-                className={`text-center text-sm font-medium capitalize ${
-                  activeTab === tab ? "text-primary" : "text-muted"
-                }`}
-              >
-                {tab}
-              </Text>
+              <View className="flex-row items-center justify-center">
+                <Text
+                  className={`text-center text-sm font-medium ${
+                    activeTab === key ? "text-primary" : "text-muted"
+                  }`}
+                >
+                  {label}
+                </Text>
+                {submitAttempted && reviewValidation.tabErrors.has(key) ? (
+                  <IconSymbol name="exclamationmark.triangle.fill" size={14} color={colors.error} />
+                ) : reviewValidation.tabComplete[key] ? (
+                  <IconSymbol name="checkmark.circle.fill" size={14} color={colors.success} />
+                ) : null}
+              </View>
             </TouchableOpacity>
           ))}
         </View>
 
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scrollViewRef} className="flex-1" showsVerticalScrollIndicator={false}>
+          {/* Campaign Tab */}
+          {activeTab === "campaign" && (
+            <View className="p-4" onLayout={recordFieldOffset("campaign")}>
+              <Text className="text-sm text-muted mb-4">
+                {CAMPAIGN_COPY.gallerySubtitle}
+              </Text>
+
+              <TouchableOpacity
+                className={`bg-surface border rounded-xl p-4 mb-4 ${
+                  !selectedCampaignId ? "border-primary" : "border-border"
+                }`}
+                onPress={handleStartFromScratch}
+                accessibilityRole="button"
+                accessibilityLabel="Start from scratch without a campaign"
+                testID="bundle-campaign-scratch"
+              >
+                <View className="flex-row items-center justify-between">
+                  <View className="flex-1 pr-3">
+                    <Text className="text-foreground font-semibold">Start from scratch</Text>
+                    <Text className="text-sm text-muted mt-1">
+                      Build an offer manually without preloading a campaign template.
+                    </Text>
+                  </View>
+                  {!selectedCampaignId ? (
+                    <IconSymbol name="checkmark.circle.fill" size={20} color={colors.primary} />
+                  ) : (
+                    <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              {templatesLoading ? (
+                <View className="items-center py-16">
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+              ) : (
+                <>
+                  {templates.map((template: any) => {
+                    const serviceCount = countItems(template.defaultServices);
+                    const productCount = countItems(template.defaultProducts);
+                    const selected = selectedCampaignId === template.id;
+                    return (
+                      <TouchableOpacity
+                        key={template.id}
+                        className={`bg-surface border rounded-xl overflow-hidden mb-3 ${
+                          selected ? "border-primary" : "border-border"
+                        }`}
+                        onPress={() => handleSelectCampaign(String(template.id))}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Select campaign ${template.title}`}
+                        testID={`bundle-campaign-${template.id}`}
+                      >
+                        {template.imageUrl ? (
+                          <Image
+                            source={{ uri: template.imageUrl }}
+                            style={{ width: "100%", height: 140 }}
+                            contentFit="cover"
+                          />
+                        ) : null}
+                        <View className="p-4">
+                          <View className="flex-row items-start justify-between">
+                            <Text className="text-foreground font-semibold text-base flex-1 pr-3">
+                              {template.title}
+                            </Text>
+                            {selected ? (
+                              <IconSymbol name="checkmark.circle.fill" size={20} color={colors.primary} />
+                            ) : null}
+                          </View>
+                          {template.description ? (
+                            <Text className="text-sm text-muted mt-1" numberOfLines={2}>
+                              {template.description}
+                            </Text>
+                          ) : null}
+                          <View className="flex-row items-center flex-wrap gap-x-4 gap-y-1 mt-3">
+                            {template.basePrice ? (
+                              <View className="flex-row items-center">
+                                <IconSymbol name="dollarsign.circle.fill" size={13} color={colors.success} />
+                                <Text className="text-xs text-muted ml-1">
+                                  From {template.basePrice} GBP
+                                </Text>
+                              </View>
+                            ) : null}
+                            {serviceCount > 0 ? (
+                              <View className="flex-row items-center">
+                                <IconSymbol name="calendar" size={13} color={colors.muted} />
+                                <Text className="text-xs text-muted ml-1">
+                                  {serviceCount} {serviceCount === 1 ? "service" : "services"}
+                                </Text>
+                              </View>
+                            ) : null}
+                            {productCount > 0 ? (
+                              <View className="flex-row items-center">
+                                <IconSymbol name="bag.fill" size={13} color={colors.muted} />
+                                <Text className="text-xs text-muted ml-1">
+                                  {productCount} {productCount === 1 ? "product" : "products"}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  {!templatesLoading && templates.length === 0 ? (
+                    <View className="items-center py-10">
+                      <IconSymbol name="rectangle.grid.2x2.fill" size={32} color={colors.muted} />
+                      <Text className="text-foreground font-semibold mt-3">
+                        {CAMPAIGN_COPY.noneAvailableTitle}
+                      </Text>
+                      <Text className="text-sm text-muted mt-1 text-center">
+                        {CAMPAIGN_COPY.noneAvailableSubtitle}
+                      </Text>
+                    </View>
+                  ) : null}
+                </>
+              )}
+            </View>
+          )}
+
           {/* Details Tab */}
           {activeTab === "details" && (
-            <View className="p-4 gap-4">
+            <View className="p-4 gap-4" onLayout={recordFieldOffset("title")}>
               {/* Bundle Image */}
               <View>
-                <Text className="text-sm font-medium text-foreground mb-2">Bundle Cover Image</Text>
+                <Text className="text-sm font-medium text-foreground mb-2">{entityLabel} Cover Image</Text>
                 <SingleImagePicker
                   image={form.imageUrl || null}
                   onImageChange={(uri) => {
@@ -1229,7 +1493,7 @@ export default function BundleEditorScreen() {
                     updateForm("imageSource", "custom");
                   }}
                   aspectRatio={[16, 9]}
-                  placeholder="Add Bundle Cover Image to Override AI generation of an image"
+                  placeholder={`Add ${entityLabel} Cover Image to Override AI generation of an image`}
                 />
 
                 {/* AI Generate Button */}
@@ -1256,10 +1520,11 @@ export default function BundleEditorScreen() {
 
               {/* Title */}
               <View>
-                <Text className="text-sm font-medium text-muted mb-2">Bundle Title *</Text>
+                <Text className="text-sm font-medium text-muted mb-2">{entityLabel} Title *</Text>
                 <TextInput
+                  ref={titleInputRef}
                   className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Enter bundle title"
+                  placeholder={`Enter ${entityLabelLower} title`}
                   placeholderTextColor={colors.muted}
                   value={form.title}
                   onChangeText={(text) => updateForm("title", text)}
@@ -1327,6 +1592,89 @@ export default function BundleEditorScreen() {
                   </View>
                 </View>
               </View>
+
+              {/* Goals moved into details */}
+              <View>
+                <Text className="text-sm font-medium text-muted mb-2">Goals</Text>
+                <Text className="text-sm text-muted mb-4">
+                  Select the fitness goals this bundle helps achieve.
+                </Text>
+
+                <View className="flex-row flex-wrap gap-2 mb-4">
+                  {GOAL_SUGGESTIONS.map((goal) => {
+                    const isSelected = form.goals.includes(goal);
+                    return (
+                      <TouchableOpacity
+                        key={goal}
+                        className={`px-4 py-2 rounded-full border ${
+                          isSelected ? "bg-primary border-primary" : "bg-surface border-border"
+                        }`}
+                        onPress={() => toggleGoal(goal)}
+                      >
+                        <Text
+                          className={`text-sm font-medium ${
+                            isSelected ? "text-background" : "text-foreground"
+                          }`}
+                        >
+                          {goal}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View className="flex-row gap-2">
+                  <TextInput
+                    className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                    placeholder="Add custom goal..."
+                    placeholderTextColor={colors.muted}
+                    value={customGoal}
+                    onChangeText={setCustomGoal}
+                    onSubmitEditing={addCustomGoal}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity
+                    className="bg-primary rounded-xl px-4 items-center justify-center"
+                    onPress={addCustomGoal}
+                    disabled={!customGoal.trim()}
+                  >
+                    <IconSymbol name="plus" size={20} color={colors.background} />
+                  </TouchableOpacity>
+                </View>
+
+                {form.goals.length > 0 && (
+                  <View className="mt-4">
+                    <Text className="text-sm font-medium text-foreground mb-2">Selected Goals</Text>
+                    <View className="flex-row flex-wrap gap-2">
+                      {form.goals.map((goal) => (
+                        <View
+                          key={goal}
+                          className="bg-primary/10 border border-primary/30 rounded-full px-3 py-1 flex-row items-center"
+                        >
+                          <Text className="text-primary text-sm">{goal}</Text>
+                          <TouchableOpacity
+                            onPress={() => toggleGoal(goal)}
+                            className="ml-2"
+                          >
+                            <IconSymbol name="xmark" size={14} color={colors.primary} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                <View className="mt-4">
+                  <Text className="text-sm font-medium text-foreground mb-2">Primary Goal (Optional)</Text>
+                  <TextInput
+                    className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
+                    placeholder="What's the main goal clients will achieve?"
+                    placeholderTextColor={colors.muted}
+                    value={form.suggestedGoal}
+                    onChangeText={(text) => updateForm("suggestedGoal", text)}
+                  />
+                </View>
+              </View>
             </View>
           )}
 
@@ -1340,6 +1688,7 @@ export default function BundleEditorScreen() {
 
               {/* Add Service Button */}
               <TouchableOpacity
+                onLayout={recordFieldOffset("services-entry")}
                 className="bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center mb-4"
                 onPress={() => setShowServiceModal(true)}
                 accessibilityRole="button"
@@ -1457,12 +1806,13 @@ export default function BundleEditorScreen() {
           {activeTab === "products" && (
             <View className="p-4">
               <Text className="text-sm text-muted mb-4">
-                Add products from the catalog to include with this bundle.
+                {`Add products from the catalog to include with this ${entityLabelLower}.`}
               </Text>
 
               {/* Add Product Buttons */}
               <View className="flex-row gap-3 mb-4">
                 <TouchableOpacity
+                  onLayout={recordFieldOffset("products-entry")}
                   className="flex-1 bg-primary/10 border border-primary rounded-xl p-4 flex-row items-center justify-center"
                   onPress={() => setShowProductModal(true)}
                 >
@@ -1486,7 +1836,7 @@ export default function BundleEditorScreen() {
                 <View className="items-center py-8 bg-surface rounded-xl">
                   <IconSymbol name="bag.fill" size={40} color={colors.muted} />
                   <Text className="text-muted mt-2">No products added yet</Text>
-                  <Text className="text-muted text-sm">Tap the button above to add products</Text>
+                    <Text className="text-muted text-sm">{`Tap the button above to add products to this ${entityLabelLower}`}</Text>
                 </View>
               ) : (
                 <View className="gap-3">
@@ -1593,95 +1943,6 @@ export default function BundleEditorScreen() {
             </View>
           )}
 
-          {/* Goals Tab */}
-          {activeTab === "goals" && (
-            <View className="p-4">
-              <Text className="text-sm text-muted mb-4">
-                Select the fitness goals this bundle helps achieve.
-              </Text>
-
-              {/* Goal Chips */}
-              <View className="flex-row flex-wrap gap-2 mb-4">
-                {GOAL_SUGGESTIONS.map((goal) => {
-                  const isSelected = form.goals.includes(goal);
-                  return (
-                    <TouchableOpacity
-                      key={goal}
-                      className={`px-4 py-2 rounded-full border ${
-                        isSelected
-                          ? "bg-primary border-primary"
-                          : "bg-surface border-border"
-                      }`}
-                      onPress={() => toggleGoal(goal)}
-                    >
-                      <Text
-                        className={`text-sm font-medium ${
-                          isSelected ? "text-background" : "text-foreground"
-                        }`}
-                      >
-                        {goal}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* Custom Goal Input */}
-              <View className="flex-row gap-2">
-                <TextInput
-                  className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="Add custom goal..."
-                  placeholderTextColor={colors.muted}
-                  value={customGoal}
-                  onChangeText={setCustomGoal}
-                  onSubmitEditing={addCustomGoal}
-                  returnKeyType="done"
-                />
-                <TouchableOpacity
-                  className="bg-primary rounded-xl px-4 items-center justify-center"
-                  onPress={addCustomGoal}
-                  disabled={!customGoal.trim()}
-                >
-                  <IconSymbol name="plus" size={20} color={colors.background} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Selected Goals */}
-              {form.goals.length > 0 && (
-                <View className="mt-4">
-                  <Text className="text-sm font-medium text-foreground mb-2">Selected Goals</Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    {form.goals.map((goal) => (
-                      <View
-                        key={goal}
-                        className="bg-primary/10 border border-primary/30 rounded-full px-3 py-1 flex-row items-center"
-                      >
-                        <Text className="text-primary text-sm">{goal}</Text>
-                        <TouchableOpacity
-                          onPress={() => toggleGoal(goal)}
-                          className="ml-2"
-                        >
-                          <IconSymbol name="xmark" size={14} color={colors.primary} />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* Suggested Goal */}
-              <View className="mt-4">
-                <Text className="text-sm font-medium text-foreground mb-2">Primary Goal (Optional)</Text>
-                <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground"
-                  placeholder="What's the main goal clients will achieve?"
-                  placeholderTextColor={colors.muted}
-                  value={form.suggestedGoal}
-                  onChangeText={(text) => updateForm("suggestedGoal", text)}
-                />
-              </View>
-            </View>
-          )}
         </ScrollView>
 
         {/* Bottom Action Buttons */}
@@ -1709,7 +1970,7 @@ export default function BundleEditorScreen() {
                   {saving ? 'Saving...' : 'Save Draft'}
                 </button>
                 <button
-                  onClick={handleSubmitForReview}
+                  onClick={handlePrimaryBuilderAction}
                   disabled={saving}
                   style={{
                     flex: 1,
@@ -1724,7 +1985,9 @@ export default function BundleEditorScreen() {
                     fontSize: 16,
                   }}
                 >
-                  {saving ? 'Submitting...' : 'Submit for Review'}
+                  {saving
+                    ? (isFinalBuilderTab ? 'Submitting...' : 'Moving...')
+                    : (isFinalBuilderTab ? 'Submit for Review' : 'Next')}
                 </button>
               </>
             ) : (
@@ -1760,14 +2023,16 @@ export default function BundleEditorScreen() {
                     alignItems: 'center',
                     opacity: saving ? 0.5 : 1,
                   }}
-                  onPress={handleSubmitForReview}
+                  onPress={handlePrimaryBuilderAction}
                   disabled={saving}
                   activeOpacity={0.7}
                 >
                   {saving ? (
                     <ActivityIndicator size="small" color={colors.background} />
                   ) : (
-                    <Text style={{ color: colors.background, fontWeight: '600' }}>Submit for Review</Text>
+                    <Text style={{ color: colors.background, fontWeight: '600' }}>
+                      {isFinalBuilderTab ? 'Submit for Review' : 'Next'}
+                    </Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -2601,7 +2866,7 @@ export default function BundleEditorScreen() {
                           <Text className="text-background font-semibold">
                             {isSelected 
                               ? `Update Quantity (${detailQuantity})` 
-                              : `Add ${detailQuantity} to Bundle`}
+                              : `Add ${detailQuantity} to ${entityLabel}`}
                           </Text>
                         </TouchableOpacity>
                         {isSelected && (
@@ -2613,7 +2878,7 @@ export default function BundleEditorScreen() {
                             }}
                           >
                             <Text className="text-background font-semibold">
-                              Remove from Bundle
+                              {`Remove from ${entityLabel}`}
                             </Text>
                           </TouchableOpacity>
                         )}
