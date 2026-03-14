@@ -1,7 +1,8 @@
 import { useAuthContext } from "@/contexts/auth-context";
 import { getHomeRoute } from "@/lib/navigation";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { Redirect } from "expo-router";
-import { ActivityIndicator, View } from "react-native";
+import { View } from "react-native";
 
 export default function RootIndexRoute() {
   const { loading, hasSession, profileHydrated, isAuthenticated, effectiveRole } = useAuthContext();
@@ -10,7 +11,7 @@ export default function RootIndexRoute() {
   if (authTransit) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" />
+        <LogoLoader size={80} />
       </View>
     );
   }

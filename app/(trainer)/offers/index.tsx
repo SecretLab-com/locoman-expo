@@ -1,6 +1,7 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { normalizeAssetUrl } from "@/lib/asset-url";
@@ -10,7 +11,7 @@ import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useMemo } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 const OFFER_STATUS_META: Record<BundleOfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
   draft: { label: "Draft", colorKey: "warning" },
@@ -70,7 +71,7 @@ export default function OffersListScreen() {
         <View className="px-4 pb-8">
           {isLoading ? (
             <View className="items-center py-16">
-              <ActivityIndicator size="large" color={colors.primary} />
+              <LogoLoader size={72} />
             </View>
           ) : offers.length === 0 ? (
             <View className="bg-surface rounded-xl border border-border p-6 items-center">

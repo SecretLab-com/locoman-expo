@@ -1,6 +1,7 @@
 import { OAuthButtons } from "@/components/oauth-buttons";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { useAuthContext } from "@/contexts/auth-context";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
@@ -14,7 +15,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -27,8 +27,7 @@ import {
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
-
-const FormView = Platform.OS === 'web' ? 'form' : View;
+const MIN_BRANDED_LOGIN_LOADER_MS = 2000;
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -49,6 +48,8 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [loginLoaderVisibleUntil, setLoginLoaderVisibleUntil] = useState<number | null>(null);
+  const [authRedirectReady, setAuthRedirectReady] = useState(false);
 
   // Load saved email on mount
   useEffect(() => {
@@ -70,13 +71,29 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
+    if (!loginLoaderVisibleUntil) {
+      setAuthRedirectReady(false);
+      return;
+    }
+    const remainingMs = loginLoaderVisibleUntil - Date.now();
+    if (remainingMs <= 0) {
+      setAuthRedirectReady(true);
+      return;
+    }
+    setAuthRedirectReady(false);
+    const timer = setTimeout(() => setAuthRedirectReady(true), remainingMs);
+    return () => clearTimeout(timer);
+  }, [loginLoaderVisibleUntil]);
+
+  useEffect(() => {
     if (authLoading || !isAuthenticated) return;
     if (normalizedInviteToken) return;
+    if (loginLoaderVisibleUntil && !authRedirectReady) return;
     const timer = setTimeout(() => {
       router.replace(getHomeRoute(effectiveRole) as any);
-    }, 800);
+    }, loginLoaderVisibleUntil ? 0 : 800);
     return () => clearTimeout(timer);
-  }, [authLoading, effectiveRole, isAuthenticated, normalizedInviteToken]);
+  }, [authLoading, authRedirectReady, effectiveRole, isAuthenticated, loginLoaderVisibleUntil, normalizedInviteToken]);
 
   useEffect(() => {
     if (!normalizedInviteToken) return;
@@ -139,6 +156,9 @@ export default function LoginScreen() {
 
     setLoading(true);
     setError(null);
+    const loaderVisibleUntil = Date.now() + MIN_BRANDED_LOGIN_LOADER_MS;
+    setLoginLoaderVisibleUntil(loaderVisibleUntil);
+    let loginSucceeded = false;
 
     try {
       // Save or clear remember me preference
@@ -160,6 +180,7 @@ export default function LoginScreen() {
       if (signInError) {
         await haptics.error();
         setError(signInError.message || "Invalid email or password");
+        setLoginLoaderVisibleUntil(null);
         return;
       }
 
@@ -171,27 +192,30 @@ export default function LoginScreen() {
         }
         await haptics.success();
         console.log("[Login] Supabase sign-in successful:", data.user?.email);
+        loginSucceeded = true;
+
+        const remainingLoaderMs = Math.max(0, loaderVisibleUntil - Date.now());
+        if (remainingLoaderMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remainingLoaderMs));
+        }
 
         // Trigger auth refresh — the useAuth hook will pick up the session
         // and fetch the full user profile from the backend
         triggerAuthRefresh();
-
-        // Small delay to allow auth state to propagate
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        if (!normalizedInviteToken) {
-          router.replace(getHomeRoute(effectiveRole) as any);
-        }
       } else {
         await haptics.error();
         setError("Login failed — no session returned");
+        setLoginLoaderVisibleUntil(null);
       }
     } catch (err) {
       await haptics.error();
       const message = err instanceof Error ? err.message : "Login failed";
       setError(message);
+      setLoginLoaderVisibleUntil(null);
     } finally {
-      setLoading(false);
+      if (!loginSucceeded) {
+        setLoading(false);
+      }
     }
   };
 
@@ -209,6 +233,7 @@ export default function LoginScreen() {
 
   const handleCancelPress = async () => {
     await haptics.light();
+    setLoginLoaderVisibleUntil(null);
     router.back();
   };
 
@@ -245,6 +270,25 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
       >
+        {loading ? (
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              zIndex: 20,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(8,10,20,0.78)",
+              paddingHorizontal: 24,
+            }}
+          >
+            <LogoLoader size={120} />
+            <Text className="mt-6 text-lg font-semibold text-white">Signing In...</Text>
+          </View>
+        ) : null}
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
           keyboardShouldPersistTaps="handled"
@@ -358,14 +402,9 @@ export default function LoginScreen() {
                 accessibilityLabel="Sign in"
                 testID="login-submit"
               >
-                {loading ? (
-                  <View className="flex-row items-center">
-                    <ActivityIndicator color={colors.background} size="small" />
-                    <Text className="text-background font-semibold text-lg ml-2">Signing In...</Text>
-                  </View>
-                ) : (
+                {!loading ? (
                   <Text className="text-background font-semibold text-lg">Sign In</Text>
-                )}
+                ) : null}
               </TouchableOpacity>
             </View>
 

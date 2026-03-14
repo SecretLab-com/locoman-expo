@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { View } from "react-native";
 
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { useAuthContext } from "@/contexts/auth-context";
 import { getHomeRoute, resetToHome } from "@/lib/navigation";
 import ShopperHome from "../../components/shopper-home";
@@ -54,7 +55,7 @@ export default function UnifiedHomeScreen() {
   if (loading) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" />
+        <LogoLoader size={80} />
       </View>
     );
   }
@@ -62,7 +63,7 @@ export default function UnifiedHomeScreen() {
   if (isAuthenticated && normalizedRole && normalizedRole !== "shopper") {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" />
+        <LogoLoader size={80} />
       </View>
     );
   }

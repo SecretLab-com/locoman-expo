@@ -6,13 +6,14 @@
  * URL and establish the Supabase session.
  */
 import { ThemedView } from "@/components/themed-view";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { getHomeRoute } from "@/lib/navigation";
 import { supabase } from "@/lib/supabase-client";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Text } from "react-native";
+import { Platform, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 function isMissingCodeVerifierError(error: unknown): boolean {
@@ -213,7 +214,7 @@ export default function OAuthCallback() {
       <ThemedView className="flex-1 items-center justify-center gap-4 p-5">
         {status === "processing" && (
           <>
-            <ActivityIndicator size="large" />
+            <LogoLoader size={88} />
             <Text className="mt-4 text-base leading-6 text-center text-foreground">
               Completing authentication...
             </Text>

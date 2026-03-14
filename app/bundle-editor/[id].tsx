@@ -19,6 +19,7 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "ex
 import { ScreenContainer } from "@/components/screen-container";
 import { NavigationHeader } from "@/components/navigation-header";
 import { ServicePickerModal } from "@/components/service-picker-modal";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { withAlpha } from "@/design-system/color-utils";
 import { useDesignSystem } from "@/hooks/use-design-system";
 import { useColors } from "@/hooks/use-colors";
@@ -1496,7 +1497,7 @@ export default function BundleEditorScreen() {
   if (loading) {
     return (
       <ScreenContainer className="items-center justify-center">
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LogoLoader size={84} />
         <Text className="text-muted mt-4">Loading bundle...</Text>
       </ScreenContainer>
     );
@@ -1779,7 +1780,7 @@ export default function BundleEditorScreen() {
 
                   {templatesLoading ? (
                     <View className="items-center py-16">
-                      <ActivityIndicator size="large" color={colors.primary} />
+                      <LogoLoader size={72} />
                     </View>
                   ) : (
                     <>
@@ -2846,11 +2847,11 @@ export default function BundleEditorScreen() {
               {/* Product List */}
               {productSourceFilter === "shopify" && productsLoading ? (
                 <View className="flex-1 items-center justify-center">
-                  <ActivityIndicator size="large" color={colors.primary} />
+                  <LogoLoader size={72} />
                 </View>
               ) : productSourceFilter === "custom" && customProductsQuery.isLoading ? (
                 <View className="flex-1 items-center justify-center">
-                  <ActivityIndicator size="large" color={colors.primary} />
+                  <LogoLoader size={72} />
                 </View>
               ) : (
                 <FlatList

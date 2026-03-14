@@ -10,7 +10,7 @@ import { ShareIntentProvider } from "expo-share-intent";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, AppState, AppStateStatus, LogBox, Platform, View } from "react-native";
+import { Alert, AppState, AppStateStatus, LogBox, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
@@ -31,6 +31,7 @@ import { OfflineIndicator } from "@/components/offline-indicator";
 import { PostAuthOnboardingResolver } from "@/components/post-auth-onboarding-resolver";
 import { ProfileFAB } from "@/components/profile-fab";
 import { SocialAlertListener } from "@/components/social-alert-listener";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { AuthProvider, useAuthContext } from "@/contexts/auth-context";
 import { BadgeProvider } from "@/contexts/badge-context";
 import { CartProvider } from "@/contexts/cart-context";
@@ -58,6 +59,7 @@ const HEADER_TITLES: Record<string, string> = {
   "conversation/[id]": "Conversation",
   "invite/[token]": "Accept Invite",
   "login": "Sign In",
+  "logo-loader-test": "Logo Loader Test",
   "messages/index": "Messages",
   "messages/[id]": "Message",
   "my-trainers/index": "My Trainers",
@@ -179,9 +181,17 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
     const timer = setTimeout(() => setAuthGraceActive(false), AUTH_REDIRECT_GRACE_MS);
     return () => clearTimeout(timer);
   }, [authGateReady, isAuthenticated]);
+  const isLogoLoaderPreviewRoute = pathname === "/logo-loader-test";
   const isGuestSafeRoute = useMemo(() => {
     const path = pathname || "";
-    if (path === "/welcome" || path === "/login" || path === "/register" || path === "/share-intent" || path.startsWith("/oauth/callback")) {
+    if (
+      path === "/welcome" ||
+      path === "/login" ||
+      path === "/register" ||
+      path === "/share-intent" ||
+      path === "/logo-loader-test" ||
+      path.startsWith("/oauth/callback")
+    ) {
       return true;
     }
     // Guests may browse bundles/trainers only.
@@ -192,6 +202,10 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authGateReady || isAuthTransit) {
+      setRedirecting(false);
+      return;
+    }
+    if (isLogoLoaderPreviewRoute) {
       setRedirecting(false);
       return;
     }
@@ -229,6 +243,7 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
   }, [
     authGateReady,
     isAuthTransit,
+    isLogoLoaderPreviewRoute,
     authGraceActive,
     isAuthenticated,
     isGuestSafeRoute,
@@ -247,7 +262,7 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
   ) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" />
+        <LogoLoader size={80} />
       </View>
     );
   }
@@ -510,6 +525,7 @@ export default function RootLayout() {
                               name="invite/[token]"
                               options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
                             />
+                            <Stack.Screen name="logo-loader-test" options={{ presentation: "card" }} />
                             <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false, gestureEnabled: true, fullScreenGestureEnabled: true }} />
                             <Stack.Screen name="new-message" options={{ presentation: "card" }} />
                             <Stack.Screen
