@@ -25,8 +25,8 @@ export default function LogoLoaderTestScreen() {
             borderColor: withAlpha(colors.primary, 0.16),
           }}
         >
-          <LogoLoader size={220} durationMs={2000} />
-          <Text className="text-sm text-muted mt-6">Looping continuously at 2.0s per draw.</Text>
+          <LogoLoader size={220} durationMs={2000} holdMs={200} />
+          <Text className="text-sm text-muted mt-6">Looping at 2.0s draw + 0.2s full-logo hold.</Text>
         </View>
       </View>
     </ScreenContainer>

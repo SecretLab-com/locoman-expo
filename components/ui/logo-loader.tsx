@@ -43,6 +43,7 @@ type LogoLoaderProps = {
   size?: number;
   color?: string;
   durationMs?: number;
+  holdMs?: number;
   style?: StyleProp<ViewStyle>;
   trackOpacity?: number;
 };
@@ -51,18 +52,21 @@ export function LogoLoader({
   size = 64,
   color,
   durationMs = 1000,
+  holdMs = 200,
   style,
   trackOpacity = 0.14,
 }: LogoLoaderProps) {
   const colors = useColors();
   const stroke = color || colors.primary;
   const progress = useSharedValue(0);
+  const totalCycleMs = durationMs + holdMs;
+  const drawProgressEnd = durationMs / totalCycleMs;
 
   useEffect(() => {
     progress.value = 0;
     progress.value = withRepeat(
       withTiming(1, {
-        duration: durationMs,
+        duration: totalCycleMs,
         easing: Easing.linear,
       }),
       -1,
@@ -72,10 +76,13 @@ export function LogoLoader({
     return () => {
       cancelAnimation(progress);
     };
-  }, [durationMs, progress]);
+  }, [progress, totalCycleMs]);
 
   const angleAnimatedProps = useAnimatedProps(() => {
-    const raw = (progress.value - LOGO_PATHS[0].start) / (LOGO_PATHS[0].end - LOGO_PATHS[0].start);
+    const normalizedDrawProgress =
+      progress.value >= drawProgressEnd ? 1 : progress.value / drawProgressEnd;
+    const raw =
+      (normalizedDrawProgress - LOGO_PATHS[0].start) / (LOGO_PATHS[0].end - LOGO_PATHS[0].start);
     const segmentProgress = Math.min(1, Math.max(0, raw));
 
     return {
@@ -85,7 +92,10 @@ export function LogoLoader({
   });
 
   const loopAnimatedProps = useAnimatedProps(() => {
-    const raw = (progress.value - LOGO_PATHS[1].start) / (LOGO_PATHS[1].end - LOGO_PATHS[1].start);
+    const normalizedDrawProgress =
+      progress.value >= drawProgressEnd ? 1 : progress.value / drawProgressEnd;
+    const raw =
+      (normalizedDrawProgress - LOGO_PATHS[1].start) / (LOGO_PATHS[1].end - LOGO_PATHS[1].start);
     const segmentProgress = Math.min(1, Math.max(0, raw));
 
     return {
