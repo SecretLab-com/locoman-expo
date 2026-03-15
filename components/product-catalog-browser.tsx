@@ -1,19 +1,10 @@
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  ImageBackground,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Image, ImageBackground, RefreshControl, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 export type CatalogProduct = {
   id: string;
@@ -265,7 +256,7 @@ export function ProductCatalogBrowser({
   if (isLoading) {
     return (
       <View className="flex-1 items-center justify-center py-16">
-        <ActivityIndicator size="large" color={colors.primary} />
+        <LogoLoader size={72} />
       </View>
     );
   }

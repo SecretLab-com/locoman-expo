@@ -2,6 +2,7 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LogoLoader } from "@/components/ui/logo-loader";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useCart } from "@/contexts/cart-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -11,7 +12,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -904,7 +904,7 @@ export default function ProductsScreen() {
       {/* Loading State */}
       {isLoading && (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
+          <LogoLoader size={72} />
           <Text className="text-muted mt-3">Loading products...</Text>
         </View>
       )}
