@@ -25,6 +25,7 @@ export default function GetPaidScreen() {
   const { data: payoutSummary } = trpc.payments.payoutSummary.useQuery();
   const utils = trpc.useUtils();
   const canRequestPayments = payoutSummary?.canRequestPayments === true;
+  const payoutSetupNeedsAttention = !canRequestPayments;
   const payoutStatusLabel = payoutSummary?.statusLabel || "Not Started";
 
   const handleRefresh = async () => {
@@ -59,7 +60,7 @@ export default function GetPaidScreen() {
               accessibilityRole="button"
               accessibilityLabel="Setup payment merchant account"
               testID="get-paid-setup-payment"
-              style={!payoutSummary?.bankConnected ? {
+              style={payoutSetupNeedsAttention ? {
                 backgroundColor: "rgba(251,191,36,0.12)",
                 borderWidth: 2,
                 borderColor: "rgba(251,191,36,0.5)",

@@ -2,6 +2,7 @@ import { OAuthButtons } from "@/components/oauth-buttons";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { LogoLoader } from "@/components/ui/logo-loader";
+import { withAlpha } from "@/design-system/color-utils";
 import { useAuthContext } from "@/contexts/auth-context";
 import { triggerAuthRefresh } from "@/hooks/use-auth";
 import { useColors } from "@/hooks/use-colors";
@@ -281,12 +282,14 @@ export default function LoginScreen() {
               zIndex: 20,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(8,10,20,0.78)",
+              backgroundColor: withAlpha(colors.background, 0.82),
               paddingHorizontal: 24,
             }}
           >
             <LogoLoader size={120} />
-            <Text className="mt-6 text-lg font-semibold text-white">Signing In...</Text>
+            <Text className="mt-6 text-lg font-semibold" style={{ color: colors.foreground }}>
+              Signing In...
+            </Text>
           </View>
         ) : null}
         <ScrollView

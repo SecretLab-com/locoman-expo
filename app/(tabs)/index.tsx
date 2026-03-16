@@ -3,6 +3,7 @@ import { View } from "react-native";
 
 import { LogoLoader } from "@/components/ui/logo-loader";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useColors } from "@/hooks/use-colors";
 import { getHomeRoute, resetToHome } from "@/lib/navigation";
 import ShopperHome from "../../components/shopper-home";
 
@@ -21,6 +22,7 @@ import ShopperHome from "../../components/shopper-home";
  * - Coordinator → CoordinatorHome (impersonation, logs)
  */
 export default function UnifiedHomeScreen() {
+  const colors = useColors();
   const {
     isAuthenticated,
     effectiveRole,
@@ -54,7 +56,7 @@ export default function UnifiedHomeScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
         <LogoLoader size={80} />
       </View>
     );
@@ -62,7 +64,7 @@ export default function UnifiedHomeScreen() {
 
   if (isAuthenticated && normalizedRole && normalizedRole !== "shopper") {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
         <LogoLoader size={80} />
       </View>
     );

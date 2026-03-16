@@ -38,6 +38,7 @@ import { CartProvider } from "@/contexts/cart-context";
 import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
 import { RealtimeProvider } from "@/contexts/realtime-context";
+import { useColors } from "@/hooks/use-colors";
 import { useDeepLink } from "@/hooks/use-deep-link";
 import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
 import { installWebAlertOverride } from "@/lib/in-app-alert";
@@ -116,6 +117,7 @@ function getHeaderTitle(routeName: string): string {
 }
 
 function RootAccessGate({ children }: { children: React.ReactNode }) {
+  const colors = useColors();
   const { loading, hasSession, profileHydrated, isAuthenticated, effectiveRole, isImpersonating, navigationFrozen } =
     useAuthContext();
   const pathname = usePathname();
@@ -261,7 +263,7 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
     (!isAuthenticated && !isGuestSafeRoute)
   ) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
         <LogoLoader size={80} />
       </View>
     );

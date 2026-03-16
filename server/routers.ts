@@ -2615,18 +2615,31 @@ export const appRouter = router({
         let goalsJson = input.goalsJson;
         let price = input.price;
         let description = input.description;
+        let persistedTemplateId: string | undefined;
 
         if (input.templateId) {
-          await db.incrementTemplateUsage(input.templateId);
+          const promotedTemplate = await db.getBundleDraftById(input.templateId);
+          if (promotedTemplate) {
+            persistedTemplateId = input.templateId;
+            // Copy template data if trainer didn't provide their own
+            if (!productsJson) productsJson = promotedTemplate.productsJson;
+            if (!servicesJson) servicesJson = promotedTemplate.servicesJson;
+            if (!goalsJson) goalsJson = promotedTemplate.goalsJson;
+            if (!price) price = promotedTemplate.price ?? undefined;
+            if (!description) description = promotedTemplate.description ?? undefined;
+          } else {
+            const legacyTemplate = await db.getBundleTemplateById(input.templateId);
+            if (legacyTemplate) {
+              if (!productsJson) productsJson = legacyTemplate.defaultProducts;
+              if (!servicesJson) servicesJson = legacyTemplate.defaultServices;
+              if (!goalsJson) goalsJson = legacyTemplate.goalsJson;
+              if (!price) price = legacyTemplate.basePrice ?? legacyTemplate.minPrice ?? undefined;
+              if (!description) description = legacyTemplate.description ?? undefined;
+            }
+          }
 
-          // Copy template data if trainer didn't provide their own
-          const template = await db.getBundleDraftById(input.templateId);
-          if (template) {
-            if (!productsJson) productsJson = template.productsJson;
-            if (!servicesJson) servicesJson = template.servicesJson;
-            if (!goalsJson) goalsJson = template.goalsJson;
-            if (!price) price = template.price ?? undefined;
-            if (!description) description = template.description ?? undefined;
+          if (persistedTemplateId) {
+            await db.incrementTemplateUsage(persistedTemplateId);
           }
         }
 
@@ -2634,16 +2647,16 @@ export const appRouter = router({
           trainerId: ctx.user.id,
           title: input.title,
           description,
-          templateId: input.templateId,
+          templateId: persistedTemplateId,
           price,
           cadence: input.cadence,
           goalsJson,
           servicesJson,
           productsJson,
         });
-        if (input.templateId) {
+        if (persistedTemplateId) {
           await db.copyCampaignAccountsFromTemplateToBundle({
-            templateBundleId: input.templateId,
+            templateBundleId: persistedTemplateId,
             bundleDraftId: bundleId,
           });
         }

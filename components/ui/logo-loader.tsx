@@ -1,18 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedProps,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
 
 import { useColors } from "@/hooks/use-colors";
-
-const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 const VIEWBOX_WIDTH = 310;
 const VIEWBOX_HEIGHT = 250;
@@ -58,51 +48,29 @@ export function LogoLoader({
 }: LogoLoaderProps) {
   const colors = useColors();
   const stroke = color || colors.primary;
-  const progress = useSharedValue(0);
+  const [progress, setProgress] = useState(0);
   const totalCycleMs = durationMs + holdMs;
   const drawProgressEnd = durationMs / totalCycleMs;
 
   useEffect(() => {
-    progress.value = 0;
-    progress.value = withRepeat(
-      withTiming(1, {
-        duration: totalCycleMs,
-        easing: Easing.linear,
-      }),
-      -1,
-      false
-    );
+    let frameId = 0;
+    let startTime = 0;
+
+    const tick = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const elapsed = (timestamp - startTime) % totalCycleMs;
+      setProgress(elapsed / totalCycleMs);
+      frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
 
     return () => {
-      cancelAnimation(progress);
+      cancelAnimationFrame(frameId);
     };
-  }, [progress, totalCycleMs]);
+  }, [totalCycleMs]);
 
-  const angleAnimatedProps = useAnimatedProps(() => {
-    const normalizedDrawProgress =
-      progress.value >= drawProgressEnd ? 1 : progress.value / drawProgressEnd;
-    const raw =
-      (normalizedDrawProgress - LOGO_PATHS[0].start) / (LOGO_PATHS[0].end - LOGO_PATHS[0].start);
-    const segmentProgress = Math.min(1, Math.max(0, raw));
-
-    return {
-      strokeDashoffset: LOGO_PATHS[0].dashLength * (1 - segmentProgress),
-      opacity: segmentProgress <= 0 ? 0 : 1,
-    };
-  });
-
-  const loopAnimatedProps = useAnimatedProps(() => {
-    const normalizedDrawProgress =
-      progress.value >= drawProgressEnd ? 1 : progress.value / drawProgressEnd;
-    const raw =
-      (normalizedDrawProgress - LOGO_PATHS[1].start) / (LOGO_PATHS[1].end - LOGO_PATHS[1].start);
-    const segmentProgress = Math.min(1, Math.max(0, raw));
-
-    return {
-      strokeDashoffset: LOGO_PATHS[1].dashLength * (1 - segmentProgress),
-      opacity: segmentProgress <= 0 ? 0 : 1,
-    };
-  });
+  const normalizedDrawProgress = progress >= drawProgressEnd ? 1 : progress / drawProgressEnd;
 
   return (
     <View style={style}>
@@ -123,24 +91,24 @@ export function LogoLoader({
             opacity={trackOpacity}
           />
         ))}
-        <AnimatedPath
-          d={LOGO_PATHS[0].d}
-          stroke={stroke}
-          strokeWidth={36.0766}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray={`${LOGO_PATHS[0].dashLength} ${LOGO_PATHS[0].dashLength}`}
-          animatedProps={angleAnimatedProps}
-        />
-        <AnimatedPath
-          d={LOGO_PATHS[1].d}
-          stroke={stroke}
-          strokeWidth={36.0766}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray={`${LOGO_PATHS[1].dashLength} ${LOGO_PATHS[1].dashLength}`}
-          animatedProps={loopAnimatedProps}
-        />
+        {LOGO_PATHS.map((path) => {
+          const raw = (normalizedDrawProgress - path.start) / (path.end - path.start);
+          const segmentProgress = Math.min(1, Math.max(0, raw));
+
+          return (
+            <Path
+              key={`draw-${path.key}`}
+              d={path.d}
+              stroke={stroke}
+              strokeWidth={36.0766}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray={`${path.dashLength} ${path.dashLength}`}
+              strokeDashoffset={path.dashLength * (1 - segmentProgress)}
+              opacity={segmentProgress <= 0 ? 0 : 1}
+            />
+          );
+        })}
       </Svg>
     </View>
   );

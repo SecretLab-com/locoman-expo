@@ -11,6 +11,7 @@ import {
   Platform,
   Modal,
   FlatList,
+  useWindowDimensions,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
@@ -169,6 +170,7 @@ const GOAL_SUGGESTIONS = [
 export default function BundleEditorScreen() {
   const colors = useColors();
   const ds = useDesignSystem();
+  const { width: windowWidth } = useWindowDimensions();
   const { id, admin: adminParam, templateId } = useLocalSearchParams<{ id: string; admin?: string; templateId?: string }>();
   const isNewBundle = id === "new";
   const isAdminMode = adminParam === "1";
@@ -201,6 +203,7 @@ export default function BundleEditorScreen() {
   const currentBuilderFieldRef = useRef<string | null>(null);
   const fieldOffsetsRef = useRef<Record<string, number>>({});
   const missingProductAlertKeyRef = useRef("");
+  const appliedTemplateIdRef = useRef<string | null>(null);
   
   // Product selection modal
   const [showProductModal, setShowProductModal] = useState(false);
@@ -473,62 +476,10 @@ export default function BundleEditorScreen() {
     () => templates.find((template: any) => String(template.id) === String(activeTemplateId || "")) || null,
     [activeTemplateId, templates]
   );
-
-  // Populate form when editing
-  useEffect(() => {
-    if (effectiveBundle) {
-      if (effectiveBundle.templateId) {
-        setSelectedCampaignId((current) => current ?? effectiveBundle.templateId ?? null);
-        setCampaignMode("template");
-      }
-      setForm({
-        title: effectiveBundle.title || "",
-        description: effectiveBundle.description || "",
-        price: normalizeMoneyString(effectiveBundle.price, "0.00"),
-        cadence: (effectiveBundle.cadence as "one_time" | "weekly" | "monthly") || "monthly",
-        imageUrl: effectiveBundle.imageUrl || "",
-        imageSource: (effectiveBundle.imageSource as "ai" | "custom") || "ai",
-        services: (effectiveBundle.servicesJson as ServiceItem[]) || [],
-        products: [],
-        goals: (effectiveBundle.goalsJson as string[]) || [],
-        suggestedGoal: (effectiveBundle.suggestedGoal as string) || "",
-        status: (effectiveBundle.status as BundleFormState["status"]) || "draft",
-        rejectionReason: effectiveBundle.rejectionReason || undefined,
-        reviewComments: (effectiveBundle as any).reviewComments || undefined,
-      });
-
-      if (effectiveBundle.productsJson) {
-        const parsedProducts = effectiveBundle.productsJson as Array<Record<string, any>>;
-        const missingNames: string[] = [];
-        const matchedProducts: BundleProductItem[] = parsedProducts
-          .map((product) => {
-            const mapped = mapStoredBundleProductToForm(product);
-            if (!mapped) {
-              missingNames.push(String(product.name || product.title || "Unknown product"));
-            }
-            return mapped;
-          })
-          .filter(Boolean) as BundleProductItem[];
-        setForm((prev) => ({ ...prev, products: matchedProducts }));
-        if (missingNames.length > 0) {
-          const uniqueNames = Array.from(new Set(missingNames));
-          const alertKey = `bundle:${bundleIdParam}:${uniqueNames.join("|")}`;
-          if (missingProductAlertKeyRef.current !== alertKey) {
-            missingProductAlertKeyRef.current = alertKey;
-            platformAlert(
-              "Products removed",
-              `Some saved products were not found in the catalog and were removed: ${uniqueNames.join(", ")}.`
-            );
-          }
-        }
-      }
-      setLoading(false);
-    } else if (!isNewBundle) {
-      // Still loading
-    } else {
-      setLoading(false);
-    }
-  }, [bundleIdParam, effectiveBundle, isNewBundle, mapStoredBundleProductToForm]);
+  const persistedTemplateId = useMemo(
+    () => (selectedTemplate?.isPromoted ? activeTemplateId : null),
+    [activeTemplateId, selectedTemplate]
+  );
 
   const updateForm = useCallback(<K extends keyof BundleFormState>(key: K, value: BundleFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -618,7 +569,7 @@ export default function BundleEditorScreen() {
     }));
   }, [customProductsQuery.data]);
 
-  function mapStoredBundleProductToForm(product: {
+  const mapStoredBundleProductToForm = useCallback((product: {
       id?: string | number;
       productId?: string | number;
       customProductId?: string;
@@ -628,7 +579,7 @@ export default function BundleEditorScreen() {
       imageUrl?: string | null;
       quantity?: number;
       source?: string;
-    }): BundleProductItem | null {
+    }): BundleProductItem | null => {
       const isCustom = product.source === "custom" || Boolean(product.customProductId);
       if (isCustom) {
         const match = customProductOptions.find(
@@ -660,7 +611,7 @@ export default function BundleEditorScreen() {
         ...match,
         quantity: Number(product.quantity) || 1,
       };
-    }
+    }, [catalogProductOptions, customProductOptions]);
 
   const hydratedTemplateProducts = useMemo(() => {
     const missingNames: string[] = [];
@@ -680,9 +631,66 @@ export default function BundleEditorScreen() {
     };
   }, [mapStoredBundleProductToForm, parseTemplateArray, selectedTemplate?.defaultProducts]);
 
+  // Populate form when editing
+  useEffect(() => {
+    if (effectiveBundle) {
+      if (effectiveBundle.templateId) {
+        setSelectedCampaignId((current) => current ?? effectiveBundle.templateId ?? null);
+        setCampaignMode("template");
+      }
+      setForm({
+        title: effectiveBundle.title || "",
+        description: effectiveBundle.description || "",
+        price: normalizeMoneyString(effectiveBundle.price, "0.00"),
+        cadence: (effectiveBundle.cadence as "one_time" | "weekly" | "monthly") || "monthly",
+        imageUrl: effectiveBundle.imageUrl || "",
+        imageSource: (effectiveBundle.imageSource as "ai" | "custom") || "ai",
+        services: (effectiveBundle.servicesJson as ServiceItem[]) || [],
+        products: [],
+        goals: (effectiveBundle.goalsJson as string[]) || [],
+        suggestedGoal: (effectiveBundle.suggestedGoal as string) || "",
+        status: (effectiveBundle.status as BundleFormState["status"]) || "draft",
+        rejectionReason: effectiveBundle.rejectionReason || undefined,
+        reviewComments: (effectiveBundle as any).reviewComments || undefined,
+      });
+
+      if (effectiveBundle.productsJson) {
+        const parsedProducts = effectiveBundle.productsJson as Record<string, any>[];
+        const missingNames: string[] = [];
+        const matchedProducts: BundleProductItem[] = parsedProducts
+          .map((product) => {
+            const mapped = mapStoredBundleProductToForm(product);
+            if (!mapped) {
+              missingNames.push(String(product.name || product.title || "Unknown product"));
+            }
+            return mapped;
+          })
+          .filter(Boolean) as BundleProductItem[];
+        setForm((prev) => ({ ...prev, products: matchedProducts }));
+        if (missingNames.length > 0) {
+          const uniqueNames = Array.from(new Set(missingNames));
+          const alertKey = `bundle:${bundleIdParam}:${uniqueNames.join("|")}`;
+          if (missingProductAlertKeyRef.current !== alertKey) {
+            missingProductAlertKeyRef.current = alertKey;
+            platformAlert(
+              "Products removed",
+              `Some saved products were not found in the catalog and were removed: ${uniqueNames.join(", ")}.`
+            );
+          }
+        }
+      }
+      setLoading(false);
+    } else if (!isNewBundle) {
+      // Still loading
+    } else {
+      setLoading(false);
+    }
+  }, [bundleIdParam, effectiveBundle, isNewBundle, mapStoredBundleProductToForm]);
+
   // Populate form from the selected campaign/template when creating a new bundle
   useEffect(() => {
     if (!isNewBundle || !selectedTemplate || !activeTemplateId) return;
+    if (appliedTemplateIdRef.current === activeTemplateId) return;
 
     const templateServices = parseTemplateArray<ServiceItem>(selectedTemplate.defaultServices);
     const templateGoals = parseTemplateArray<string>(selectedTemplate.goalsJson);
@@ -711,6 +719,7 @@ export default function BundleEditorScreen() {
         );
       }
     }
+    appliedTemplateIdRef.current = activeTemplateId;
     setLoading(false);
   }, [
     activeTemplateId,
@@ -1017,6 +1026,7 @@ export default function BundleEditorScreen() {
     currentBuilderFieldRef.current = "campaign";
     setCurrentBuilderFieldState("campaign");
     await haptics.light();
+    appliedTemplateIdRef.current = null;
     setCampaignMode("scratch");
     setSelectedCampaignId(null);
   };
@@ -1268,7 +1278,10 @@ export default function BundleEditorScreen() {
       };
 
       if (isNewBundle) {
-        await createBundleMutation.mutateAsync({ ...bundleData, ...(activeTemplateId ? { templateId: activeTemplateId } : {}) });
+        await createBundleMutation.mutateAsync({
+          ...bundleData,
+          ...(persistedTemplateId ? { templateId: persistedTemplateId } : {}),
+        });
       } else {
         await updateBundleMutation.mutateAsync({
           id: bundleIdParam,
@@ -1339,7 +1352,7 @@ export default function BundleEditorScreen() {
         if (isNewBundle) {
           const result = await createBundleMutation.mutateAsync({
             ...bundleData,
-            ...(activeTemplateId ? { templateId: activeTemplateId } : {}),
+            ...(persistedTemplateId ? { templateId: persistedTemplateId } : {}),
           });
           if (typeof result === "string") {
             bundleId = result;
@@ -1470,6 +1483,9 @@ export default function BundleEditorScreen() {
   };
 
   const isFinalBuilderTab = activeTab === builderTabs[builderTabs.length - 1];
+  const primaryActionLabel = isFinalBuilderTab ? 'Submit for\nReview' : 'Next';
+  const isWideFooterSummary = windowWidth >= 900;
+  const isWideSelectedProductRow = windowWidth >= 760;
   const cadenceLabel = CADENCE_OPTIONS.find((option) => option.value === form.cadence)?.label ?? form.cadence;
 
   const handlePrimaryBuilderAction = async () => {
@@ -2062,21 +2078,44 @@ export default function BundleEditorScreen() {
                   {GOAL_SUGGESTIONS.map((goal) => {
                     const isSelected = form.goals.includes(goal);
                     return (
-                      <TouchableOpacity
-                        key={goal}
-                        className={`px-4 py-2 rounded-full border ${
-                          isSelected ? "bg-primary border-primary" : "bg-surface border-border"
-                        }`}
-                        onPress={() => toggleGoal(goal)}
-                      >
-                        <Text
-                          className={`text-sm font-medium ${
-                            isSelected ? "text-background" : "text-foreground"
-                          }`}
+                      Platform.OS === 'web' ? (
+                        <button
+                          key={goal}
+                          onClick={() => toggleGoal(goal)}
+                          aria-pressed={isSelected}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: 999,
+                            border: `1px solid ${isSelected ? colors.primary : colors.border}`,
+                            backgroundColor: isSelected ? colors.primary : colors.surface,
+                            color: isSelected ? colors.background : colors.foreground,
+                            fontSize: 14,
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                          }}
                         >
                           {goal}
-                        </Text>
-                      </TouchableOpacity>
+                        </button>
+                      ) : (
+                        <TouchableOpacity
+                          key={goal}
+                          className={`px-4 py-2 rounded-full border ${
+                            isSelected ? "bg-primary border-primary" : "bg-surface border-border"
+                          }`}
+                          onPress={() => toggleGoal(goal)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Toggle goal ${goal}`}
+                          testID={`goal-chip-${goal.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                        >
+                          <Text
+                            className={`text-sm font-medium ${
+                              isSelected ? "text-background" : "text-foreground"
+                            }`}
+                          >
+                            {goal}
+                          </Text>
+                        </TouchableOpacity>
+                      )
                     );
                   })}
                 </View>
@@ -2305,97 +2344,241 @@ export default function BundleEditorScreen() {
                       key={getBundleProductKey(product)}
                       className="bg-surface border border-border rounded-xl p-3"
                     >
-                      <View className="flex-row items-center">
-                        {/* Product Image */}
-                        <View style={{ width: 64, height: 64, borderRadius: 8, marginRight: 12, backgroundColor: colors.border, overflow: 'hidden' }}>
-                          {normalizeAssetUrl(product.imageUrl) ? (
-                            <Image
-                              source={{ uri: normalizeAssetUrl(product.imageUrl) as string }}
-                              style={{ width: 64, height: 64 }}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                              <IconSymbol name="bag.fill" size={24} color={colors.muted} />
-                            </View>
-                          )}
-                        </View>
-                        <View className="flex-1">
-                          <Text className="text-foreground font-medium" numberOfLines={1}>
-                            {product.title}
-                          </Text>
-                          <View className="flex-row items-center mt-1">
-                            <Text className="text-muted text-sm">
-                              {product.vendor || "Product"}
-                            </Text>
-                            {product.source === "custom" ? (
-                              <View className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-                                <Text className="text-[11px] text-primary font-medium">Custom</Text>
+                      {isWideSelectedProductRow ? (
+                        <View className="flex-row items-center">
+                          <View
+                            style={{
+                              width: 72,
+                              height: 72,
+                              borderRadius: 10,
+                              marginRight: 12,
+                              backgroundColor: colors.border,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {normalizeAssetUrl(product.imageUrl) ? (
+                              <Image
+                                source={{ uri: normalizeAssetUrl(product.imageUrl) as string }}
+                                style={{ width: 72, height: 72 }}
+                                contentFit="cover"
+                              />
+                            ) : (
+                              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                <IconSymbol name="bag.fill" size={24} color={colors.muted} />
                               </View>
-                            ) : null}
+                            )}
                           </View>
-                          <Text className="text-primary font-semibold">${product.price}</Text>
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => toggleProduct(product)}
-                          className="p-2"
-                        >
-                          <IconSymbol name="xmark.circle.fill" size={22} color={colors.error} />
-                        </TouchableOpacity>
-                      </View>
-                      
-                      {/* Quantity Controls */}
-                      <View className="mt-3 pt-3 border-t border-border flex-row items-center justify-between">
-                        <Text className="text-muted text-sm">Quantity</Text>
-                        <View className="flex-row items-center gap-3">
-                          <TouchableOpacity
-                            onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity - 1)}
+
+                          <View style={{ flex: 1, minWidth: 0, paddingRight: 16 }}>
+                            <View className="flex-row items-center">
+                              <Text className="text-foreground font-semibold flex-1" numberOfLines={1}>
+                                {product.title}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => toggleProduct(product)}
+                                className="p-1 ml-2"
+                                accessibilityRole="button"
+                                accessibilityLabel={`Remove product ${product.title}`}
+                                testID={`remove-product-${String(product.id)}`}
+                              >
+                                <IconSymbol name="xmark.circle.fill" size={22} color={colors.error} />
+                              </TouchableOpacity>
+                            </View>
+                            <View className="flex-row items-center flex-wrap mt-1">
+                              <Text className="text-muted text-sm">{product.vendor || "Product"}</Text>
+                              {product.source === "custom" ? (
+                                <View className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                                  <Text className="text-[11px] text-primary font-medium">Custom</Text>
+                                </View>
+                              ) : null}
+                              <Text className="text-primary font-semibold text-sm ml-3">Unit ${product.price}</Text>
+                            </View>
+                          </View>
+
+                          <View
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
-                              backgroundColor: product.quantity <= 1 ? colors.surface : colors.primary + '20',
+                              minWidth: 330,
+                              maxWidth: 360,
+                              flexDirection: 'row',
                               alignItems: 'center',
-                              justifyContent: 'center',
-                              borderWidth: 1,
-                              borderColor: product.quantity <= 1 ? colors.border : colors.primary,
+                              justifyContent: 'flex-end',
+                              gap: 16,
                             }}
-                            disabled={product.quantity <= 1}
                           >
-                            <IconSymbol 
-                              name="minus" 
-                              size={16} 
-                              color={product.quantity <= 1 ? colors.muted : colors.primary} 
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                              <Text className="text-muted text-sm">Qty</Text>
+                              <TouchableOpacity
+                                onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity - 1)}
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: 15,
+                                  backgroundColor: product.quantity <= 1 ? colors.surface : colors.primary + '20',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderWidth: 1,
+                                  borderColor: product.quantity <= 1 ? colors.border : colors.primary,
+                                }}
+                                disabled={product.quantity <= 1}
+                              >
+                                <IconSymbol
+                                  name="minus"
+                                  size={14}
+                                  color={product.quantity <= 1 ? colors.muted : colors.primary}
+                                />
+                              </TouchableOpacity>
+                              <Text className="text-foreground font-semibold text-base w-7 text-center">
+                                {product.quantity}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity + 1)}
+                                style={{
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: 15,
+                                  backgroundColor: colors.primary + '20',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderWidth: 1,
+                                  borderColor: colors.primary,
+                                }}
+                              >
+                                <IconSymbol name="plus" size={14} color={colors.primary} />
+                              </TouchableOpacity>
+                            </View>
+
+                            <View
+                              style={{
+                                width: 1,
+                                height: 34,
+                                backgroundColor: colors.border,
+                              }}
                             />
-                          </TouchableOpacity>
-                          <Text className="text-foreground font-semibold text-lg w-8 text-center">
-                            {product.quantity}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity + 1)}
+
+                            <View style={{ alignItems: 'flex-end' }}>
+                              <Text className="text-muted text-sm">Subtotal</Text>
+                              <Text className="text-foreground font-semibold text-base mt-0.5">
+                                ${(parseFloat(product.price) * product.quantity).toFixed(2)}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      ) : (
+                        <>
+                          <View className="flex-row items-center">
+                            <View style={{ width: 64, height: 64, borderRadius: 8, marginRight: 12, backgroundColor: colors.border, overflow: 'hidden' }}>
+                              {normalizeAssetUrl(product.imageUrl) ? (
+                                <Image
+                                  source={{ uri: normalizeAssetUrl(product.imageUrl) as string }}
+                                  style={{ width: 64, height: 64 }}
+                                  contentFit="cover"
+                                />
+                              ) : (
+                                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                  <IconSymbol name="bag.fill" size={24} color={colors.muted} />
+                                </View>
+                              )}
+                            </View>
+                            <View className="flex-1">
+                              <Text className="text-foreground font-medium" numberOfLines={1}>
+                                {product.title}
+                              </Text>
+                              <View className="flex-row items-center mt-1">
+                                <Text className="text-muted text-sm">
+                                  {product.vendor || "Product"}
+                                </Text>
+                                {product.source === "custom" ? (
+                                  <View className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                                    <Text className="text-[11px] text-primary font-medium">Custom</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                              <Text className="text-primary font-semibold mt-2">${product.price}</Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => toggleProduct(product)}
+                              className="p-2"
+                              accessibilityRole="button"
+                              accessibilityLabel={`Remove product ${product.title}`}
+                              testID={`remove-product-${String(product.id)}`}
+                            >
+                              <IconSymbol name="xmark.circle.fill" size={22} color={colors.error} />
+                            </TouchableOpacity>
+                          </View>
+                          
+                          <View className="mt-3 pt-3 border-t border-border flex-row items-center justify-between">
+                            <Text className="text-muted text-sm">Quantity</Text>
+                            <View className="flex-row items-center gap-3">
+                              <TouchableOpacity
+                                onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity - 1)}
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  backgroundColor: product.quantity <= 1 ? colors.surface : colors.primary + '20',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderWidth: 1,
+                                  borderColor: product.quantity <= 1 ? colors.border : colors.primary,
+                                }}
+                                disabled={product.quantity <= 1}
+                              >
+                                <IconSymbol 
+                                  name="minus" 
+                                  size={16} 
+                                  color={product.quantity <= 1 ? colors.muted : colors.primary} 
+                                />
+                              </TouchableOpacity>
+                              <Text className="text-foreground font-semibold text-lg w-8 text-center">
+                                {product.quantity}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => updateProductQuantity(getBundleProductKey(product), product.quantity + 1)}
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  backgroundColor: colors.primary + '20',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderWidth: 1,
+                                  borderColor: colors.primary,
+                                }}
+                              >
+                                <IconSymbol name="plus" size={16} color={colors.primary} />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                          
+                          <View
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
-                              backgroundColor: colors.primary + '20',
+                              marginTop: 12,
+                              paddingTop: 12,
+                              borderTopWidth: 1,
+                              borderTopColor: colors.border,
+                              flexDirection: 'row',
                               alignItems: 'center',
-                              justifyContent: 'center',
-                              borderWidth: 1,
-                              borderColor: colors.primary,
+                              justifyContent: 'space-between',
                             }}
                           >
-                            <IconSymbol name="plus" size={16} color={colors.primary} />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      
-                      {/* Subtotal */}
-                      <View className="mt-2 pt-2 border-t border-border flex-row justify-between">
-                        <Text className="text-muted text-sm">Subtotal</Text>
-                        <Text className="text-foreground font-medium">
-                          ${(parseFloat(product.price) * product.quantity).toFixed(2)}
-                        </Text>
-                      </View>
+                            <View>
+                              <Text className="text-muted text-sm">Subtotal</Text>
+                              <Text className="text-foreground font-semibold mt-1">
+                                ${(parseFloat(product.price) * product.quantity).toFixed(2)}
+                              </Text>
+                            </View>
+                            <View
+                              className="rounded-lg px-3 py-2"
+                              style={{ backgroundColor: withAlpha(colors.primary, 0.12) }}
+                            >
+                              <Text className="text-[11px] text-muted text-center">Unit price</Text>
+                              <Text className="text-primary font-semibold mt-0.5 text-center">
+                                ${product.price}
+                              </Text>
+                            </View>
+                          </View>
+                        </>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -2430,26 +2613,58 @@ export default function BundleEditorScreen() {
               testID="bundle-total-breakdown"
               activeOpacity={0.8}
             >
-              <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
-                  <Text className="text-[9px] text-muted">P</Text>
-                  <Text className="text-[10px] font-semibold text-foreground" numberOfLines={1}>
-                    {form.products.length} {formatFooterAmount(productTotal)}
-                  </Text>
+              {isWideFooterSummary ? (
+                <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text className="text-[13px] font-medium text-muted">Products</Text>
+                    <Text className="text-[15px] font-bold text-foreground">
+                      {formatFooterAmount(productTotal)}
+                    </Text>
+                    <Text className="text-[13px] text-muted">
+                      ({form.products.length})
+                    </Text>
+                  </View>
+
+                  <View style={{ width: 1, height: 24, marginHorizontal: 12, backgroundColor: colors.border }} />
+
+                  <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text className="text-[13px] font-medium text-muted">Services</Text>
+                    <Text className="text-[15px] font-bold text-foreground">
+                      {formatFooterAmount(servicesTotal)}
+                    </Text>
+                    <Text className="text-[13px] text-muted">
+                      ({form.services.length})
+                    </Text>
+                  </View>
+
+                  <View style={{ width: 1, height: 24, marginHorizontal: 12, backgroundColor: colors.border }} />
+
+                  <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                    <Text className="text-[13px] font-medium text-muted uppercase tracking-wider">Total</Text>
+                    <Text className="text-[18px] font-bold text-primary">
+                      {formatFooterAmount(Number.parseFloat(form.price || "0") || 0)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
-                  <Text className="text-[9px] text-muted">S</Text>
-                  <Text className="text-[10px] font-semibold text-foreground" numberOfLines={1}>
-                    {form.services.length} {formatFooterAmount(servicesTotal)}
-                  </Text>
+              ) : (
+                <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: 8 }}>
+                  <View style={{ flexDirection: 'column', justifyContent: 'center', gap: 1 }}>
+                    <Text className="text-[10px] text-muted" numberOfLines={1}>
+                      <Text className="font-medium text-foreground">Products:</Text> {form.products.length} <Text className="text-muted/80">({formatFooterAmount(productTotal)})</Text>
+                    </Text>
+                    <Text className="text-[10px] text-muted" numberOfLines={1}>
+                      <Text className="font-medium text-foreground">Services:</Text> {form.services.length} <Text className="text-muted/80">({formatFooterAmount(servicesTotal)})</Text>
+                    </Text>
+                  </View>
+                  
+                  <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                    <Text className="text-[9px] text-muted uppercase tracking-wider font-medium">Total</Text>
+                    <Text className="text-[14px] font-bold text-primary">
+                      {formatFooterAmount(Number.parseFloat(form.price || "0") || 0)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
-                  <Text className="text-[9px] text-muted">T</Text>
-                  <Text className="text-[11px] font-bold text-primary" numberOfLines={1}>
-                    {formatFooterAmount(Number.parseFloat(form.price || "0") || 0)}
-                  </Text>
-                </View>
-              </View>
+              )}
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <IconSymbol name="chevron.right" size={12} color={colors.muted} />
               </View>
@@ -2495,13 +2710,15 @@ export default function BundleEditorScreen() {
                       opacity: saving ? 0.5 : 1,
                       fontWeight: 600,
                       color: colors.background,
-                      fontSize: 13,
-                      whiteSpace: 'nowrap',
+                      fontSize: isFinalBuilderTab ? 11 : 13,
+                      lineHeight: isFinalBuilderTab ? '12px' : 'normal',
+                      whiteSpace: isFinalBuilderTab ? 'pre-line' : 'nowrap',
+                      textAlign: 'center',
                     }}
                   >
                     {saving
                       ? (isFinalBuilderTab ? 'Submitting...' : 'Moving...')
-                      : (isFinalBuilderTab ? 'Submit for Review' : 'Next')}
+                      : primaryActionLabel}
                   </button>
                 </>
               ) : (
@@ -2548,8 +2765,17 @@ export default function BundleEditorScreen() {
                     {saving ? (
                       <ActivityIndicator size="small" color={colors.background} />
                     ) : (
-                      <Text numberOfLines={1} style={{ color: colors.background, fontWeight: '600', fontSize: 13 }}>
-                        {isFinalBuilderTab ? 'Submit for Review' : 'Next'}
+                      <Text
+                        numberOfLines={isFinalBuilderTab ? 2 : 1}
+                        style={{
+                          color: colors.background,
+                          fontWeight: '600',
+                          fontSize: isFinalBuilderTab ? 11 : 13,
+                          lineHeight: isFinalBuilderTab ? 12 : 16,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {primaryActionLabel}
                       </Text>
                     )}
                   </TouchableOpacity>
