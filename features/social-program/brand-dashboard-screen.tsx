@@ -7,7 +7,7 @@ import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
-import { Alert, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ScrollView, Text, TouchableOpacity, View, Platform } from "react-native";
 
 type Props = {
   roleLabel: "Coordinator" | "Manager";
@@ -64,6 +64,18 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
     accountType: "all",
     activeOnly: true,
     limit: 300,
+  });
+  const utils = trpc.useUtils();
+  const createBrandMutation = trpc.admin.createCampaignAccount.useMutation({
+    onSuccess: async (result) => {
+      await utils.admin.listCampaignAccounts.invalidate();
+      if (result.account?.id) {
+        setSelectedAccountId(result.account.id);
+      }
+    },
+    onError: (err: any) => {
+      Alert.alert("Error creating brand", err?.message || "Please try again.");
+    },
   });
   const summaryQuery = trpc.admin.campaignMetricsSummary.useQuery(
     selectedAccountId || bundleIdFilter
@@ -152,9 +164,42 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
 
         <View className="px-4 pb-8 gap-4">
           <SurfaceCard>
-            <Text className="text-base font-semibold text-foreground mb-2">
-              Campaign Accounts
-            </Text>
+            <View className="flex-row items-center justify-between mb-2">
+              <Text className="text-base font-semibold text-foreground">
+                Campaign Accounts
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (Platform.OS === "web") {
+                    const name = window.prompt("Enter new brand name");
+                    if (name?.trim()) {
+                      createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
+                    }
+                  } else {
+                    Alert.prompt(
+                      "New Brand",
+                      "Enter the name of the new brand",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Create",
+                          onPress: (name?: string) => {
+                            if (name?.trim()) {
+                              createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
+                            }
+                          },
+                        },
+                      ],
+                      "plain-text"
+                    );
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Add new brand"
+              >
+                <Text className="text-sm font-medium text-primary">Add Brand</Text>
+              </TouchableOpacity>
+            </View>
             <View className="flex-row flex-wrap gap-2">
               <TouchableOpacity
                 onPress={() => setSelectedAccountId(null)}

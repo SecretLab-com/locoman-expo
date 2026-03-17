@@ -66,6 +66,19 @@ export default function TemplateSettingsScreen() {
       { bundleId: bundleId || "" },
       { enabled: Boolean(bundleId && isAlreadyTemplate) },
     );
+  const createBrandMutation = trpc.admin.createCampaignAccount.useMutation({
+    onSuccess: async (result) => {
+      await utils.admin.listCampaignAccounts.invalidate();
+      if (result.account?.id) {
+        setSelectedBrandAccountId(result.account.id);
+      }
+      haptics.success();
+    },
+    onError: (err: any) => {
+      haptics.error();
+      showAlert("Error creating brand", err?.message || "Please try again.");
+    },
+  });
 
   const [visibility, setVisibility] = useState<string[]>([]);
   const [discountType, setDiscountType] = useState<"percentage" | "fixed" | null>(null);
@@ -408,7 +421,40 @@ export default function TemplateSettingsScreen() {
           {/* Brand selection */}
           <View className="px-4 mb-4">
             <SurfaceCard>
-              <Text className="text-sm font-semibold text-foreground mb-1">Brand</Text>
+              <View className="flex-row items-center justify-between mb-1">
+                <Text className="text-sm font-semibold text-foreground">Brand</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (Platform.OS === "web") {
+                      const name = window.prompt("Enter new brand name");
+                      if (name?.trim()) {
+                        createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
+                      }
+                    } else {
+                      Alert.prompt(
+                        "New Brand",
+                        "Enter the name of the new brand",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Create",
+                            onPress: (name?: string) => {
+                              if (name?.trim()) {
+                                createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
+                              }
+                            },
+                          },
+                        ],
+                        "plain-text"
+                      );
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add new brand"
+                >
+                  <Text className="text-xs font-medium text-primary">Add Brand</Text>
+                </TouchableOpacity>
+              </View>
               <Text className="text-xs text-muted mb-3">
                 Select a brand account for sorting, search, and reporting.
               </Text>
