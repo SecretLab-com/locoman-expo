@@ -1484,8 +1484,8 @@ export default function BundleEditorScreen() {
 
   const isFinalBuilderTab = activeTab === builderTabs[builderTabs.length - 1];
   const primaryActionLabel = isFinalBuilderTab ? 'Submit for\nReview' : 'Next';
-  const isWideFooterSummary = windowWidth >= 600;
-  const isWideSelectedProductRow = windowWidth >= 600;
+  const isWideFooterSummary = windowWidth > 550;
+  const isWideSelectedProductRow = windowWidth > 550;
   const cadenceLabel = CADENCE_OPTIONS.find((option) => option.value === form.cadence)?.label ?? form.cadence;
 
   const handlePrimaryBuilderAction = async () => {
