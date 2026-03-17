@@ -325,7 +325,7 @@ export default function CoordinatorTemplatesScreen() {
                         accessibilityLabel="Remove template"
                         testID="remove-template"
                       >
-                        <Text className="text-error font-medium text-sm">Remove</Text>
+                        Remove
                       </ActionButton>
                     </View>
                   )}

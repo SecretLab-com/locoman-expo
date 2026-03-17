@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { ActionButton } from "@/components/action-button";
 import { useColors } from "@/hooks/use-colors";
 import { CAMPAIGN_COPY } from "@/lib/campaign-copy";
 import { trpc } from "@/lib/trpc";
@@ -361,7 +362,7 @@ export default function TemplatesScreen() {
 
               {/* Actions */}
               <View className="flex-row gap-2 pt-3 border-t border-border">
-                <TouchableOpacity
+                <ActionButton
                   onPress={() =>
                     router.push({
                       pathname: "/(manager)/campaign-dashboard",
@@ -383,27 +384,27 @@ export default function TemplatesScreen() {
                   ) : (
                     <IconSymbol name="doc.text.fill" size={16} color={colors.primary} />
                   )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleToggleActive(template)}
-                  className={`flex-1 py-2 rounded-lg items-center ${
-                    template.isActive ? "bg-warning/10" : "bg-success/10"
-                  }`}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    template.isActive ? "Deactivate campaign" : "Activate campaign"
-                  }
-                >
-                  <Text
-                    className={`font-medium ${
-                      template.isActive ? "text-warning" : "text-success"
+                </ActionButton>
+                  <ActionButton
+                    onPress={() => handleToggleActive(template)}
+                    className={`flex-1 py-2 rounded-lg items-center ${
+                      template.isActive ? "bg-warning/10" : "bg-success/10"
                     }`}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      template.isActive ? "Deactivate campaign" : "Activate campaign"
+                    }
                   >
-                    {template.isActive ? "Deactivate" : "Activate"}
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      className={`font-medium ${
+                        template.isActive ? "text-warning" : "text-success"
+                      }`}
+                    >
+                      {template.isActive ? "Deactivate" : "Activate"}
+                    </Text>
+                  </ActionButton>
                 {template.isPromoted ? (
-                  <TouchableOpacity
+                  <ActionButton
                     onPress={() =>
                       setShareEnabledMutation.mutate({
                         bundleId: template.id,
@@ -421,17 +422,17 @@ export default function TemplatesScreen() {
                     <Text className="text-warning font-medium">
                       {template.publicShareEnabled ? "Disable Link" : "Enable Link"}
                     </Text>
-                  </TouchableOpacity>
+                  </ActionButton>
                 ) : null}
                 {!template.isPromoted ? (
-                  <TouchableOpacity
+                  <ActionButton
                     onPress={() => router.push(`/template-editor/${template.id}` as any)}
                     className="flex-1 py-2 rounded-lg items-center bg-primary/10"
                     accessibilityRole="button"
                     accessibilityLabel="Edit campaign template"
                   >
                     <Text className="text-primary font-medium">Edit</Text>
-                  </TouchableOpacity>
+                  </ActionButton>
                 ) : null}
               </View>
             </TouchableOpacity>
