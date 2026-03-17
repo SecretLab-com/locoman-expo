@@ -6049,7 +6049,7 @@ export const appRouter = router({
           servicesJson: input.servicesJson,
           productsJson: input.productsJson,
           imageUrl: input.imageUrl,
-          status: "draft",
+          status: "published", // Managers/coordinators skip review
         });
       }),
 
