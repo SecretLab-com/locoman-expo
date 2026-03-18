@@ -39,6 +39,7 @@ import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
 import { RealtimeProvider } from "@/contexts/realtime-context";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "nativewind";
 import { useDeepLink } from "@/hooks/use-deep-link";
 import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
 import { installWebAlertOverride } from "@/lib/in-app-alert";
@@ -449,6 +450,8 @@ export default function RootLayout() {
     };
   }, [initialInsets, initialFrame, isHydrated]);
 
+  const { colorScheme } = useColorScheme();
+  const colors = useColors();
   const content = (
     <ShareIntentProvider>
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -556,7 +559,7 @@ export default function RootLayout() {
                             <Stack.Screen name="phyllo/callback" options={{ presentation: "card" }} />
                           </Stack>
                         </RootAccessGate>
-                        <StatusBar style="auto" />
+                        <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
                       </View>
                     </View>
                   </RealtimeProvider>
