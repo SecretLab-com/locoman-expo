@@ -28,10 +28,18 @@ const PREFER_LOCAL_WEB_API = process.env.EXPO_PUBLIC_PREFER_LOCAL_WEB_API === "t
 const PREFER_LOCAL_NATIVE_API = process.env.EXPO_PUBLIC_PREFER_LOCAL_NATIVE_API === "true";
 const IS_DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
-// Web API URL derivation from current hostname
+    // Web API URL derivation from current hostname
 function getWebApiUrl(): string {
   const explicitApiUrl = getExplicitApiUrl();
-  const location = typeof window !== "undefined" ? window.location : undefined;
+  
+  // If we're rendering on the server (SSR/SSG), we must use an absolute URL
+  // because relative URLs like "/api/trpc" will fail with "Network request failed"
+  // since there's no browser window to provide the origin.
+  if (typeof window === "undefined") {
+    return explicitApiUrl || "http://localhost:3000";
+  }
+
+  const location = window.location;
 
   if (location) {
     const { protocol, hostname, port } = location;
@@ -144,7 +152,11 @@ export function getApiBaseUrl(): string {
 
   // On web, derive from current hostname
   const webUrl = getWebApiUrl();
-  console.log("[API Config] Web platform, derived URL:", webUrl || "(empty - using relative URL)");
+  if (typeof window === "undefined") {
+    console.log("[API Config] Web platform (SSR), derived URL:", webUrl);
+  } else {
+    console.log("[API Config] Web platform, derived URL:", webUrl || "(empty - using relative URL)");
+  }
   return webUrl;
 }
 
