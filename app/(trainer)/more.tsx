@@ -98,6 +98,18 @@ export default function TrainerMoreScreen() {
       badge: counts.pendingJoinRequests,
     },
     {
+      icon: "storefront.fill",
+      title: "Shop for Client",
+      subtitle: "Build a saved cart and invite to checkout",
+      href: "/(trainer)/products",
+    },
+    {
+      icon: "cart.fill",
+      title: "Saved Cart Builder",
+      subtitle: "Review and send customer proposals",
+      href: "/(trainer)/cart",
+    },
+    {
       icon: "person.badge.plus",
       title: "Invite Clients",
       subtitle: "Invite by email or link",
@@ -115,6 +127,12 @@ export default function TrainerMoreScreen() {
       title: "Calendar",
       subtitle: "Manage your training sessions",
       href: "/(trainer)/calendar",
+    },
+    {
+      icon: "star.fill",
+      title: "Rewards",
+      subtitle: "Points and status progress",
+      href: "/(trainer)/rewards",
     },
     {
       icon: "gearshape.fill",

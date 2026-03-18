@@ -1,9 +1,23 @@
 import { randomUUID } from "crypto";
-import type { BundleDraft, Client, Message as DbMessage, Order, User } from "../db";
+import type {
+  BundleDraft,
+  Client,
+  Message as DbMessage,
+  Order,
+  Product,
+  TrainerCustomProduct,
+  User,
+} from "../db";
 import * as db from "../db";
 import { getInviteEmailFailureUserMessage, sendInviteEmail } from "./email";
 import { invokeLLM, type ImageContent, type LLMProvider, type Message, type MessageContent, type TextContent, type Tool } from "./llm";
 import { logError } from "./logger";
+import {
+  buildSavedCartProposalSnapshot,
+  normalizeCadenceCode,
+  type ProposalCadenceCode,
+  type ProposalItemInput,
+} from "../../shared/saved-cart-proposal.js";
 
 type AssistantActionStatus = "success" | "partial" | "preview" | "blocked" | "error";
 
@@ -34,6 +48,8 @@ type RuntimeCache = {
   clients?: Client[];
   bundles?: BundleDraft[];
   orders?: Order[];
+  products?: Product[];
+  customProducts?: TrainerCustomProduct[];
   messageCountsByClientUserId?: Map<string, number>;
 };
 
@@ -75,6 +91,13 @@ const STOP_WORDS = new Set([
   "with",
   "your",
 ]);
+
+const ASSISTANT_PROPOSAL_CADENCE_CODES = [
+  "weekly",
+  "2x_week",
+  "3x_week",
+  "daily",
+] as const;
 
 function asString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -266,6 +289,28 @@ async function getTrainerOrders(runtime: ToolRuntime, trainerId?: string): Promi
   return orders;
 }
 
+async function getCatalogProducts(runtime: ToolRuntime): Promise<Product[]> {
+  if (runtime.cache.products) return runtime.cache.products;
+  const products = await db.getProducts();
+  runtime.cache.products = products;
+  return products;
+}
+
+async function getTrainerCustomProducts(
+  runtime: ToolRuntime,
+  trainerId?: string,
+): Promise<TrainerCustomProduct[]> {
+  const tid = resolveTrainerId(runtime, trainerId);
+  if (tid === runtime.trainer.id && runtime.cache.customProducts) {
+    return runtime.cache.customProducts;
+  }
+  const products = await db.listTrainerCustomProducts(tid);
+  if (tid === runtime.trainer.id) {
+    runtime.cache.customProducts = products;
+  }
+  return products;
+}
+
 async function getMessageCountsByClientUserId(runtime: ToolRuntime): Promise<Map<string, number>> {
   if (runtime.cache.messageCountsByClientUserId) {
     return runtime.cache.messageCountsByClientUserId;
@@ -455,6 +500,39 @@ function buildToolSpec(isElevated: boolean): Tool[] {
     {
       type: "function",
       function: {
+        name: "search_catalog_products",
+        description:
+          "Search the catalog for products by keyword, brand, category, or use case.",
+        parameters: {
+          type: "object",
+          properties: {
+            search: { type: "string", description: "Keyword or phrase to match products." },
+            limit: { type: "integer", minimum: 1, maximum: 50, default: 12 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "list_custom_products",
+        description:
+          "List this trainer's custom products with optional search filtering." +
+          (isElevated ? " Pass trainerId to view another trainer's custom products." : ""),
+        parameters: {
+          type: "object",
+          properties: {
+            ...(isElevated ? { trainerId: { type: "string", description: "View a specific trainer's custom products." } } : {}),
+            search: { type: "string", description: "Optional product name search." },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
         name: "list_conversations",
         description:
           "List conversation summaries showing participants, unread counts, and last message." +
@@ -502,6 +580,89 @@ function buildToolSpec(isElevated: boolean): Tool[] {
             clientIds: { type: "array", items: { type: "string" }, description: "Limit to specific client IDs." },
             bundleDraftIds: { type: "array", items: { type: "string" }, description: "Limit to specific bundle IDs." },
           },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_saved_cart_proposal",
+        description:
+          "Preview or create a customer-specific saved cart/custom bundle proposal. " +
+          "Use confirm=false for preview, then confirm=true to persist it.",
+        parameters: {
+          type: "object",
+          properties: {
+            clientId: { type: "string", description: "Trainer client ID." },
+            title: { type: "string" },
+            notes: { type: "string" },
+            baseBundleDraftId: { type: "string", description: "Optional published base bundle." },
+            startDate: { type: "string", description: "ISO start date." },
+            cadenceCode: { type: "string", enum: [...ASSISTANT_PROPOSAL_CADENCE_CODES] },
+            timePreference: { type: "string", description: "morning, afternoon, evening, etc." },
+            productSelections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  productId: { type: "string" },
+                  quantity: { type: "integer", minimum: 1 },
+                },
+                required: ["productId"],
+                additionalProperties: false,
+              },
+            },
+            customProductSelections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  customProductId: { type: "string" },
+                  quantity: { type: "integer", minimum: 1 },
+                },
+                required: ["customProductId"],
+                additionalProperties: false,
+              },
+            },
+            serviceSelections: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  quantity: { type: "integer", minimum: 1 },
+                  unitPrice: { type: "number", minimum: 0 },
+                  sessions: { type: "integer", minimum: 1 },
+                },
+                required: ["title"],
+                additionalProperties: false,
+              },
+            },
+            confirm: { type: "boolean", default: false },
+          },
+          required: ["clientId"],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "invite_client_to_saved_cart",
+        description:
+          "Preview or send a saved cart/custom bundle proposal invite. " +
+          "Use confirm=false first, then confirm=true to send.",
+        parameters: {
+          type: "object",
+          properties: {
+            proposalId: { type: "string" },
+            email: { type: "string" },
+            name: { type: "string" },
+            message: { type: "string" },
+            confirm: { type: "boolean", default: false },
+          },
+          required: ["proposalId"],
           additionalProperties: false,
         },
       },
@@ -617,9 +778,13 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
         "- get_context_snapshot: Overview of trainer profile + counts." + (isElevated ? " Pass trainerId to view any trainer." : ""),
         "- list_clients: List clients with message counts and revenue." + (isElevated ? " Pass trainerId for any trainer's clients." : ""),
         "- list_bundles: List bundles/offers." + (isElevated ? " Pass trainerId for any trainer's bundles." : ""),
+        "- search_catalog_products: Search standard catalog products by keyword, brand, category, or use case.",
+        "- list_custom_products: List trainer-owned custom products." + (isElevated ? " Pass trainerId for any trainer's custom products." : ""),
         "- list_conversations: List conversation summaries." + (isElevated ? " Pass userId for any user's conversations." : ""),
         "- get_conversation_messages: Read message history (by conversationId or clientId)." + (isElevated ? " Pass trainerId when using clientId." : ""),
         "- recommend_bundles_from_chats: Score and match clients to bundles based on chat context.",
+        "- create_saved_cart_proposal: Preview or create a customer-specific saved cart/custom bundle from selected items, start date, and cadence.",
+        "- invite_client_to_saved_cart: Preview or send a saved-cart/custom-bundle invitation.",
         "- invite_clients_to_bundle: Send invitation emails. ALWAYS preview first (confirm=false), execute only after confirmation.",
         "- build_client_value_report: Generate engagement vs revenue data per client for analytics/graphs.",
         "",
@@ -632,7 +797,8 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
         "4. When the user mentions a task that requires context (conversations, clients, bundles), gather that context with tools BEFORE responding. Chain multiple tool calls in one turn.",
         "5. For analytics, call build_client_value_report and summarize the key takeaways.",
         "6. For recommendations, call recommend_bundles_from_chats and present the matches with reasoning.",
-        "7. When asked to review conversations or check what clients are asking about, call list_conversations AND get_conversation_messages in the same turn. Read the actual messages and summarize what people are discussing. Do NOT stop after listing conversations — always read the messages too.",
+        "7. For saved cart/custom bundle planning, search bundles and products first, then call create_saved_cart_proposal in preview mode before sending any invite.",
+        "8. When asked to review conversations or check what clients are asking about, call list_conversations AND get_conversation_messages in the same turn. Read the actual messages and summarize what people are discussing. Do NOT stop after listing conversations — always read the messages too.",
         "",
         "SAFETY RULES:",
         "- Never send invites (confirm=true) without explicit trainer confirmation.",
@@ -706,6 +872,393 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
         price: bundle.price,
         cadence: bundle.cadence,
       })),
+    };
+  };
+
+  const handleSearchCatalogProducts = async (args: Record<string, unknown>) => {
+    const search = asString(args.search)?.toLowerCase() || "";
+    const limit = asPositiveInt(args.limit, 12);
+    const products = await getCatalogProducts(runtime);
+    const filtered = (search
+      ? products.filter((product) => {
+          const haystack = [
+            product.name,
+            product.description || "",
+            product.brand || "",
+            String(product.category || ""),
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(search);
+        })
+      : products
+    )
+      .slice(0, limit)
+      .map((product) => ({
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        brand: product.brand,
+        category: product.category,
+        price: product.price,
+        imageUrl: product.imageUrl,
+        fulfillmentOptions: product.fulfillmentOptions,
+      }));
+
+    return {
+      total: filtered.length,
+      products: filtered,
+    };
+  };
+
+  const handleListCustomProducts = async (args: Record<string, unknown>) => {
+    const trainerId = asString(args.trainerId);
+    const search = asString(args.search)?.toLowerCase() || "";
+    const products = await getTrainerCustomProducts(runtime, trainerId || undefined);
+    const filtered = products.filter((product) => {
+      if (!search) return true;
+      const haystack = [
+        product.name,
+        product.description || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+
+    return {
+      total: filtered.length,
+      customProducts: filtered.map((product) => ({
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        price: product.price,
+        imageUrl: product.imageUrl,
+        fulfillmentMethod: product.fulfillmentMethod,
+      })),
+    };
+  };
+
+  const handleCreateSavedCartProposal = async (args: Record<string, unknown>) => {
+    const clientId = asString(args.clientId);
+    if (!clientId) {
+      return {
+        status: "error",
+        summary: "clientId is required.",
+      };
+    }
+
+    const clients = await getTrainerClients(runtime);
+    const client = clients.find((entry) => entry.id === clientId);
+    if (!client) {
+      return {
+        status: "error",
+        summary: `Client not found: ${clientId}`,
+      };
+    }
+
+    const baseBundleDraftId = asString(args.baseBundleDraftId);
+    const title = asString(args.title) || `${client.name || "Client"} Saved Cart`;
+    const notes = asString(args.notes);
+    const startDate = asString(args.startDate) || new Date().toISOString();
+    const cadenceCode = normalizeCadenceCode(asString(args.cadenceCode) || "weekly");
+    const timePreference = asString(args.timePreference);
+    const confirm = asBoolean(args.confirm, false);
+
+    const productSelections = Array.isArray(args.productSelections)
+      ? args.productSelections
+      : [];
+    const customProductSelections = Array.isArray(args.customProductSelections)
+      ? args.customProductSelections
+      : [];
+    const serviceSelections = Array.isArray(args.serviceSelections)
+      ? args.serviceSelections
+      : [];
+
+    const bundles = await getTrainerBundles(runtime);
+    const products = await getCatalogProducts(runtime);
+    const customProducts = await getTrainerCustomProducts(runtime);
+
+    const items: ProposalItemInput[] = [];
+
+    if (baseBundleDraftId) {
+      const bundle = bundles.find((entry) => entry.id === baseBundleDraftId);
+      if (!bundle) {
+        return {
+          status: "error",
+          summary: `Published bundle not found: ${baseBundleDraftId}`,
+        };
+      }
+      if (String(bundle.status || "").toLowerCase() !== "published") {
+        return {
+          status: "error",
+          summary: "Only published bundles can be used as proposal bases.",
+        };
+      }
+      items.push({
+        itemType: "bundle",
+        title: bundle.title,
+        description: bundle.description,
+        bundleDraftId: bundle.id,
+        quantity: 1,
+        unitPrice: toMinor(bundle.price) / 100,
+        fulfillmentMethod: "trainer_delivery",
+        metadata: {
+          cadence: bundle.cadence,
+          includedProducts: extractStrings(bundle.productsJson),
+          includedServices: extractStrings(bundle.servicesJson),
+          includedGoals: extractStrings(bundle.goalsJson),
+        },
+      });
+    }
+
+    for (const rawSelection of productSelections) {
+      const selection = rawSelection as Record<string, unknown>;
+      const productId = asString(selection.productId);
+      if (!productId) continue;
+      const product = products.find((entry) => entry.id === productId);
+      if (!product) continue;
+      items.push({
+        itemType: "product",
+        title: product.name,
+        description: product.description,
+        productId: product.id,
+        imageUrl: product.imageUrl,
+        quantity: asPositiveInt(selection.quantity, 1),
+        unitPrice: toMinor(product.price) / 100,
+        fulfillmentMethod: "home_ship",
+        metadata: {
+          brand: product.brand,
+          category: product.category,
+          shopifyProductId: product.shopifyProductId,
+          shopifyVariantId: product.shopifyVariantId,
+        },
+      });
+    }
+
+    for (const rawSelection of customProductSelections) {
+      const selection = rawSelection as Record<string, unknown>;
+      const customProductId = asString(selection.customProductId);
+      if (!customProductId) continue;
+      const product = customProducts.find((entry) => entry.id === customProductId);
+      if (!product) continue;
+      items.push({
+        itemType: "custom_product",
+        title: product.name,
+        description: product.description,
+        customProductId: product.id,
+        imageUrl: product.imageUrl,
+        quantity: asPositiveInt(selection.quantity, 1),
+        unitPrice: toMinor(product.price) / 100,
+        fulfillmentMethod: product.fulfillmentMethod,
+      });
+    }
+
+    for (const rawSelection of serviceSelections) {
+      const selection = rawSelection as Record<string, unknown>;
+      const serviceTitle = asString(selection.title);
+      if (!serviceTitle) continue;
+      const quantity = asPositiveInt(selection.quantity, 1);
+      const unitPrice = typeof selection.unitPrice === "number" && Number.isFinite(selection.unitPrice)
+        ? selection.unitPrice
+        : 0;
+      const sessions = asPositiveInt(selection.sessions, quantity);
+      items.push({
+        itemType: "service",
+        title: serviceTitle,
+        quantity,
+        unitPrice,
+        metadata: { sessions },
+      });
+    }
+
+    const snapshot = buildSavedCartProposalSnapshot({
+      title,
+      notes,
+      baseBundleDraftId,
+      startDate,
+      cadenceCode,
+      timePreference,
+      items,
+    });
+
+    if (!runtime.allowMutations) {
+      return {
+        status: "blocked",
+        summary: "Mutating tools are disabled for this request.",
+        snapshot,
+      };
+    }
+
+    if (!confirm) {
+      return {
+        status: "preview",
+        summary: "Preview only. Re-run with confirm=true to create the saved cart proposal.",
+        snapshot,
+      };
+    }
+
+    const proposalId = await db.createSavedCartProposal({
+      trainerId: runtime.trainer.id,
+      clientRecordId: client.id,
+      clientUserId: client.userId || null,
+      clientEmail: client.email || null,
+      clientName: client.name || null,
+      baseBundleDraftId: baseBundleDraftId || null,
+      title,
+      notes: notes || null,
+      assistantPrompt: asString(args.assistantPrompt) || null,
+      source: "assistant",
+      status: "draft",
+      startDate: snapshot.startDate,
+      cadenceCode: snapshot.cadenceCode,
+      sessionsPerWeek: snapshot.sessionsPerWeek,
+      timePreference: snapshot.timePreference,
+      projectedScheduleJson: snapshot.projectedSchedule,
+      projectedDeliveryJson: snapshot.projectedDeliveries,
+      subtotalAmount: snapshot.pricing.subtotalAmount.toFixed(2),
+      discountAmount: snapshot.pricing.discountAmount.toFixed(2),
+      totalAmount: snapshot.pricing.totalAmount.toFixed(2),
+      currency: snapshot.pricing.currency,
+      metadata: { createdByAssistant: true },
+    });
+
+    await db.replaceSavedCartProposalItems(
+      proposalId,
+      items.map((item, index) => ({
+        proposalId,
+        sortOrder: index,
+        itemType: item.itemType,
+        bundleDraftId: item.bundleDraftId || null,
+        productId: item.productId || null,
+        customProductId: item.customProductId || null,
+        title: item.title,
+        description: item.description || null,
+        imageUrl: item.imageUrl || null,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice.toFixed(2),
+        fulfillmentMethod:
+          item.itemType === "service" ? null : item.fulfillmentMethod || "trainer_delivery",
+        metadata: item.metadata || null,
+      })),
+    );
+
+    return {
+      status: "success",
+      summary: `Created saved cart proposal ${proposalId}.`,
+      proposalId,
+      snapshot,
+    };
+  };
+
+  const handleInviteClientToSavedCart = async (args: Record<string, unknown>) => {
+    const proposalId = asString(args.proposalId);
+    if (!proposalId) {
+      return {
+        status: "error",
+        summary: "proposalId is required.",
+      };
+    }
+
+    const proposal = await db.getSavedCartProposalById(proposalId);
+    if (!proposal || proposal.trainerId !== runtime.trainer.id) {
+      return {
+        status: "error",
+        summary: "Saved cart proposal was not found or does not belong to this trainer.",
+      };
+    }
+
+    const confirm = asBoolean(args.confirm, false);
+    const message = asString(args.message);
+    const email = asString(args.email) || proposal.clientEmail;
+    const name = asString(args.name) || proposal.clientName;
+    if (!email) {
+      return {
+        status: "error",
+        summary: "No client email is available for this proposal.",
+      };
+    }
+
+    const items = await db.getSavedCartProposalItems(proposal.id);
+    const snapshot = buildSavedCartProposalSnapshot({
+      title: proposal.title,
+      notes: proposal.notes,
+      baseBundleDraftId: proposal.baseBundleDraftId,
+      startDate: proposal.startDate,
+      cadenceCode: proposal.cadenceCode,
+      sessionsPerWeek: proposal.sessionsPerWeek,
+      timePreference: proposal.timePreference,
+      items: items.map((item) => ({
+        itemType: item.itemType as ProposalItemInput["itemType"],
+        title: item.title,
+        description: item.description,
+        bundleDraftId: item.bundleDraftId,
+        productId: item.productId,
+        customProductId: item.customProductId,
+        imageUrl: item.imageUrl,
+        quantity: item.quantity,
+        unitPrice: toMinor(item.unitPrice) / 100,
+        fulfillmentMethod: item.fulfillmentMethod,
+        metadata: item.metadata || null,
+      })),
+    });
+
+    if (!runtime.allowMutations) {
+      return {
+        status: "blocked",
+        summary: "Mutating tools are disabled for this request.",
+        proposalId,
+        snapshot,
+      };
+    }
+
+    if (!confirm) {
+      return {
+        status: "preview",
+        summary: "Preview only. Re-run with confirm=true to send the saved cart invite.",
+        proposalId,
+        recipient: { email, name: name || null },
+        snapshot,
+      };
+    }
+
+    const token = randomUUID();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    await db.createInvitation({
+      trainerId: runtime.trainer.id,
+      email,
+      name: name || null,
+      token,
+      bundleDraftId: proposal.baseBundleDraftId,
+      savedCartProposalId: proposal.id,
+      personalMessage: message || proposal.notes || null,
+      proposalSnapshotJson: snapshot,
+      expiresAt,
+    });
+
+    await db.updateSavedCartProposal(proposal.id, {
+      clientEmail: email,
+      clientName: name || null,
+      status: "invited",
+      invitedAt: new Date().toISOString(),
+    });
+
+    await sendInviteEmail({
+      to: email,
+      token,
+      recipientName: name || null,
+      trainerName: runtime.trainer.name || runtime.trainer.email || "Your trainer",
+      expiresAtIso: expiresAt,
+      personalMessage: message || proposal.notes || undefined,
+    });
+
+    return {
+      status: "success",
+      summary: `Saved cart invitation sent to ${email}.`,
+      proposalId,
+      token,
+      expiresAt,
+      snapshot,
     };
   };
 
@@ -1080,9 +1633,13 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
     get_context_snapshot: handleGetContextSnapshot,
     list_clients: handleListClients,
     list_bundles: handleListBundles,
+    search_catalog_products: handleSearchCatalogProducts,
+    list_custom_products: handleListCustomProducts,
     list_conversations: handleListConversations,
     get_conversation_messages: handleGetConversationMessages,
     recommend_bundles_from_chats: handleRecommendBundlesFromChats,
+    create_saved_cart_proposal: handleCreateSavedCartProposal,
+    invite_client_to_saved_cart: handleInviteClientToSavedCart,
     invite_clients_to_bundle: handleInviteClientsToBundle,
     build_client_value_report: handleBuildClientValueReport,
     ...(isElevated ? {

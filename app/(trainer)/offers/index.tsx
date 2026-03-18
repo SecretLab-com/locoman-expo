@@ -7,18 +7,12 @@ import { useColors } from "@/hooks/use-colors";
 import { normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
 import { mapBundleDraftToOfferView, type BundleOfferStatus } from "@/shared/bundle-offer";
+import { BUNDLE_OFFER_STATUS_META } from "@/shared/status-meta";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useMemo } from "react";
 import { RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
-
-const OFFER_STATUS_META: Record<BundleOfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
-  draft: { label: "Draft", colorKey: "warning" },
-  in_review: { label: "In review", colorKey: "primary" },
-  published: { label: "Published", colorKey: "success" },
-  archived: { label: "Archived", colorKey: "error" },
-};
 
 function formatOfferType(value: string | undefined) {
   return String(value || "offer")
@@ -140,7 +134,7 @@ export default function OffersListScreen() {
                           </View>
                           {(() => {
                             const status = ((offer.status as BundleOfferStatus) || "draft");
-                            const meta = OFFER_STATUS_META[status] || OFFER_STATUS_META.draft;
+                            const meta = BUNDLE_OFFER_STATUS_META[status] || BUNDLE_OFFER_STATUS_META.draft;
                             const tone =
                               meta.colorKey === "success"
                                 ? {

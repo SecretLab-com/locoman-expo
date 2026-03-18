@@ -18,12 +18,9 @@ import { Image } from "expo-image";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { useColors } from "@/hooks/use-colors";
 import { CAMPAIGN_COPY } from "@/lib/campaign-copy";
+import { confirm, notify } from "@/lib/dialogs";
 import { trpc } from "@/lib/trpc";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
-
-function showAlert(title: string, message: string) {
-  Alert.alert(title, message);
-}
 
 function formatDate(date: Date | string) {
   const d = typeof date === "string" ? new Date(date) : date;
@@ -51,12 +48,12 @@ export default function CoordinatorTemplatesScreen() {
         utils.admin.nonTemplateBundles.invalidate(),
         utils.bundles.templates.invalidate(),
       ]);
-      showAlert(
+      notify(
         CAMPAIGN_COPY.coordinatorTemplateRemovedTitle,
         CAMPAIGN_COPY.coordinatorTemplateRemovedBody,
       );
     },
-    onError: (err) => showAlert("Error", err.message),
+    onError: (err) => notify("Error", err.message),
   });
 
   const allTemplates = useMemo(() => {
@@ -125,20 +122,19 @@ export default function CoordinatorTemplatesScreen() {
     setRefreshing(false);
   };
 
-  const handleDemote = (template: typeof allTemplates[0]) => {
+  const handleDemote = async (template: typeof allTemplates[0]) => {
     if (!template.isPromoted) {
-      showAlert("Legacy Template", "This template was created with the old editor and cannot be demoted.");
+      notify("Legacy Template", "This template was created with the old editor and cannot be demoted.");
       return;
     }
-    if (Platform.OS === "web") {
-      if (window.confirm(`Remove "${template.title}" as a template?\n\nIt will revert to a regular bundle.`)) {
-        demoteMutation.mutate({ bundleId: template.id });
-      }
-    } else {
-      Alert.alert("Remove Template", `Remove "${template.title}" as a template? It will revert to a regular bundle.`, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: () => demoteMutation.mutate({ bundleId: template.id }) },
-      ]);
+    const shouldRemove = await confirm({
+      title: "Remove Template",
+      message: `Remove "${template.title}" as a template? It will revert to a regular bundle.`,
+      confirmText: "Remove",
+      destructive: true,
+    });
+    if (shouldRemove) {
+      demoteMutation.mutate({ bundleId: template.id });
     }
   };
 

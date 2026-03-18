@@ -2,162 +2,125 @@
 
 ## Overview
 
-This document compares the requirements from `PRODUCT_DELIVERY_JOURNEY.md` with the current Expo app implementation to identify gaps and missing features.
+This document compares the requirements from `BUNDLE_TO_DELIVERY_JOURNEY_UPDATE.md` and `PRODUCT_DELIVERY_JOURNEY.md` with the current Expo app implementation to identify gaps and missing features.
 
-## Journey Steps Analysis
+Last updated: March 2026
 
-### Phase 1: Order Placement ✅ SUPPORTED
+## Saved Cart / Custom Bundle Journey Status
 
-| Requirement | Status | Implementation |
-|-------------|--------|----------------|
-| Client purchases bundle with products | ✅ | Cart → Checkout flow in `(tabs)/cart.tsx` |
-| Order confirmation | ✅ | Order confirmation screen after checkout |
-| Products linked to trainer | ✅ | `bundleDrafts.productsJson` stores product selections |
-
-### Phase 2: Trainer Notification ⚠️ PARTIAL
+### Data Model
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| Trainer receives order notification | ✅ | `scheduleNewOrderNotification()` in `lib/notifications.ts` |
-| Dashboard shows pending deliveries | ✅ | `(trainer)/deliveries.tsx` with status tabs |
-| Auto-create delivery records on order | ❌ | **MISSING**: No webhook/trigger to create `productDeliveries` records |
+| Dedicated proposal tables | Done | `saved_cart_proposals` + `saved_cart_proposal_items` in migration 023 |
+| Proposal item types (bundle, product, custom_product, service) | Done | `saved_cart_item_type` enum |
+| Invitation proposal link | Done | `invitations.saved_cart_proposal_id` + `proposal_snapshot_json` |
+| Order proposal link + diff | Done | `orders.saved_cart_proposal_id` + `proposal_snapshot_json` + `cart_diff_json` |
+| Order item enrichment | Done | `order_items.bundle_draft_id`, `custom_product_id`, `item_type`, `image_url`, `metadata` |
 
-**Gap**: When an order is placed, `productDeliveries` records should be auto-created for each product in the bundle. Currently this must be done manually.
-
-### Phase 3: Delivery Preparation ✅ SUPPORTED
-
-| Requirement | Status | Implementation |
-|-------------|--------|----------------|
-| Trainer marks products as "Ready" | ✅ | `handleMarkReady()` in trainer deliveries |
-| Multiple delivery methods supported | ✅ | `in_person`, `locker`, `front_desk`, `shipped` |
-| Tracking number entry | ✅ | `trackingNumber` field in schema |
-| Scheduled delivery date | ✅ | `scheduledDate` field in schema |
-
-### Phase 4: Client Notification ✅ SUPPORTED
+### Backend APIs
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| Client sees delivery status | ✅ | `(client)/deliveries.tsx` with status badges |
-| Push notifications for updates | ✅ | `scheduleDeliveryUpdateNotification()` |
-| Tracking info displayed | ✅ | Tracking number shown in delivery card |
+| Proposal CRUD | Done | `savedCartProposals.list/get/create/update` |
+| Invite from proposal | Done | `savedCartProposals.sendInvite` |
+| Checkout hydration | Done | `catalog.invitation` returns `invitationType` + `proposalSnapshot` |
+| Finalize checkout with diff | Done | `orders.createFromProposal` with `diffProposalSnapshots` |
+| Shopify handoff | Done | `submitPaidOrderToShopify` in `server/_core/index.ts` |
 
-### Phase 5: Delivery Execution ✅ SUPPORTED
-
-| Requirement | Status | Implementation |
-|-------------|--------|----------------|
-| Trainer marks as "Delivered" | ✅ | `handleMarkDelivered()` in trainer deliveries |
-| Delivery timestamp recorded | ✅ | `deliveredAt` field in schema |
-| Notes/instructions supported | ✅ | `notes` and `clientNotes` fields |
-
-### Phase 6: Client Confirmation ✅ SUPPORTED
+### Shared Logic
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| Client confirms receipt | ✅ | `handleConfirmReceipt()` in client deliveries |
-| Issue reporting | ✅ | `handleReportIssue()` with reason options |
-| Dispute handling | ✅ | `disputed` status with `disputeReason` field |
+| Snapshot builder | Done | `shared/saved-cart-proposal.ts` `buildSavedCartProposalSnapshot` |
+| Schedule projection | Done | `buildProjectedSchedule` from cadence + start date |
+| Delivery projection | Done | `buildProjectedDeliveries` from items |
+| Pricing calculation | Done | `calculateProposalPricing` |
+| Proposal diff | Done | `diffProposalSnapshots` |
 
-### Phase 7: Reschedule Flow ✅ SUPPORTED
-
-| Requirement | Status | Implementation |
-|-------------|--------|----------------|
-| Client requests reschedule | ⚠️ | UI exists but API not connected |
-| Trainer approves/rejects | ✅ | `handleApproveReschedule()` / `handleRejectReschedule()` |
-| New date recorded | ✅ | `rescheduleDate` field in mock data |
-
-**Gap**: Reschedule request API endpoint is missing. Client-side reschedule request UI needs to be connected to backend.
-
-### Phase 8: Fulfillment Types ✅ SUPPORTED
+### Assistant Integration
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| Home shipping | ✅ | `home_ship` fulfillment type |
-| Trainer delivery | ✅ | `trainer_delivery` / `in_person` |
-| Vending machine | ✅ | `vending` fulfillment type |
-| Cafeteria pickup | ✅ | `cafeteria` fulfillment type |
-| Locker pickup | ✅ | `locker` delivery method |
-| Front desk pickup | ✅ | `front_desk` delivery method |
+| Search catalog products | Done | `search_catalog_products` tool in assistant + MCP |
+| List custom products | Done | `list_custom_products` tool in assistant + MCP |
+| Create proposal from NL | Done | `create_saved_cart_proposal` tool with preview/confirm |
+| Send proposal invite | Done | `invite_client_to_saved_cart` tool with preview/confirm |
+| List proposals | Done | `list_saved_cart_proposals` in MCP |
 
-### Phase 9: Manager Oversight ✅ SUPPORTED
+### Trainer Flow
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| Manager delivery dashboard | ✅ | `(manager)/deliveries.tsx` |
-| View all trainer deliveries | ✅ | Manager can see all deliveries |
-| Escalation handling | ⚠️ | Basic dispute view, no escalation workflow |
+| Trainer can shop in storefront | Done | `canPurchase` includes `isTrainer` in products screen |
+| Cart supports custom_product + service | Done | `CartItem.type` includes `custom_product` and `service` |
+| Cart has proposal context | Done | `proposalContext` with client, cadence, start date, time preference |
+| Trainer proposal builder UI | Done | `TrainerProposalBuilder` in `app/(tabs)/cart.tsx` |
+| Trainer nav entry to shop | Done | "Shop for Client" and "Saved Cart Builder" in trainer More menu |
+| Save proposal draft | Done | `savedCartProposals.create` / `savedCartProposals.update` |
+| Send invite from proposal | Done | `savedCartProposals.sendInvite` |
 
-## API Endpoints Status
+### Customer Flow
 
-| Endpoint | Status | Notes |
-|----------|--------|-------|
-| `deliveries.list` | ✅ | Trainer gets their deliveries |
-| `deliveries.pending` | ✅ | Get pending deliveries |
-| `deliveries.markReady` | ✅ | Mark delivery as ready |
-| `deliveries.markDelivered` | ✅ | Mark delivery as delivered |
-| `deliveries.confirmReceipt` | ✅ | Client confirms receipt |
-| `deliveries.reportIssue` | ✅ | Client reports issue |
-| `deliveries.myDeliveries` | ⚠️ | Returns empty array (needs implementation) |
-| `deliveries.requestReschedule` | ❌ | **MISSING** |
-| `deliveries.approveReschedule` | ❌ | **MISSING** |
-| `deliveries.rejectReschedule` | ❌ | **MISSING** |
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Saved-cart invite detected | Done | `invitationType === "saved_cart_proposal"` in invite screen |
+| Route to editable checkout | Done | Invite screen routes to `/checkout?invitationToken=` |
+| Customer can edit quantities | Done | `updateProposalItemQuantity` in checkout |
+| Customer can remove base bundle | Done | `removeProposalItem` clears `baseBundleDraftId` |
+| Recalculation after edits | Done | `buildSavedCartProposalSnapshot` in `proposalPreview` useMemo |
+| Final cart becomes order source | Done | `orders.createFromProposal` uses customer-edited snapshot |
 
-## Database Schema Status
+### Notifications and Fulfillment
 
-| Field | Status | Notes |
-|-------|--------|-------|
-| `orderId` | ✅ | Links to order |
-| `orderItemId` | ✅ | Links to specific item |
-| `trainerId` | ✅ | Assigned trainer |
-| `clientId` | ✅ | Recipient client |
-| `productId` | ✅ | Product reference |
-| `productName` | ✅ | Denormalized name |
-| `quantity` | ✅ | Item quantity |
-| `status` | ✅ | Full status enum |
-| `scheduledDate` | ✅ | Planned delivery date |
-| `deliveredAt` | ✅ | Actual delivery time |
-| `confirmedAt` | ✅ | Client confirmation time |
-| `deliveryMethod` | ✅ | Delivery method enum |
-| `trackingNumber` | ✅ | Shipping tracking |
-| `notes` | ✅ | Trainer notes |
-| `clientNotes` | ✅ | Client notes |
-| `disputeReason` | ✅ | Issue description |
-| `rescheduleRequestedAt` | ❌ | **MISSING** |
-| `rescheduleRequestedDate` | ❌ | **MISSING** |
-| `rescheduleApprovedAt` | ❌ | **MISSING** |
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Cart diff persisted | Done | `orders.cart_diff_json` |
+| Trainer push notification | Done | `notifyTrainerAboutPaidProposalOrder` with diff summary |
+| Shopify order submission | Done | `submitPaidOrderToShopify` after payment |
+| Shopify proposal ID tracking | Done | `note_attributes` includes `saved_cart_proposal_id` |
 
-## Notification Support Status
+## Legacy Delivery Journey Status
 
-| Notification Type | Status | Implementation |
-|-------------------|--------|----------------|
-| New order (trainer) | ✅ | `scheduleNewOrderNotification()` |
-| Delivery shipped | ✅ | `scheduleDeliveryUpdateNotification()` |
-| Out for delivery | ✅ | `scheduleDeliveryUpdateNotification()` |
-| Delivered | ✅ | `scheduleDeliveryUpdateNotification()` |
-| Delivery reminder | ✅ | `scheduleDeliveryNotification()` |
-| Reschedule request | ❌ | **MISSING** |
-| Reschedule approved | ❌ | **MISSING** |
+### Phase 1: Order Placement
 
-## Summary of Gaps
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Client purchases bundle with products | Done | Cart + Checkout + `orders.create` |
+| Order confirmation | Done | Order confirmation screen |
+| Products linked to trainer | Done | `bundleDrafts.productsJson` |
+| Auto-create delivery records on order | Done | Both `orders.create` and `orders.createFromProposal` create deliveries |
 
-### Critical (Must Fix)
-1. **Auto-create delivery records on order** - No webhook/trigger exists
-2. **Client myDeliveries endpoint** - Returns empty array
-3. **Reschedule API endpoints** - Missing request/approve/reject
+### Phase 2: Trainer Notification
 
-### Medium Priority
-4. **Reschedule database fields** - Missing timestamp fields
-5. **Reschedule notifications** - Not implemented
-6. **Manager escalation workflow** - Basic view only
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Trainer receives order notification | Done | Push notification via `notifyBadgeCounts` |
+| Dashboard shows pending deliveries | Done | `(trainer)/deliveries.tsx` with status tabs |
+
+### Phase 3-6: Delivery Lifecycle
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Trainer marks ready / delivered | Done | `deliveries.markReady` / `deliveries.markDelivered` |
+| Client confirms receipt | Done | `deliveries.confirmReceipt` |
+| Client reports issue | Done | `deliveries.reportIssue` |
+| Reschedule request/approve/reject | Done | `deliveries.requestReschedule/approveReschedule/rejectReschedule` |
+| Multiple fulfillment methods | Done | `home_ship`, `trainer_delivery`, `vending`, `cafeteria` |
+
+## Remaining Gaps
+
+### Not Yet Implemented
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Trainer attribution / "My Store Link" | Not started | Documented in journey but no code exists for trainer-attributed independent shopping, commission tracking, or store link UI |
+| Manager escalation workflow for disputes | Not started | Basic dispute view only, no escalation flow |
+| Delivery analytics / reporting | Not started | No metrics or reporting surface |
 
 ### Low Priority
-7. **Delivery analytics** - No metrics/reporting
-8. **Batch delivery actions** - No bulk operations
 
-## Recommended Fixes
-
-1. Add order webhook handler to auto-create `productDeliveries` records
-2. Implement `deliveries.myDeliveries` to return client's deliveries
-3. Add reschedule API endpoints and database fields
-4. Connect trainer deliveries screen to real API (remove mock data)
-5. Connect client deliveries screen to real API (remove mock data)
-6. Add reschedule notification functions
+| Area | Status | Notes |
+|------|--------|-------|
+| Batch delivery actions | Not started | No bulk operations for deliveries |
+| Dedicated trainer proposal review screen | Enhancement | Proposal builder works but lives inside the cart screen rather than a standalone route |

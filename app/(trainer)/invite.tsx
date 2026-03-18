@@ -12,6 +12,7 @@ import { formatGBPFromMinor } from "@/lib/currency";
 import { getInviteLink } from "@/lib/invite-links";
 import { sanitizeHtml } from "@/lib/html-utils";
 import { mapBundleDraftToOfferView, type BundleOfferPaymentType, type BundleOfferStatus, type BundleOfferType } from "@/shared/bundle-offer";
+import { BUNDLE_OFFER_STATUS_META } from "@/shared/status-meta";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
@@ -36,13 +37,6 @@ type CatalogProduct = {
   id: string;
   name: string;
   imageUrl: string | null;
-};
-
-const OFFER_STATUS_META: Record<BundleOfferStatus, { label: string; colorKey: "success" | "warning" | "primary" | "error" }> = {
-  draft: { label: "Draft", colorKey: "warning" },
-  in_review: { label: "In review", colorKey: "primary" },
-  published: { label: "Published", colorKey: "success" },
-  archived: { label: "Archived", colorKey: "error" },
 };
 
 function formatOfferTypeLabel(type: BundleOfferType): string {
@@ -457,7 +451,7 @@ export default function InviteScreen() {
 
                         <View className="flex-row items-center mt-2">
                           {(() => {
-                            const meta = OFFER_STATUS_META[offer.status] || OFFER_STATUS_META.draft;
+                            const meta = BUNDLE_OFFER_STATUS_META[offer.status] || BUNDLE_OFFER_STATUS_META.draft;
                             const dotColor =
                               meta.colorKey === "success"
                                 ? colors.success

@@ -22,6 +22,25 @@ Recommended strategy:
 - **Quick wins first (low risk, high consistency):** shared dialogs, shared status maps, shared reschedule codec, standardized headers/navigation usage
 - **Then deeper refactors:** split large router domains and extract feature modules for users/deliveries/payments
 
+## Status Snapshot
+
+Current implementation status against this audit:
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Trainer offer flow consolidation | Done | Duplicate trainer offer wizard removed; canonical flow is `app/bundle-editor/[id].tsx` |
+| Role navigation helpers | Partial | `lib/navigation.ts` is widely used, but some local role/path branching still exists |
+| Managed-user shared colors/helpers | Partial | Some shared role/status color helpers exist, but manager/coordinator screens are still separate |
+| Shared dialogs (`lib/dialogs.ts`) | Partial | Shared dialog helper introduced and coordinator campaign flows migrated, but app-wide migration is still open |
+| Shared status metadata (`shared/status-meta.ts`) | Partial | Shared bundle-offer status metadata exists, but broader status centralization is still open |
+| Shared reschedule protocol (`shared/reschedule-request.ts`) | Done | Shared protocol module now powers trainer/client deliveries and backend delivery mutations |
+| Shared catalog/template parsers | Not started | `shared/parsers/catalog-json.ts` does not exist yet |
+| Deliveries feature module | Not started | Trainer/client deliveries still separate screens with duplicated helpers |
+| Users management feature module | Not started | `app/(manager)/users.tsx` and `app/(coordinator)/users.tsx` are still large parallel implementations |
+| Payments feature module | Partial | `features/payments/` exists only for KYC management, not the broader consolidation proposed here |
+| Router decomposition | Not started | `server/routers.ts` remains monolithic |
+| Backend shared guard/mutation helpers | Not started | `server/routers/_shared/*` does not exist yet |
+
 ## Audit Method
 
 - Reviewed architecture context and active codebase patterns.

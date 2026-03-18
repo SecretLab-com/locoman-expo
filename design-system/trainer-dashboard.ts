@@ -1,4 +1,5 @@
 import type { ThemeColorPalette } from '@/constants/theme';
+import { createBundleOfferStatusStyles } from '@/shared/status-meta';
 
 export type TrainerDashboardPalette = {
   page: string;
@@ -196,10 +197,5 @@ export function createTrainerActivityStatusStyles(primary: string) {
 }
 
 export function createTrainerOfferStatusStyles(primary: string) {
-  return {
-    draft: { bg: 'rgba(250,204,21,0.15)', border: 'rgba(250,204,21,0.3)', text: '#FACC15', label: 'Draft' },
-    in_review: { bg: 'rgba(96,165,250,0.2)', border: 'rgba(96,165,250,0.34)', text: primary, label: 'In review' },
-    published: { bg: 'rgba(52,211,153,0.18)', border: 'rgba(52,211,153,0.35)', text: '#34D399', label: 'Published' },
-    archived: { bg: 'rgba(248,113,113,0.16)', border: 'rgba(248,113,113,0.32)', text: '#F87171', label: 'Archived' },
-  };
+  return createBundleOfferStatusStyles(primary);
 }

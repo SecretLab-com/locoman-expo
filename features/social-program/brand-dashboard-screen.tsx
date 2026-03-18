@@ -4,10 +4,11 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
+import { notify, prompt as promptForText } from "@/lib/dialogs";
 import { trpc } from "@/lib/trpc";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
-import { Alert, ScrollView, Text, TouchableOpacity, View, Platform } from "react-native";
+import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 type Props = {
   roleLabel: "Coordinator" | "Manager";
@@ -74,7 +75,7 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
       }
     },
     onError: (err: any) => {
-      Alert.alert("Error creating brand", err?.message || "Please try again.");
+      notify("Error creating brand", err?.message || "Please try again.");
     },
   });
   const summaryQuery = trpc.admin.campaignMetricsSummary.useQuery(
@@ -169,29 +170,14 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
                 Campaign Accounts
               </Text>
               <TouchableOpacity
-                onPress={() => {
-                  if (Platform.OS === "web") {
-                    const name = window.prompt("Enter new brand name");
-                    if (name?.trim()) {
-                      createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
-                    }
-                  } else {
-                    Alert.prompt(
-                      "New Brand",
-                      "Enter the name of the new brand",
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Create",
-                          onPress: (name?: string) => {
-                            if (name?.trim()) {
-                              createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
-                            }
-                          },
-                        },
-                      ],
-                      "plain-text"
-                    );
+                onPress={async () => {
+                  const name = await promptForText({
+                    title: "New Brand",
+                    message: "Enter the name of the new brand",
+                    confirmText: "Create",
+                  });
+                  if (name?.trim()) {
+                    createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
                   }
                 }}
                 accessibilityRole="button"
@@ -407,7 +393,7 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
                   const result = await csvExportQuery.refetch();
                   const payload = result.data;
                   if (!payload) return;
-                  Alert.alert(
+                  notify(
                     "CSV ready",
                     `${payload.fileName}\n\n${payload.content.slice(0, 260)}...`,
                   );
@@ -426,7 +412,7 @@ export function BrandDashboardScreen({ roleLabel }: Props) {
                   const result = await pdfExportQuery.refetch();
                   const payload = result.data;
                   if (!payload) return;
-                  Alert.alert(
+                  notify(
                     "PDF summary ready",
                     `${payload.fileName}\n\n${payload.content.slice(0, 260)}...`,
                   );

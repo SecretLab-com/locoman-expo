@@ -507,6 +507,9 @@ export type Order = {
   deliveryDate: string | null;
   deliveredAt: string | null;
   trackingNumber: string | null;
+  savedCartProposalId: string | null;
+  proposalSnapshotJson: any;
+  cartDiffJson: any;
   orderData: any;
   createdAt: string;
   updatedAt: string;
@@ -520,11 +523,16 @@ export type OrderItem = {
   id: string;
   orderId: string;
   productId: string | null;
+  bundleDraftId: string | null;
+  customProductId: string | null;
+  itemType: string;
   name: string;
+  imageUrl: string | null;
   quantity: number;
   price: string;
   totalPrice: string;
   fulfillmentStatus: string | null;
+  metadata: any;
   createdAt: string;
 };
 
@@ -747,6 +755,9 @@ export type Invitation = {
   name: string | null;
   token: string;
   bundleDraftId: string | null;
+  savedCartProposalId: string | null;
+  personalMessage: string | null;
+  proposalSnapshotJson: any;
   status: string | null;
   expiresAt: string;
   acceptedAt: string | null;
@@ -759,6 +770,71 @@ export type InsertInvitation = Partial<Omit<Invitation, "id" | "createdAt">> & {
   email: string;
   token: string;
   expiresAt: string;
+};
+
+export type SavedCartProposal = {
+  id: string;
+  trainerId: string;
+  clientRecordId: string | null;
+  clientUserId: string | null;
+  clientEmail: string | null;
+  clientName: string | null;
+  baseBundleDraftId: string | null;
+  title: string | null;
+  notes: string | null;
+  assistantPrompt: string | null;
+  source: string;
+  status: string;
+  startDate: string | null;
+  cadenceCode: string;
+  sessionsPerWeek: number;
+  timePreference: string | null;
+  projectedScheduleJson: any;
+  projectedDeliveryJson: any;
+  subtotalAmount: string;
+  discountAmount: string;
+  totalAmount: string;
+  currency: string;
+  metadata: any;
+  invitedAt: string | null;
+  viewedAt: string | null;
+  purchasedAt: string | null;
+  acceptedOrderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertSavedCartProposal = Partial<
+  Omit<SavedCartProposal, "id" | "createdAt" | "updatedAt">
+> & {
+  trainerId: string;
+};
+
+export type SavedCartProposalItem = {
+  id: string;
+  proposalId: string;
+  sortOrder: number;
+  itemType: string;
+  bundleDraftId: string | null;
+  productId: string | null;
+  customProductId: string | null;
+  title: string;
+  description: string | null;
+  imageUrl: string | null;
+  quantity: number;
+  unitPrice: string;
+  fulfillmentMethod: string | null;
+  metadata: any;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InsertSavedCartProposalItem = Partial<
+  Omit<SavedCartProposalItem, "id" | "createdAt" | "updatedAt">
+> & {
+  proposalId: string;
+  itemType: string;
+  title: string;
 };
 
 export type UserInvitation = {
@@ -2890,6 +2966,112 @@ export async function getInvitationsByTrainer(trainerId: string): Promise<Invita
 export async function updateInvitation(id: string, data: Partial<InsertInvitation>) {
   const { error } = await sb().from("invitations").update(mapToDb(data)).eq("id", id);
   if (error) { console.error("[Database] updateInvitation:", error.message); throw error; }
+}
+
+// ============================================================================
+// SAVED CART PROPOSALS
+// ============================================================================
+
+export async function createSavedCartProposal(
+  data: InsertSavedCartProposal,
+): Promise<string> {
+  const { data: row, error } = await sb()
+    .from("saved_cart_proposals")
+    .insert(mapToDb(data))
+    .select("id")
+    .single();
+  if (error) {
+    console.error("[Database] createSavedCartProposal:", error.message);
+    throw error;
+  }
+  return row.id;
+}
+
+export async function getSavedCartProposalById(
+  id: string,
+): Promise<SavedCartProposal | undefined> {
+  const { data, error } = await sb()
+    .from("saved_cart_proposals")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] getSavedCartProposalById:", error.message);
+    return undefined;
+  }
+  return mapFromDb<SavedCartProposal>(data);
+}
+
+export async function listSavedCartProposalsByTrainer(
+  trainerId: string,
+): Promise<SavedCartProposal[]> {
+  const { data, error } = await sb()
+    .from("saved_cart_proposals")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("[Database] listSavedCartProposalsByTrainer:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<SavedCartProposal>(data || []);
+}
+
+export async function updateSavedCartProposal(
+  id: string,
+  data: Partial<InsertSavedCartProposal>,
+) {
+  const { error } = await sb()
+    .from("saved_cart_proposals")
+    .update(mapToDb(data))
+    .eq("id", id);
+  if (error) {
+    console.error("[Database] updateSavedCartProposal:", error.message);
+    throw error;
+  }
+}
+
+export async function getSavedCartProposalItems(
+  proposalId: string,
+): Promise<SavedCartProposalItem[]> {
+  const { data, error } = await sb()
+    .from("saved_cart_proposal_items")
+    .select("*")
+    .eq("proposal_id", proposalId)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[Database] getSavedCartProposalItems:", error.message);
+    return [];
+  }
+  return mapRowsFromDb<SavedCartProposalItem>(data || []);
+}
+
+export async function replaceSavedCartProposalItems(
+  proposalId: string,
+  items: InsertSavedCartProposalItem[],
+) {
+  const deleteResult = await sb()
+    .from("saved_cart_proposal_items")
+    .delete()
+    .eq("proposal_id", proposalId);
+  if (deleteResult.error) {
+    console.error(
+      "[Database] replaceSavedCartProposalItems delete:",
+      deleteResult.error.message,
+    );
+    throw deleteResult.error;
+  }
+
+  if (!items.length) return;
+
+  const { error } = await sb()
+    .from("saved_cart_proposal_items")
+    .insert(items.map((item) => mapToDb(item)));
+  if (error) {
+    console.error("[Database] replaceSavedCartProposalItems insert:", error.message);
+    throw error;
+  }
 }
 
 // ============================================================================

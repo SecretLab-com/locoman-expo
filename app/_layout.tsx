@@ -38,8 +38,8 @@ import { CartProvider } from "@/contexts/cart-context";
 import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
 import { RealtimeProvider } from "@/contexts/realtime-context";
+import { useColorScheme as useAppColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
-import { useColorScheme } from "nativewind";
 import { useDeepLink } from "@/hooks/use-deep-link";
 import { initPortalRuntime, subscribeSafeAreaInsets } from "@/lib/_core/portal-runtime";
 import { installWebAlertOverride } from "@/lib/in-app-alert";
@@ -115,6 +115,11 @@ function getHeaderTitle(routeName: string): string {
     return "Back";
   }
   return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function ThemedStatusBar() {
+  const colorScheme = useAppColorScheme();
+  return <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />;
 }
 
 function RootAccessGate({ children }: { children: React.ReactNode }) {
@@ -238,9 +243,13 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
       }
     }
     if (pathname.startsWith("/(tabs)") && effectiveRole && effectiveRole !== "shopper") {
-      setRedirecting(true);
-      router.replace(getHomeRoute(effectiveRole) as any);
-      return;
+      const trainerAllowedTabPaths = ["/products", "/cart", "/(tabs)/products", "/(tabs)/cart"];
+      const isTrainerAllowedTab = effectiveRole === "trainer" && trainerAllowedTabPaths.some((p) => pathname === p || pathname.startsWith(p + "/"));
+      if (!isTrainerAllowedTab) {
+        setRedirecting(true);
+        router.replace(getHomeRoute(effectiveRole) as any);
+        return;
+      }
     }
     setRedirecting(false);
   }, [
@@ -450,8 +459,6 @@ export default function RootLayout() {
     };
   }, [initialInsets, initialFrame, isHydrated]);
 
-  const { colorScheme } = useColorScheme();
-  const colors = useColors();
   const content = (
     <ShareIntentProvider>
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -559,7 +566,7 @@ export default function RootLayout() {
                             <Stack.Screen name="phyllo/callback" options={{ presentation: "card" }} />
                           </Stack>
                         </RootAccessGate>
-                        <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+                        <ThemedStatusBar />
                       </View>
                     </View>
                   </RealtimeProvider>

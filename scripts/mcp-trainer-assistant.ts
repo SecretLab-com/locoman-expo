@@ -121,6 +121,15 @@ type BundleLite = {
   productsJson?: unknown;
 };
 
+type CustomProductLite = {
+  id: string;
+  name?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+  price?: string | null;
+  fulfillmentMethod?: string | null;
+};
+
 const STOP_WORDS = new Set([
   "about",
   "again",
@@ -874,6 +883,229 @@ export function createTrainerAssistantMcpServer(): McpServer {
         });
       } catch (error) {
         return toErrorResult(`List bundles failed: ${toErrorMessage(error)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "search_catalog_products",
+    {
+      title: "Search Catalog Products",
+      description: "Search Shopify/catalog products by keyword, brand, or category.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        search: z.string().optional(),
+        limit: z.number().int().min(1).max(50).default(12),
+      },
+    },
+    async ({ search, limit }) => {
+      try {
+        const products =
+          (await trpcClient.catalog.products.query()) as unknown as Array<Record<string, unknown>>;
+        const term = asCleanString(search).toLowerCase();
+        const rows = products
+          .filter((product) => {
+            if (!term) return true;
+            const haystack = [
+              asCleanString((product as any).name),
+              asCleanString((product as any).description),
+              asCleanString((product as any).brand),
+              asCleanString((product as any).category),
+            ]
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(term);
+          })
+          .slice(0, Math.max(1, limit))
+          .map((product) => ({
+            id: asCleanString((product as any).id),
+            name: asCleanString((product as any).name),
+            description: asCleanString((product as any).description) || null,
+            brand: asCleanString((product as any).brand) || null,
+            category: asCleanString((product as any).category) || null,
+            price: asCleanString((product as any).price) || null,
+            imageUrl: asCleanString((product as any).imageUrl) || null,
+          }));
+
+        return toTextResult(`Returned ${rows.length} catalog products.`, {
+          products: rows,
+        });
+      } catch (error) {
+        return toErrorResult(
+          `Catalog product search failed: ${toErrorMessage(error)}`,
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_custom_products",
+    {
+      title: "List Custom Products",
+      description: "List the trainer's custom products with optional search filtering.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        search: z.string().optional(),
+      },
+    },
+    async ({ search }) => {
+      try {
+        const products =
+          (await trpcClient.customProducts.list.query()) as unknown as CustomProductLite[];
+        const term = asCleanString(search).toLowerCase();
+        const rows = products
+          .filter((product) => {
+            if (!term) return true;
+            const haystack = [
+              asCleanString(product.name),
+              asCleanString(product.description),
+            ]
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(term);
+          })
+          .map((product) => ({
+            id: product.id,
+            name: product.name || "Custom product",
+            description: product.description || null,
+            price: product.price || null,
+            imageUrl: product.imageUrl || null,
+            fulfillmentMethod: product.fulfillmentMethod || null,
+          }));
+
+        return toTextResult(`Returned ${rows.length} custom products.`, {
+          customProducts: rows,
+        });
+      } catch (error) {
+        return toErrorResult(`List custom products failed: ${toErrorMessage(error)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_saved_cart_proposals",
+    {
+      title: "List Saved Cart Proposals",
+      description: "List the trainer's saved cart/custom bundle proposals.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const proposals =
+          (await trpcClient.savedCartProposals.list.query()) as unknown as Array<Record<string, unknown>>;
+        const rows = proposals.map((proposal) => ({
+          id: asCleanString((proposal as any).id),
+          title: asCleanString((proposal as any).title) || "Saved Cart",
+          status: asCleanString((proposal as any).status) || null,
+          clientName: asCleanString((proposal as any).clientName) || null,
+          clientEmail: asCleanString((proposal as any).clientEmail) || null,
+          totalAmount: asCleanString((proposal as any).totalAmount) || null,
+          itemCount: Number((proposal as any).itemCount || 0),
+        }));
+        return toTextResult(`Returned ${rows.length} saved cart proposals.`, {
+          proposals: rows,
+        });
+      } catch (error) {
+        return toErrorResult(`List proposals failed: ${toErrorMessage(error)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "create_saved_cart_proposal",
+    {
+      title: "Create Saved Cart Proposal",
+      description:
+        "Create a saved cart/custom bundle proposal. Requires confirm=true. Use preview mode first.",
+      inputSchema: {
+        clientRecordId: z.string(),
+        baseBundleDraftId: z.string().optional(),
+        title: z.string().optional(),
+        notes: z.string().optional(),
+        assistantPrompt: z.string().optional(),
+        startDate: z.string().optional(),
+        cadenceCode: z.enum(["weekly", "2x_week", "3x_week", "daily"]).optional(),
+        sessionsPerWeek: z.number().int().min(1).max(7).optional(),
+        timePreference: z.string().optional(),
+        items: z
+          .array(
+            z.object({
+              itemType: z.enum(["bundle", "product", "custom_product", "service"]),
+              title: z.string(),
+              description: z.string().optional(),
+              bundleDraftId: z.string().optional(),
+              productId: z.string().optional(),
+              customProductId: z.string().optional(),
+              imageUrl: z.string().optional(),
+              quantity: z.number().int().min(1).default(1),
+              unitPrice: z.number().min(0).default(0),
+              fulfillmentMethod: z
+                .enum(["home_ship", "trainer_delivery", "vending", "cafeteria"])
+                .optional(),
+              metadata: z.record(z.string(), z.any()).optional(),
+            }),
+          )
+          .default([]),
+        confirm: z.boolean().default(false),
+      },
+    },
+    async ({ confirm, ...payload }) => {
+      if (!confirm) {
+        return toTextResult(
+          "Preview only. Re-run with confirm=true to create the saved cart proposal.",
+          { preview: payload },
+        );
+      }
+      try {
+        const result = await trpcClient.savedCartProposals.create.mutate({
+          ...(payload as any),
+        });
+        return toTextResult("Saved cart proposal created.", result);
+      } catch (error) {
+        return toErrorResult(`Create proposal failed: ${toErrorMessage(error)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "invite_client_to_saved_cart",
+    {
+      title: "Invite Client To Saved Cart",
+      description:
+        "Send a saved cart/custom bundle invite. Requires confirm=true. Use preview mode first.",
+      inputSchema: {
+        proposalId: z.string(),
+        email: z.string().email().optional(),
+        name: z.string().optional(),
+        message: z.string().optional(),
+        confirm: z.boolean().default(false),
+      },
+    },
+    async ({ proposalId, email, name, message, confirm }) => {
+      if (!confirm) {
+        return toTextResult(
+          "Preview only. Re-run with confirm=true to send the saved cart invite.",
+          {
+            preview: {
+              proposalId,
+              email: email || null,
+              name: name || null,
+              message: message || null,
+            },
+          },
+        );
+      }
+      try {
+        const result = await trpcClient.savedCartProposals.sendInvite.mutate({
+          proposalId,
+          email,
+          name,
+          message,
+        });
+        return toTextResult("Saved cart invite sent.", result);
+      } catch (error) {
+        return toErrorResult(`Saved cart invite failed: ${toErrorMessage(error)}`);
       }
     },
   );

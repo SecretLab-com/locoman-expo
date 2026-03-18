@@ -16,6 +16,10 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import * as Haptics from "expo-haptics";
+import {
+  decodeRescheduleRequest as parseRescheduleRequest,
+  type RescheduleRequestPayload as RescheduleRequest,
+} from "@/shared/reschedule-request";
 import { trpc } from "@/lib/trpc";
 
 // Types for product deliveries
@@ -66,44 +70,6 @@ const METHOD_LABELS: Record<DeliveryMethod, string> = {
   front_desk: "Front Desk",
   shipped: "Shipped",
 };
-
-const RESCHEDULE_REQUEST_PREFIX = "reschedule_request_v1:";
-
-type RescheduleRequest = {
-  requestedDate: string | null;
-  reason: string | null;
-  requestedAt: string | null;
-};
-
-function toIsoDate(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-}
-
-function parseRescheduleRequest(clientNotes: string | null): RescheduleRequest | null {
-  if (!clientNotes) return null;
-  if (clientNotes.startsWith(RESCHEDULE_REQUEST_PREFIX)) {
-    try {
-      const payload = JSON.parse(clientNotes.slice(RESCHEDULE_REQUEST_PREFIX.length)) as Partial<RescheduleRequest>;
-      return {
-        requestedDate: toIsoDate(payload.requestedDate ?? null),
-        reason: payload.reason?.trim() || null,
-        requestedAt: toIsoDate(payload.requestedAt ?? null),
-      };
-    } catch {
-      return null;
-    }
-  }
-  if (!clientNotes.toLowerCase().includes("reschedule requested")) return null;
-  const [, reason] = clientNotes.split(":");
-  return {
-    requestedDate: null,
-    reason: reason?.trim() || null,
-    requestedAt: null,
-  };
-}
 
 const ISSUE_REASONS = [
   "Product damaged",

@@ -86,6 +86,10 @@ export interface ShopifyLineItem {
   price: string;
 }
 
+type ShopifyCreateOrderResponse = {
+  order: ShopifyOrder;
+};
+
 type ProductCategory =
   | "protein"
   | "pre_workout"
@@ -259,6 +263,81 @@ async function shopifyRequest<T>(
   }
 
   return response.json();
+}
+
+export async function submitLocalOrderToShopify(params: {
+  order: db.Order;
+  items: db.OrderItem[];
+}): Promise<{
+  submitted: boolean;
+  shopifyOrderId: number | null;
+  shopifyOrderNumber: string | null;
+  mode: "mock" | "live";
+}> {
+  const { order, items } = params;
+
+  if (MOCK_SHOPIFY) {
+    return {
+      submitted: true,
+      shopifyOrderId: Date.now(),
+      shopifyOrderNumber: String(Date.now()),
+      mode: "mock",
+    };
+  }
+
+  const lineItems = [];
+  for (const item of items) {
+    const itemType = String(item.itemType || "product");
+    if (item.productId) {
+      const product = await db.getProductById(item.productId);
+      if (product?.shopifyVariantId) {
+        lineItems.push({
+          variant_id: Number(product.shopifyVariantId),
+          quantity: item.quantity,
+        });
+        continue;
+      }
+    }
+
+    lineItems.push({
+      title: item.name,
+      price: item.price,
+      quantity: item.quantity,
+      requires_shipping: itemType !== "service",
+    });
+  }
+
+  const payload = {
+    order: {
+      email: order.customerEmail || undefined,
+      financial_status: "paid",
+      send_receipt: false,
+      send_fulfillment_receipt: false,
+      line_items: lineItems,
+      note_attributes: [
+        { name: "local_order_id", value: order.id },
+        {
+          name: "saved_cart_proposal_id",
+          value: String(order.savedCartProposalId || ""),
+        },
+      ].filter((entry) => entry.value),
+    },
+  };
+
+  const result = await shopifyRequest<ShopifyCreateOrderResponse>(
+    "/orders.json",
+    "POST",
+    payload,
+  );
+
+  return {
+    submitted: true,
+    shopifyOrderId: result.order?.id || null,
+    shopifyOrderNumber: result.order?.order_number
+      ? String(result.order.order_number)
+      : null,
+    mode: "live",
+  };
 }
 
 // ============================================================================

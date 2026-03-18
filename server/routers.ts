@@ -17,6 +17,22 @@ import {
   PAYOUT_KYC_STATUSES,
   type PayoutKycStatus,
 } from "../shared/payout-kyc.js";
+import {
+  decodeRescheduleRequest,
+  encodeRescheduleRequest,
+  normalizeRescheduleDate as normalizeIsoDate,
+  type RescheduleRequestPayload,
+} from "../shared/reschedule-request.js";
+import {
+  buildSavedCartProposalSnapshot,
+  cadenceToSessionsPerWeek,
+  countProjectedSessions,
+  diffProposalSnapshots,
+  normalizeCadenceCode,
+  type ProposalCadenceCode,
+  type ProposalItemInput,
+  type SavedCartProposalSnapshot,
+} from "../shared/saved-cart-proposal.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import {
   getInviteEmailFailureUserMessage,
@@ -1800,56 +1816,6 @@ async function provisionOrderPaymentLink(input: {
   }
 }
 
-const RESCHEDULE_REQUEST_PREFIX = "reschedule_request_v1:";
-
-type RescheduleRequestPayload = {
-  requestedDate: string | null;
-  reason: string | null;
-  requestedAt: string;
-};
-
-function normalizeIsoDate(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
-
-function encodeRescheduleRequest(payload: RescheduleRequestPayload): string {
-  return `${RESCHEDULE_REQUEST_PREFIX}${JSON.stringify(payload)}`;
-}
-
-function decodeRescheduleRequest(
-  notes: string | null | undefined,
-): RescheduleRequestPayload | null {
-  if (!notes) return null;
-
-  if (notes.startsWith(RESCHEDULE_REQUEST_PREFIX)) {
-    try {
-      const raw = JSON.parse(
-        notes.slice(RESCHEDULE_REQUEST_PREFIX.length),
-      ) as Partial<RescheduleRequestPayload>;
-      return {
-        requestedDate: normalizeIsoDate(raw.requestedDate ?? null),
-        reason: raw.reason ? String(raw.reason) : null,
-        requestedAt:
-          normalizeIsoDate(raw.requestedAt ?? null) ?? new Date().toISOString(),
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  if (!notes.toLowerCase().includes("reschedule requested")) return null;
-
-  const [, maybeReason] = notes.split(":");
-  return {
-    requestedDate: null,
-    reason: maybeReason ? maybeReason.trim() : null,
-    requestedAt: new Date().toISOString(),
-  };
-}
-
 function parseBundleGoals(goalsJson: unknown): string[] {
   return toArray<any>(goalsJson)
     .map((goal) => {
@@ -1978,6 +1944,480 @@ async function resolveCatalogProductReference(id: string) {
     return db.getProductByShopifyProductId(Number(normalizedId));
   }
   return undefined;
+}
+
+const PROPOSAL_CADENCE_CODES = ["weekly", "2x_week", "3x_week", "daily"] as const;
+
+const proposalCadenceSchema = z.enum(PROPOSAL_CADENCE_CODES);
+
+const proposalItemInputSchema = z.object({
+  itemType: z.enum(["bundle", "product", "custom_product", "service"]),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  bundleDraftId: z.string().optional(),
+  productId: z.string().optional(),
+  customProductId: z.string().optional(),
+  imageUrl: z.string().optional(),
+  quantity: z.number().int().min(1).default(1),
+  unitPrice: z.number().min(0).default(0),
+  fulfillmentMethod: z
+    .enum(["home_ship", "trainer_delivery", "vending", "cafeteria"])
+    .optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
+});
+
+type ProposalItemInputRecord = z.infer<typeof proposalItemInputSchema>;
+
+function toMoneyNumber(value: string | number | null | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function toProposalItemInput(
+  item: db.SavedCartProposalItem,
+): ProposalItemInput {
+  return {
+    itemType: item.itemType as ProposalItemInput["itemType"],
+    title: item.title,
+    description: item.description,
+    bundleDraftId: item.bundleDraftId,
+    productId: item.productId,
+    customProductId: item.customProductId,
+    imageUrl: item.imageUrl,
+    quantity: item.quantity,
+    unitPrice: toMoneyNumber(item.unitPrice),
+    fulfillmentMethod: item.fulfillmentMethod,
+    metadata:
+      item.metadata && typeof item.metadata === "object"
+        ? (item.metadata as Record<string, unknown>)
+        : null,
+  };
+}
+
+function toProposalDbItem(
+  proposalId: string,
+  item: ProposalItemInput,
+  index: number,
+): db.InsertSavedCartProposalItem {
+  return {
+    proposalId,
+    sortOrder: index,
+    itemType: item.itemType,
+    bundleDraftId: item.bundleDraftId || null,
+    productId: item.productId || null,
+    customProductId: item.customProductId || null,
+    title: item.title,
+    description: item.description || null,
+    imageUrl: item.imageUrl || null,
+    quantity: item.quantity,
+    unitPrice: toMoneyNumber(item.unitPrice).toFixed(2),
+    fulfillmentMethod:
+      item.itemType === "service" ? null : item.fulfillmentMethod || "trainer_delivery",
+    metadata: item.metadata || null,
+  };
+}
+
+async function normalizeProposalItemsForTrainer(
+  trainerId: string,
+  items: ProposalItemInputRecord[],
+): Promise<ProposalItemInput[]> {
+  return Promise.all(
+    items.map(async (item) => {
+      if (item.itemType === "bundle") {
+        const bundle = item.bundleDraftId
+          ? await db.getBundleDraftById(item.bundleDraftId)
+          : null;
+        if (!bundle) notFound("Bundle");
+        if (!bundle.trainerId || bundle.trainerId !== trainerId) {
+          forbidden("You can only use your own published bundles in proposals");
+        }
+        if (bundle.status !== "published") {
+          forbidden("Only published bundles can be used as proposal bases");
+        }
+        return {
+          itemType: "bundle",
+          title: bundle.title,
+          description: bundle.description,
+          bundleDraftId: bundle.id,
+          imageUrl: bundle.imageUrl,
+          quantity: 1,
+          unitPrice: toMoneyNumber(bundle.price),
+          fulfillmentMethod: "trainer_delivery",
+          metadata: {
+            ...(item.metadata || {}),
+            cadence: bundle.cadence,
+            includedProducts: parseBundleProducts(bundle.productsJson),
+            includedServices: parseBundleServices(bundle.servicesJson),
+            includedGoals: parseBundleGoals(bundle.goalsJson),
+            discountType: bundle.discountType,
+            discountValue: bundle.discountValue,
+          },
+        };
+      }
+
+      if (item.itemType === "product") {
+        const product = item.productId
+          ? await resolveCatalogProductReference(item.productId)
+          : null;
+        if (!product) notFound("Product");
+        return {
+          itemType: "product",
+          title: product.name,
+          description: product.description,
+          productId: product.id,
+          imageUrl: product.imageUrl,
+          quantity: item.quantity,
+          unitPrice: toMoneyNumber(product.price),
+          fulfillmentMethod: item.fulfillmentMethod || "home_ship",
+          metadata: {
+            ...(item.metadata || {}),
+            shopifyProductId: product.shopifyProductId,
+            shopifyVariantId: product.shopifyVariantId,
+            brand: product.brand,
+            category: product.category,
+          },
+        };
+      }
+
+      if (item.itemType === "custom_product") {
+        const customProduct = item.customProductId
+          ? await db.getTrainerCustomProductById(item.customProductId)
+          : null;
+        if (!customProduct) notFound("Custom product");
+        if (customProduct.trainerId !== trainerId) {
+          forbidden("You can only use your own custom products in proposals");
+        }
+        return {
+          itemType: "custom_product",
+          title: customProduct.name,
+          description: customProduct.description,
+          customProductId: customProduct.id,
+          imageUrl: customProduct.imageUrl,
+          quantity: item.quantity,
+          unitPrice: toMoneyNumber(customProduct.price),
+          fulfillmentMethod: item.fulfillmentMethod || customProduct.fulfillmentMethod,
+          metadata: item.metadata || null,
+        };
+      }
+
+      return {
+        itemType: "service",
+        title: item.title,
+        description: item.description || null,
+        quantity: item.quantity,
+        unitPrice: toMoneyNumber(item.unitPrice),
+        fulfillmentMethod: null,
+        metadata: {
+          ...(item.metadata || {}),
+          sessions:
+            Number(
+              (item.metadata as Record<string, unknown> | undefined)?.sessions ??
+                item.quantity,
+            ) || item.quantity,
+        },
+      };
+    }),
+  );
+}
+
+async function buildSavedCartSnapshotFromRecord(
+  proposal: db.SavedCartProposal,
+  items?: db.SavedCartProposalItem[],
+): Promise<SavedCartProposalSnapshot> {
+  const proposalItems =
+    items ?? (await db.getSavedCartProposalItems(proposal.id));
+  const normalizedItems = proposalItems.map((item) => toProposalItemInput(item));
+  return buildSavedCartProposalSnapshot({
+    title: proposal.title,
+    notes: proposal.notes,
+    baseBundleDraftId: proposal.baseBundleDraftId,
+    startDate: proposal.startDate,
+    cadenceCode: proposal.cadenceCode as ProposalCadenceCode,
+    sessionsPerWeek: proposal.sessionsPerWeek,
+    timePreference: proposal.timePreference,
+    items: normalizedItems,
+  });
+}
+
+async function ensureBaseBundleProposalItem(
+  baseBundleDraftId: string | null | undefined,
+  items: ProposalItemInputRecord[],
+): Promise<ProposalItemInputRecord[]> {
+  if (!baseBundleDraftId) return items;
+  const hasBundleItem = items.some(
+    (item) => item.itemType === "bundle" && item.bundleDraftId === baseBundleDraftId,
+  );
+  if (hasBundleItem) return items;
+  return [
+    {
+      itemType: "bundle",
+      title: "Selected Bundle",
+      bundleDraftId: baseBundleDraftId,
+      quantity: 1,
+      unitPrice: 0,
+    },
+    ...items,
+  ];
+}
+
+function toSubscriptionTypeFromCadenceCode(
+  cadenceCode: string | null | undefined,
+): "weekly" | "monthly" | "yearly" {
+  const normalized = normalizeCadenceCode(cadenceCode);
+  if (normalized === "daily" || normalized === "2x_week" || normalized === "3x_week") {
+    return "weekly";
+  }
+  return "weekly";
+}
+
+async function ensureTrainerClientRecord(params: {
+  trainerId: string;
+  user: db.User;
+  invitation: db.Invitation;
+}): Promise<db.Client> {
+  const { trainerId, user, invitation } = params;
+  let clientRecord = await db.getClientByTrainerAndUser(trainerId, user.id);
+  if (!clientRecord) {
+    const clientId = await db.createClient({
+      trainerId,
+      userId: user.id,
+      name: user.name || invitation.name || "Client",
+      email: user.email || invitation.email,
+      phone: user.phone,
+      photoUrl: user.photoUrl,
+      status: "active",
+      invitedAt: invitation.createdAt,
+      acceptedAt: new Date().toISOString(),
+    });
+    clientRecord = await db.getClientById(clientId);
+  } else if (clientRecord.status !== "active") {
+    await db.updateClient(clientRecord.id, {
+      status: "active",
+      acceptedAt: new Date().toISOString(),
+    });
+    clientRecord = await db.getClientById(clientRecord.id);
+  }
+  if (!clientRecord) notFound("Client relationship");
+  return clientRecord;
+}
+
+async function createOrderFromProposalSnapshot(params: {
+  user: db.User;
+  invitation: db.Invitation;
+  proposal: db.SavedCartProposal | null;
+  snapshot: SavedCartProposalSnapshot;
+  trainerId: string;
+  clientRecord: db.Client;
+  shippingAmount?: number;
+  taxAmount?: number;
+  cartDiff?: ReturnType<typeof diffProposalSnapshots>;
+}): Promise<{
+  orderId: string;
+  deliveryIds: string[];
+  subscriptionId: string | null;
+  payment: OrderPaymentProvision;
+}> {
+  const {
+    user,
+    invitation,
+    proposal,
+    snapshot,
+    trainerId,
+    clientRecord,
+    shippingAmount = 0,
+    taxAmount = 0,
+    cartDiff,
+  } = params;
+
+  const subtotalAmount = snapshot.pricing.subtotalAmount;
+  const totalAmount = subtotalAmount + shippingAmount + taxAmount;
+  const paymentStatus = totalAmount > 0 ? "pending" : "paid";
+
+  const orderId = await db.createOrder({
+    clientId: user.id,
+    trainerId,
+    customerEmail: user.email || invitation.email,
+    customerName: user.name || invitation.name || clientRecord.name,
+    totalAmount: totalAmount.toFixed(2),
+    subtotalAmount: subtotalAmount.toFixed(2),
+    taxAmount: taxAmount.toFixed(2),
+    shippingAmount: shippingAmount.toFixed(2),
+    status: "pending",
+    paymentStatus,
+    fulfillmentStatus: "unfulfilled",
+    fulfillmentMethod: "trainer_delivery",
+    savedCartProposalId: proposal?.id || null,
+    proposalSnapshotJson: snapshot,
+    cartDiffJson: cartDiff || null,
+    orderData: {
+      source: "saved_cart_proposal_checkout",
+      invitationId: invitation.id,
+      bundleDraftId: snapshot.baseBundleDraftId,
+      paymentRequired: totalAmount > 0,
+      cadenceCode: snapshot.cadenceCode,
+      sessionsPerWeek: snapshot.sessionsPerWeek,
+      timePreference: snapshot.timePreference,
+    },
+  });
+
+  const deliveryIds: string[] = [];
+  for (const item of snapshot.items) {
+    const lineTotal = item.unitPrice * item.quantity;
+    const orderItemId = await db.createOrderItem({
+      orderId,
+      productId: item.productId || null,
+      bundleDraftId: item.bundleDraftId || null,
+      customProductId: item.customProductId || null,
+      itemType: item.itemType,
+      name: item.title,
+      imageUrl: item.imageUrl || null,
+      quantity: item.quantity,
+      price: item.unitPrice.toFixed(2),
+      totalPrice: lineTotal.toFixed(2),
+      fulfillmentStatus: "unfulfilled",
+      metadata: item.metadata || null,
+    });
+
+    if (item.itemType === "bundle") {
+      const includedProducts = Array.isArray(
+        (item.metadata as Record<string, unknown> | null)?.includedProducts,
+      )
+        ? ((item.metadata as Record<string, unknown>).includedProducts as Array<Record<string, unknown>>)
+        : [];
+
+      for (const includedProduct of includedProducts) {
+        const lineQuantityRaw = Number(includedProduct.quantity ?? 1);
+        const lineQuantity =
+          Number.isFinite(lineQuantityRaw) && lineQuantityRaw > 0
+            ? Math.floor(lineQuantityRaw) * Math.max(1, item.quantity)
+            : Math.max(1, item.quantity);
+        const lineUnitPrice = toMoneyNumber(String(includedProduct.price || "0"));
+        const deliveryId = await db.createDelivery({
+          orderId,
+          orderItemId,
+          trainerId,
+          clientId: user.id,
+          productId:
+            typeof includedProduct.productId === "string"
+              ? includedProduct.productId
+              : null,
+          customProductId:
+            typeof includedProduct.customProductId === "string"
+              ? includedProduct.customProductId
+              : null,
+          productName: String(includedProduct.name || item.title),
+          productImageUrl:
+            typeof includedProduct.imageUrl === "string"
+              ? includedProduct.imageUrl
+              : null,
+          unitPrice: lineUnitPrice.toFixed(2),
+          quantity: lineQuantity,
+          status: "pending",
+          deliveryMethod: toDeliveryMethod(
+            ((includedProduct.fulfillmentMethod as
+              | "home_ship"
+              | "trainer_delivery"
+              | "vending"
+              | "cafeteria"
+              | undefined) || "trainer_delivery"),
+          ),
+        });
+        deliveryIds.push(deliveryId);
+      }
+      continue;
+    }
+
+    if (item.itemType === "service") {
+      continue;
+    }
+
+    const deliveryId = await db.createDelivery({
+      orderId,
+      orderItemId,
+      trainerId,
+      clientId: user.id,
+      productId: item.productId || null,
+      customProductId: item.customProductId || null,
+      productName: item.title,
+      productImageUrl: item.imageUrl || null,
+      unitPrice: item.unitPrice.toFixed(2),
+      quantity: item.quantity,
+      status: "pending",
+      deliveryMethod: toDeliveryMethod(
+        (item.fulfillmentMethod as
+          | "home_ship"
+          | "trainer_delivery"
+          | "vending"
+          | "cafeteria"
+          | undefined) || "trainer_delivery",
+      ),
+    });
+    deliveryIds.push(deliveryId);
+  }
+
+  let subscriptionId: string | null = null;
+  if (snapshot.projectedSchedule.length > 0) {
+    subscriptionId = await db.createSubscription({
+      clientId: clientRecord.id,
+      trainerId,
+      bundleDraftId: snapshot.baseBundleDraftId,
+      price: subtotalAmount.toFixed(2),
+      subscriptionType: toSubscriptionTypeFromCadenceCode(snapshot.cadenceCode),
+      sessionsIncluded: snapshot.projectedSchedule.length,
+      sessionsUsed: 0,
+      startDate:
+        snapshot.startDate || snapshot.projectedSchedule[0]?.startsAt || new Date().toISOString(),
+    });
+
+    for (const session of snapshot.projectedSchedule) {
+      await db.createSession({
+        clientId: clientRecord.id,
+        trainerId,
+        subscriptionId,
+        sessionDate: session.startsAt,
+        sessionType: "training",
+        status: "scheduled",
+        notes: session.timePreference
+          ? `Projected session (${session.timePreference})`
+          : "Projected session",
+      });
+    }
+  }
+
+  const payment = await provisionOrderPaymentLink({
+    orderId,
+    requestedBy: user.id,
+    payerId: user.id,
+    amountMinor: Math.round(totalAmount * 100),
+    shopperEmail: user.email,
+    description: `Saved cart order ${orderId}`,
+  });
+
+  if (snapshot.baseBundleDraftId) {
+    const baseBundle = await db.getBundleDraftById(snapshot.baseBundleDraftId);
+    if (baseBundle) {
+      await createSponsoredProductBonuses({
+        trainerId,
+        orderId,
+        bundleDraftId: baseBundle.id,
+        productsJson: baseBundle.productsJson,
+      });
+    }
+  }
+
+  if (proposal?.id) {
+    await db.updateSavedCartProposal(proposal.id, {
+      status: "purchased",
+      purchasedAt: new Date().toISOString(),
+      acceptedOrderId: orderId,
+    });
+  }
+
+  return { orderId, deliveryIds, subscriptionId, payment };
 }
 
 export const appRouter = router({
@@ -2327,6 +2767,89 @@ export const appRouter = router({
           expiresAt && expiresAt.getTime() < Date.now(),
         );
 
+        const proposalSnapshot =
+          invitation.proposalSnapshotJson &&
+          typeof invitation.proposalSnapshotJson === "object"
+            ? (invitation.proposalSnapshotJson as SavedCartProposalSnapshot)
+            : null;
+
+        if (proposalSnapshot) {
+          const baseBundle = proposalSnapshot.baseBundleDraftId
+            ? await db.getBundleDraftById(proposalSnapshot.baseBundleDraftId)
+            : null;
+
+          const baseBundleItem = proposalSnapshot.items.find(
+            (item) => item.itemType === "bundle",
+          );
+
+          const derivedProducts = proposalSnapshot.items
+            .filter(
+              (item) =>
+                item.itemType === "product" || item.itemType === "custom_product",
+            )
+            .map((item, index) => ({
+              id: `${item.itemType}-${index}`,
+              name: item.title,
+              quantity: item.quantity,
+              productId: item.productId || item.customProductId || undefined,
+            }));
+
+          const derivedServices = proposalSnapshot.items
+            .filter((item) => item.itemType === "service")
+            .map((item, index) => ({
+              id: `${item.itemType}-${index}`,
+              name: item.title,
+              sessions: Number(
+                (item.metadata as Record<string, unknown> | null)?.sessions ??
+                  item.quantity,
+              ) || item.quantity,
+            }));
+
+          const derivedGoals = Array.isArray(
+            (baseBundleItem?.metadata as Record<string, unknown> | null)
+              ?.includedGoals,
+          )
+            ? (
+                (baseBundleItem?.metadata as Record<string, unknown>)
+                  .includedGoals as unknown[]
+              )
+                .map((goal) => String(goal || "").trim())
+                .filter(Boolean)
+            : [];
+
+          return {
+            id: invitation.id,
+            token: invitation.token,
+            trainerId: invitation.trainerId,
+            trainerName: trainer?.name || "Trainer",
+            trainerAvatar: trainer?.photoUrl || null,
+            invitationType: "saved_cart_proposal" as const,
+            savedCartProposalId: invitation.savedCartProposalId,
+            bundleId: proposalSnapshot.baseBundleDraftId || null,
+            bundleTitle:
+              baseBundle?.title ||
+              proposalSnapshot.title ||
+              "Saved Cart Proposal",
+            bundleDescription:
+              baseBundle?.description ||
+              proposalSnapshot.notes ||
+              "",
+            bundlePrice: proposalSnapshot.pricing.totalAmount,
+            bundleDuration: proposalSnapshot.cadenceCode || "program",
+            products: derivedProducts,
+            services: derivedServices,
+            goals: derivedGoals,
+            personalMessage: invitation.personalMessage || null,
+            proposalSnapshot,
+            status:
+              isExpired && invitation.status === "pending"
+                ? "expired"
+                : invitation.status || "pending",
+            expiresAt: invitation.expiresAt,
+            email: invitation.email,
+          };
+        }
+
         return {
           id: invitation.id,
           token: invitation.token,
@@ -2341,7 +2864,10 @@ export const appRouter = router({
           products,
           services,
           goals,
-          personalMessage: null,
+          personalMessage: invitation.personalMessage || null,
+          invitationType: "bundle" as const,
+          savedCartProposalId: invitation.savedCartProposalId || null,
+          proposalSnapshot: null,
           status:
             isExpired && invitation.status === "pending"
               ? "expired"
@@ -2863,6 +3389,285 @@ export const appRouter = router({
         }
         await db.deleteBundleDraft(input.id);
         return { success: true };
+      }),
+  }),
+
+  // ============================================================================
+  // SAVED CART PROPOSALS
+  // ============================================================================
+  savedCartProposals: router({
+    list: trainerProcedure.query(async ({ ctx }) => {
+      const proposals = await db.listSavedCartProposalsByTrainer(ctx.user.id);
+      return Promise.all(
+        proposals.map(async (proposal) => {
+          const items = await db.getSavedCartProposalItems(proposal.id);
+          const snapshot = await buildSavedCartSnapshotFromRecord(proposal, items);
+          return {
+            ...proposal,
+            itemCount: items.length,
+            snapshot,
+          };
+        }),
+      );
+    }),
+
+    get: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const proposal = await db.getSavedCartProposalById(input.id);
+        if (!proposal) notFound("Saved cart proposal");
+        if (proposal.trainerId !== ctx.user.id) {
+          forbidden("You do not have access to this saved cart proposal");
+        }
+        const items = await db.getSavedCartProposalItems(proposal.id);
+        const snapshot = await buildSavedCartSnapshotFromRecord(proposal, items);
+        return {
+          ...proposal,
+          items,
+          snapshot,
+        };
+      }),
+
+    create: trainerProcedure
+      .input(
+        z.object({
+          clientRecordId: z.string().optional(),
+          baseBundleDraftId: z.string().optional(),
+          title: z.string().optional(),
+          notes: z.string().optional(),
+          assistantPrompt: z.string().optional(),
+          source: z.enum(["manual", "assistant"]).optional(),
+          startDate: z.string().optional(),
+          cadenceCode: proposalCadenceSchema.optional(),
+          sessionsPerWeek: z.number().int().min(1).max(7).optional(),
+          timePreference: z.string().optional(),
+          items: z.array(proposalItemInputSchema).default([]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const clientRecord = input.clientRecordId
+          ? await db.getClientById(input.clientRecordId)
+          : null;
+        if (input.clientRecordId && !clientRecord) {
+          notFound("Client");
+        }
+        if (clientRecord && clientRecord.trainerId !== ctx.user.id) {
+          forbidden("You can only build proposals for your own clients");
+        }
+
+        const rawItems = await ensureBaseBundleProposalItem(
+          input.baseBundleDraftId,
+          input.items,
+        );
+        const items = await normalizeProposalItemsForTrainer(ctx.user.id, rawItems);
+        const snapshot = buildSavedCartProposalSnapshot({
+          title: input.title || clientRecord?.name || null,
+          notes: input.notes || null,
+          baseBundleDraftId: input.baseBundleDraftId || null,
+          startDate: input.startDate || null,
+          cadenceCode: input.cadenceCode || "weekly",
+          sessionsPerWeek:
+            input.sessionsPerWeek ??
+            cadenceToSessionsPerWeek(input.cadenceCode || "weekly"),
+          timePreference: input.timePreference || null,
+          items,
+        });
+
+        const proposalId = await db.createSavedCartProposal({
+          trainerId: ctx.user.id,
+          clientRecordId: clientRecord?.id || null,
+          clientUserId: clientRecord?.userId || null,
+          clientEmail: clientRecord?.email || null,
+          clientName: clientRecord?.name || null,
+          baseBundleDraftId: input.baseBundleDraftId || null,
+          title: input.title || clientRecord?.name || "Saved Cart",
+          notes: input.notes || null,
+          assistantPrompt: input.assistantPrompt || null,
+          source: input.source || "manual",
+          status: "draft",
+          startDate: snapshot.startDate,
+          cadenceCode: snapshot.cadenceCode,
+          sessionsPerWeek: snapshot.sessionsPerWeek,
+          timePreference: snapshot.timePreference,
+          projectedScheduleJson: snapshot.projectedSchedule,
+          projectedDeliveryJson: snapshot.projectedDeliveries,
+          subtotalAmount: snapshot.pricing.subtotalAmount.toFixed(2),
+          discountAmount: snapshot.pricing.discountAmount.toFixed(2),
+          totalAmount: snapshot.pricing.totalAmount.toFixed(2),
+          currency: snapshot.pricing.currency,
+          metadata: { snapshotVersion: 1 },
+        });
+
+        await db.replaceSavedCartProposalItems(
+          proposalId,
+          items.map((item, index) => toProposalDbItem(proposalId, item, index)),
+        );
+
+        return { proposalId, snapshot };
+      }),
+
+    update: trainerProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          clientRecordId: z.string().optional(),
+          baseBundleDraftId: z.string().optional(),
+          title: z.string().optional(),
+          notes: z.string().optional(),
+          assistantPrompt: z.string().optional(),
+          source: z.enum(["manual", "assistant"]).optional(),
+          startDate: z.string().optional(),
+          cadenceCode: proposalCadenceSchema.optional(),
+          sessionsPerWeek: z.number().int().min(1).max(7).optional(),
+          timePreference: z.string().optional(),
+          items: z.array(proposalItemInputSchema).default([]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const proposal = await db.getSavedCartProposalById(input.id);
+        if (!proposal) notFound("Saved cart proposal");
+        if (proposal.trainerId !== ctx.user.id) {
+          forbidden("You do not have access to this saved cart proposal");
+        }
+
+        const clientRecord = input.clientRecordId
+          ? await db.getClientById(input.clientRecordId)
+          : proposal.clientRecordId
+            ? await db.getClientById(proposal.clientRecordId)
+            : null;
+        if (input.clientRecordId && !clientRecord) notFound("Client");
+        if (clientRecord && clientRecord.trainerId !== ctx.user.id) {
+          forbidden("You can only build proposals for your own clients");
+        }
+
+        const rawItems = await ensureBaseBundleProposalItem(
+          input.baseBundleDraftId ?? proposal.baseBundleDraftId,
+          input.items,
+        );
+        const items = await normalizeProposalItemsForTrainer(ctx.user.id, rawItems);
+        const snapshot = buildSavedCartProposalSnapshot({
+          title: input.title ?? proposal.title,
+          notes: input.notes ?? proposal.notes,
+          baseBundleDraftId:
+            input.baseBundleDraftId ?? proposal.baseBundleDraftId,
+          startDate: input.startDate ?? proposal.startDate,
+          cadenceCode:
+            input.cadenceCode ??
+            (proposal.cadenceCode as ProposalCadenceCode),
+          sessionsPerWeek:
+            input.sessionsPerWeek ?? proposal.sessionsPerWeek,
+          timePreference: input.timePreference ?? proposal.timePreference,
+          items,
+        });
+
+        await db.updateSavedCartProposal(input.id, {
+          clientRecordId: clientRecord?.id || null,
+          clientUserId: clientRecord?.userId || null,
+          clientEmail: clientRecord?.email || null,
+          clientName: clientRecord?.name || null,
+          baseBundleDraftId:
+            input.baseBundleDraftId ?? proposal.baseBundleDraftId,
+          title: input.title ?? proposal.title,
+          notes: input.notes ?? proposal.notes,
+          assistantPrompt: input.assistantPrompt ?? proposal.assistantPrompt,
+          source: input.source ?? proposal.source,
+          startDate: snapshot.startDate,
+          cadenceCode: snapshot.cadenceCode,
+          sessionsPerWeek: snapshot.sessionsPerWeek,
+          timePreference: snapshot.timePreference,
+          projectedScheduleJson: snapshot.projectedSchedule,
+          projectedDeliveryJson: snapshot.projectedDeliveries,
+          subtotalAmount: snapshot.pricing.subtotalAmount.toFixed(2),
+          discountAmount: snapshot.pricing.discountAmount.toFixed(2),
+          totalAmount: snapshot.pricing.totalAmount.toFixed(2),
+          currency: snapshot.pricing.currency,
+        });
+
+        await db.replaceSavedCartProposalItems(
+          input.id,
+          items.map((item, index) => toProposalDbItem(input.id, item, index)),
+        );
+
+        return { proposalId: input.id, snapshot };
+      }),
+
+    sendInvite: trainerProcedure
+      .input(
+        z.object({
+          proposalId: z.string(),
+          email: z.string().email().optional(),
+          name: z.string().optional(),
+          message: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const proposal = await db.getSavedCartProposalById(input.proposalId);
+        if (!proposal) notFound("Saved cart proposal");
+        if (proposal.trainerId !== ctx.user.id) {
+          forbidden("You do not have access to this saved cart proposal");
+        }
+
+        const items = await db.getSavedCartProposalItems(proposal.id);
+        const snapshot = await buildSavedCartSnapshotFromRecord(proposal, items);
+        const recipientEmail = input.email || proposal.clientEmail;
+        if (!recipientEmail) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A client email is required before sending this proposal",
+          });
+        }
+
+        const token = crypto.randomUUID();
+        const expiresAt = new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        await db.createInvitation({
+          trainerId: ctx.user.id,
+          email: recipientEmail,
+          name: input.name || proposal.clientName || null,
+          token,
+          bundleDraftId: proposal.baseBundleDraftId,
+          savedCartProposalId: proposal.id,
+          personalMessage: input.message || proposal.notes || null,
+          proposalSnapshotJson: snapshot,
+          expiresAt,
+        });
+
+        await db.updateSavedCartProposal(proposal.id, {
+          clientEmail: recipientEmail,
+          clientName: input.name || proposal.clientName || null,
+          status: "invited",
+          invitedAt: new Date().toISOString(),
+        });
+
+        try {
+          await sendInviteEmail({
+            to: recipientEmail,
+            token,
+            recipientName: input.name || proposal.clientName || undefined,
+            trainerName: ctx.user.name || ctx.user.email || "Your trainer",
+            expiresAtIso: expiresAt,
+            personalMessage: input.message || proposal.notes || undefined,
+          });
+        } catch (error: any) {
+          await notifyInviteFailureByMessage(
+            ctx.user,
+            recipientEmail,
+            error?.message || "unknown error",
+          );
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: getInviteEmailFailureUserMessage(error),
+          });
+        }
+
+        return {
+          token,
+          expiresAt,
+          proposalId: proposal.id,
+          snapshot,
+        };
       }),
   }),
 
@@ -4057,6 +4862,133 @@ export const appRouter = router({
         });
 
         return { success: true, orderId, deliveryIds, payment };
+      }),
+
+    createFromProposal: protectedProcedure
+      .input(
+        z.object({
+          invitationToken: z.string().min(1),
+          title: z.string().optional(),
+          notes: z.string().optional(),
+          baseBundleDraftId: z.string().nullable().optional(),
+          startDate: z.string().optional(),
+          cadenceCode: proposalCadenceSchema.optional(),
+          sessionsPerWeek: z.number().int().min(1).max(7).optional(),
+          timePreference: z.string().optional(),
+          items: z.array(proposalItemInputSchema).min(1),
+          shippingAmount: z.number().min(0).optional(),
+          taxAmount: z.number().min(0).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role === "trainer" || isManagerLikeRole(ctx.user.role)) {
+          forbidden("Only shoppers and clients can place proposal orders");
+        }
+
+        const invitation = await db.getInvitationByToken(input.invitationToken);
+        if (!invitation) notFound("Invitation");
+        if (!invitation.savedCartProposalId) {
+          forbidden("This invitation is not tied to a saved cart proposal");
+        }
+        if (invitation.status && invitation.status !== "pending") {
+          forbidden(`Invitation has already been ${invitation.status}`);
+        }
+
+        const expiresAt = new Date(invitation.expiresAt);
+        if (expiresAt.getTime() < Date.now()) {
+          await db.updateInvitation(invitation.id, { status: "expired" });
+          forbidden("Invitation has expired");
+        }
+
+        if (ctx.user.email && invitation.email) {
+          const invitedEmail = invitation.email.trim().toLowerCase();
+          const signedInEmail = ctx.user.email.trim().toLowerCase();
+          if (invitedEmail !== signedInEmail) {
+            forbidden("Signed-in account does not match the invited email");
+          }
+        }
+
+        const proposal = await db.getSavedCartProposalById(
+          invitation.savedCartProposalId,
+        );
+        if (!proposal) notFound("Saved cart proposal");
+        const originalSnapshot =
+          invitation.proposalSnapshotJson &&
+          typeof invitation.proposalSnapshotJson === "object"
+            ? (invitation.proposalSnapshotJson as SavedCartProposalSnapshot)
+            : await buildSavedCartSnapshotFromRecord(proposal);
+
+        const normalizedItems = await normalizeProposalItemsForTrainer(
+          proposal.trainerId,
+          input.items,
+        );
+        const finalSnapshot = buildSavedCartProposalSnapshot({
+          title: input.title ?? proposal.title ?? originalSnapshot.title,
+          notes: input.notes ?? proposal.notes ?? originalSnapshot.notes,
+          baseBundleDraftId:
+            input.baseBundleDraftId === undefined
+              ? originalSnapshot.baseBundleDraftId
+              : input.baseBundleDraftId,
+          startDate:
+            input.startDate ??
+            proposal.startDate ??
+            originalSnapshot.startDate,
+          cadenceCode:
+            input.cadenceCode ??
+            (proposal.cadenceCode as ProposalCadenceCode) ??
+            originalSnapshot.cadenceCode,
+          sessionsPerWeek:
+            input.sessionsPerWeek ??
+            proposal.sessionsPerWeek ??
+            originalSnapshot.sessionsPerWeek,
+          timePreference:
+            input.timePreference ??
+            proposal.timePreference ??
+            originalSnapshot.timePreference,
+          items: normalizedItems,
+        });
+
+        const cartDiff = diffProposalSnapshots(originalSnapshot, finalSnapshot);
+        const trainerId =
+          proposal.trainerId || invitation.trainerId || originalSnapshot.baseBundleDraftId;
+        if (!trainerId || typeof trainerId !== "string") {
+          notFound("Trainer");
+        }
+
+        const clientRecord = await ensureTrainerClientRecord({
+          trainerId: proposal.trainerId,
+          user: ctx.user,
+          invitation,
+        });
+
+        const result = await createOrderFromProposalSnapshot({
+          user: ctx.user,
+          invitation,
+          proposal,
+          snapshot: finalSnapshot,
+          trainerId: proposal.trainerId,
+          clientRecord,
+          shippingAmount: input.shippingAmount ?? 0,
+          taxAmount: input.taxAmount ?? 0,
+          cartDiff,
+        });
+
+        await db.updateInvitation(invitation.id, {
+          status: "accepted",
+          acceptedAt: new Date().toISOString(),
+          acceptedByUserId: ctx.user.id,
+        });
+
+        notifyBadgeCounts([ctx.user.id, proposal.trainerId]);
+        return {
+          success: true,
+          orderId: result.orderId,
+          deliveryIds: result.deliveryIds,
+          subscriptionId: result.subscriptionId,
+          payment: result.payment,
+          cartDiff,
+          finalSnapshot,
+        };
       }),
 
     get: protectedProcedure

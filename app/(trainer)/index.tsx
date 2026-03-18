@@ -1354,16 +1354,14 @@ export default function TrainerHomeScreen() {
     .slice(0, 2)
     .map((platform) => normalizeSocialPlatformLabel(platform))
     .join(" · ");
-  const showSocialCardSkeleton =
-    !resolvedSocialStatus && (socialStatusLoading || !socialStatusCacheHydrated);
-  const shouldHideSocialHomeCard =
-    socialMembershipStatus === "banned" ||
-    socialMembershipStatus === "uninvited" ||
-    (!showConnectedSocialCard &&
-      !isActiveSocialMember &&
-      !hasPendingSocialInvite &&
-      socialStatusCacheHydrated &&
-      !socialStatusLoading);
+  const showSocialCardSkeleton = false;
+  const socialDataReady = Boolean(resolvedSocialStatus) || (socialStatusCacheHydrated && !socialStatusLoading);
+  const shouldShowSocialHomeCard =
+    socialDataReady &&
+    (showConnectedSocialCard || isActiveSocialMember || hasPendingSocialInvite) &&
+    socialMembershipStatus !== "banned" &&
+    socialMembershipStatus !== "uninvited";
+  const shouldHideSocialHomeCard = !shouldShowSocialHomeCard;
   const socialHomeCardTitle = showConnectedSocialCard
     ? "Your social progress at a glance"
     : socialMembershipStatus === "banned"

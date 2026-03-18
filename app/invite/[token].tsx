@@ -25,6 +25,8 @@ type InvitationData = {
   token: string;
   trainerName: string;
   trainerId: string;
+  invitationType?: "bundle" | "saved_cart_proposal";
+  savedCartProposalId?: string | null;
   trainerAvatar?: string | null;
   bundleId?: string | null;
   bundleTitle: string;
@@ -44,6 +46,7 @@ type InvitationData = {
   }[];
   goals: string[];
   personalMessage?: string | null;
+  proposalSnapshot?: any;
   expiresAt: string;
   email?: string | null;
   status: "pending" | "accepted" | "expired" | "declined";
@@ -96,6 +99,18 @@ export default function InvitationScreen() {
       Alert.alert("Client Only", "This invitation can only be accepted by a client.");
       return;
     }
+
+    if (invitation.invitationType === "saved_cart_proposal") {
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      router.push({
+        pathname: "/checkout",
+        params: { invitationToken: invitation.token },
+      } as any);
+      return;
+    }
+
     const proceed = async () => {
       try {
         const result = await acceptInvitation.mutateAsync({ token: invitation.token });
@@ -437,14 +452,21 @@ export default function InvitationScreen() {
             isClient ? (
               <TouchableOpacity
                 onPress={handleAccept}
-                disabled={acceptInvitation.isPending}
+                disabled={
+                  invitation.invitationType === "saved_cart_proposal"
+                    ? false
+                    : acceptInvitation.isPending
+                }
                 className="bg-primary py-4 rounded-xl items-center mb-3 shadow-lg shadow-primary/20"
               >
-                {acceptInvitation.isPending ? (
+                {invitation.invitationType !== "saved_cart_proposal" &&
+                acceptInvitation.isPending ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
                   <Text className="text-white font-bold text-lg">
-                    Accept Invitation
+                    {invitation.invitationType === "saved_cart_proposal"
+                      ? "Review & Pay"
+                      : "Accept Invitation"}
                   </Text>
                 )}
               </TouchableOpacity>

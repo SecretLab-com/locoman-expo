@@ -21,7 +21,7 @@ export default function TrainerTabLayout() {
       testID: "tab-clients",
     },
     { label: "Get Paid", icon: "creditcard.fill", href: "/(trainer)/get-paid", testID: "tab-get-paid" },
-    { label: "Rewards", icon: "star.fill", href: "/(trainer)/rewards", testID: "tab-rewards" },
+    { label: "Calendar", icon: "calendar", href: "/(trainer)/calendar", testID: "tab-calendar" },
     { label: "More", icon: "ellipsis.circle.fill", href: "/(trainer)/more", testID: "tab-more", badge: moreBadge || undefined },
   ];
   const hideBottomNav =

@@ -4,14 +4,13 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
+import { notify, prompt as promptForText } from "@/lib/dialogs";
 import { trpc } from "@/lib/trpc";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Linking,
-  Platform,
   ScrollView,
   Text,
   TextInput,
@@ -38,10 +37,6 @@ const SOCIAL_PLATFORMS = [
   { value: "facebook", label: "Facebook" },
   { value: "linkedin", label: "LinkedIn" },
 ];
-
-function showAlert(title: string, message: string) {
-  Alert.alert(title, message);
-}
 
 export default function TemplateSettingsScreen() {
   const colors = useColors();
@@ -76,7 +71,7 @@ export default function TemplateSettingsScreen() {
     },
     onError: (err: any) => {
       haptics.error();
-      showAlert("Error creating brand", err?.message || "Please try again.");
+      notify("Error creating brand", err?.message || "Please try again.");
     },
   });
 
@@ -199,11 +194,11 @@ export default function TemplateSettingsScreen() {
     await haptics.light();
 
     if (discountType && !discountValue.trim()) {
-      showAlert("Missing discount", "Enter a discount value or remove the discount type.");
+      notify("Missing discount", "Enter a discount value or remove the discount type.");
       return;
     }
     if (!selectedBrandAccountId) {
-      showAlert("Missing brand", "Select a brand for this campaign.");
+      notify("Missing brand", "Select a brand for this campaign.");
       return;
     }
 
@@ -267,14 +262,14 @@ export default function TemplateSettingsScreen() {
         utils.admin.getTemplateCampaignAccounts.invalidate({ bundleId: bundleId! }),
       ]);
       haptics.success();
-      showAlert(
+      notify(
         isAlreadyTemplate ? "Campaign Updated" : "Campaign Created",
         "Campaign settings were saved and sharing is enabled.",
       );
       router.back();
     } catch (err: any) {
       haptics.error();
-      showAlert("Error", err?.message || "Failed to save campaign settings.");
+      notify("Error", err?.message || "Failed to save campaign settings.");
     }
   };
 
@@ -289,7 +284,7 @@ export default function TemplateSettingsScreen() {
       ]);
       await bundleQuery.refetch();
       await haptics.success();
-      showAlert(
+      notify(
         "Link generated",
         result?.url
           ? `Public link is ready:\n${result.url}`
@@ -297,7 +292,7 @@ export default function TemplateSettingsScreen() {
       );
     } catch (err: any) {
       await haptics.error();
-      showAlert("Unable to generate link", err?.message || "Please try again.");
+      notify("Unable to generate link", err?.message || "Please try again.");
     }
   };
 
@@ -315,7 +310,7 @@ export default function TemplateSettingsScreen() {
       ]);
       await bundleQuery.refetch();
       await haptics.success();
-      showAlert(
+      notify(
         result.enabled ? "Link enabled" : "Link disabled",
         result.url
           ? `Share URL:\n${result.url}`
@@ -323,7 +318,7 @@ export default function TemplateSettingsScreen() {
       );
     } catch (err: any) {
       await haptics.error();
-      showAlert("Unable to update link", err?.message || "Please try again.");
+      notify("Unable to update link", err?.message || "Please try again.");
     }
   };
 
@@ -424,29 +419,14 @@ export default function TemplateSettingsScreen() {
               <View className="flex-row items-center justify-between mb-1">
                 <Text className="text-sm font-semibold text-foreground">Brand</Text>
                 <TouchableOpacity
-                  onPress={() => {
-                    if (Platform.OS === "web") {
-                      const name = window.prompt("Enter new brand name");
-                      if (name?.trim()) {
-                        createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
-                      }
-                    } else {
-                      Alert.prompt(
-                        "New Brand",
-                        "Enter the name of the new brand",
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          {
-                            text: "Create",
-                            onPress: (name?: string) => {
-                              if (name?.trim()) {
-                                createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
-                              }
-                            },
-                          },
-                        ],
-                        "plain-text"
-                      );
+                  onPress={async () => {
+                    const name = await promptForText({
+                      title: "New Brand",
+                      message: "Enter the name of the new brand",
+                      confirmText: "Create",
+                    });
+                    if (name?.trim()) {
+                      createBrandMutation.mutate({ name: name.trim(), accountType: "brand" });
                     }
                   }}
                   accessibilityRole="button"

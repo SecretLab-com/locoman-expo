@@ -2,13 +2,16 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
+import type { ProposalCadenceCode } from "@/shared/saved-cart-proposal";
 
 export interface CartItem {
   id: string; // unique cart item id
-  type: "bundle" | "product";
+  type: "bundle" | "product" | "custom_product" | "service";
   bundleId?: string;
   productId?: string;
+  customProductId?: string;
   title: string;
+  description?: string;
   trainer?: string;
   trainerId?: string;
   price: number;
@@ -18,16 +21,33 @@ export interface CartItem {
   imageUrl?: string;
   shopifyVariantId?: number;
   shopifyProductId?: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface CartProposalContext {
+  proposalId?: string | null;
+  clientRecordId?: string | null;
+  clientName?: string | null;
+  clientEmail?: string | null;
+  startDate?: string | null;
+  cadenceCode?: ProposalCadenceCode;
+  sessionsPerWeek?: number;
+  timePreference?: string | null;
+  notes?: string | null;
+  assistantPrompt?: string | null;
 }
 
 interface CartContextType {
   items: CartItem[];
+  proposalContext: CartProposalContext | null;
   itemCount: number;
   subtotal: number;
   addItem: (item: Omit<CartItem, "id">) => void;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   updateFulfillment: (id: string, fulfillment: CartItem["fulfillment"]) => void;
+  replaceItems: (items: Omit<CartItem, "id">[], proposalContext?: CartProposalContext | null) => void;
+  setProposalContext: (value: CartProposalContext | null) => void;
   clearCart: () => void;
   isInCart: (bundleId: string) => boolean;
   isLoading: boolean;
@@ -36,13 +56,17 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 const CART_STORAGE_KEY = "locomotivate_cart";
+const CART_PROPOSAL_CONTEXT_STORAGE_KEY = "locomotivate_cart_proposal_context";
 
-function getCartItemKey(item: Pick<CartItem, "type" | "bundleId" | "productId" | "shopifyVariantId" | "shopifyProductId" | "title" | "trainerId">) {
+function getCartItemKey(item: Pick<CartItem, "type" | "bundleId" | "productId" | "customProductId" | "shopifyVariantId" | "shopifyProductId" | "title" | "trainerId">) {
   if (item.type === "bundle" && item.bundleId) {
     return `bundle:${item.bundleId}`;
   }
   if (item.type === "product" && item.productId) {
     return `product:${item.productId}`;
+  }
+  if (item.type === "custom_product" && item.customProductId) {
+    return `custom:${item.customProductId}`;
   }
   if (item.shopifyVariantId != null) {
     return `variant:${item.shopifyVariantId}`;
@@ -71,17 +95,27 @@ function triggerHaptic(type: "success" | "warning" | "heavy") {
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
+  const [proposalContext, setProposalContextState] = useState<CartProposalContext | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Load cart from AsyncStorage on mount
   useEffect(() => {
     async function loadCart() {
       try {
-        const saved = await AsyncStorage.getItem(CART_STORAGE_KEY);
+        const [saved, savedProposalContext] = await Promise.all([
+          AsyncStorage.getItem(CART_STORAGE_KEY),
+          AsyncStorage.getItem(CART_PROPOSAL_CONTEXT_STORAGE_KEY),
+        ]);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
             setItems(parsed);
+          }
+        }
+        if (savedProposalContext) {
+          const parsedProposalContext = JSON.parse(savedProposalContext);
+          if (parsedProposalContext && typeof parsedProposalContext === "object") {
+            setProposalContextState(parsedProposalContext);
           }
         }
       } catch (error) {
@@ -96,11 +130,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   // Persist cart to AsyncStorage whenever it changes
   useEffect(() => {
     if (!isLoading) {
-      AsyncStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items)).catch((error) => {
+      Promise.all([
+        AsyncStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items)),
+        proposalContext
+          ? AsyncStorage.setItem(
+              CART_PROPOSAL_CONTEXT_STORAGE_KEY,
+              JSON.stringify(proposalContext),
+            )
+          : AsyncStorage.removeItem(CART_PROPOSAL_CONTEXT_STORAGE_KEY),
+      ]).catch((error) => {
         console.error("[Cart] Failed to save cart:", error);
       });
     }
-  }, [items, isLoading]);
+  }, [items, proposalContext, isLoading]);
 
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -149,9 +191,27 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const replaceItems = useCallback(
+    (nextItems: Omit<CartItem, "id">[], nextProposalContext: CartProposalContext | null = null) => {
+      setItems(
+        nextItems.map((item) => ({
+          ...item,
+          id: `${getCartItemKey(item)}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        })),
+      );
+      setProposalContextState(nextProposalContext);
+    },
+    [],
+  );
+
+  const setProposalContext = useCallback((value: CartProposalContext | null) => {
+    setProposalContextState(value);
+  }, []);
+
   const clearCart = useCallback(() => {
     triggerHaptic("heavy");
     setItems([]);
+    setProposalContextState(null);
   }, []);
 
   const isInCart = useCallback(
@@ -164,12 +224,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     <CartContext.Provider
       value={{
         items,
+          proposalContext,
         itemCount,
         subtotal,
         addItem,
         removeItem,
         updateQuantity,
         updateFulfillment,
+          replaceItems,
+          setProposalContext,
         clearCart,
         isInCart,
         isLoading,

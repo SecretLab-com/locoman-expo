@@ -75,10 +75,10 @@ type Collection = {
 export default function ProductsScreen() {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const { canManage, effectiveRole, isClient, isCoordinator, isManager } = useAuthContext();
+  const { canManage, effectiveRole, isClient, isCoordinator, isManager, isTrainer } = useAuthContext();
   const isAdmin = isCoordinator || isManager;
   // const bottomNavHeight = useBottomNavHeight();
-  const canPurchase = isClient || effectiveRole === "shopper" || !effectiveRole;
+  const canPurchase = isClient || isTrainer || effectiveRole === "shopper" || !effectiveRole;
   const { width, height: windowHeight } = useWindowDimensions();
   const overlayColor = "rgba(0,0,0,0.85)";
   const { addItem } = useCart();

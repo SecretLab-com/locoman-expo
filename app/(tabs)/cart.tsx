@@ -1,18 +1,29 @@
+import { useMemo, useState } from "react";
 import {
   Text,
   View,
   TouchableOpacity,
   FlatList,
   Alert,
+  Modal,
+  ScrollView,
+  TextInput,
 } from "react-native";
 import { router } from "expo-router";
 import { Image } from "expo-image";
+
 import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
-import { useAuthContext } from "@/contexts/auth-context";
-import { navigateToHome } from "@/lib/navigation";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useCart, CartItem } from "@/contexts/cart-context";
+import { useAuthContext } from "@/contexts/auth-context";
+import { useCart, type CartItem } from "@/contexts/cart-context";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
+import {
+  buildSavedCartProposalSnapshot,
+  cadenceToSessionsPerWeek,
+  type ProposalCadenceCode,
+  type ProposalItemInput,
+} from "@/shared/saved-cart-proposal";
 
 function CartItemCard({
   item,
@@ -43,12 +54,17 @@ function CartItemCard({
           <Text className="text-base font-semibold text-foreground" numberOfLines={2}>
             {item.title}
           </Text>
-          <Text className="text-sm text-muted mt-1">{item.trainer}</Text>
+          {item.description ? (
+            <Text className="text-xs text-muted mt-1" numberOfLines={2}>
+              {item.description}
+            </Text>
+          ) : null}
+          <Text className="text-sm text-muted mt-1">{item.trainer || "Trainer"}</Text>
           <Text className="text-lg font-bold text-primary mt-2">
-            ${item.price.toFixed(2)}
-            {item.cadence !== "one_time" && (
+            £{item.price.toFixed(2)}
+            {item.cadence && item.cadence !== "one_time" ? (
               <Text className="text-muted text-sm font-normal">/{item.cadence}</Text>
-            )}
+            ) : null}
           </Text>
         </View>
       </View>
@@ -91,13 +107,609 @@ function CartItemCard({
   );
 }
 
+function TrainerProposalBuilder() {
+  const colors = useColors();
+  const { effectiveUser } = useAuthContext();
+  const {
+    items,
+    addItem,
+    updateQuantity,
+    removeItem,
+    proposalContext,
+    setProposalContext,
+  } = useCart();
+
+  const [showClientPicker, setShowClientPicker] = useState(false);
+  const [showCustomProductModal, setShowCustomProductModal] = useState(false);
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [customProductName, setCustomProductName] = useState("");
+  const [customProductPrice, setCustomProductPrice] = useState("");
+  const [customProductDescription, setCustomProductDescription] = useState("");
+  const [serviceTitle, setServiceTitle] = useState("Additional Sessions");
+  const [servicePrice, setServicePrice] = useState("");
+  const [serviceSessions, setServiceSessions] = useState("1");
+
+  const clientsQuery = trpc.clients.list.useQuery();
+  const customProductsQuery = trpc.customProducts.list.useQuery();
+  const createCustomProductMutation = trpc.customProducts.create.useMutation({
+    onSuccess: async (created) => {
+      await customProductsQuery.refetch();
+      addItem({
+        type: "custom_product",
+        title: created.name,
+        description: created.description || undefined,
+        customProductId: created.id,
+        trainer: effectiveUser?.name || "Trainer",
+        trainerId: effectiveUser?.id,
+        price: Number.parseFloat(String(created.price || "0")),
+        quantity: 1,
+        imageUrl: created.imageUrl || undefined,
+        cadence: "one_time",
+        fulfillment: created.fulfillmentMethod as CartItem["fulfillment"],
+        metadata: null,
+      });
+      setCustomProductName("");
+      setCustomProductPrice("");
+      setCustomProductDescription("");
+      setShowCustomProductModal(false);
+    },
+  });
+  const createProposalMutation = trpc.savedCartProposals.create.useMutation();
+  const updateProposalMutation = trpc.savedCartProposals.update.useMutation();
+  const sendInviteMutation = trpc.savedCartProposals.sendInvite.useMutation();
+
+  const selectedClient = useMemo(
+    () =>
+      (clientsQuery.data || []).find(
+        (client) => String(client.id) === String(proposalContext?.clientRecordId || ""),
+      ) || null,
+    [clientsQuery.data, proposalContext?.clientRecordId],
+  );
+
+  const proposalItems = useMemo<ProposalItemInput[]>(
+    () =>
+      items.map((item) => ({
+        itemType: item.type,
+        title: item.title,
+        description: item.description || null,
+        bundleDraftId: item.bundleId || null,
+        productId: item.productId || null,
+        customProductId: item.customProductId || null,
+        imageUrl: item.imageUrl || null,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        fulfillmentMethod: item.type === "service" ? null : item.fulfillment,
+        metadata: item.metadata || null,
+      })),
+    [items],
+  );
+
+  const previewSnapshot = useMemo(
+    () =>
+      buildSavedCartProposalSnapshot({
+        title:
+          proposalContext?.clientName ||
+          selectedClient?.name ||
+          "Saved Cart",
+        notes: proposalContext?.notes || null,
+        baseBundleDraftId:
+          proposalItems.find((item) => item.itemType === "bundle")?.bundleDraftId || null,
+        startDate: proposalContext?.startDate || new Date().toISOString(),
+        cadenceCode: proposalContext?.cadenceCode || "weekly",
+        sessionsPerWeek:
+          proposalContext?.sessionsPerWeek ||
+          cadenceToSessionsPerWeek(proposalContext?.cadenceCode || "weekly"),
+        timePreference: proposalContext?.timePreference || null,
+        items: proposalItems,
+      }),
+    [proposalContext, proposalItems, selectedClient],
+  );
+
+  const updateProposalField = (patch: Record<string, unknown>) => {
+    setProposalContext({
+      ...(proposalContext || {}),
+      ...patch,
+    });
+  };
+
+  const handleRemoveItem = (itemId: string) => {
+    Alert.alert(
+      "Remove Item",
+      "Are you sure you want to remove this item from this saved cart?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => removeItem(itemId),
+        },
+      ],
+    );
+  };
+
+  const handleSelectClient = (client: any) => {
+    updateProposalField({
+      clientRecordId: client.id,
+      clientName: client.name || "",
+      clientEmail: client.email || "",
+    });
+    setShowClientPicker(false);
+  };
+
+  const handleSetCadence = (cadenceCode: ProposalCadenceCode) => {
+    updateProposalField({
+      cadenceCode,
+      sessionsPerWeek: cadenceToSessionsPerWeek(cadenceCode),
+    });
+  };
+
+  const handleAddExistingCustomProduct = (product: any) => {
+    addItem({
+      type: "custom_product",
+      title: product.name,
+      description: product.description || undefined,
+      customProductId: product.id,
+      trainer: effectiveUser?.name || "Trainer",
+      trainerId: effectiveUser?.id,
+      price: Number.parseFloat(String(product.price || "0")),
+      quantity: 1,
+      imageUrl: product.imageUrl || undefined,
+      cadence: "one_time",
+      fulfillment: product.fulfillmentMethod as CartItem["fulfillment"],
+      metadata: null,
+    });
+    setShowCustomProductModal(false);
+  };
+
+  const handleCreateCustomProduct = async () => {
+    const parsedPrice = Number.parseFloat(customProductPrice || "0");
+    if (!customProductName.trim()) {
+      Alert.alert("Product name required", "Enter a custom product name.");
+      return;
+    }
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      Alert.alert("Valid price required", "Enter a valid custom product price.");
+      return;
+    }
+    await createCustomProductMutation.mutateAsync({
+      name: customProductName.trim(),
+      description: customProductDescription.trim() || undefined,
+      price: parsedPrice.toFixed(2),
+    });
+  };
+
+  const handleAddService = () => {
+    const parsedPrice = Number.parseFloat(servicePrice || "0");
+    const parsedSessions = Number.parseInt(serviceSessions || "1", 10);
+    if (!serviceTitle.trim()) {
+      Alert.alert("Service title required", "Enter a title for the session block.");
+      return;
+    }
+    addItem({
+      type: "service",
+      title: serviceTitle.trim(),
+      trainer: effectiveUser?.name || "Trainer",
+      trainerId: effectiveUser?.id,
+      price: Number.isFinite(parsedPrice) ? parsedPrice : 0,
+      quantity: 1,
+      cadence: "one_time",
+      fulfillment: "trainer_delivery",
+      metadata: {
+        sessions:
+          Number.isFinite(parsedSessions) && parsedSessions > 0
+            ? parsedSessions
+            : 1,
+      },
+    });
+    setServiceTitle("Additional Sessions");
+    setServicePrice("");
+    setServiceSessions("1");
+    setShowServiceModal(false);
+  };
+
+  const buildProposalPayload = () => ({
+    clientRecordId: proposalContext?.clientRecordId || undefined,
+    title: proposalContext?.clientName || selectedClient?.name || "Saved Cart",
+    notes: proposalContext?.notes || undefined,
+    startDate: proposalContext?.startDate || new Date().toISOString(),
+    cadenceCode: proposalContext?.cadenceCode || "weekly",
+    sessionsPerWeek:
+      proposalContext?.sessionsPerWeek ||
+      cadenceToSessionsPerWeek(proposalContext?.cadenceCode || "weekly"),
+    timePreference: proposalContext?.timePreference || undefined,
+    baseBundleDraftId:
+      proposalItems.find((item) => item.itemType === "bundle")?.bundleDraftId || undefined,
+    items: proposalItems.map((item) => ({
+      itemType: item.itemType,
+      title: item.title,
+      description: item.description || undefined,
+      bundleDraftId: item.bundleDraftId || undefined,
+      productId: item.productId || undefined,
+      customProductId: item.customProductId || undefined,
+      imageUrl: item.imageUrl || undefined,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      fulfillmentMethod:
+        (item.fulfillmentMethod as
+          | "home_ship"
+          | "trainer_delivery"
+          | "vending"
+          | "cafeteria"
+          | undefined) || undefined,
+      metadata: item.metadata || undefined,
+    })),
+  });
+
+  const persistProposal = async () => {
+    if (!proposalContext?.clientRecordId) {
+      Alert.alert("Client required", "Select a client before saving this proposal.");
+      return null;
+    }
+    const payload = buildProposalPayload();
+    if (proposalContext?.proposalId) {
+      const result = await updateProposalMutation.mutateAsync({
+        id: proposalContext.proposalId,
+        ...payload,
+      });
+      updateProposalField({ proposalId: result.proposalId });
+      return result.proposalId;
+    }
+    const result = await createProposalMutation.mutateAsync(payload);
+    updateProposalField({ proposalId: result.proposalId });
+    return result.proposalId;
+  };
+
+  const handleSaveProposal = async () => {
+    try {
+      const proposalId = await persistProposal();
+      if (proposalId) {
+        Alert.alert("Proposal saved", "Saved cart proposal draft updated.");
+      }
+    } catch (error: any) {
+      Alert.alert("Save failed", error?.message || "Unable to save proposal.");
+    }
+  };
+
+  const handleInviteProposal = async () => {
+    try {
+      const proposalId = await persistProposal();
+      if (!proposalId) return;
+      const email = proposalContext?.clientEmail || selectedClient?.email || "";
+      if (!email) {
+        Alert.alert("Client email required", "The selected client needs an email address.");
+        return;
+      }
+      await sendInviteMutation.mutateAsync({
+        proposalId,
+        email,
+        name: proposalContext?.clientName || selectedClient?.name || "",
+        message: proposalContext?.notes || undefined,
+      });
+      Alert.alert("Invite sent", "The saved cart proposal invite has been sent.");
+    } catch (error: any) {
+      Alert.alert("Invite failed", error?.message || "Unable to send saved cart invite.");
+    }
+  };
+
+  return (
+    <ScreenContainer>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}>
+        <View className="pt-2 pb-4">
+          <Text className="text-2xl font-bold text-foreground">Saved Cart Builder</Text>
+          <Text className="text-sm text-muted">
+            Build a customer-specific saved cart/custom bundle from the global cart.
+          </Text>
+        </View>
+
+        <View className="bg-surface rounded-xl p-4 mb-4 border border-border">
+          <Text className="text-foreground font-semibold mb-3">Client and Schedule</Text>
+          <TouchableOpacity
+            className="border border-border rounded-lg px-4 py-3 flex-row items-center justify-between"
+            onPress={() => setShowClientPicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Select client for saved cart"
+          >
+            <View>
+              <Text className="text-foreground font-medium">
+                {proposalContext?.clientName || selectedClient?.name || "Select a client"}
+              </Text>
+              <Text className="text-xs text-muted mt-1">
+                {proposalContext?.clientEmail || selectedClient?.email || "Required before invite"}
+              </Text>
+            </View>
+            <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+          </TouchableOpacity>
+
+          <View className="mt-4">
+            <Text className="text-foreground font-semibold mb-2">Start Date</Text>
+            <TextInput
+              className="border border-border rounded-lg px-4 py-3 text-foreground"
+              value={proposalContext?.startDate || ""}
+              onChangeText={(value) => updateProposalField({ startDate: value })}
+              placeholder="2026-03-20T14:00:00.000Z"
+              placeholderTextColor={colors.muted}
+            />
+          </View>
+
+          <View className="mt-4">
+            <Text className="text-foreground font-semibold mb-2">Cadence</Text>
+            <View className="flex-row flex-wrap gap-2">
+              {([
+                ["weekly", "Weekly"],
+                ["2x_week", "2x / week"],
+                ["3x_week", "3x / week"],
+                ["daily", "Daily"],
+              ] as Array<[ProposalCadenceCode, string]>).map(([value, label]) => {
+                const active = (proposalContext?.cadenceCode || "weekly") === value;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    className={`px-3 py-2 rounded-full border ${active ? "bg-primary border-primary" : "border-border"}`}
+                    onPress={() => handleSetCadence(value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Set cadence ${label}`}
+                  >
+                    <Text className={active ? "text-background font-medium" : "text-foreground font-medium"}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <View className="mt-4">
+            <Text className="text-foreground font-semibold mb-2">Time Preference</Text>
+            <View className="flex-row flex-wrap gap-2">
+              {["morning", "afternoon", "evening"].map((value) => {
+                const active = proposalContext?.timePreference === value;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    className={`px-3 py-2 rounded-full border ${active ? "bg-primary border-primary" : "border-border"}`}
+                    onPress={() => updateProposalField({ timePreference: value })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Set time preference ${value}`}
+                  >
+                    <Text className={active ? "text-background font-medium capitalize" : "text-foreground font-medium capitalize"}>
+                      {value}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <View className="mt-4">
+            <Text className="text-foreground font-semibold mb-2">Invite Note</Text>
+            <TextInput
+              className="border border-border rounded-lg px-4 py-3 text-foreground min-h-[96px]"
+              value={proposalContext?.notes || ""}
+              onChangeText={(value) => updateProposalField({ notes: value })}
+              placeholder="Message to include with the invite"
+              placeholderTextColor={colors.muted}
+              multiline
+              textAlignVertical="top"
+            />
+          </View>
+        </View>
+
+        <View className="flex-row gap-2 mb-4">
+          <TouchableOpacity
+            className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 items-center"
+            onPress={() => setShowCustomProductModal(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add custom product"
+          >
+            <Text className="text-foreground font-semibold">Add Custom Product</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 items-center"
+            onPress={() => setShowServiceModal(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add sessions"
+          >
+            <Text className="text-foreground font-semibold">Add Sessions</Text>
+          </TouchableOpacity>
+        </View>
+
+        {items.length === 0 ? (
+          <View className="bg-surface rounded-xl p-6 mb-4 border border-border items-center">
+            <IconSymbol name="cart.fill" size={40} color={colors.muted} />
+            <Text className="text-foreground font-semibold mt-3">No items in saved cart</Text>
+            <Text className="text-muted text-center mt-2">
+              Browse published bundles and products to start building a customer-specific proposal.
+            </Text>
+            <TouchableOpacity
+              className="bg-primary px-6 py-3 rounded-full mt-6"
+              onPress={() => router.push("/(tabs)/products" as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Browse catalog for saved cart"
+            >
+              <Text className="text-background font-semibold">Browse Catalog</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          items.map((item) => (
+            <CartItemCard
+              key={item.id}
+              item={item}
+              onRemove={() => handleRemoveItem(item.id)}
+              onUpdateQuantity={(quantity) => updateQuantity(item.id, quantity)}
+            />
+          ))
+        )}
+
+        <View className="bg-surface rounded-xl p-4 mb-4 border border-border">
+          <Text className="text-foreground font-semibold mb-3">Projected Plan</Text>
+          <Text className="text-sm text-muted">
+            {previewSnapshot.projectedSchedule.length} projected sessions · {previewSnapshot.projectedDeliveries.length} projected deliveries
+          </Text>
+          {previewSnapshot.projectedSchedule.slice(0, 4).map((entry) => (
+            <Text key={entry.index} className="text-xs text-foreground mt-2">
+              {entry.label}: {new Date(entry.startsAt).toLocaleString()}
+            </Text>
+          ))}
+          {previewSnapshot.projectedDeliveries.slice(0, 4).map((entry, index) => (
+            <Text key={`${entry.title}-${index}`} className="text-xs text-muted mt-2">
+              Delivery: {entry.title} · {entry.projectedDate ? new Date(entry.projectedDate).toLocaleDateString() : "TBD"}
+            </Text>
+          ))}
+        </View>
+
+        <View className="bg-background border border-border rounded-xl px-4 py-4">
+          <View className="flex-row justify-between mb-2">
+            <Text className="text-muted">Subtotal</Text>
+            <Text className="text-foreground">£{previewSnapshot.pricing.subtotalAmount.toFixed(2)}</Text>
+          </View>
+          <View className="flex-row justify-between mb-4">
+            <Text className="text-muted">Discount</Text>
+            <Text className="text-foreground">£{previewSnapshot.pricing.discountAmount.toFixed(2)}</Text>
+          </View>
+          <View className="flex-row justify-between mb-4 pt-2 border-t border-border">
+            <Text className="text-lg font-bold text-foreground">Total</Text>
+            <Text className="text-lg font-bold text-primary">£{previewSnapshot.pricing.totalAmount.toFixed(2)}</Text>
+          </View>
+          <View className="flex-row gap-2">
+            <TouchableOpacity
+              className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
+              onPress={() => void handleSaveProposal()}
+              accessibilityRole="button"
+              accessibilityLabel="Save saved cart proposal"
+            >
+              <Text className="text-foreground font-semibold">Save Proposal</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="flex-1 bg-primary rounded-xl py-3 items-center"
+              onPress={() => void handleInviteProposal()}
+              accessibilityRole="button"
+              accessibilityLabel="Send saved cart invite"
+            >
+              <Text className="text-background font-semibold">Invite Client</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+
+      <Modal visible={showClientPicker} transparent animationType="slide" onRequestClose={() => setShowClientPicker(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-background rounded-t-3xl p-4 max-h-[70%]">
+            <Text className="text-lg font-semibold text-foreground mb-3">Select Client</Text>
+            <ScrollView>
+              {(clientsQuery.data || []).map((client) => (
+                <TouchableOpacity
+                  key={client.id}
+                  className="border border-border rounded-xl px-4 py-3 mb-2"
+                  onPress={() => handleSelectClient(client)}
+                >
+                  <Text className="text-foreground font-medium">{client.name || "Client"}</Text>
+                  <Text className="text-xs text-muted mt-1">{client.email || "No email"}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showCustomProductModal} transparent animationType="slide" onRequestClose={() => setShowCustomProductModal(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-background rounded-t-3xl p-4 max-h-[80%]">
+            <Text className="text-lg font-semibold text-foreground mb-3">Custom Products</Text>
+            <ScrollView>
+              {(customProductsQuery.data || []).map((product) => (
+                <TouchableOpacity
+                  key={product.id}
+                  className="border border-border rounded-xl px-4 py-3 mb-2"
+                  onPress={() => handleAddExistingCustomProduct(product)}
+                >
+                  <Text className="text-foreground font-medium">{product.name}</Text>
+                  <Text className="text-xs text-muted mt-1">£{Number(product.price || 0).toFixed(2)}</Text>
+                </TouchableOpacity>
+              ))}
+
+              <View className="mt-4 pt-4 border-t border-border">
+                <Text className="text-foreground font-semibold mb-2">Create New Custom Product</Text>
+                <TextInput
+                  className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
+                  value={customProductName}
+                  onChangeText={setCustomProductName}
+                  placeholder="Name"
+                  placeholderTextColor={colors.muted}
+                />
+                <TextInput
+                  className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
+                  value={customProductPrice}
+                  onChangeText={setCustomProductPrice}
+                  placeholder="Price"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="decimal-pad"
+                />
+                <TextInput
+                  className="border border-border rounded-lg px-4 py-3 text-foreground mb-3"
+                  value={customProductDescription}
+                  onChangeText={setCustomProductDescription}
+                  placeholder="Description"
+                  placeholderTextColor={colors.muted}
+                />
+                <TouchableOpacity
+                  className="bg-primary rounded-xl py-3 items-center"
+                  onPress={() => void handleCreateCustomProduct()}
+                >
+                  <Text className="text-background font-semibold">Create and Add</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showServiceModal} transparent animationType="slide" onRequestClose={() => setShowServiceModal(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-background rounded-t-3xl p-4">
+            <Text className="text-lg font-semibold text-foreground mb-3">Add Sessions</Text>
+            <TextInput
+              className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
+              value={serviceTitle}
+              onChangeText={setServiceTitle}
+              placeholder="Service title"
+              placeholderTextColor={colors.muted}
+            />
+            <TextInput
+              className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
+              value={serviceSessions}
+              onChangeText={setServiceSessions}
+              placeholder="Number of sessions"
+              placeholderTextColor={colors.muted}
+              keyboardType="number-pad"
+            />
+            <TextInput
+              className="border border-border rounded-lg px-4 py-3 text-foreground mb-3"
+              value={servicePrice}
+              onChangeText={setServicePrice}
+              placeholder="Price"
+              placeholderTextColor={colors.muted}
+              keyboardType="decimal-pad"
+            />
+            <TouchableOpacity
+              className="bg-primary rounded-xl py-3 items-center"
+              onPress={handleAddService}
+            >
+              <Text className="text-background font-semibold">Add Service</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </ScreenContainer>
+  );
+}
+
 export default function CartScreen() {
   const colors = useColors();
-  const { isAuthenticated, isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
+  const { isAuthenticated, isTrainer, isClient } = useAuthContext();
   const { items, subtotal, updateQuantity, removeItem, isLoading } = useCart();
   const browseCatalogRoute = isClient ? "/(client)/products" : "/(tabs)/products";
 
-  const tax = subtotal * 0.08; // 8% tax
+  const tax = subtotal * 0.08;
   const total = subtotal + tax;
 
   const handleRemoveItem = (itemId: string) => {
@@ -111,7 +723,7 @@ export default function CartScreen() {
           style: "destructive",
           onPress: () => removeItem(itemId),
         },
-      ]
+      ],
     );
   };
 
@@ -123,35 +735,12 @@ export default function CartScreen() {
         [
           { text: "Cancel", style: "cancel" },
           { text: "Login", onPress: () => router.push("/login") },
-        ]
+        ],
       );
       return;
     }
     router.push("/checkout" as any);
   };
-
-  if (isTrainer && !isClient) {
-    return (
-      <ScreenContainer className="items-center justify-center px-6">
-        <IconSymbol name="cart.fill" size={64} color={colors.muted} />
-        <Text className="text-xl font-semibold text-foreground mt-4">
-          Shopping is client-only
-        </Text>
-        <Text className="text-muted text-center mt-2">
-          Coordinators, managers, and trainers can review bundles but cannot purchase them.
-        </Text>
-        <TouchableOpacity
-          className="bg-primary px-6 py-3 rounded-full mt-6"
-          onPress={() => navigateToHome({ isCoordinator, isManager, isTrainer, isClient })}
-          accessibilityRole="button"
-          accessibilityLabel="Back to home"
-          testID="cart-back-home"
-        >
-          <Text className="text-background font-semibold">Back to Home</Text>
-        </TouchableOpacity>
-      </ScreenContainer>
-    );
-  }
 
   if (isLoading) {
     return (
@@ -159,6 +748,10 @@ export default function CartScreen() {
         <Text className="text-muted">Loading cart...</Text>
       </ScreenContainer>
     );
+  }
+
+  if (isTrainer && !isClient) {
+    return <TrainerProposalBuilder />;
   }
 
   if (items.length === 0) {
@@ -186,13 +779,11 @@ export default function CartScreen() {
 
   return (
     <ScreenContainer>
-      {/* Header */}
       <View className="px-4 pt-2 pb-4">
         <Text className="text-2xl font-bold text-foreground">Your Cart</Text>
         <Text className="text-sm text-muted">{items.length} items</Text>
       </View>
 
-      {/* Cart Items */}
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
@@ -207,19 +798,18 @@ export default function CartScreen() {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Checkout Summary */}
       <View className="absolute bottom-0 left-0 right-0 bg-background border-t border-border px-4 pt-4 pb-8">
         <View className="flex-row justify-between mb-2">
           <Text className="text-muted">Subtotal</Text>
-          <Text className="text-foreground">${subtotal.toFixed(2)}</Text>
+          <Text className="text-foreground">£{subtotal.toFixed(2)}</Text>
         </View>
         <View className="flex-row justify-between mb-2">
           <Text className="text-muted">Tax (8%)</Text>
-          <Text className="text-foreground">${tax.toFixed(2)}</Text>
+          <Text className="text-foreground">£{tax.toFixed(2)}</Text>
         </View>
         <View className="flex-row justify-between mb-4 pt-2 border-t border-border">
           <Text className="text-lg font-bold text-foreground">Total</Text>
-          <Text className="text-lg font-bold text-primary">${total.toFixed(2)}</Text>
+          <Text className="text-lg font-bold text-primary">£{total.toFixed(2)}</Text>
         </View>
 
         <TouchableOpacity

@@ -12,6 +12,7 @@ import { ENV } from "./env";
 import { logError, logEvent, logWarn } from "./logger";
 import { processPhylloWebhookPayload, syncTrainerSocialFromPhylloPull } from "./phyllo-webhook";
 import { verifyPhylloWebhookSignature } from "./phyllo";
+import { sendPushToUsers } from "./push";
 let registerTrainerAssistantMcpHttpRoutes: ((app: any) => void) | null = null;
 try {
   registerTrainerAssistantMcpHttpRoutes = require("./mcp-http").registerTrainerAssistantMcpHttpRoutes;
@@ -103,6 +104,80 @@ async function runPhylloPeriodicSyncOnce() {
     };
   } finally {
     phylloPeriodicSyncInFlight = false;
+  }
+}
+
+function formatProposalCartDiffSummary(diff: any): string {
+  if (!diff || typeof diff !== "object") {
+    return "Client paid for the saved cart proposal.";
+  }
+
+  const changes: string[] = [];
+  if (diff.bundleRemoved) changes.push("base bundle removed");
+  if (Array.isArray(diff.addedItems) && diff.addedItems.length > 0) {
+    changes.push(`${diff.addedItems.length} item(s) added`);
+  }
+  if (Array.isArray(diff.removedItems) && diff.removedItems.length > 0) {
+    changes.push(`${diff.removedItems.length} item(s) removed`);
+  }
+  if (Array.isArray(diff.quantityChanges) && diff.quantityChanges.length > 0) {
+    changes.push(`${diff.quantityChanges.length} quantity change(s)`);
+  }
+  if (diff.discountChanged) changes.push("discount changed");
+  if (typeof diff.priceDelta === "number" && diff.priceDelta !== 0) {
+    changes.push(`price delta £${diff.priceDelta.toFixed(2)}`);
+  }
+
+  return changes.length > 0
+    ? `Client paid for the saved cart proposal: ${changes.join(", ")}.`
+    : "Client paid for the saved cart proposal with no cart changes.";
+}
+
+async function notifyTrainerAboutPaidProposalOrder(orderId: string) {
+  const order = await db.getOrderById(orderId);
+  if (!order?.trainerId || !order.savedCartProposalId) return;
+
+  try {
+    await sendPushToUsers([order.trainerId], {
+      title: "Saved cart paid",
+      body: formatProposalCartDiffSummary(order.cartDiffJson),
+      data: {
+        type: "order",
+        orderId,
+        savedCartProposalId: order.savedCartProposalId,
+      },
+    });
+  } catch (error) {
+    logError("saved_cart.trainer_push_failed", error, {
+      orderId,
+      trainerId: order.trainerId,
+    });
+  }
+}
+
+async function submitPaidOrderToShopify(orderId: string) {
+  const order = await db.getOrderById(orderId);
+  if (!order || order.shopifyOrderId) return;
+
+  try {
+    const items = await db.getOrderItems(order.id);
+    const result = await shopify.submitLocalOrderToShopify({
+      order,
+      items,
+    });
+
+    if (result.submitted && result.shopifyOrderId) {
+      await db.updateOrder(order.id, {
+        shopifyOrderId: result.shopifyOrderId,
+        shopifyOrderNumber: result.shopifyOrderNumber,
+        status: "processing",
+      });
+    }
+  } catch (error) {
+    logError("shopify.submit_paid_order_failed", error, {
+      orderId,
+      savedCartProposalId: order.savedCartProposalId,
+    });
   }
 }
 
@@ -478,6 +553,7 @@ async function startServer() {
 
         // Update payment session status
         if (eventCode === "AUTHORISATION" && success) {
+          const existingOrder = orderId ? await db.getOrderById(orderId) : null;
           await db.updatePaymentSessionByReference(merchantReference, {
             status: "authorised",
             pspReference,
@@ -488,6 +564,13 @@ async function startServer() {
               paymentStatus: "paid",
               status: "confirmed",
             });
+            if (
+              existingOrder?.paymentStatus !== "paid" ||
+              !existingOrder?.shopifyOrderId
+            ) {
+              await submitPaidOrderToShopify(orderId);
+              await notifyTrainerAboutPaidProposalOrder(orderId);
+            }
           }
           logEvent("adyen.payment_authorised", { merchantReference, pspReference });
         } else if (eventCode === "AUTHORISATION" && !success) {
@@ -497,6 +580,7 @@ async function startServer() {
           });
           logEvent("adyen.payment_refused", { merchantReference, reason });
         } else if (eventCode === "CAPTURE" && success) {
+          const existingOrder = orderId ? await db.getOrderById(orderId) : null;
           await db.updatePaymentSessionByReference(merchantReference, {
             status: "captured",
             pspReference,
@@ -506,6 +590,13 @@ async function startServer() {
               paymentStatus: "paid",
               status: "processing",
             });
+            if (
+              existingOrder?.paymentStatus !== "paid" ||
+              !existingOrder?.shopifyOrderId
+            ) {
+              await submitPaidOrderToShopify(orderId);
+              await notifyTrainerAboutPaidProposalOrder(orderId);
+            }
           }
           logEvent("adyen.payment_captured", { merchantReference });
         } else if (eventCode === "CANCELLATION" && success) {
