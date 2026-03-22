@@ -167,6 +167,33 @@ export function isPlanSessionTopUpItem(item: {
   return Boolean(item.metadata && item.metadata.planSessionTopUp === true);
 }
 
+/**
+ * Merge plan fields into saved_cart_proposals.metadata (snapshotVersion, program length, session rate).
+ * Used by tRPC create/update and the in-app assistant.
+ */
+export function mergeSavedCartProposalPlanMetadata(
+  previous: unknown,
+  patch: {
+    programWeeks: number | null;
+    sessionCost: number | null;
+    sessionDurationMinutes: number | null;
+  },
+): Record<string, unknown> {
+  const base =
+    previous && typeof previous === 'object' && !Array.isArray(previous)
+      ? { ...(previous as Record<string, unknown>) }
+      : {};
+  const snapshotVersion =
+    typeof base.snapshotVersion === 'number' ? base.snapshotVersion : 1;
+  return {
+    ...base,
+    snapshotVersion,
+    programWeeks: patch.programWeeks,
+    sessionCost: patch.sessionCost,
+    sessionDurationMinutes: patch.sessionDurationMinutes,
+  };
+}
+
 function stripTimeLocal(d: Date): Date {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);

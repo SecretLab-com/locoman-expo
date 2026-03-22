@@ -1,12 +1,14 @@
 import { Image } from "expo-image";
-import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { router, useLocalSearchParams, usePathname } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -24,7 +26,7 @@ import { PlanTimePreferenceField } from "@/components/plan-time-preference-field
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
-import { useCart, type CartItem } from "@/contexts/cart-context";
+import { useCart, type CartItem, type CartProposalContext } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
 import { normalizeAssetUrl } from "@/lib/asset-url";
 import { trpc } from "@/lib/trpc";
@@ -36,10 +38,36 @@ import {
   formatTimeHHmm,
   sessionsPerWeekToCadenceCode,
   type ProposalItemInput,
+  type SavedCartProposalSnapshot,
 } from "@/shared/saved-cart-proposal";
 
 const CART_THUMB_SIZE = 56;
 const CART_QTY_BTN = 28;
+
+/** Align with checkout proposal flow — maps persisted snapshot lines into cart shape. */
+function mapSnapshotItemToCartItemInput(
+  item: SavedCartProposalSnapshot["items"][number],
+  trainerName: string,
+  trainerId: string | undefined,
+): Omit<CartItem, "id"> {
+  return {
+    type: item.itemType,
+    bundleId: item.bundleDraftId || undefined,
+    productId: item.productId || undefined,
+    customProductId: item.customProductId || undefined,
+    title: item.title,
+    description: item.description || undefined,
+    trainer: trainerName,
+    trainerId,
+    price: item.unitPrice,
+    quantity: item.quantity,
+    imageUrl: item.imageUrl || undefined,
+    cadence: item.itemType === "bundle" ? "weekly" : "one_time",
+    fulfillment:
+      (item.fulfillmentMethod as CartItem["fulfillment"]) || "trainer_delivery",
+    metadata: item.metadata || null,
+  };
+}
 
 function CartItemCard({
   item,
@@ -182,6 +210,7 @@ function TrainerProposalBuilder() {
     proposalContext,
     setProposalContext,
     clearCart,
+    isLoading: isCartLoading,
   } = useCart();
 
   const [showClientPicker, setShowClientPicker] = useState(false);
@@ -230,6 +259,101 @@ function TrainerProposalBuilder() {
   const createProposalMutation = trpc.savedCartProposals.create.useMutation();
   const updateProposalMutation = trpc.savedCartProposals.update.useMutation();
   const sendInviteMutation = trpc.savedCartProposals.sendInvite.useMutation();
+
+  const pathname = usePathname();
+  const localParams = useLocalSearchParams<{ proposalId?: string | string[] }>();
+  const proposalIdFromUrl = useMemo(() => {
+    const raw = localParams.proposalId;
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+    if (Array.isArray(raw) && raw[0]?.trim()) return raw[0].trim();
+    return null;
+  }, [localParams.proposalId]);
+
+  const hydratedProposalFromUrlRef = useRef<string | null>(null);
+  const proposalUrlErrorAlertRef = useRef(false);
+
+  const proposalFromUrlQuery = trpc.savedCartProposals.get.useQuery(
+    { id: proposalIdFromUrl! },
+    {
+      enabled: Boolean(proposalIdFromUrl) && !isCartLoading,
+      retry: false,
+    },
+  );
+
+  useEffect(() => {
+    proposalUrlErrorAlertRef.current = false;
+  }, [proposalIdFromUrl]);
+
+  useEffect(() => {
+    if (!proposalIdFromUrl) {
+      hydratedProposalFromUrlRef.current = null;
+      return;
+    }
+    if (isCartLoading) return;
+    const row = proposalFromUrlQuery.data;
+    if (!row) return;
+    if (hydratedProposalFromUrlRef.current === row.id) return;
+
+    hydratedProposalFromUrlRef.current = row.id;
+    const snapshot = row.snapshot;
+    const trainerName = effectiveUser?.name || "Trainer";
+    const trainerId = effectiveUser?.id;
+
+    const cartInputs = snapshot.items.map((item) =>
+      mapSnapshotItemToCartItemInput(item, trainerName, trainerId),
+    );
+
+    const nextContext: CartProposalContext = {
+      proposalId: row.id,
+      clientRecordId: row.clientRecordId ?? null,
+      clientName: row.clientName ?? null,
+      clientEmail: row.clientEmail ?? null,
+      startDate: snapshot.startDate ?? row.startDate ?? null,
+      cadenceCode: snapshot.cadenceCode,
+      sessionsPerWeek: snapshot.sessionsPerWeek,
+      timePreference: snapshot.timePreference ?? null,
+      programWeeks: snapshot.programWeeks ?? null,
+      sessionCost: snapshot.sessionCost ?? null,
+      sessionDurationMinutes: snapshot.sessionDurationMinutes ?? null,
+      notes: snapshot.notes ?? row.notes ?? null,
+      assistantPrompt: row.assistantPrompt ?? null,
+    };
+
+    replaceItems(cartInputs, nextContext);
+    if (pathname) {
+      router.replace(pathname as any);
+    }
+  }, [
+    proposalIdFromUrl,
+    isCartLoading,
+    proposalFromUrlQuery.data,
+    effectiveUser?.name,
+    effectiveUser?.id,
+    replaceItems,
+    pathname,
+  ]);
+
+  useEffect(() => {
+    if (!proposalIdFromUrl || isCartLoading) return;
+    if (!proposalFromUrlQuery.isError) return;
+    if (proposalUrlErrorAlertRef.current) return;
+    proposalUrlErrorAlertRef.current = true;
+    Alert.alert(
+      "Could not open plan",
+      proposalFromUrlQuery.error?.message ?? "This plan link may be invalid or you may not have access.",
+    );
+  }, [
+    proposalIdFromUrl,
+    isCartLoading,
+    proposalFromUrlQuery.isError,
+    proposalFromUrlQuery.error?.message,
+  ]);
+
+  const showLoadingProposalFromUrl =
+    Boolean(proposalIdFromUrl) &&
+    !isCartLoading &&
+    proposalFromUrlQuery.isLoading &&
+    !proposalFromUrlQuery.data;
 
   const selectedClient = useMemo(
     () =>
@@ -627,6 +751,17 @@ function TrainerProposalBuilder() {
 
   return (
     <ScreenContainer className="flex-1">
+      {showLoadingProposalFromUrl ? (
+        <View
+          style={[StyleSheet.absoluteFillObject, { zIndex: 50, backgroundColor: `${colors.background}E6` }]}
+          pointerEvents="auto"
+          accessibilityLabel="Loading plan from link"
+          className="items-center justify-center px-6"
+        >
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4 text-center">Loading plan…</Text>
+        </View>
+      ) : null}
       <View className="flex-1">
         <View className="flex-row items-center px-4 pb-2 pt-2 bg-background border-b border-border">
           <PlanFlowBackButton

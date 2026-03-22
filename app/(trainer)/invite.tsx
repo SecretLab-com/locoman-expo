@@ -8,13 +8,13 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { useCart } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
 import { trackLaunchEvent } from "@/lib/analytics";
-import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { getBundleFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
 import { sanitizeHtml } from "@/lib/html-utils";
 import { trpc } from "@/lib/trpc";
 import { getTrpcMutationMessage } from "@/lib/trpc-errors";
 import {
-  mapBundleDraftToOfferView,
+  mapBundleDraftToBundleView,
   type BundleOfferPaymentType,
   type BundleOfferStatus,
   type BundleOfferType,
@@ -27,7 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import RenderHTML from "react-native-render-html";
 
-type OfferOption = {
+type BundleOption = {
   id: string;
   title: string;
   description: string | null;
@@ -59,7 +59,7 @@ type FlowStep =
   | { type: "simple_pick" }
   | { type: "simple_review"; offerId: string };
 
-function formatOfferTypeLabel(type: BundleOfferType): string {
+function formatBundleTypeLabel(type: BundleOfferType): string {
   if (type === "one_off_session") return "One-off session";
   if (type === "multi_session_package") return "Multi-session package";
   return "Product bundle";
@@ -131,7 +131,7 @@ export default function InviteScreen() {
   );
   const [message, setMessage] = useState("");
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
-  const [detailsOffer, setDetailsOffer] = useState<OfferOption | null>(null);
+  const [detailsOffer, setDetailsOffer] = useState<BundleOption | null>(null);
   const [flowStep, setFlowStep] = useState<FlowStep>(() =>
     initialJumpToOffer ? { type: "choose_offer" } : { type: "form" },
   );
@@ -164,7 +164,7 @@ export default function InviteScreen() {
 
   const createProposalMutation = trpc.savedCartProposals.create.useMutation({
     onError: (err) =>
-      showAlert("Could not create offer", getTrpcMutationMessage(err, "Unable to create the proposal.")),
+      showAlert("Could not create proposal", getTrpcMutationMessage(err, "Unable to create the proposal.")),
   });
 
   const sendInviteMutation = trpc.savedCartProposals.sendInvite.useMutation({
@@ -172,11 +172,11 @@ export default function InviteScreen() {
       showAlert("Send failed", getTrpcMutationMessage(err, "Unable to send the invite.")),
   });
 
-  const options: OfferOption[] = (bundles as any[])
-    .map((bundle) => mapBundleDraftToOfferView(bundle))
+  const options: BundleOption[] = (bundles as any[])
+    .map((bundle) => mapBundleDraftToBundleView(bundle))
     .map((offer) => ({
       id: offer.id,
-      title: String(offer.title || "Offer"),
+      title: String(offer.title || "Bundle"),
       description: typeof offer.description === "string" ? offer.description : null,
       imageUrl: typeof offer.imageUrl === "string" ? offer.imageUrl : null,
       priceMinor: Number(offer.priceMinor || 0),
@@ -238,8 +238,8 @@ export default function InviteScreen() {
   }, [products]);
   const productImageEntries = useMemo(() => Array.from(productImageByName.entries()), [productImageByName]);
 
-  const getOfferImageUrl = useCallback(
-    (offer: OfferOption): string => {
+  const getBundleImageUrl = useCallback(
+    (offer: BundleOption): string => {
       const directImage = normalizeAssetUrl(offer.imageUrl);
       if (directImage) return directImage;
 
@@ -268,7 +268,7 @@ export default function InviteScreen() {
         }
       }
 
-      return getOfferFallbackImageUrl(offer?.title);
+      return getBundleFallbackImageUrl(offer?.title);
     },
     [productImageByName, productImageEntries],
   );
@@ -341,7 +341,7 @@ export default function InviteScreen() {
   };
 
   const handleDoLater = () => {
-    trackLaunchEvent("trainer_add_client_offer_deferred", {});
+    trackLaunchEvent("trainer_add_client_bundle_deferred", {});
     router.replace("/(trainer)/clients" as any);
   };
 
@@ -361,7 +361,7 @@ export default function InviteScreen() {
       notes: message.trim() || null,
       ...defaultProposalScheduleFields(),
     });
-    trackLaunchEvent("trainer_add_client_custom_offer_start", {
+    trackLaunchEvent("trainer_add_client_custom_plan_start", {
       hasNotes: Boolean(message.trim()),
     });
     router.replace("/plan-shop" as any);
@@ -369,7 +369,7 @@ export default function InviteScreen() {
 
   const goToSimpleReview = () => {
     if (!selectedOfferId) {
-      showAlert("Select an offer", "Choose one published offer to continue.");
+      showAlert("Select a bundle", "Choose one published bundle to continue.");
       return;
     }
     setFlowStep({ type: "simple_review", offerId: selectedOfferId });
@@ -430,18 +430,18 @@ export default function InviteScreen() {
   }, [detailsOffer]);
 
   const headerTitle = useMemo(() => {
-    if (flowStep.type === "simple_pick") return "Simple offer";
+    if (flowStep.type === "simple_pick") return "Bundle";
     if (flowStep.type === "simple_review") return "Review invite";
-    if (isExistingClientFlow) return "Send offer";
+    if (isExistingClientFlow) return "Send bundle";
     return "Add Client";
   }, [flowStep.type, isExistingClientFlow]);
 
   const headerSubtitle = useMemo(() => {
-    if (flowStep.type === "simple_pick") return "Pick one published offer to attach.";
+    if (flowStep.type === "simple_pick") return "Pick one published bundle to attach.";
     if (flowStep.type === "simple_review") return "Confirm details before sending the invite email.";
     if (flowStep.type === "choose_offer") return "Choose how you want to continue.";
-    if (isExistingClientFlow) return clientName.trim() ? `For ${clientName.trim()}` : "Attach an offer or plan.";
-    return "Create the client, then add an offer if you want.";
+    if (isExistingClientFlow) return clientName.trim() ? `For ${clientName.trim()}` : "Attach a bundle or custom plan.";
+    return "Create the client, then add a bundle if you want.";
   }, [flowStep.type, isExistingClientFlow, clientName]);
 
   const handleHeaderBack = () => {
@@ -543,7 +543,7 @@ export default function InviteScreen() {
         className="mb-3 self-start"
         onPress={() => setFlowStep({ type: "choose_offer" })}
         accessibilityRole="button"
-        accessibilityLabel="Change offer type"
+        accessibilityLabel="Change bundle or plan type"
         testID="add-client-simple-change-choice"
       >
         <Text className="text-primary text-sm font-semibold">← Change choice</Text>
@@ -551,9 +551,9 @@ export default function InviteScreen() {
 
       <SurfaceCard className="mb-4">
         <View className="flex-row items-center justify-between mb-3">
-          <Text className="text-sm font-semibold text-foreground">Published offers</Text>
+          <Text className="text-sm font-semibold text-foreground">Published bundles</Text>
           {selectedOfferId ? (
-            <TouchableOpacity onPress={() => setSelectedOfferId(null)} accessibilityRole="button" accessibilityLabel="Clear selected offer">
+            <TouchableOpacity onPress={() => setSelectedOfferId(null)} accessibilityRole="button" accessibilityLabel="Clear selected bundle">
               <Text className="text-primary text-sm font-medium">Clear</Text>
             </TouchableOpacity>
           ) : null}
@@ -561,14 +561,14 @@ export default function InviteScreen() {
         {options.length === 0 ? (
           <EmptyStateCard
             icon="tag.fill"
-            title="No offers yet"
-            description="Publish an offer first, or use a custom plan instead."
-            ctaLabel="Create Offer"
+            title="No bundles yet"
+            description="Publish a bundle first, or use a custom plan instead."
+            ctaLabel="Create bundle"
             onCtaPress={() => router.push("/bundle-editor/new" as any)}
           />
         ) : (
           options.map((offer) => {
-            const offerImageUrl = getOfferImageUrl(offer);
+            const offerImageUrl = getBundleImageUrl(offer);
             return (
               <View key={offer.id} className="mb-2">
                 <TouchableOpacity
@@ -577,8 +577,8 @@ export default function InviteScreen() {
                   }`}
                   onPress={() => setSelectedOfferId(offer.id)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Select offer ${offer.title}`}
-                  testID={`invite-offer-${offer.id}`}
+                  accessibilityLabel={`Select bundle ${offer.title}`}
+                  testID={`invite-bundle-${offer.id}`}
                 >
                   <View className="flex-row">
                     <View className="w-16 h-16 rounded-lg bg-surface overflow-hidden items-center justify-center mr-3">
@@ -607,7 +607,7 @@ export default function InviteScreen() {
                       </View>
 
                       <View className="flex-row flex-wrap items-center mt-1 gap-2">
-                        <Text className="text-xs text-muted">{formatOfferTypeLabel(offer.type)}</Text>
+                        <Text className="text-xs text-muted">{formatBundleTypeLabel(offer.type)}</Text>
                         <Text className="text-xs text-muted">{offer.paymentType === "recurring" ? "Recurring" : "One-off"}</Text>
                         {offer.sessionCount ? <Text className="text-xs text-muted">{offer.sessionCount} sessions</Text> : null}
                       </View>
@@ -645,7 +645,7 @@ export default function InviteScreen() {
                   onPress={() => setDetailsOffer(offer)}
                   accessibilityRole="button"
                   accessibilityLabel={`View details for ${offer.title}`}
-                  testID={`invite-offer-details-${offer.id}`}
+                  testID={`invite-bundle-details-${offer.id}`}
                 >
                   <Text className="text-primary text-xs font-semibold">View details</Text>
                 </TouchableOpacity>
@@ -677,7 +677,7 @@ export default function InviteScreen() {
           className="mb-3 self-start"
           onPress={() => setFlowStep({ type: "simple_pick" })}
           accessibilityRole="button"
-          accessibilityLabel="Back to offer list"
+          accessibilityLabel="Back to bundle list"
           testID="add-client-simple-review-back"
         >
           <Text className="text-primary text-sm font-semibold">← Back</Text>
@@ -690,7 +690,7 @@ export default function InviteScreen() {
         </SurfaceCard>
 
         <SurfaceCard className="mb-4">
-          <Text className="text-sm font-semibold text-foreground mb-2">Offer</Text>
+          <Text className="text-sm font-semibold text-foreground mb-2">Bundle</Text>
           <Text className="text-foreground font-medium">{simpleReviewOffer.title}</Text>
           <Text className="text-primary font-semibold mt-1">{formatGBPFromMinor(simpleReviewOffer.priceMinor)}</Text>
         </SurfaceCard>
@@ -774,7 +774,7 @@ export default function InviteScreen() {
                   onPress={isExistingClientFlow ? handleExistingClientContinue : handleNextCreateClient}
                   loading={createClientMutation.isPending}
                   loadingText="Saving..."
-                  accessibilityLabel={isExistingClientFlow ? "Continue to offer options" : "Save client and continue"}
+                  accessibilityLabel={isExistingClientFlow ? "Continue to bundle and plan options" : "Save client and continue"}
                   testID="add-client-next"
                 >
                   {isExistingClientFlow ? "Continue" : "Next"}
@@ -795,9 +795,9 @@ export default function InviteScreen() {
             style={{ maxWidth: 400, width: "90%" }}
           >
             <View className="px-5 pt-5 pb-2">
-              <Text className="text-lg font-bold text-foreground text-center">Add an offer?</Text>
+              <Text className="text-lg font-bold text-foreground text-center">Add a bundle?</Text>
               <Text className="text-sm text-muted text-center mt-2 leading-5">
-                Send a published offer now, build a custom plan, or finish later.
+                Send a published bundle now, build a custom plan, or finish later.
               </Text>
             </View>
             <View className="px-5 pb-5 gap-2">
@@ -806,12 +806,12 @@ export default function InviteScreen() {
                 variant="primary"
                 size="md"
                 onPress={handleChooseSimpleOffer}
-                accessibilityLabel="Simple offer..."
+                accessibilityLabel="Bundle…"
                 testID="add-client-choice-simple"
               >
                 <View className="items-center py-0.5">
-                  <Text className="text-background font-semibold">Simple offer</Text>
-                  <Text className="text-background/80 text-xs mt-0.5">One published offer</Text>
+                  <Text className="text-background font-semibold">Bundle</Text>
+                  <Text className="text-background/80 text-xs mt-0.5">One published bundle</Text>
                 </View>
               </ActionButton>
               <ActionButton
@@ -819,11 +819,11 @@ export default function InviteScreen() {
                 variant="secondary"
                 size="md"
                 onPress={handleChooseCustomOffer}
-                accessibilityLabel="Custom offer"
+                accessibilityLabel="Custom plan"
                 testID="add-client-choice-custom"
               >
                 <View className="items-center py-0.5">
-                  <Text className="text-foreground font-semibold">Custom offer</Text>
+                  <Text className="text-foreground font-semibold">Custom plan</Text>
                   <Text className="text-muted text-xs mt-0.5">Shop plan, then review and send</Text>
                 </View>
               </ActionButton>
@@ -854,12 +854,12 @@ export default function InviteScreen() {
               className="bg-background rounded-t-2xl border-t border-border max-h-[84%]"
             >
               <View className="px-4 py-3 border-b border-border flex-row items-center justify-between">
-                <Text className="text-foreground font-semibold text-base">Offer details</Text>
+                <Text className="text-foreground font-semibold text-base">Bundle details</Text>
                 <TouchableOpacity
                   onPress={() => setDetailsOffer(null)}
                   accessibilityRole="button"
-                  accessibilityLabel="Close offer details"
-                  testID="invite-offer-details-close"
+                  accessibilityLabel="Close bundle details"
+                  testID="invite-bundle-details-close"
                 >
                   <IconSymbol name="xmark" size={18} color={colors.foreground} />
                 </TouchableOpacity>
@@ -869,9 +869,9 @@ export default function InviteScreen() {
                 <ScrollView className="px-4 py-4" showsVerticalScrollIndicator={false}>
                   <View className="flex-row">
                     <View className="w-20 h-20 rounded-xl bg-surface overflow-hidden items-center justify-center mr-3">
-                      {getOfferImageUrl(detailsOffer) ? (
+                      {getBundleImageUrl(detailsOffer) ? (
                         <Image
-                          source={{ uri: getOfferImageUrl(detailsOffer)! }}
+                          source={{ uri: getBundleImageUrl(detailsOffer)! }}
                           style={{ width: "100%", height: "100%" }}
                           contentFit="cover"
                         />
@@ -883,7 +883,7 @@ export default function InviteScreen() {
                       <Text className="text-foreground font-semibold text-base">{detailsOffer.title}</Text>
                       <Text className="text-primary font-semibold mt-0.5">{formatGBPFromMinor(detailsOffer.priceMinor)}</Text>
                       <Text className="text-muted text-xs mt-1">
-                        {formatOfferTypeLabel(detailsOffer.type)} • {detailsOffer.paymentType === "recurring" ? "Recurring" : "One-off"}
+                        {formatBundleTypeLabel(detailsOffer.type)} • {detailsOffer.paymentType === "recurring" ? "Recurring" : "One-off"}
                         {detailsOffer.sessionCount ? ` • ${detailsOffer.sessionCount} sessions` : ""}
                       </Text>
                     </View>

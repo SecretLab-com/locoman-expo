@@ -64,11 +64,11 @@ describe("LocoMotivate Expo App - Feature Tests", () => {
       expect(content).toContain("Get Paid");
     });
 
-    it("should include payment and offer CTAs", () => {
+    it("should include payment and bundle CTAs", () => {
       const clientDetailPath = path.join(projectRoot, "app/client-detail/[id].tsx");
       const content = fs.readFileSync(clientDetailPath, "utf-8");
-      expect(content).toContain("Send offer");
-      expect(content).toContain("Take Payment");
+      expect(content).toContain("Send bundle");
+      expect(content).toContain("Get Paid");
     });
   });
 

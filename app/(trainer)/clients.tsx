@@ -254,7 +254,7 @@ function ClientCard({
               testID={`trainer-client-create-plan-${client.id}`}
             >
               <IconSymbol name="bag.fill" size={14} color={colors.primary} />
-              <Text className="text-primary font-medium text-sm ml-1.5">Create Offer</Text>
+              <Text className="text-primary font-medium text-sm ml-1.5">Create bundle</Text>
             </TouchableOpacity>
             <TouchableOpacity
               className="flex-1 flex-row items-center justify-center py-2.5"
@@ -322,8 +322,8 @@ export default function TrainerClientsScreen() {
     setPayModalOpen(true);
   };
 
-  /** Same entry as client detail "Send offer": invite screen with Simple / Custom / Do this later. */
-  const openInviteOfferChoice = (client: Pick<Client, "id" | "name" | "email" | "phone">) => {
+  /** Same entry as client detail "Send bundle": invite screen with Bundle / Custom plan / Do this later. */
+  const openInviteBundleChoice = (client: Pick<Client, "id" | "name" | "email" | "phone">) => {
     const clientId = String(client.id || "");
     if (!clientId) return;
     const name =
@@ -351,7 +351,7 @@ export default function TrainerClientsScreen() {
       items.length > 0 && (!existingClientId || existingClientId !== clientId);
 
     if (!hasConflictingCart) {
-      openInviteOfferChoice(client);
+      openInviteBundleChoice(client);
       return;
     }
 
@@ -366,7 +366,7 @@ export default function TrainerClientsScreen() {
           style: "destructive",
           onPress: () => {
             clearCart();
-            openInviteOfferChoice(client);
+            openInviteBundleChoice(client);
           },
         },
       ],
@@ -556,7 +556,7 @@ export default function TrainerClientsScreen() {
             <EmptyStateCard
               icon="person.2.fill"
               title="No clients yet"
-              description="Add a client first. You can send an offer or plan invite right after."
+              description="Add a client first. You can send a bundle or custom plan invite right after."
               ctaLabel="Add Client"
               onCtaPress={() => router.push("/(trainer)/invite" as any)}
             />

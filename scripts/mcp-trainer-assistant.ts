@@ -14,6 +14,8 @@ import superjson from "superjson";
 import { z } from "zod";
 
 import type { AppRouter } from "../server/routers";
+import { getTrainerProposalDeepLink } from "../server/_core/proposalLinks.js";
+import { bundleDraftToAssistantListRow } from "../shared/bundle-offer.js";
 
 const DEFAULT_API_BASE_URL = "http://localhost:3000";
 const apiBaseUrl = (
@@ -848,7 +850,7 @@ export function createTrainerAssistantMcpServer(): McpServer {
     {
       title: "List Bundles",
       description:
-        "List trainer bundles/offers with optional status filtering.",
+        "List trainer bundles with sessionCount and estimatedProgramWeeksHint for Custom Plan duration.",
       annotations: { readOnlyHint: true },
       inputSchema: {
         status: z
@@ -870,12 +872,7 @@ export function createTrainerAssistantMcpServer(): McpServer {
         });
 
         const rows = filtered.map((bundle) => ({
-          id: bundle.id,
-          title: bundle.title || "Untitled bundle",
-          description: bundle.description || null,
-          status: bundle.status || null,
-          price: bundle.price || null,
-          cadence: bundle.cadence || null,
+          ...bundleDraftToAssistantListRow(bundle),
         }));
 
         return toTextResult(`Returned ${rows.length} bundles.`, {
@@ -883,6 +880,37 @@ export function createTrainerAssistantMcpServer(): McpServer {
         });
       } catch (error) {
         return toErrorResult(`List bundles failed: ${toErrorMessage(error)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_bundle",
+    {
+      title: "Get Bundle",
+      description:
+        "Load one bundle draft by ID with session hints and goals/services/products JSON.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        bundleDraftId: z.string().describe("Bundle draft ID."),
+      },
+    },
+    async ({ bundleDraftId }) => {
+      try {
+        const bundle = await trpcClient.bundles.get.query({ id: bundleDraftId });
+        if (!bundle) {
+          return toErrorResult(`Bundle not found: ${bundleDraftId}`);
+        }
+        const b = bundle as unknown as BundleLite;
+        const row = {
+          ...bundleDraftToAssistantListRow(b),
+          goalsJson: b.goalsJson ?? null,
+          servicesJson: b.servicesJson ?? null,
+          productsJson: b.productsJson ?? null,
+        };
+        return toTextResult(`Bundle ${row.title || row.id}`, { bundle: row });
+      } catch (error) {
+        return toErrorResult(`Get bundle failed: ${toErrorMessage(error)}`);
       }
     },
   );
@@ -1013,6 +1041,33 @@ export function createTrainerAssistantMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "get_saved_cart_proposal",
+    {
+      title: "Get Saved Cart Proposal",
+      description:
+        "Load one saved cart / custom plan proposal by ID (items + snapshot). Read-only.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        id: z.string().describe("Proposal ID."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        const proposal = await trpcClient.savedCartProposals.get.query({ id });
+        const proposalUrl = proposal?.id
+          ? getTrainerProposalDeepLink(String((proposal as { id: string }).id))
+          : "";
+        return toTextResult(`Proposal ${id}`, {
+          ...(proposal as object),
+          proposalUrl: proposalUrl || undefined,
+        });
+      } catch (error) {
+        return toErrorResult(`Get proposal failed: ${toErrorMessage(error)}`);
+      }
+    },
+  );
+
+  server.registerTool(
     "create_saved_cart_proposal",
     {
       title: "Create Saved Cart Proposal",
@@ -1028,6 +1083,9 @@ export function createTrainerAssistantMcpServer(): McpServer {
         cadenceCode: z.enum(["weekly", "2x_week", "3x_week", "daily"]).optional(),
         sessionsPerWeek: z.number().int().min(1).max(7).optional(),
         timePreference: z.string().optional(),
+        programWeeks: z.number().int().min(1).max(104).optional(),
+        sessionCost: z.number().min(0).optional().nullable(),
+        sessionDurationMinutes: z.number().int().min(15).max(480).optional(),
         items: z
           .array(
             z.object({
@@ -1061,7 +1119,12 @@ export function createTrainerAssistantMcpServer(): McpServer {
         const result = await trpcClient.savedCartProposals.create.mutate({
           ...(payload as any),
         });
-        return toTextResult("Saved cart proposal created.", result);
+        const proposalId = asCleanString((result as { proposalId?: string }).proposalId);
+        const proposalUrl = proposalId ? getTrainerProposalDeepLink(proposalId) : "";
+        return toTextResult("Saved cart proposal created.", {
+          ...(result as object),
+          proposalUrl: proposalUrl || undefined,
+        });
       } catch (error) {
         return toErrorResult(`Create proposal failed: ${toErrorMessage(error)}`);
       }

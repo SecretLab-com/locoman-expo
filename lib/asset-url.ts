@@ -22,9 +22,9 @@ export function normalizeAssetUrl(value: unknown): string | null {
   return `${baseUrl}${raw.startsWith("/") ? "" : "/"}${raw}`;
 }
 
-export function getOfferFallbackImageUrl(title: unknown): string {
+export function getBundleFallbackImageUrl(title: unknown): string {
   const safeTitle = encodeURIComponent(
-    String(title || "Offer").trim() || "Offer"
+    String(title || "Bundle").trim() || "Bundle"
   );
   return `https://ui-avatars.com/api/?name=${safeTitle}&background=1f2937&color=93c5fd&size=256&rounded=false&bold=true`;
 }

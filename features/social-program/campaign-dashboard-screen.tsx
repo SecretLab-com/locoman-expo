@@ -177,8 +177,8 @@ export function CampaignDashboardScreen({ roleLabel }: Props) {
             <View className="flex-row flex-wrap -mx-1">
               {[
                 { label: "Trainer signups", value: signupStats.trainerCount },
-                { label: "Offers created", value: signupStats.offerCount },
-                { label: "Published offers", value: signupStats.publishedOfferCount },
+                { label: "Bundles created", value: signupStats.offerCount },
+                { label: "Published bundles", value: signupStats.publishedOfferCount },
                 { label: "Active contributors", value: new Set(rows.map((r: any) => r.trainerId)).size },
                   { label: "Matched posts", value: totals.matchedPosts },
                   { label: "Needs review", value: totals.needsReviewPosts },

@@ -174,7 +174,7 @@ export default function BundleEditorScreen() {
   const { id, admin: adminParam, templateId } = useLocalSearchParams<{ id: string; admin?: string; templateId?: string }>();
   const isNewBundle = id === "new";
   const isAdminMode = adminParam === "1";
-  const entityLabel = isAdminMode ? "Bundle" : "Offer";
+  const entityLabel = "Bundle";
   const entityLabelLower = entityLabel.toLowerCase();
   
   // Parse id safely
@@ -327,10 +327,20 @@ export default function BundleEditorScreen() {
 
   // Create bundle mutation (trainer)
   const trainerCreateMutation = trpc.bundles.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (bundleId) => {
       haptics.success();
-      platformAlert("Success", `${entityLabel} saved as draft`, [
-        { text: "OK", onPress: () => router.back() },
+      const id = typeof bundleId === "string" ? bundleId : "";
+      platformAlert("Success", `${entityLabel} saved`, [
+        {
+          text: "OK",
+          onPress: () => {
+            if (id) {
+              router.replace(`/bundle-editor/${id}` as any);
+            } else {
+              router.back();
+            }
+          },
+        },
       ]);
     },
     onError: (error) => {
@@ -346,8 +356,18 @@ export default function BundleEditorScreen() {
       if (isAdminMode) {
         promptTemplatePromotion(typeof newBundleId === "string" ? newBundleId : "");
       } else {
-        platformAlert("Success", `${entityLabel} saved as draft`, [
-          { text: "OK", onPress: () => router.back() },
+        const id = typeof newBundleId === "string" ? newBundleId : "";
+        platformAlert("Success", `${entityLabel} saved`, [
+          {
+            text: "OK",
+            onPress: () => {
+              if (id) {
+                router.replace(`/bundle-editor/${id}` as any);
+              } else {
+                router.back();
+              }
+            },
+          },
         ]);
       }
     },
@@ -1243,7 +1263,7 @@ export default function BundleEditorScreen() {
     return true;
   };
 
-  // Save as draft
+  /** Persist bundle without submitting for review (unpublished until publish/review flow). */
   const handleSave = async () => {
     if (!form.title.trim()) {
       showAlert("Validation Error", `Please enter a ${entityLabelLower} title`);
@@ -1704,7 +1724,7 @@ export default function BundleEditorScreen() {
                     </View>
 
                     <View className="mt-4 rounded-2xl border border-border bg-surface p-4">
-                      <Text className="text-sm font-semibold text-foreground mb-3">Offer Economics</Text>
+                      <Text className="text-sm font-semibold text-foreground mb-3">Bundle economics</Text>
 
                       <View className="flex-row items-center justify-between">
                         <Text className="text-muted">Base price</Text>
@@ -1783,7 +1803,7 @@ export default function BundleEditorScreen() {
                       <View className="flex-1 pr-3">
                         <Text className="text-foreground font-semibold">Start from scratch</Text>
                         <Text className="text-sm text-muted mt-1">
-                          Build an offer manually without preloading a campaign template.
+                          Build a bundle manually without preloading a campaign template.
                         </Text>
                       </View>
                       {!selectedCampaignId ? (
@@ -2693,7 +2713,7 @@ export default function BundleEditorScreen() {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {saving ? 'Saving...' : 'Save Draft'}
+                    {saving ? 'Saving...' : 'Save'}
                   </button>
                   <button
                     onClick={handlePrimaryBuilderAction}
@@ -2740,11 +2760,14 @@ export default function BundleEditorScreen() {
                     onPress={handleSave}
                     disabled={saving}
                     activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Save bundle"
+                    testID="bundle-editor-save"
                   >
                     {saving ? (
                       <ActivityIndicator size="small" color={colors.foreground} />
                     ) : (
-                      <Text style={{ color: colors.foreground, fontWeight: '600', fontSize: 13 }}>Save Draft</Text>
+                      <Text style={{ color: colors.foreground, fontWeight: '600', fontSize: 13 }}>Save</Text>
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -2813,7 +2836,7 @@ export default function BundleEditorScreen() {
                 <View className="flex-1 pr-4">
                   <Text className="text-xl font-bold text-foreground">Price Breakdown</Text>
                   <Text className="text-muted mt-1">
-                    Review the offer total and billing details.
+                    Review the bundle total and billing details.
                   </Text>
                 </View>
                 <TouchableOpacity

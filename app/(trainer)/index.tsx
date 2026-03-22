@@ -14,7 +14,7 @@ import {
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { trackLaunchEvent } from "@/lib/analytics";
-import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { getBundleFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
 import { maybeShowInviteCongrats } from "@/lib/social-invite-alerts";
 import {
@@ -26,7 +26,7 @@ import {
     setCachedTrainerSocialStatus,
 } from "@/lib/social-status-cache";
 import { trpc } from "@/lib/trpc";
-import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
+import { mapBundleDraftToBundleView } from "@/shared/bundle-offer";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -51,7 +51,7 @@ import Svg, {
     Stop,
 } from "react-native-svg";
 
-type NextAction = "invite" | "offer" | "pay" | "done";
+type NextAction = "invite" | "bundle" | "pay" | "done";
 type PaymentStatus = "awaiting_payment" | "paid" | "paid_out" | "cancelled";
 type OfferStatus = "draft" | "in_review" | "published" | "archived";
 type PendingPaymentRow = {
@@ -98,7 +98,7 @@ const TIER_MIN_POINTS: Record<TierName, number> = {
   Elite: 5000,
 };
 
-const TEST_STATE_SEQUENCE: NextAction[] = ["invite", "offer", "pay", "done"];
+const TEST_STATE_SEQUENCE: NextAction[] = ["invite", "bundle", "pay", "done"];
 const DASH = {} as TrainerDashboardPalette;
 
 const getCardStyle = () => ({ backgroundColor: DASH.card, borderColor: DASH.border });
@@ -170,8 +170,8 @@ function normalizeSocialPlatformLabel(value: string) {
     .join(" ");
 }
 
-function formatOfferType(value: string | undefined) {
-  if (!value) return "Offer";
+function formatBundleType(value: string | undefined) {
+  if (!value) return "Bundle";
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -963,7 +963,7 @@ export default function TrainerHomeScreen() {
     refetch: refetchOffers,
   } = trpc.bundles.list.useQuery();
   const offers = useMemo(
-    () => (trainerBundles as any[]).map((bundle) => mapBundleDraftToOfferView(bundle)),
+    () => (trainerBundles as any[]).map((bundle) => mapBundleDraftToBundleView(bundle)),
     [trainerBundles],
   );
   const { data: products = [] } = trpc.catalog.products.useQuery();
@@ -1088,9 +1088,9 @@ export default function TrainerHomeScreen() {
   });
   const hasClientOrInvite = hasClient || hasPendingInvite;
   const hasPendingSocialInvite = Boolean(resolvedSocialStatus?.pendingInvite?.id);
-  const hasOffer = offers.length > 0;
+  const hasBundle = offers.length > 0;
   const hasPayment = (paymentStats?.paid || 0) > 0 || (paymentStats?.paidOut || 0) > 0;
-  const liveNextAction: NextAction = !hasClientOrInvite ? "invite" : !hasOffer ? "offer" : !hasPayment ? "pay" : "done";
+  const liveNextAction: NextAction = !hasClientOrInvite ? "invite" : !hasBundle ? "bundle" : !hasPayment ? "pay" : "done";
   const nextAction: NextAction = testStateOverride ?? liveNextAction;
   const displayHasPayment = nextAction === "done";
   const totalPoints = pointsData?.totalPoints || 0;
@@ -1453,7 +1453,7 @@ export default function TrainerHomeScreen() {
   }, [socialStatus, socialStatusLoading]);
   // #endregion
 
-  const getOfferImageUrl = (offer: any): string => {
+  const getBundleImageUrl = (offer: any): string => {
     const directImage = normalizeAssetUrl(offer?.imageUrl);
     if (directImage) return directImage;
 
@@ -1487,16 +1487,16 @@ export default function TrainerHomeScreen() {
       }
     }
 
-    return getOfferFallbackImageUrl(offer?.title);
+    return getBundleFallbackImageUrl(offer?.title);
   };
 
-  const heroStep = nextAction === "invite" ? 1 : nextAction === "offer" ? 2 : 3;
+  const heroStep = nextAction === "invite" ? 1 : nextAction === "bundle" ? 2 : 3;
 
   const heroConfig: HeroConfig = (() => {
     if (nextAction === "invite") {
       return {
         title: "You’re 2 steps away from your first payout",
-        subtitle: "Invite your first client and set up an offer to start earning.",
+        subtitle: "Invite your first client and set up a bundle to start earning.",
         cta: "Invite client",
         ctaIcon: "person.badge.plus",
         onPress: () => {
@@ -1505,14 +1505,14 @@ export default function TrainerHomeScreen() {
         },
       };
     }
-    if (nextAction === "offer") {
+    if (nextAction === "bundle") {
       return {
-        title: "Create your first offer",
+        title: "Create your first bundle",
         subtitle: "Package your expertise into a clear, client-ready plan.",
-        cta: "Create offer",
+        cta: "Create bundle",
         ctaIcon: "sparkles",
         onPress: () => {
-          trackLaunchEvent("trainer_home_next_action_tapped", { step: "offer" });
+          trackLaunchEvent("trainer_home_next_action_tapped", { step: "bundle" });
           router.push("/bundle-editor/new" as any);
         },
       };
@@ -1832,12 +1832,12 @@ export default function TrainerHomeScreen() {
     },
     {
       icon: "sparkles" as const,
-      label: "Create offer",
+      label: "Create bundle",
       onPress: () => {
-        trackLaunchEvent("trainer_home_next_action_tapped", { step: "offer" });
+        trackLaunchEvent("trainer_home_next_action_tapped", { step: "bundle" });
         router.push("/bundle-editor/new" as any);
       },
-      testID: "trainer-quick-offer",
+      testID: "trainer-quick-bundle",
     },
     {
       icon: "creditcard.fill" as const,
@@ -1869,7 +1869,7 @@ export default function TrainerHomeScreen() {
   const homeHeaderSubtitle =
     process.env.EXPO_PUBLIC_SHOW_PROGRESS_HEADER === "1"
       ? "Let's get you paid."
-      : "Manage clients, create offers, and grow your business.";
+      : "Manage clients, create bundles, and grow your business.";
 
   return (
     <ScreenContainer
@@ -2030,7 +2030,7 @@ export default function TrainerHomeScreen() {
 
             <View className="flex-row flex-wrap gap-2 mb-5">
               <StepPill label="Invite client" isDone={heroStep > 1} isCurrent={heroStep === 1} />
-              <StepPill label="Create offer" isDone={heroStep > 2} isCurrent={heroStep === 2} />
+              <StepPill label="Create bundle" isDone={heroStep > 2} isCurrent={heroStep === 2} />
               <StepPill label={nextAction === "done" ? "Bonus status" : "Get paid"} isDone={nextAction === "done"} isCurrent={heroStep === 3} />
             </View>
 
@@ -2859,7 +2859,7 @@ export default function TrainerHomeScreen() {
         </View>
 
         <SectionHeader
-          title="Offers"
+          title="Bundles"
           actionLabel={offers.length > 0 ? "Manage" : "New"}
           onActionPress={() => router.push((offers.length > 0 ? "/(trainer)/offers" : "/bundle-editor/new") as any)}
         />
@@ -2872,7 +2872,7 @@ export default function TrainerHomeScreen() {
             <EmptyModuleCard
               icon="cube.box.fill"
               description="Package your expertise into professional training plans."
-              cta="New offer"
+              cta="New bundle"
               onPress={() => router.push("/bundle-editor/new" as any)}
             />
           ) : (
@@ -2884,7 +2884,7 @@ export default function TrainerHomeScreen() {
                   style={index < previewOffers.length - 1 ? { borderColor: DASH.divider } : undefined}
                 >
                   {(() => {
-                    const offerImageUrl = getOfferImageUrl(offer);
+                    const offerImageUrl = getBundleImageUrl(offer);
                     return (
                   <View className="flex-row items-start">
                     <View className="w-12 h-12 rounded-lg bg-surface border border-border overflow-hidden items-center justify-center mr-3">
@@ -2910,7 +2910,7 @@ export default function TrainerHomeScreen() {
                       <View className="flex-row items-center mt-2">
                         <View className="px-2 py-1 rounded-full border mr-2" style={getMutedBadgeStyle()}>
                           <Text className="text-[11px]" style={{ color: DASH.muted }}>
-                            {formatOfferType(offer.type)}
+                            {formatBundleType(offer.type)}
                           </Text>
                         </View>
                         <View

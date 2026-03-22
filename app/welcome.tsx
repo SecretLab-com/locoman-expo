@@ -22,7 +22,7 @@ const SLIDES: OnboardingSlide[] = [
     body: "Fast payments, simple setup, zero finance jargon.",
   },
   {
-    title: "Invite → Offer → Get paid",
+    title: "Invite → Bundle → Get paid",
     body: "Everything is built around the shortest path to earnings.",
   },
   {

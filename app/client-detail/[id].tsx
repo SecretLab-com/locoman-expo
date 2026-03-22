@@ -225,7 +225,7 @@ export default function ClientDetailScreen() {
     setIsEditingContact(false);
   };
 
-  const openSendOfferFlow = () => {
+  const openSendBundleFlow = () => {
     if (!data?.id) return;
     router.push({
       pathname: "/(trainer)/invite",
@@ -245,7 +245,7 @@ export default function ClientDetailScreen() {
     if (!otherId) {
       Alert.alert(
         "Can't message yet",
-        "This client doesn't have a linked account yet. Send an offer or invite so they can join, then you can message them in the app.",
+        "This client doesn't have a linked account yet. Send a bundle or custom plan invite so they can join, then you can message them in the app.",
       );
       return;
     }
@@ -398,12 +398,12 @@ export default function ClientDetailScreen() {
 
           <TouchableOpacity
             className="mt-5 bg-surface border border-border rounded-2xl py-3.5 px-4 items-center"
-            onPress={openSendOfferFlow}
+            onPress={openSendBundleFlow}
             accessibilityRole="button"
-            accessibilityLabel={`Send offer to ${data.name}`}
-            testID="client-detail-invite-offer"
+            accessibilityLabel={`Send bundle to ${data.name}`}
+            testID="client-detail-invite-bundle"
           >
-            <Text className="text-foreground font-semibold text-base">Send offer</Text>
+            <Text className="text-foreground font-semibold text-base">Send bundle</Text>
           </TouchableOpacity>
 
           <View className="flex-row items-stretch justify-between gap-2 mt-5">
@@ -690,7 +690,7 @@ export default function ClientDetailScreen() {
                 <View className="flex-1 min-w-0">
                   <Text className="text-sm font-semibold text-foreground">No active bundle</Text>
                   <Text className="text-xs text-muted mt-1 leading-5">
-                    Send an offer from the button above, or build a custom plan when you’re ready.
+                    Send a bundle from the button above, or build a custom plan when you’re ready.
                   </Text>
                 </View>
               </View>

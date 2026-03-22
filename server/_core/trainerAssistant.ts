@@ -12,10 +12,12 @@ import * as db from "../db";
 import { getInviteEmailFailureUserMessage, sendInviteEmail } from "./email";
 import { invokeLLM, type ImageContent, type LLMProvider, type Message, type MessageContent, type TextContent, type Tool } from "./llm";
 import { logError } from "./logger";
+import { getTrainerProposalDeepLink } from "./proposalLinks.js";
+import { bundleDraftToAssistantListRow } from "../../shared/bundle-offer.js";
 import {
   buildSavedCartProposalSnapshot,
+  mergeSavedCartProposalPlanMetadata,
   normalizeCadenceCode,
-  type ProposalCadenceCode,
   type ProposalItemInput,
 } from "../../shared/saved-cart-proposal.js";
 
@@ -133,6 +135,52 @@ function asPositiveInt(value: unknown, fallback: number): number {
     }
   }
   return fallback;
+}
+
+/** 1–104 weeks; defaults when missing (matches savedCartProposals.create). */
+function asProgramWeeks(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.min(104, Math.max(1, Math.floor(value)));
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.min(104, Math.max(1, parsed));
+    }
+  }
+  return Math.min(104, Math.max(1, fallback));
+}
+
+function asOptionalSessionsPerWeek(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 1 && value <= 7) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 7) return parsed;
+  }
+  return undefined;
+}
+
+function asSessionDurationMinutes(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 15 && value <= 480) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed) && parsed >= 15 && parsed <= 480) return parsed;
+  }
+  return fallback;
+}
+
+function asOptionalSessionCost(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseFloat(value.trim());
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return null;
 }
 
 function parseToolArgs(raw: string): Record<string, unknown> {
@@ -485,7 +533,8 @@ function buildToolSpec(isElevated: boolean): Tool[] {
       type: "function",
       function: {
         name: "list_bundles",
-        description: "List bundles/offers with optional status filtering." +
+        description:
+          "List bundles/offers with sessionCount and estimatedProgramWeeksHint for duration planning. " +
           (isElevated ? " Pass trainerId to view a specific trainer's bundles." : ""),
         parameters: {
           type: "object",
@@ -493,6 +542,24 @@ function buildToolSpec(isElevated: boolean): Tool[] {
             ...(isElevated ? { trainerId: { type: "string", description: "View a specific trainer's bundles." } } : {}),
             status: { type: "string", description: "Filter by status: published, draft, pending_review." },
           },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_bundle",
+        description:
+          "Read one bundle draft by ID with goals/services/products JSON for schedule and duration reasoning." +
+          (isElevated ? " Pass trainerId if resolving another trainer's bundle." : ""),
+        parameters: {
+          type: "object",
+          properties: {
+            ...(isElevated ? { trainerId: { type: "string", description: "Trainer who owns the bundle." } } : {}),
+            bundleDraftId: { type: "string", description: "Bundle draft ID." },
+          },
+          required: ["bundleDraftId"],
           additionalProperties: false,
         },
       },
@@ -590,6 +657,7 @@ function buildToolSpec(isElevated: boolean): Tool[] {
         name: "create_saved_cart_proposal",
         description:
           "Preview or create a customer-specific saved cart/custom bundle proposal. " +
+          "Pass programWeeks, sessionsPerWeek, sessionDurationMinutes, sessionCost, assistantPrompt like the trainer UI. " +
           "Use confirm=false for preview, then confirm=true to persist it.",
         parameters: {
           type: "object",
@@ -601,6 +669,29 @@ function buildToolSpec(isElevated: boolean): Tool[] {
             startDate: { type: "string", description: "ISO start date." },
             cadenceCode: { type: "string", enum: [...ASSISTANT_PROPOSAL_CADENCE_CODES] },
             timePreference: { type: "string", description: "morning, afternoon, evening, etc." },
+            programWeeks: {
+              type: "integer",
+              minimum: 1,
+              maximum: 104,
+              description: "Calendar length of the program (default 12). Use to extend/shorten vs bundle hint.",
+            },
+            sessionsPerWeek: {
+              type: "integer",
+              minimum: 1,
+              maximum: 7,
+              description: "Override sessions per week; if omitted, derived from cadenceCode.",
+            },
+            sessionDurationMinutes: {
+              type: "integer",
+              minimum: 15,
+              maximum: 480,
+              description: "Typical session length in minutes (default 60).",
+            },
+            sessionCost: { type: "number", minimum: 0, description: "Optional per-session rate (GBP)." },
+            assistantPrompt: {
+              type: "string",
+              description: "Short audit trail of what the assistant optimized (optional).",
+            },
             productSelections: {
               type: "array",
               items: {
@@ -777,7 +868,10 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
         ] : []),
         "- get_context_snapshot: Overview of trainer profile + counts." + (isElevated ? " Pass trainerId to view any trainer." : ""),
         "- list_clients: List clients with message counts and revenue." + (isElevated ? " Pass trainerId for any trainer's clients." : ""),
-        "- list_bundles: List bundles/offers." + (isElevated ? " Pass trainerId for any trainer's bundles." : ""),
+        "- list_bundles: List bundles with sessionCount and estimatedProgramWeeksHint." +
+          (isElevated ? " Pass trainerId for any trainer's bundles." : ""),
+        "- get_bundle: Load one bundle by ID with goals/services/products JSON for duration and scheduling context." +
+          (isElevated ? " Pass trainerId when needed." : ""),
         "- search_catalog_products: Search standard catalog products by keyword, brand, category, or use case.",
         "- list_custom_products: List trainer-owned custom products." + (isElevated ? " Pass trainerId for any trainer's custom products." : ""),
         "- list_conversations: List conversation summaries." + (isElevated ? " Pass userId for any user's conversations." : ""),
@@ -797,7 +891,7 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
         "4. When the user mentions a task that requires context (conversations, clients, bundles), gather that context with tools BEFORE responding. Chain multiple tool calls in one turn.",
         "5. For analytics, call build_client_value_report and summarize the key takeaways.",
         "6. For recommendations, call recommend_bundles_from_chats and present the matches with reasoning.",
-        "7. For saved cart/custom bundle planning, search bundles and products first, then call create_saved_cart_proposal in preview mode before sending any invite.",
+        "7. Custom Plan (saved cart proposal): search catalog/custom products and bundles first; list_clients to resolve the client; list_bundles / recommend_bundles_from_chats / get_bundle as needed; call create_saved_cart_proposal with confirm=false (set programWeeks to extend/shorten vs bundle hints); confirm with the trainer, then confirm=true; share proposalId and proposalUrl from the tool result. Put allergies and constraints in notes. Holiday/blackout dates are not auto-skipped in the schedule yet — say so and record holidays in notes.",
         "8. When asked to review conversations or check what clients are asking about, call list_conversations AND get_conversation_messages in the same turn. Read the actual messages and summarize what people are discussing. Do NOT stop after listing conversations — always read the messages too.",
         "",
         "SAFETY RULES:",
@@ -864,14 +958,28 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
 
     return {
       total: rows.length,
-      bundles: rows.map((bundle) => ({
-        id: bundle.id,
-        title: bundle.title,
-        description: bundle.description,
-        status: bundle.status,
-        price: bundle.price,
-        cadence: bundle.cadence,
-      })),
+      bundles: rows.map((bundle) => bundleDraftToAssistantListRow(bundle)),
+    };
+  };
+
+  const handleGetBundle = async (args: Record<string, unknown>) => {
+    const bundleDraftId = asString(args.bundleDraftId);
+    if (!bundleDraftId) {
+      return { error: "bundleDraftId is required." };
+    }
+    const trainerId = asString(args.trainerId);
+    const bundles = await getTrainerBundles(runtime, trainerId || undefined);
+    const bundle = bundles.find((entry) => entry.id === bundleDraftId);
+    if (!bundle) {
+      return { error: `Bundle not found: ${bundleDraftId}` };
+    }
+    return {
+      bundle: {
+        ...bundleDraftToAssistantListRow(bundle),
+        goalsJson: bundle.goalsJson,
+        servicesJson: bundle.servicesJson,
+        productsJson: bundle.productsJson,
+      },
     };
   };
 
@@ -964,6 +1072,11 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
     const cadenceCode = normalizeCadenceCode(asString(args.cadenceCode) || "weekly");
     const timePreference = asString(args.timePreference);
     const confirm = asBoolean(args.confirm, false);
+    const programWeeks = asProgramWeeks(args.programWeeks, 12);
+    const sessionDurationMinutes = asSessionDurationMinutes(args.sessionDurationMinutes, 60);
+    const sessionCost = asOptionalSessionCost(args.sessionCost);
+    const optionalSessionsPerWeek = asOptionalSessionsPerWeek(args.sessionsPerWeek);
+    const assistantPrompt = asString(args.assistantPrompt);
 
     const productSelections = Array.isArray(args.productSelections)
       ? args.productSelections
@@ -1078,7 +1191,11 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
       baseBundleDraftId,
       startDate,
       cadenceCode,
+      sessionsPerWeek: optionalSessionsPerWeek,
       timePreference,
+      programWeeks,
+      sessionCost,
+      sessionDurationMinutes,
       items,
     });
 
@@ -1107,7 +1224,7 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
       baseBundleDraftId: baseBundleDraftId || null,
       title,
       notes: notes || null,
-      assistantPrompt: asString(args.assistantPrompt) || null,
+      assistantPrompt: assistantPrompt || null,
       source: "assistant",
       status: "draft",
       startDate: snapshot.startDate,
@@ -1120,7 +1237,14 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
       discountAmount: snapshot.pricing.discountAmount.toFixed(2),
       totalAmount: snapshot.pricing.totalAmount.toFixed(2),
       currency: snapshot.pricing.currency,
-      metadata: { createdByAssistant: true },
+      metadata: {
+        ...mergeSavedCartProposalPlanMetadata(null, {
+          programWeeks: snapshot.programWeeks ?? programWeeks,
+          sessionCost: snapshot.sessionCost ?? sessionCost,
+          sessionDurationMinutes: snapshot.sessionDurationMinutes ?? sessionDurationMinutes,
+        }),
+        createdByAssistant: true,
+      },
     });
 
     await db.replaceSavedCartProposalItems(
@@ -1143,10 +1267,14 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
       })),
     );
 
+    const proposalUrl = getTrainerProposalDeepLink(proposalId);
     return {
       status: "success",
-      summary: `Created saved cart proposal ${proposalId}.`,
+      summary: proposalUrl
+        ? `Created saved cart proposal ${proposalId}. Open in app: ${proposalUrl}`
+        : `Created saved cart proposal ${proposalId}.`,
       proposalId,
+      proposalUrl: proposalUrl || undefined,
       snapshot,
     };
   };
@@ -1633,6 +1761,7 @@ export async function runTrainerAssistant(input: AssistantRunInput): Promise<Tra
     get_context_snapshot: handleGetContextSnapshot,
     list_clients: handleListClients,
     list_bundles: handleListBundles,
+    get_bundle: handleGetBundle,
     search_catalog_products: handleSearchCatalogProducts,
     list_custom_products: handleListCustomProducts,
     list_conversations: handleListConversations,

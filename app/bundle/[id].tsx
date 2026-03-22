@@ -471,7 +471,7 @@ export default function BundleDetailScreen() {
             onPress={handleInviteClient}
             activeOpacity={0.8}
             accessibilityRole="button"
-            accessibilityLabel={isTrainer ? "Add client with this bundle offer" : "Assign this bundle to a client"}
+            accessibilityLabel={isTrainer ? "Add client with this bundle" : "Assign this bundle to a client"}
             testID="bundle-invite-cta"
           >
             <Text className="text-background font-semibold text-lg">
@@ -497,7 +497,7 @@ export default function BundleDetailScreen() {
             onPress={handleInviteClient}
             activeOpacity={0.8}
             accessibilityRole="button"
-            accessibilityLabel={isTrainer ? "Add client with this bundle offer" : "Assign this bundle to a client"}
+            accessibilityLabel={isTrainer ? "Add client with this bundle" : "Assign this bundle to a client"}
             testID="bundle-invite-fallback-cta"
           >
             <Text className="text-background font-semibold text-lg">

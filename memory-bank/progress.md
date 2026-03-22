@@ -1,6 +1,7 @@
 # Progress
 
 ## What Works
+- **Bundle vs Custom Plan terminology**: Published trainer catalog items are consistently labeled **Bundles** in UI; customer-specific curated plans use **Custom plan**; invite/add-client flows, tabs, More menu, analytics labels, and tests/docs were aligned while keeping stable backend contracts (`bundle_drafts`, `trpc.bundles`, `/bundle/[id]`, `/(trainer)/offers` route segment).
 - **Design system foundation**: Semantic color/spacing/radius/typography/elevation tokens now flow from `theme.config.js` through runtime theme helpers and NativeWind, so shared components have a centralized styling source of truth
 - **Shared UI primitives**: Typography, surface, badge, icon-button, input, FAB, modal-surface, and divider primitives/recipes now exist and are being adopted by trainer/admin/shared UI
 - **Raw-style enforcement**: A custom ESLint design-system rule now blocks new raw hex/rgba/font/shadow literals outside the explicit migration exception list, and `pnpm lint:design-system` verifies the gate

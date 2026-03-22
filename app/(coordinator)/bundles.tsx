@@ -144,7 +144,7 @@ export default function CoordinatorBundlesScreen() {
 
   return (
     <ScreenContainer>
-      <ScreenHeader title="Offers" subtitle={`${filteredBundles.length} of ${bundles.length} offers`} />
+      <ScreenHeader title="Bundles" subtitle={`${filteredBundles.length} of ${bundles.length} bundles`} />
 
       {/* Search bar - always visible */}
       <View className="px-4 pb-3">
@@ -153,12 +153,12 @@ export default function CoordinatorBundlesScreen() {
             <IconSymbol name="magnifyingglass" size={18} color={colors.muted} />
             <TextInput
               className="flex-1 ml-2.5 text-foreground text-sm"
-              placeholder="Search offers..."
+              placeholder="Search bundles..."
               placeholderTextColor={colors.muted}
               value={searchQuery}
               onChangeText={setSearchQuery}
               returnKeyType="search"
-              accessibilityLabel="Search offers"
+              accessibilityLabel="Search bundles"
               testID="bundles-search"
             />
             {searchQuery.length > 0 && (

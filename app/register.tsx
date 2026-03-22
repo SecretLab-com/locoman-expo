@@ -114,7 +114,7 @@ export default function RegisterScreen() {
               Get paid by clients - without chasing invoices.
             </Text>
             <Text className="text-base text-muted text-center mt-1">
-              Invite to Offer to Get paid.
+              Invite → Bundle → Get paid.
             </Text>
 
             {error ? (

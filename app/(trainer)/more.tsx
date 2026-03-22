@@ -61,8 +61,8 @@ export default function TrainerMoreScreen() {
   const items: MoreItem[] = [
     {
       icon: "tag.fill",
-      title: "Offers",
-      subtitle: "Create and manage your offers",
+      title: "Bundles",
+      subtitle: "Create and manage your bundles",
       href: "/(trainer)/offers",
     },
     {
@@ -74,7 +74,7 @@ export default function TrainerMoreScreen() {
     {
       icon: "chart.bar.fill",
       title: "Analytics",
-      subtitle: "Earnings over time and top offers",
+      subtitle: "Earnings over time and top bundles",
       href: "/(trainer)/analytics",
     },
     {
@@ -112,7 +112,7 @@ export default function TrainerMoreScreen() {
     {
       icon: "person.badge.plus",
       title: "Add Clients",
-      subtitle: "Create a client, then send an offer or plan",
+      subtitle: "Create a client, then send a bundle or custom plan",
       href: "/(trainer)/invite",
     },
     {

@@ -23,7 +23,7 @@ Practical trainer workflows powered by the Locomotivate MCP tools. Each journey 
 | Step | Tool | Purpose |
 |------|------|---------|
 | 1 | `list_clients` (with message counts) | Find clients with low/zero recent messages |
-| 2 | `list_bundles` | Get available offers |
+| 2 | `list_bundles` | Get available bundles |
 | 3 | `recommend_bundles_from_chats` | Match dormant clients to relevant bundles |
 | 4 | `invite_from_chat_recs` (preview → confirm) | Send personalized invites |
 
@@ -192,7 +192,7 @@ The LLM orchestrates tool calls based on natural language. The trainer never nee
 |---------|--------|
 | **#2 Re-engagement** | Directly recovers churning clients |
 | **#5 Needs Analysis** | Surfaces sales opportunities from conversations |
-| **#6 Bulk Launch** | Maximizes reach for new offers |
+| **#6 Bulk Launch** | Maximizes reach for new bundles |
 | **#9 Smart Upsell** | Increases revenue per client |
 | **#11 Sponsored Discovery** | Maximizes trainer bonus income |
 

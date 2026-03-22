@@ -3,7 +3,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { getInviteLink } from "@/lib/invite-links";
-import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { getBundleFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
@@ -400,7 +400,7 @@ export default function InvitationScreen() {
               {invitation.products.map((product) => {
                 const thumb =
                   normalizeAssetUrl(product.imageUrl || undefined) ||
-                  getOfferFallbackImageUrl(product.name);
+                  getBundleFallbackImageUrl(product.name);
                 return (
                   <View key={product.id} className="flex-row items-center p-4">
                     <Image

@@ -90,13 +90,13 @@ export default function TemplateGalleryScreen() {
                   className="flex-row items-center mt-4"
                   onPress={() => router.push("/bundle-editor/new" as any)}
                   accessibilityRole="button"
-                  accessibilityLabel="Create new offer"
+                  accessibilityLabel="Create new bundle"
                 >
                   <Text className="text-sm text-muted mr-2">Tap the</Text>
                   <View className="w-8 h-8 rounded-full bg-primary items-center justify-center">
                     <IconSymbol name="plus" size={16} color={colors["foreground-inverse"]} />
                   </View>
-                  <Text className="text-sm text-muted ml-2">to create an offer</Text>
+                  <Text className="text-sm text-muted ml-2">to create a bundle</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -266,8 +266,8 @@ export default function TemplateGalleryScreen() {
         className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
         style={{ right: 16, bottom: 16 }}
         accessibilityRole="button"
-        accessibilityLabel="Create new offer"
-        testID="templates-create-offer-fab"
+        accessibilityLabel="Create new bundle"
+        testID="templates-create-bundle-fab"
       >
         <IconSymbol name="plus" size={24} color={colors["foreground-inverse"]} />
       </TouchableOpacity>

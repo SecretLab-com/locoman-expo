@@ -30,9 +30,9 @@ import {
 } from "react-native";
 import RenderHTML from "react-native-render-html";
 
-import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { getBundleFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
-import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
+import { mapBundleDraftToBundleView } from "@/shared/bundle-offer";
 
 type Product = {
   id: string;
@@ -151,7 +151,7 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
     staleTime: 60000,
     enabled: !(isPlanShopping && isTrainer),
   });
-  /** Same source as trainer Offers (`/(trainer)/bundles`); plan builder only lists published offers. */
+  /** Same source as trainer bundles (`/(trainer)/bundles`); plan builder only lists published bundles. */
   const {
     data: trainerBundlesForPlan,
     isLoading: trainerBundlesForPlanLoading,
@@ -270,7 +270,7 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
 
   const resolveBundleImageUrl = useCallback(
     (bundle: Bundle) => {
-      const offer = mapBundleDraftToOfferView(bundle as any);
+      const offer = mapBundleDraftToBundleView(bundle as any);
       const directImageUrl = normalizeAssetUrl(bundle.imageUrl || bundle.image || offer.imageUrl);
       if (directImageUrl) return directImageUrl;
 
@@ -299,7 +299,7 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
         }
       }
 
-      return getOfferFallbackImageUrl(offer.title);
+      return getBundleFallbackImageUrl(offer.title);
     },
     [productImageByName, productImageEntries],
   );
@@ -637,7 +637,7 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
             onPress={() => setViewMode("bundles")}
             accessibilityRole="tab"
             accessibilityState={{ selected: viewMode === "bundles" }}
-            accessibilityLabel="Browse trainer offers"
+            accessibilityLabel="Browse trainer bundles"
             testID="products-tab-bundles"
             android_ripple={{ color: `${colors.primary}33` }}
             style={({ pressed }) => ({
@@ -658,7 +658,7 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
                 color: viewMode === "bundles" ? colors["primary-foreground"] : colors.foreground,
               }}
             >
-              Offers
+              Bundles
             </Text>
           </Pressable>
           <Pressable
@@ -723,13 +723,13 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
         </View>
       </View>
 
-      {/* Search Bar - Offers mode */}
+      {/* Search Bar - Bundles mode */}
       {viewMode === "bundles" && (
         <View className="px-4 mb-3">
           <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
             <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
             <TextInput
-              placeholder="Search offers..."
+              placeholder="Search bundles..."
               placeholderTextColor={colors.muted}
               value={bundleSearchQuery}
               onChangeText={setBundleSearchQuery}
@@ -747,12 +747,12 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
               onPress={() => setShowHiddenBundles(!showHiddenBundles)}
               className="flex-row items-center mt-2"
               accessibilityRole="button"
-              accessibilityLabel={showHiddenBundles ? "Hide withdrawn offers" : "Show withdrawn offers"}
+              accessibilityLabel={showHiddenBundles ? "Hide withdrawn bundles" : "Show withdrawn bundles"}
             >
               <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: showHiddenBundles ? colors.primary : colors.muted, backgroundColor: showHiddenBundles ? colors.primary : "transparent", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
                 {showHiddenBundles && <IconSymbol name="checkmark" size={12} color="#fff" />}
               </View>
-              <Text className="text-sm text-muted">Show hidden / withdrawn offers</Text>
+              <Text className="text-sm text-muted">Show hidden / withdrawn bundles</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -896,9 +896,9 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
       )}
 
       {viewMode === "bundles" && bundlesCatalogLoading && !error && (
-        <View className="flex-1 items-center justify-center py-16 px-4" accessibilityLabel="Loading offers">
+        <View className="flex-1 items-center justify-center py-16 px-4" accessibilityLabel="Loading bundles">
           <LogoLoader size={48} />
-          <Text className="text-muted mt-4 text-sm">Loading offers…</Text>
+          <Text className="text-muted mt-4 text-sm">Loading bundles…</Text>
         </View>
       )}
 

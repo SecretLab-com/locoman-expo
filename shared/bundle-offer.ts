@@ -1,3 +1,5 @@
+import { cadenceToSessionsPerWeek, normalizeCadenceCode } from './saved-cart-proposal';
+
 export type BundleOfferType =
   | 'one_off_session'
   | 'multi_session_package'
@@ -131,7 +133,7 @@ function resolveSessionCount(bundle: BundleLike, type: BundleOfferType): number 
   return sessionsFromGoals || sessionsFromServices || null;
 }
 
-export function mapBundleDraftToOfferView(bundle: BundleLike): BundleOfferView {
+export function mapBundleDraftToBundleView(bundle: BundleLike): BundleOfferView {
   const type = resolveBundleOfferType(bundle);
   const services = normalizeIncluded(bundle.servicesJson);
   const products = normalizeIncluded(bundle.productsJson);
@@ -141,7 +143,7 @@ export function mapBundleDraftToOfferView(bundle: BundleLike): BundleOfferView {
     id: bundle.id,
     legacyBundleId: bundle.id,
     templateId: bundle.templateId ?? null,
-    title: bundle.title || 'Offer',
+    title: bundle.title || 'Bundle',
     description: bundle.description || null,
     imageUrl: bundle.imageUrl || null,
     type,
@@ -154,5 +156,44 @@ export function mapBundleDraftToOfferView(bundle: BundleLike): BundleOfferView {
     productsJson,
     createdAt: String(bundle.createdAt || ''),
     updatedAt: String(bundle.updatedAt || ''),
+  };
+}
+
+/**
+ * Heuristic calendar length for comparing bundle duration vs a custom programWeeks override.
+ * Uses goalsJson.programWeeks when set; else sessions ÷ cadence-derived sessions/week.
+ */
+export function estimateProgramWeeksFromBundle(bundle: BundleLike): number | null {
+  const goals =
+    bundle.goalsJson && typeof bundle.goalsJson === 'object'
+      ? (bundle.goalsJson as Record<string, unknown>)
+      : {};
+  const explicit =
+    typeof goals.programWeeks === 'number' && goals.programWeeks > 0
+      ? Math.floor(Number(goals.programWeeks))
+      : null;
+  if (explicit && explicit > 0) return explicit;
+
+  const view = mapBundleDraftToBundleView(bundle);
+  const sessionCount = view.sessionCount;
+  if (!sessionCount || sessionCount <= 0) return null;
+  const spw = cadenceToSessionsPerWeek(normalizeCadenceCode(String(bundle.cadence || 'weekly')));
+  if (!spw || spw <= 0) return null;
+  return Math.max(1, Math.ceil(sessionCount / spw));
+}
+
+/** Rows for assistant / MCP list_bundles (duration hints for Custom Plan planning). */
+export function bundleDraftToAssistantListRow(bundle: BundleLike) {
+  const view = mapBundleDraftToBundleView(bundle);
+  return {
+    id: bundle.id,
+    title: bundle.title ?? null,
+    description: bundle.description ?? null,
+    status: bundle.status ?? null,
+    price: bundle.price ?? null,
+    cadence: bundle.cadence ?? null,
+    bundleOfferType: view.type,
+    sessionCount: view.sessionCount,
+    estimatedProgramWeeksHint: estimateProgramWeeksFromBundle(bundle),
   };
 }

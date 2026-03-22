@@ -14,7 +14,7 @@ export const CAMPAIGN_COPY = {
   managerCountSuffix: "campaigns available",
   managerNoneTitle: "No campaigns yet",
   managerNoneSubtitle:
-    "Create campaigns for trainers to use when building offers.",
+    "Create campaigns for trainers to use when building bundles.",
   coordinatorTitle: "Campaigns",
   coordinatorTemplateRemovedTitle: "Campaign Removed",
   coordinatorTemplateRemovedBody: "This bundle is no longer a campaign.",

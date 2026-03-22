@@ -6,7 +6,7 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
-import { mapBundleDraftToOfferView, type BundleOfferStatus } from "@/shared/bundle-offer";
+import { mapBundleDraftToBundleView, type BundleOfferStatus } from "@/shared/bundle-offer";
 import { BUNDLE_OFFER_STATUS_META } from "@/shared/status-meta";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
@@ -14,8 +14,8 @@ import { router } from "expo-router";
 import { useMemo } from "react";
 import { RefreshControl, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
-function formatOfferType(value: string | undefined) {
-  return String(value || "offer")
+function formatBundleType(value: string | undefined) {
+  return String(value || "bundle")
     .replaceAll("_", " ")
     .trim()
     .toLowerCase();
@@ -25,7 +25,7 @@ export default function OffersListScreen() {
   const colors = useColors();
   const { data: bundles = [], isLoading, isRefetching, refetch } = trpc.bundles.list.useQuery();
   const offers = useMemo(
-    () => (bundles as any[]).map((bundle) => mapBundleDraftToOfferView(bundle)),
+    () => (bundles as any[]).map((bundle) => mapBundleDraftToBundleView(bundle)),
     [bundles],
   );
 
@@ -36,8 +36,8 @@ export default function OffersListScreen() {
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={colors.primary} />}
       >
         <ScreenHeader
-          title="Offers"
-          subtitle="Sessions, packages, and bundles in one place."
+          title="Bundles"
+          subtitle="Sessions, packages, and products in one place."
         />
 
         <View className="px-4 mb-4">
@@ -70,15 +70,15 @@ export default function OffersListScreen() {
           ) : offers.length === 0 ? (
             <View className="bg-surface rounded-xl border border-border p-6 items-center">
               <IconSymbol name="tag.fill" size={36} color={colors.muted} />
-              <Text className="text-foreground font-semibold text-base mt-3">No offers yet</Text>
+              <Text className="text-foreground font-semibold text-base mt-3">No bundles yet</Text>
               <Text className="text-sm text-muted mt-1 text-center">
-                Offers are how you get paid. Create one to start earning.
+                Bundles are how you get paid. Create one to start earning.
               </Text>
               <TouchableOpacity
                 className="flex-row items-center mt-4"
                 onPress={() => router.push("/bundle-editor/new" as any)}
                 accessibilityRole="button"
-                accessibilityLabel="Create new offer"
+                accessibilityLabel="Create new bundle"
               >
                 <Text className="text-sm text-muted mr-2">Tap the</Text>
                 <View className="w-8 h-8 rounded-full bg-primary items-center justify-center">
@@ -94,8 +94,8 @@ export default function OffersListScreen() {
                 className="rounded-xl mb-3"
                 onPress={() => router.push(`/bundle-editor/${offer.id}` as any)}
                 accessibilityRole="button"
-                accessibilityLabel={`Open offer ${offer.title}`}
-                testID={`offer-row-${offer.id}`}
+                accessibilityLabel={`Open bundle ${offer.title}`}
+                testID={`bundle-row-${offer.id}`}
               >
                 <SurfaceCard>
                   <View className="flex-row items-center justify-between">
@@ -129,7 +129,7 @@ export default function OffersListScreen() {
                             }}
                           >
                             <Text className="text-[11px] text-muted">
-                              {formatOfferType(offer.type)}
+                              {formatBundleType(offer.type)}
                             </Text>
                           </View>
                           {(() => {
@@ -192,7 +192,7 @@ export default function OffersListScreen() {
         className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
         style={{ right: 16, bottom: 16 }}
         accessibilityRole="button"
-        accessibilityLabel="Create new offer"
+        accessibilityLabel="Create new bundle"
         testID="offers-add-fab"
       >
         <IconSymbol name="plus" size={24} color="#fff" />

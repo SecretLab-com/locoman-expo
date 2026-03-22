@@ -3,9 +3,9 @@ import { ScreenContainer } from "@/components/screen-container";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
-import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
+import { getBundleFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBP } from "@/lib/currency";
-import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
+import { mapBundleDraftToBundleView } from "@/shared/bundle-offer";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router } from "expo-router";
@@ -17,7 +17,7 @@ export default function TrainerAnalyticsScreen() {
   const { data: earningsSummary, isLoading: summaryLoading } = trpc.earnings.summary.useQuery();
   const { data: bundles = [], isLoading: offersLoading } = trpc.bundles.list.useQuery();
   const offers = useMemo(
-    () => (bundles as any[]).map((bundle) => mapBundleDraftToOfferView(bundle)),
+    () => (bundles as any[]).map((bundle) => mapBundleDraftToBundleView(bundle)),
     [bundles],
   );
 
@@ -51,13 +51,13 @@ export default function TrainerAnalyticsScreen() {
         </View>
 
         <View className="px-4 pb-8">
-          <Text className="text-lg font-semibold text-foreground mb-3">Top offers</Text>
+          <Text className="text-lg font-semibold text-foreground mb-3">Top bundles</Text>
           {topOffers.length === 0 ? (
             <EmptyStateCard
               icon="chart.bar.fill"
-              title="No offer data yet"
-              description="Create your first offer to start seeing performance insights."
-              ctaLabel="Create Offer"
+              title="No bundle data yet"
+              description="Create your first bundle to start seeing performance insights."
+              ctaLabel="Create bundle"
               onCtaPress={() => router.push("/bundle-editor/new" as any)}
             />
           ) : (
@@ -66,7 +66,7 @@ export default function TrainerAnalyticsScreen() {
                 <View className="flex-row items-center">
                   <View className="w-12 h-12 rounded-lg bg-surface border border-border overflow-hidden mr-3">
                     <Image
-                      source={{ uri: normalizeAssetUrl(offer?.imageUrl) || getOfferFallbackImageUrl(offer?.title) }}
+                      source={{ uri: normalizeAssetUrl(offer?.imageUrl) || getBundleFallbackImageUrl(offer?.title) }}
                       style={{ width: "100%", height: "100%" }}
                       contentFit="cover"
                     />

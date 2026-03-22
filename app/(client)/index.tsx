@@ -550,7 +550,7 @@ export default function ClientDashboardScreen() {
                     onPress={() => router.push("/(client)/products" as any)}
                     accessibilityRole="button"
                     accessibilityLabel="Browse products"
-                    testID="client-home-browse-offers"
+                    testID="client-home-browse-bundles"
                   >
                     <Text className="font-semibold" style={{ color: heroText }}>
                       Browse Products
@@ -758,7 +758,7 @@ export default function ClientDashboardScreen() {
                   <Text className="text-sm text-muted mt-1">
                     {primaryTrainer
                       ? "Shop products, categories, or trainer bundles whenever you are ready."
-                      : "Start with a trainer first, then explore offers that fit your goals."}
+                      : "Start with a trainer first, then explore bundles that fit your goals."}
                   </Text>
                 </View>
               </View>

@@ -29,6 +29,7 @@ import {
   cadenceToSessionsPerWeek,
   countProjectedSessions,
   diffProposalSnapshots,
+  mergeSavedCartProposalPlanMetadata,
   normalizeCadenceCode,
   type ProposalCadenceCode,
   type ProposalItemInput,
@@ -2151,29 +2152,6 @@ function readPlanFieldsFromProposalMetadata(metadata: unknown): {
   return { programWeeks, sessionCost, sessionDurationMinutes };
 }
 
-function mergeSavedCartProposalPlanMetadata(
-  previous: unknown,
-  patch: {
-    programWeeks: number | null;
-    sessionCost: number | null;
-    sessionDurationMinutes: number | null;
-  },
-): Record<string, unknown> {
-  const base =
-    previous && typeof previous === "object" && !Array.isArray(previous)
-      ? { ...(previous as Record<string, unknown>) }
-      : {};
-  const snapshotVersion =
-    typeof base.snapshotVersion === "number" ? base.snapshotVersion : 1;
-  return {
-    ...base,
-    snapshotVersion,
-    programWeeks: patch.programWeeks,
-    sessionCost: patch.sessionCost,
-    sessionDurationMinutes: patch.sessionDurationMinutes,
-  };
-}
-
 async function buildSavedCartSnapshotFromRecord(
   proposal: db.SavedCartProposal,
   items?: db.SavedCartProposalItem[],
@@ -3952,7 +3930,7 @@ export const appRouter = router({
               return {
                 id: sub.id,
                 bundleDraftId: sub.bundleDraftId || null,
-                title: bundle?.title || "Offer",
+                title: bundle?.title || "Bundle",
                 price: sub.price,
                 cadence: sub.subscriptionType || "monthly",
                 status: sub.status || "active",
@@ -7617,7 +7595,7 @@ export const appRouter = router({
           trainerName: trainerById.get(row.trainerId)?.name || "Trainer",
           campaignAccountName:
             accountById.get(row.campaignAccountId)?.name || "Campaign Account",
-          bundleTitle: bundleById.get(row.bundleDraftId)?.title || "Campaign Offer",
+          bundleTitle: bundleById.get(row.bundleDraftId)?.title || "Campaign bundle",
         }));
       }),
 
@@ -7746,7 +7724,7 @@ export const appRouter = router({
           lines.push(
             [
               accountById.get(row.campaignAccountId)?.name || "Campaign Account",
-              bundleById.get(row.bundleDraftId)?.title || "Campaign Offer",
+              bundleById.get(row.bundleDraftId)?.title || "Campaign bundle",
               trainerById.get(row.trainerId)?.name || "Trainer",
               Number(row.views || 0),
               Number(row.engagements || 0),

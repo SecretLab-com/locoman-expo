@@ -1810,11 +1810,11 @@ export default function TrainerSocialProgressScreen() {
 
           <SurfaceCard>
             <Text className="text-base font-semibold text-foreground mb-2">
-              Campaign Offer Metrics
+              Campaign bundle metrics
             </Text>
             {campaignBundles.length === 0 ? (
               <Text className="text-sm text-muted">
-                Create an offer from a campaign template to unlock campaign-attributed
+                Create a bundle from a campaign template to unlock campaign-attributed
                 metrics.
               </Text>
             ) : (
@@ -1835,7 +1835,7 @@ export default function TrainerSocialProgressScreen() {
                           paddingVertical: 5,
                         }}
                         accessibilityRole="button"
-                        accessibilityLabel={`Select campaign offer ${bundle.title}`}
+                        accessibilityLabel={`Select campaign bundle ${bundle.title}`}
                         testID={`social-progress-campaign-${bundle.id}`}
                       >
                         <Text
