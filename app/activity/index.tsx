@@ -3,11 +3,11 @@ import {
   Text,
   View,
   TouchableOpacity,
-  ScrollView,
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { CollapsibleHeaderScrollView } from "@/components/collapsible-header-scroll-view";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -75,6 +75,15 @@ export default function ActivityScreen() {
     { enabled: isAuthenticated },
   );
 
+  const {
+    data: trainerJoinRequests = [],
+    isLoading: joinRequestsLoading,
+    refetch: refetchJoinRequests,
+    isRefetching: isRefetchingJoinRequests,
+  } = trpc.myTrainers.forTrainerPendingRequests.useQuery(undefined, {
+    enabled: isAuthenticated && isTrainer,
+  });
+
   const markNotificationReadMutation = trpc.socialProgram.markNotificationRead.useMutation({
     onSuccess: () => {
       refetchNotifications();
@@ -85,12 +94,14 @@ export default function ActivityScreen() {
     deliveriesLoading ||
     trainerDeliveriesLoading ||
     trainerOrdersLoading ||
-    notificationsLoading;
+    notificationsLoading ||
+    (isTrainer && joinRequestsLoading);
   const isRefetching =
     isRefetchingDeliveries ||
     isRefetchingTrainerDeliveries ||
     isRefetchingTrainerOrders ||
-    isRefetchingNotifications;
+    isRefetchingNotifications ||
+    (isTrainer && isRefetchingJoinRequests);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -120,7 +131,11 @@ export default function ActivityScreen() {
       await refetchDeliveries();
     }
     if (isTrainer) {
-      await Promise.all([refetchTrainerDeliveries(), refetchTrainerOrders()]);
+      await Promise.all([
+        refetchTrainerDeliveries(),
+        refetchTrainerOrders(),
+        refetchJoinRequests(),
+      ]);
     }
     await refetchNotifications();
   };
@@ -154,6 +169,7 @@ export default function ActivityScreen() {
   const deliveries = isTrainer ? (trainerDeliveries || []) : (clientDeliveries || []);
   const orders = trainerOrders || [];
   const notifications = socialNotifications || [];
+  const joinRequests: any[] = isTrainer ? trainerJoinRequests || [] : [];
 
   // Filter items based on active tab
   const filteredOrders =
@@ -162,6 +178,9 @@ export default function ActivityScreen() {
     activeTab === "orders" || activeTab === "notifications" ? [] : deliveries;
   const filteredNotifications =
     activeTab === "orders" || activeTab === "deliveries" ? [] : notifications;
+  /** Shown on Activity / trainer bell — same sources as dashboard badge (join requests). */
+  const filteredJoinRequests =
+    !isTrainer || activeTab === "orders" || activeTab === "deliveries" ? [] : joinRequests;
 
   // Format date
   const formatDate = (date: string | Date | null) => {
@@ -202,21 +221,15 @@ export default function ActivityScreen() {
   }
 
   return (
-    <ScreenContainer>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
+    <ScreenContainer edges={["left", "right"]}>
+      <CollapsibleHeaderScrollView
+        title="Activity"
+        subtitle={isTrainer ? "Manage orders and deliveries" : "Your orders and deliveries"}
+        testID="activity-scroll"
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Header */}
-        <View className="px-4 pt-2 pb-4">
-          <Text className="text-2xl font-bold text-foreground">Activity</Text>
-          <Text className="text-sm text-muted">
-            {isTrainer ? "Manage orders and deliveries" : "Your orders and deliveries"}
-          </Text>
-        </View>
-
         {/* Tab Selector */}
         <View className="px-4 mb-4">
           <View className="flex-row bg-surface rounded-xl p-1 border border-border">
@@ -270,8 +283,8 @@ export default function ActivityScreen() {
         {/* Quick Stats for Trainers */}
         {isTrainer && (
           <View className="px-4 mb-4">
-            <View className="flex-row gap-3">
-              <View className="flex-1 bg-surface rounded-xl p-4 border border-border">
+            <View className="flex-row gap-3 flex-wrap">
+              <View className="flex-1 min-w-[30%] bg-surface rounded-xl p-4 border border-border">
                 <View className="flex-row items-center mb-2">
                   <IconSymbol name="bag.fill" size={20} color={colors.warning} />
                   <Text className="text-warning font-semibold ml-2">
@@ -280,7 +293,7 @@ export default function ActivityScreen() {
                 </View>
                 <Text className="text-sm text-muted">Pending Orders</Text>
               </View>
-              <View className="flex-1 bg-surface rounded-xl p-4 border border-border">
+              <View className="flex-1 min-w-[30%] bg-surface rounded-xl p-4 border border-border">
                 <View className="flex-row items-center mb-2">
                   <IconSymbol name="shippingbox.fill" size={20} color={colors.primary} />
                   <Text className="text-primary font-semibold ml-2">
@@ -289,6 +302,71 @@ export default function ActivityScreen() {
                 </View>
                 <Text className="text-sm text-muted">Pending Deliveries</Text>
               </View>
+              <View className="flex-1 min-w-[30%] bg-surface rounded-xl p-4 border border-border">
+                <View className="flex-row items-center mb-2">
+                  <IconSymbol name="person.badge.plus" size={20} color={colors.success} />
+                  <Text className="font-semibold ml-2" style={{ color: colors.success }}>
+                    {joinRequests.length}
+                  </Text>
+                </View>
+                <Text className="text-sm text-muted">Join requests</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Trainer: pending join requests (drives dashboard bell + More tab) */}
+        {filteredJoinRequests.length > 0 && (
+          <View className="px-4 mb-6">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-lg font-semibold text-foreground">Join requests</Text>
+              <TouchableOpacity
+                onPress={async () => {
+                  await haptics.light();
+                  router.push("/(trainer)/join-requests" as any);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Open all join requests"
+                testID="activity-join-requests-view-all"
+              >
+                <Text className="text-primary font-medium">Review all</Text>
+              </TouchableOpacity>
+            </View>
+            <View className="bg-surface rounded-xl border border-border">
+              {filteredJoinRequests.slice(0, 5).map((req: any, index: number) => {
+                const user = req.requestUser || {};
+                const displayName = user.name || req.name || "Client request";
+                const displayEmail = user.email || req.email || "";
+                return (
+                  <TouchableOpacity
+                    key={String(req.id)}
+                    className={`flex-row items-center p-4 ${
+                      index < Math.min(filteredJoinRequests.length, 5) - 1 ? "border-b border-border" : ""
+                    }`}
+                    activeOpacity={0.7}
+                    onPress={async () => {
+                      await haptics.light();
+                      router.push("/(trainer)/join-requests" as any);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Join request from ${displayName}`}
+                    testID={`activity-join-request-${req.id}`}
+                  >
+                    <View className="w-10 h-10 rounded-full bg-success/15 items-center justify-center">
+                      <IconSymbol name="person.badge.plus" size={20} color={colors.success} />
+                    </View>
+                    <View className="flex-1 ml-3">
+                      <Text className="text-foreground font-medium" numberOfLines={1}>
+                        {displayName}
+                      </Text>
+                      <Text className="text-sm text-muted" numberOfLines={1}>
+                        {displayEmail || "Wants to train with you"}
+                      </Text>
+                    </View>
+                    <IconSymbol name="chevron.right" size={16} color={colors.muted} />
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         )}
@@ -494,17 +572,17 @@ export default function ActivityScreen() {
         {/* Empty State */}
         {filteredOrders.length === 0 &&
           filteredDeliveries.length === 0 &&
-          filteredNotifications.length === 0 && (
+          filteredNotifications.length === 0 &&
+          filteredJoinRequests.length === 0 && (
           <View className="items-center py-12 px-4">
             <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
               <IconSymbol name="bell.fill" size={32} color={colors.muted} />
             </View>
             <Text className="text-foreground font-semibold text-lg mb-1">No activity yet</Text>
             <Text className="text-muted text-center">
-              {isTrainer 
-                ? "Orders and deliveries from your clients will appear here"
-                : "Your orders and deliveries will appear here"
-              }
+              {isTrainer
+                ? "Orders, deliveries, client join requests, and notifications will appear here"
+                : "Your orders and deliveries will appear here"}
             </Text>
             {!isTrainer && (
               <TouchableOpacity
@@ -522,7 +600,7 @@ export default function ActivityScreen() {
 
         {/* Bottom padding */}
         <View className="h-24" />
-      </ScrollView>
+      </CollapsibleHeaderScrollView>
     </ScreenContainer>
   );
 }

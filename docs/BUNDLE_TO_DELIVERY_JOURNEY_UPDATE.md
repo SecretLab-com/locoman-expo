@@ -592,7 +592,7 @@ The trainer monitors client progress.
 ## Implementation Checklist
 
 ### Bundle Creation & Editing
-- [ ] Bundle templates for quick start
+- [x] Bundle templates for quick start (`trpc.bundles.templates`, `campaignMode` template picker in bundle editor)
 - [x] Bundle editor with tabs (Campaign, Details, Services, Products)
 - [x] Product selection from Shopify catalog
 - [x] Auto-price calculation
@@ -600,45 +600,48 @@ The trainer monitors client progress.
 - [x] Submit for review workflow
 
 ### Bundle Review Workflow
-- [x] Manager approvals screen
-- [ ] Review comments/feedback system
-- [ ] "Request Changes" action with comments
-- [ ] "Changes Requested" status
+- [x] Manager approvals screen (`app/(manager)/approvals.tsx`)
+- [x] Review comments/feedback system (single latest-comment model via `reviewComments` on bundle draft)
+  - [ ] Threaded multi-comment review history UI (enhancement)
+- [x] "Request Changes" action with comments (`admin.requestChanges` with `comments` input)
+- [x] "Changes Requested" status (`changes_requested` in `bundle_status` enum, tab in approvals)
 - [x] Approve/Reject actions
-- [ ] Resubmission workflow
-- [x] Notification on status changes
+- [x] Resubmission workflow (`bundles.respondToReview` with `resubmit` flag)
+- [x] Notification on status changes (push to trainer on approve/reject/request-changes)
 
 ### Customer Invitation & Purchase
 - [x] Invite client screen
 - [x] Invitation landing page with bundle preview
-- [x] Accept invitation flow
-- [ ] Trainer-assisted cart proposal flow
-- [ ] Proposed start date and projected delivery dates in invite
-- [ ] Simple cadence prompts (weekly, 2x/week, 3x/week, daily, etc.)
-- [ ] Automatic calendar projection from cadence and start date
-- [ ] Automatic delivery-date projection from saved cart / custom bundle contents
-- [ ] Projected calendar included in invite
-- [ ] Customer cart editing before payment
-- [ ] Customer can remove the base bundle and related discounting before payment
-- [ ] Recalculate timeline and delivery projection automatically after cart edits
-- [ ] Cart diff tracking versus trainer proposal
-- [ ] Payment integration (mock for testing)
-- [x] Auto-create order on payment
-- [ ] Auto-create delivery records on order
-- [ ] Notify trainer if customer modified the cart before paying
+- [x] Accept invitation flow (bundle invites via `acceptInvitation`, proposal invites route to checkout)
+- [x] Trainer-assisted cart proposal flow (`savedCartProposals` CRUD, `TrainerProposalBuilder` in cart)
+- [x] Proposed start date and projected delivery dates (stored in `proposalSnapshot`, served via `catalog.invitation`)
+  - [ ] Render start date and projected delivery dates on client-facing invite landing page
+- [x] Simple cadence prompts (weekly, 2x/week, 3x/week, daily in trainer proposal builder)
+- [x] Automatic calendar projection from cadence and start date (`buildProjectedSchedule` in `shared/saved-cart-proposal.ts`)
+- [x] Automatic delivery-date projection from saved cart / custom bundle contents (`buildProjectedDeliveries`)
+- [ ] Projected calendar rendered on client-facing invite landing page
+- [x] Customer cart editing before payment (editable line items, qty, fulfillment, remove in proposal checkout)
+- [x] Customer can remove the base bundle and related discounting before payment (clears `baseBundleDraftId`)
+- [x] Recalculate timeline and delivery projection automatically after cart edits (`proposalPreview` recomputes via `buildSavedCartProposalSnapshot`)
+- [x] Cart diff tracking versus trainer proposal (`diffProposalSnapshots` persisted as `cart_diff_json` on order)
+- [x] Payment integration (Adyen payment links, mock mode via `MOCK_SHOPIFY`)
+- [x] Auto-create order on payment (order created at checkout, Adyen webhook marks paid)
+- [x] Auto-create delivery records on order (both `orders.create` and `orders.createFromProposal` create deliveries)
+- [x] Notify trainer if customer modified the cart before paying (cart diff summary in push via `notifyTrainerAboutPaidProposalOrder`)
 - [x] Notification to trainer on payment
 
 ### Product Delivery
-- [ ] Submit paid order to Shopify
-- [ ] Persist Shopify order reference for tracking
+- [x] Submit paid order to Shopify (`submitPaidOrderToShopify` in `server/_core/index.ts`)
+- [x] Persist Shopify order reference for tracking (`shopifyOrderId` and `shopifyOrderNumber` on order row)
 - [x] Trainer deliveries screen
 - [x] Mark ready / Mark delivered actions
 - [x] Client deliveries screen
 - [x] Confirm receipt action
 - [x] Report issue action
 - [x] Disputed status handling
-- [ ] Messaging for issue resolution
-- [ ] Create additional delivery for missing items
+- [ ] Messaging thread for issue resolution (disputes update delivery rows but no dedicated message bridge)
+- [x] Create additional delivery for missing items (API: `deliveries.createForOrder`)
+  - [ ] Trainer UI for creating additional delivery from deliveries screen
 
 ### Session Tracking
 - [x] Session scheduling (Calendar)
@@ -646,30 +649,30 @@ The trainer monitors client progress.
 - [x] Session usage tracking (X of Y used)
 - [x] Client detail with subscription status
 - [x] Remaining sessions display
-- [ ] Session history view
+- [ ] Session history view (dedicated list on client detail)
 
 ### Trainer Attribution and Independent Shopping
-- [ ] Trainer attribution model (trainer_id linked to customer for commission tracking)
-- [ ] My Store Link on trainer profile with unique attribution slug
-- [ ] Share button next to My Store Link (native share sheet / clipboard)
-- [ ] Store link landing page sets trainer attribution on customer
-- [ ] Invitation acceptance sets trainer attribution on customer
-- [ ] Attribution updates to most-recent-interaction trainer when customer has multiple trainers
-- [ ] Per-product configurable commission rate (default 10%)
-- [ ] Per-bundle configurable commission rate (default 10%)
-- [ ] Brand bonus / sponsored product bonus applied to attributed trainer on purchase
-- [ ] Commission calculation on independent customer Shopify purchases
-- [ ] Attributed purchase notification to trainer
-- [ ] Attributed earnings visible in trainer earnings/get-paid screen
+- [x] Trainer attribution model (dedicated `trainer_attributions` + `trainer_attribution_log` tables with source, timestamps, audit history)
+- [x] My Store Link on trainer profile with unique attribution slug (`/shop/{username}` in trainer profile)
+- [x] Share button next to My Store Link (native share sheet via `Share.share`)
+- [x] Store link landing page sets trainer attribution on customer (`app/shop/[slug].tsx`)
+- [x] Invitation acceptance sets trainer attribution on customer (`upsertAttribution` in `acceptInvitation` and `createFromProposal`)
+- [x] Attribution updates to most-recent-interaction trainer when customer has multiple trainers (upsert on `customer_id` unique constraint)
+- [x] Per-product configurable commission rate (default 10%) (`products.commission_rate` column)
+- [x] Per-bundle configurable commission rate (default 10%) (`bundle_drafts.commission_rate` column)
+- [x] Brand bonus / sponsored product bonus applied to attributed trainer on purchase (`createSponsoredProductBonuses` writes `trainer_earnings` with `earningType: "bonus"`)
+- [x] Commission calculation on independent customer purchases (`createAttributedCommissions` in paid-order pipeline)
+- [x] Attributed purchase notification to trainer (`notifyTrainerAboutAttributedPurchase` push notification)
+- [x] Attributed earnings visible in trainer earnings/get-paid screen (commission rows in `trainer_earnings`, distinct icon/color in earnings UI)
 
 ### Notifications
 - [x] New order notification
 - [x] Delivery status notifications
-- [ ] Cart modified notification to trainer
-- [ ] Attributed purchase notification to trainer
-- [ ] Bundle approval/rejection notification
-- [ ] Issue reported notification
-- [ ] Session reminder notification
+- [x] Cart modified notification to trainer (via `notifyTrainerAboutPaidProposalOrder` cart-diff summary push)
+- [x] Attributed purchase notification to trainer (`notifyTrainerAboutAttributedPurchase` push)
+- [x] Bundle approval/rejection notification (push to trainer on approve: `"Bundle approved"`, reject: `"Bundle needs revision"`)
+- [ ] Issue reported notification (currently badge-count only, no targeted trainer push)
+- [ ] Session reminder notification (helper exists in `lib/notifications.ts` but not wired from server/session flows)
 
 ---
 

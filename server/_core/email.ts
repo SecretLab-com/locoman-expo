@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { getUserByEmail } from "../db";
 import { ENV } from "./env";
 
 export type InviteEmailErrorCode =
@@ -23,6 +24,11 @@ type InviteEmailInput = {
   trainerName?: string | null;
   expiresAtIso: string;
   personalMessage?: string | null;
+  /**
+   * If set, forces the app path (/login vs /register).
+   * If omitted, uses /login when `to` matches an existing app user, otherwise /register.
+   */
+  authLanding?: "login" | "register";
 };
 
 function trimTrailingSlash(value: string): string {
@@ -43,12 +49,23 @@ function getInviteBaseUrl(): string {
   return candidate ? trimTrailingSlash(candidate) : "";
 }
 
-function getInviteLink(token: string): string {
+function getInviteLink(token: string, landing: "login" | "register"): string {
   const tokenParam = encodeURIComponent(token);
-  const path = `/register?inviteToken=${tokenParam}`;
+  const route = landing === "login" ? "login" : "register";
+  const path = `/${route}?inviteToken=${tokenParam}`;
   const base = getInviteBaseUrl();
   if (base) return `${base}${path}`;
-  return `locomotivate://register?inviteToken=${tokenParam}`;
+  return `locomotivate://${route}?inviteToken=${tokenParam}`;
+}
+
+async function resolveInviteAuthLanding(
+  input: InviteEmailInput,
+): Promise<"login" | "register"> {
+  if (input.authLanding) return input.authLanding;
+  const email = input.to.trim().toLowerCase();
+  if (!email) return "register";
+  const user = await getUserByEmail(email);
+  return user ? "login" : "register";
 }
 
 function buildInviteHtml(input: InviteEmailInput, inviteLink: string): string {
@@ -129,7 +146,8 @@ export async function sendInviteEmail(input: InviteEmailInput): Promise<string> 
   }
 
   const resend = new Resend(ENV.resendApiKey);
-  const inviteLink = getInviteLink(input.token);
+  const landing = await resolveInviteAuthLanding(input);
+  const inviteLink = getInviteLink(input.token, landing);
   const html = buildInviteHtml(input, inviteLink);
   const text = buildInviteText(input, inviteLink);
 

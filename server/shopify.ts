@@ -320,6 +320,14 @@ export async function submitLocalOrderToShopify(params: {
           name: "saved_cart_proposal_id",
           value: String(order.savedCartProposalId || ""),
         },
+        {
+          name: "attributed_trainer_id",
+          value: String(order.trainerId || ""),
+        },
+        {
+          name: "attribution_id",
+          value: String(order.attributionId || ""),
+        },
       ].filter((entry) => entry.value),
     },
   };

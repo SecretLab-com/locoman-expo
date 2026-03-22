@@ -1,24 +1,31 @@
+import { ActionButton } from "@/components/action-button";
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
+import { useCart } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
-import { haptics } from "@/hooks/use-haptics";
 import { trackLaunchEvent } from "@/lib/analytics";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
-import { getInviteLink } from "@/lib/invite-links";
 import { sanitizeHtml } from "@/lib/html-utils";
-import { mapBundleDraftToOfferView, type BundleOfferPaymentType, type BundleOfferStatus, type BundleOfferType } from "@/shared/bundle-offer";
-import { BUNDLE_OFFER_STATUS_META } from "@/shared/status-meta";
 import { trpc } from "@/lib/trpc";
+import { getTrpcMutationMessage } from "@/lib/trpc-errors";
+import {
+  mapBundleDraftToOfferView,
+  type BundleOfferPaymentType,
+  type BundleOfferStatus,
+  type BundleOfferType,
+} from "@/shared/bundle-offer";
+import { cadenceToSessionsPerWeek } from "@/shared/saved-cart-proposal";
+import { BUNDLE_OFFER_STATUS_META } from "@/shared/status-meta";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Modal, Pressable, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import RenderHTML from "react-native-render-html";
-import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, Share, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 type OfferOption = {
   id: string;
@@ -39,14 +46,27 @@ type CatalogProduct = {
   imageUrl: string | null;
 };
 
+type CreatedClient = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+};
+
+type FlowStep =
+  | { type: "form" }
+  | { type: "choose_offer" }
+  | { type: "simple_pick" }
+  | { type: "simple_review"; offerId: string };
+
 function formatOfferTypeLabel(type: BundleOfferType): string {
   if (type === "one_off_session") return "One-off session";
   if (type === "multi_session_package") return "Multi-session package";
   return "Product bundle";
 }
 
-function showAlert(title: string, message: string) {
-  Alert.alert(title, message);
+function showAlert(title: string, msg: string) {
+  Alert.alert(title, msg);
 }
 
 function extractListItemsFromHtml(description: string): string[] {
@@ -62,9 +82,22 @@ function extractListItemsFromHtml(description: string): string[] {
   return names;
 }
 
+function defaultProposalScheduleFields() {
+  return {
+    startDate: new Date().toISOString(),
+    cadenceCode: "weekly" as const,
+    sessionsPerWeek: cadenceToSessionsPerWeek("weekly"),
+    programWeeks: 12,
+    sessionDurationMinutes: 60,
+    timePreference: undefined as string | undefined,
+    sessionCost: undefined as number | undefined,
+  };
+}
+
 export default function InviteScreen() {
   const colors = useColors();
   const { width } = useWindowDimensions();
+  const { clearCart, setProposalContext } = useCart();
   const params = useLocalSearchParams<{
     clientId?: string | string[];
     clientName?: string | string[];
@@ -72,41 +105,88 @@ export default function InviteScreen() {
     clientPhone?: string | string[];
     bundleId?: string | string[];
     bundleTitle?: string | string[];
+    /** When "1", existing-client flow opens straight on Simple / Custom / Later choice */
+    toOfferChoice?: string | string[];
   }>();
   const utils = trpc.useUtils();
-  const [clientEmail, setClientEmail] = useState("");
-  const [clientName, setClientName] = useState("");
-  const [clientPhone, setClientPhone] = useState("");
+
+  const getParamValue = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value) || "";
+
+  const existingClientId = getParamValue(params.clientId);
+  const isExistingClientFlow = Boolean(existingClientId);
+  const initialJumpToOffer =
+    Boolean(existingClientId) &&
+    getParamValue(params.toOfferChoice) === "1" &&
+    getParamValue(params.clientName).trim().length > 0;
+  const initialNameFromParams = getParamValue(params.clientName).trim();
+  const initialEmailFromParams = getParamValue(params.clientEmail);
+  const initialPhoneFromParams = getParamValue(params.clientPhone);
+
+  const [clientEmail, setClientEmail] = useState(() =>
+    initialJumpToOffer ? initialEmailFromParams : "",
+  );
+  const [clientName, setClientName] = useState(() => (initialJumpToOffer ? initialNameFromParams : ""));
+  const [clientPhone, setClientPhone] = useState(() =>
+    initialJumpToOffer ? initialPhoneFromParams : "",
+  );
   const [message, setMessage] = useState("");
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
   const [detailsOffer, setDetailsOffer] = useState<OfferOption | null>(null);
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [flowStep, setFlowStep] = useState<FlowStep>(() =>
+    initialJumpToOffer ? { type: "choose_offer" } : { type: "form" },
+  );
+  const [createdClient, setCreatedClient] = useState<CreatedClient | null>(() =>
+    initialJumpToOffer && existingClientId
+      ? {
+          id: existingClientId,
+          name: initialNameFromParams,
+          email: initialEmailFromParams.trim() || null,
+          phone: initialPhoneFromParams.trim() || null,
+        }
+      : null,
+  );
+  /** When client has no email on file, trainer can enter one on the review step. */
+  const [simpleInviteEmail, setSimpleInviteEmail] = useState(() =>
+    initialJumpToOffer ? initialEmailFromParams.trim() : "",
+  );
+
   const scrollRef = useRef<ScrollView | null>(null);
-  const inviteResultTopRef = useRef<number>(0);
   const hasPrefilledFromParamsRef = useRef(false);
   const pendingBundleIdRef = useRef<string | null>(null);
 
   const { data: bundles = [] } = trpc.bundles.list.useQuery();
   const { data: products = [] } = trpc.catalog.products.useQuery();
-  const inviteMutation = trpc.clients.invite.useMutation({
-    onError: (err) => showAlert("Invite failed", `${err.message}\n\nA Server message with next steps has been sent to your inbox.`),
+
+  const createClientMutation = trpc.clients.create.useMutation({
+    onError: (err) =>
+      showAlert("Could not add client", getTrpcMutationMessage(err, "Unable to create this client.")),
+  });
+
+  const createProposalMutation = trpc.savedCartProposals.create.useMutation({
+    onError: (err) =>
+      showAlert("Could not create offer", getTrpcMutationMessage(err, "Unable to create the proposal.")),
+  });
+
+  const sendInviteMutation = trpc.savedCartProposals.sendInvite.useMutation({
+    onError: (err) =>
+      showAlert("Send failed", getTrpcMutationMessage(err, "Unable to send the invite.")),
   });
 
   const options: OfferOption[] = (bundles as any[])
     .map((bundle) => mapBundleDraftToOfferView(bundle))
     .map((offer) => ({
-    id: offer.id,
-    title: String(offer.title || "Offer"),
-    description: typeof offer.description === "string" ? offer.description : null,
-    imageUrl: typeof offer.imageUrl === "string" ? offer.imageUrl : null,
-    priceMinor: Number(offer.priceMinor || 0),
-    paymentType: (offer.paymentType === "recurring" ? "recurring" : "one_off") as BundleOfferPaymentType,
-    type: offer.type || "one_off_session",
-    status: offer.status || "draft",
-    sessionCount: Number.isFinite(Number(offer.sessionCount)) ? Number(offer.sessionCount) : null,
-    included: Array.isArray(offer.included)
-      ? offer.included.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
-      : [],
+      id: offer.id,
+      title: String(offer.title || "Offer"),
+      description: typeof offer.description === "string" ? offer.description : null,
+      imageUrl: typeof offer.imageUrl === "string" ? offer.imageUrl : null,
+      priceMinor: Number(offer.priceMinor || 0),
+      paymentType: (offer.paymentType === "recurring" ? "recurring" : "one_off") as BundleOfferPaymentType,
+      type: offer.type || "one_off_session",
+      status: offer.status || "draft",
+      sessionCount: Number.isFinite(Number(offer.sessionCount)) ? Number(offer.sessionCount) : null,
+      included: Array.isArray(offer.included)
+        ? offer.included.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0)
+        : [],
     }))
     .filter((offer) => offer.status === "published")
     .sort((a, b) => {
@@ -114,8 +194,6 @@ export default function InviteScreen() {
         status === "published" ? 0 : status === "in_review" ? 1 : status === "draft" ? 2 : 3;
       return rank(a.status) - rank(b.status);
     });
-
-  const getParamValue = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value) || "";
 
   useEffect(() => {
     if (hasPrefilledFromParamsRef.current) return;
@@ -133,7 +211,7 @@ export default function InviteScreen() {
       setSelectedOfferId(incomingBundleId);
       pendingBundleIdRef.current = incomingBundleId;
     }
-  }, [params.bundleId, params.clientEmail, params.clientName, params.clientPhone]);
+  }, [params.bundleId, params.clientEmail, params.clientId, params.clientName, params.clientPhone]);
 
   useEffect(() => {
     if (!pendingBundleIdRef.current) return;
@@ -158,148 +236,182 @@ export default function InviteScreen() {
     }
     return imageMap;
   }, [products]);
-  const productImageEntries = useMemo(
-    () => Array.from(productImageByName.entries()),
-    [productImageByName],
-  );
+  const productImageEntries = useMemo(() => Array.from(productImageByName.entries()), [productImageByName]);
 
-  const getOfferImageUrl = (offer: OfferOption): string => {
-    const directImage = normalizeAssetUrl(offer.imageUrl);
-    if (directImage) return directImage;
+  const getOfferImageUrl = useCallback(
+    (offer: OfferOption): string => {
+      const directImage = normalizeAssetUrl(offer.imageUrl);
+      if (directImage) return directImage;
 
-    const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
-    const candidates = new Set<string>();
-    if (offer.title) candidates.add(normalizeName(offer.title));
-    for (const included of offer.included) {
-      if (included) candidates.add(normalizeName(included));
-    }
-    if (offer.description) {
-      for (const extracted of extractListItemsFromHtml(offer.description)) {
-        candidates.add(normalizeName(extracted));
+      const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const candidates = new Set<string>();
+      if (offer.title) candidates.add(normalizeName(offer.title));
+      for (const included of offer.included) {
+        if (included) candidates.add(normalizeName(included));
       }
-    }
-
-    for (const name of candidates) {
-      const match = productImageByName.get(name);
-      if (match) return match;
-    }
-
-    for (const name of candidates) {
-      for (const [productName, imageUrl] of productImageEntries) {
-        if (name.includes(productName) || productName.includes(name)) {
-          return imageUrl;
+      if (offer.description) {
+        for (const extracted of extractListItemsFromHtml(offer.description)) {
+          candidates.add(normalizeName(extracted));
         }
       }
+
+      for (const name of candidates) {
+        const match = productImageByName.get(name);
+        if (match) return match;
+      }
+
+      for (const name of candidates) {
+        for (const [productName, imageUrl] of productImageEntries) {
+          if (name.includes(productName) || productName.includes(name)) {
+            return imageUrl;
+          }
+        }
+      }
+
+      return getOfferFallbackImageUrl(offer?.title);
+    },
+    [productImageByName, productImageEntries],
+  );
+
+  const validateEmail = (value: string) => {
+    const v = value.trim();
+    if (!v) return true;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  };
+
+  const openChooseOffer = (client: CreatedClient) => {
+    setCreatedClient(client);
+    setSimpleInviteEmail(client.email?.trim() || "");
+    setFlowStep({ type: "choose_offer" });
+  };
+
+  const handleNextCreateClient = async () => {
+    const name = clientName.trim();
+    if (!name) {
+      showAlert("Name required", "Enter the client's name to continue.");
+      return;
     }
-
-    return getOfferFallbackImageUrl(offer?.title);
-  };
-
-  const validateEmail = () => {
-    const value = clientEmail.trim();
-    if (!value) return false;
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-  };
-
-  const createInvite = async () => {
-    await haptics.light();
-    if (!validateEmail()) {
-      showAlert("Valid email required", "Enter a valid client email to send an invite.");
+    const emailTrim = clientEmail.trim();
+    if (emailTrim && !validateEmail(emailTrim)) {
+      showAlert("Invalid email", "Enter a valid email or leave it blank.");
       return;
     }
 
-    const result = await inviteMutation.mutateAsync({
-      email: clientEmail.trim(),
-      name: clientName.trim() || undefined,
-      bundleDraftId: selectedOfferId || undefined,
-      message: message.trim() || undefined,
-    });
-
-    await Promise.all([
-      utils.clients.invitations.invalidate(),
-      utils.clients.list.invalidate(),
-    ]);
-
-    const link = getInviteLink(result.token);
-    setInviteLink(link);
-    // Ensure action buttons are visible immediately after link creation.
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({
-        y: Math.max(0, inviteResultTopRef.current - 20),
-        animated: true,
+    try {
+      const id = await createClientMutation.mutateAsync({
+        name,
+        email: emailTrim || undefined,
+        phone: clientPhone.trim() || undefined,
+        notes: message.trim() || undefined,
       });
-    }, 80);
-    trackLaunchEvent("trainer_invite_sent", {
-      hasOffer: Boolean(selectedOfferId),
-      hasMessage: Boolean(message.trim()),
+      await utils.clients.list.invalidate();
+      trackLaunchEvent("trainer_client_created", {
+        hasEmail: Boolean(emailTrim),
+        hasPhone: Boolean(clientPhone.trim()),
+        hasMessage: Boolean(message.trim()),
+      });
+      openChooseOffer({
+        id,
+        name,
+        email: emailTrim || null,
+        phone: clientPhone.trim() || null,
+      });
+    } catch {
+      /* mutation onError */
+    }
+  };
+
+  const handleExistingClientContinue = async () => {
+    const name = clientName.trim();
+    if (!name) {
+      showAlert("Name required", "Client name is missing. Open this screen from the client profile.");
+      return;
+    }
+    const emailTrim = clientEmail.trim();
+    if (emailTrim && !validateEmail(emailTrim)) {
+      showAlert("Invalid email", "Enter a valid email or leave it blank.");
+      return;
+    }
+    openChooseOffer({
+      id: existingClientId,
+      name,
+      email: emailTrim || null,
+      phone: clientPhone.trim() || null,
     });
   };
 
-  const copyLink = async () => {
-    if (!inviteLink) return;
-    try {
-      if (Platform.OS === "web" && navigator?.clipboard) {
-        await navigator.clipboard.writeText(inviteLink);
-      } else {
-        const Clipboard = require("expo-clipboard");
-        await Clipboard.setStringAsync(inviteLink);
-      }
-      showAlert("Copied", "Invite link copied.");
-    } catch {
-      showAlert("Copy failed", "Unable to copy invite link.");
-    }
+  const handleDoLater = () => {
+    trackLaunchEvent("trainer_add_client_offer_deferred", {});
+    router.replace("/(trainer)/clients" as any);
   };
 
-  const shareLink = async () => {
-    if (!inviteLink) return;
-    const text = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotivate:\n${inviteLink}`
-      : `Join me on LocoMotivate:\n${inviteLink}`;
-    try {
-      await Share.share({ message: text, url: inviteLink });
-    } catch {
-      await copyLink();
-    }
+  const handleChooseSimpleOffer = () => {
+    setFlowStep({ type: "simple_pick" });
+    setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), 50);
   };
 
-  const emailLink = async () => {
-    if (!inviteLink) return;
-    const subject = encodeURIComponent("Your LocoMotivate invite");
-    const bodyText = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotivate:\n${inviteLink}`
-      : `Join me on LocoMotivate:\n${inviteLink}`;
-    const body = encodeURIComponent(bodyText);
-    const recipient = encodeURIComponent(clientEmail.trim());
-    const mailto = `mailto:${recipient}?subject=${subject}&body=${body}`;
-    try {
-      const canOpen = await Linking.canOpenURL(mailto);
-      if (!canOpen) {
-        showAlert("Email unavailable", "No email app is available on this device.");
-        return;
-      }
-      await Linking.openURL(mailto);
-    } catch {
-      showAlert("Email failed", "Unable to open email composer.");
-    }
+  const handleChooseCustomOffer = () => {
+    if (!createdClient) return;
+    clearCart();
+    setProposalContext({
+      proposalId: null,
+      clientRecordId: createdClient.id,
+      clientName: createdClient.name,
+      clientEmail: createdClient.email || "",
+      notes: message.trim() || null,
+      ...defaultProposalScheduleFields(),
+    });
+    trackLaunchEvent("trainer_add_client_custom_offer_start", {
+      hasNotes: Boolean(message.trim()),
+    });
+    router.replace("/plan-shop" as any);
   };
 
-  const smsLink = async () => {
-    if (!inviteLink) return;
-    const bodyText = message.trim()
-      ? `${message.trim()}\n\nJoin me on LocoMotivate:\n${inviteLink}`
-      : `Join me on LocoMotivate:\n${inviteLink}`;
-    const separator = Platform.OS === "ios" ? "&" : "?";
-    const smsTarget = clientPhone.trim().replace(/\s+/g, "");
-    const url = `sms:${smsTarget}${separator}body=${encodeURIComponent(bodyText)}`;
+  const goToSimpleReview = () => {
+    if (!selectedOfferId) {
+      showAlert("Select an offer", "Choose one published offer to continue.");
+      return;
+    }
+    setFlowStep({ type: "simple_review", offerId: selectedOfferId });
+  };
+
+  const handleSendSimpleInvite = async () => {
+    if (!createdClient || flowStep.type !== "simple_review") return;
+    const offer = options.find((o) => o.id === flowStep.offerId);
+    if (!offer) return;
+
+    const emailRaw = (simpleInviteEmail.trim() || createdClient.email || "").trim();
+    if (!emailRaw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+      showAlert("Client email required", "Add a valid email before sending this invite.");
+      return;
+    }
+
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) {
-        showAlert("SMS unavailable", "No SMS app is available on this device.");
-        return;
-      }
-      await Linking.openURL(url);
+      const sched = defaultProposalScheduleFields();
+      const { proposalId } = await createProposalMutation.mutateAsync({
+        clientRecordId: createdClient.id,
+        baseBundleDraftId: offer.id,
+        title: createdClient.name,
+        notes: message.trim() || undefined,
+        ...sched,
+        items: [],
+      });
+      await sendInviteMutation.mutateAsync({
+        proposalId,
+        email: emailRaw,
+        name: createdClient.name,
+        message: message.trim() || undefined,
+      });
+      await Promise.all([utils.clients.list.invalidate(), utils.savedCartProposals.list.invalidate()]);
+      trackLaunchEvent("trainer_simple_proposal_invite_sent", {
+        offerId: offer.id,
+        hasMessage: Boolean(message.trim()),
+      });
+      Alert.alert("Invite sent", "Your client will receive an email with their plan invite.", [
+        { text: "OK", onPress: () => router.replace("/(trainer)/clients" as any) },
+      ]);
     } catch {
-      showAlert("SMS failed", "Unable to open SMS composer.");
+      /* handled in mutation onError */
     }
   };
 
@@ -317,16 +429,325 @@ export default function InviteScreen() {
     return Array.from(merged);
   }, [detailsOffer]);
 
+  const headerTitle = useMemo(() => {
+    if (flowStep.type === "simple_pick") return "Simple offer";
+    if (flowStep.type === "simple_review") return "Review invite";
+    if (isExistingClientFlow) return "Send offer";
+    return "Add Client";
+  }, [flowStep.type, isExistingClientFlow]);
+
+  const headerSubtitle = useMemo(() => {
+    if (flowStep.type === "simple_pick") return "Pick one published offer to attach.";
+    if (flowStep.type === "simple_review") return "Confirm details before sending the invite email.";
+    if (flowStep.type === "choose_offer") return "Choose how you want to continue.";
+    if (isExistingClientFlow) return clientName.trim() ? `For ${clientName.trim()}` : "Attach an offer or plan.";
+    return "Create the client, then add an offer if you want.";
+  }, [flowStep.type, isExistingClientFlow, clientName]);
+
+  const handleHeaderBack = () => {
+    if (flowStep.type === "simple_review") {
+      setFlowStep({ type: "simple_pick" });
+      return;
+    }
+    if (flowStep.type === "simple_pick") {
+      setFlowStep({ type: "choose_offer" });
+      return;
+    }
+    if (flowStep.type === "choose_offer") {
+      router.back();
+      return;
+    }
+    router.back();
+  };
+
+  const simpleReviewOffer =
+    flowStep.type === "simple_review" ? options.find((o) => o.id === flowStep.offerId) : undefined;
+
+  const renderForm = () => (
+    <SurfaceCard className="mb-4">
+      {isExistingClientFlow ? (
+        <>
+          <Text className="text-sm font-medium text-muted mb-2">Client</Text>
+          <Text className="text-foreground font-semibold text-base mb-1">{clientName.trim() || "Client"}</Text>
+          <Text className="text-muted text-sm mb-4">{clientEmail.trim() || "No email on file"}</Text>
+          {clientPhone.trim() ? <Text className="text-muted text-sm mb-4">{clientPhone.trim()}</Text> : null}
+          <Text className="text-sm font-medium text-muted mb-2">Client email (optional)</Text>
+          <TextInput
+            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+            value={clientEmail}
+            onChangeText={setClientEmail}
+            placeholder="Update email on file"
+            placeholderTextColor={colors.muted}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            accessibilityLabel="Client email"
+          />
+        </>
+      ) : (
+        <>
+          <Text className="text-sm font-medium text-muted mb-2">Client name</Text>
+          <TextInput
+            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+            value={clientName}
+            onChangeText={setClientName}
+            placeholder="Jane Doe"
+            placeholderTextColor={colors.muted}
+            accessibilityLabel="Client name"
+            testID="add-client-name"
+          />
+
+          <Text className="text-sm font-medium text-muted mb-2">Client email (optional)</Text>
+          <TextInput
+            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+            value={clientEmail}
+            onChangeText={setClientEmail}
+            placeholder="jane@email.com"
+            placeholderTextColor={colors.muted}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            accessibilityLabel="Client email"
+            testID="add-client-email"
+          />
+
+          <Text className="text-sm font-medium text-muted mb-2">Client phone (optional)</Text>
+          <TextInput
+            className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
+            value={clientPhone}
+            onChangeText={setClientPhone}
+            placeholder="+44 7700 900123"
+            placeholderTextColor={colors.muted}
+            keyboardType="phone-pad"
+            accessibilityLabel="Client phone"
+          />
+        </>
+      )}
+
+      <Text className="text-sm font-medium text-muted mb-2">Invite note (optional)</Text>
+      <TextInput
+        className="bg-background border border-border rounded-xl px-4 py-3 text-foreground min-h-[90px]"
+        value={message}
+        onChangeText={setMessage}
+        placeholder="Personal message included with the invite."
+        placeholderTextColor={colors.muted}
+        multiline
+        textAlignVertical="top"
+        accessibilityLabel="Invite note"
+        testID="add-client-message"
+      />
+    </SurfaceCard>
+  );
+
+  const renderSimplePick = () => (
+    <View>
+      <TouchableOpacity
+        className="mb-3 self-start"
+        onPress={() => setFlowStep({ type: "choose_offer" })}
+        accessibilityRole="button"
+        accessibilityLabel="Change offer type"
+        testID="add-client-simple-change-choice"
+      >
+        <Text className="text-primary text-sm font-semibold">← Change choice</Text>
+      </TouchableOpacity>
+
+      <SurfaceCard className="mb-4">
+        <View className="flex-row items-center justify-between mb-3">
+          <Text className="text-sm font-semibold text-foreground">Published offers</Text>
+          {selectedOfferId ? (
+            <TouchableOpacity onPress={() => setSelectedOfferId(null)} accessibilityRole="button" accessibilityLabel="Clear selected offer">
+              <Text className="text-primary text-sm font-medium">Clear</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {options.length === 0 ? (
+          <EmptyStateCard
+            icon="tag.fill"
+            title="No offers yet"
+            description="Publish an offer first, or use a custom plan instead."
+            ctaLabel="Create Offer"
+            onCtaPress={() => router.push("/bundle-editor/new" as any)}
+          />
+        ) : (
+          options.map((offer) => {
+            const offerImageUrl = getOfferImageUrl(offer);
+            return (
+              <View key={offer.id} className="mb-2">
+                <TouchableOpacity
+                  className={`border rounded-xl p-3 ${
+                    selectedOfferId === offer.id ? "border-primary bg-primary/10" : "border-border bg-background"
+                  }`}
+                  onPress={() => setSelectedOfferId(offer.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select offer ${offer.title}`}
+                  testID={`invite-offer-${offer.id}`}
+                >
+                  <View className="flex-row">
+                    <View className="w-16 h-16 rounded-lg bg-surface overflow-hidden items-center justify-center mr-3">
+                      {offerImageUrl ? (
+                        <Image source={{ uri: offerImageUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+                      ) : (
+                        <IconSymbol name="photo" size={18} color={colors.muted} />
+                      )}
+                    </View>
+                    <View className="flex-1">
+                      <View className="flex-row items-start justify-between">
+                        <Text
+                          className={
+                            selectedOfferId === offer.id
+                              ? "text-primary font-semibold flex-1 pr-2"
+                              : "text-foreground font-medium flex-1 pr-2"
+                          }
+                        >
+                          {offer.title}
+                        </Text>
+                        <Text
+                          className={selectedOfferId === offer.id ? "text-primary font-semibold" : "text-foreground font-semibold"}
+                        >
+                          {formatGBPFromMinor(offer.priceMinor)}
+                        </Text>
+                      </View>
+
+                      <View className="flex-row flex-wrap items-center mt-1 gap-2">
+                        <Text className="text-xs text-muted">{formatOfferTypeLabel(offer.type)}</Text>
+                        <Text className="text-xs text-muted">{offer.paymentType === "recurring" ? "Recurring" : "One-off"}</Text>
+                        {offer.sessionCount ? <Text className="text-xs text-muted">{offer.sessionCount} sessions</Text> : null}
+                      </View>
+
+                      {offer.description ? (
+                        <Text className="text-xs text-muted mt-1" numberOfLines={2}>
+                          {offer.description.replace(/<[^>]+>/g, " ")}
+                        </Text>
+                      ) : null}
+
+                      <View className="flex-row items-center mt-2">
+                        {(() => {
+                          const meta = BUNDLE_OFFER_STATUS_META[offer.status] || BUNDLE_OFFER_STATUS_META.draft;
+                          const dotColor =
+                            meta.colorKey === "success"
+                              ? colors.success
+                              : meta.colorKey === "primary"
+                                ? colors.primary
+                                : meta.colorKey === "error"
+                                  ? colors.error
+                                  : colors.warning;
+                          return (
+                            <>
+                              <View className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
+                              <Text className="text-xs text-muted ml-1">{meta.label}</Text>
+                            </>
+                          );
+                        })()}
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="self-start mt-1 px-2 py-1"
+                  onPress={() => setDetailsOffer(offer)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View details for ${offer.title}`}
+                  testID={`invite-offer-details-${offer.id}`}
+                >
+                  <Text className="text-primary text-xs font-semibold">View details</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })
+        )}
+      </SurfaceCard>
+
+      <ActionButton
+        constrainWidth
+        variant="primary"
+        size="md"
+        onPress={goToSimpleReview}
+        disabled={!selectedOfferId}
+        accessibilityLabel="Continue to review invite"
+        testID="add-client-simple-continue"
+      >
+        Review invite
+      </ActionButton>
+    </View>
+  );
+
+  const renderSimpleReview = () => {
+    if (!simpleReviewOffer || !createdClient) return null;
+    return (
+      <View>
+        <TouchableOpacity
+          className="mb-3 self-start"
+          onPress={() => setFlowStep({ type: "simple_pick" })}
+          accessibilityRole="button"
+          accessibilityLabel="Back to offer list"
+          testID="add-client-simple-review-back"
+        >
+          <Text className="text-primary text-sm font-semibold">← Back</Text>
+        </TouchableOpacity>
+
+        <SurfaceCard className="mb-4">
+          <Text className="text-sm font-semibold text-foreground mb-2">Client</Text>
+          <Text className="text-foreground font-medium">{createdClient.name}</Text>
+          <Text className="text-muted text-sm mt-1">{createdClient.email || "No email on file"}</Text>
+        </SurfaceCard>
+
+        <SurfaceCard className="mb-4">
+          <Text className="text-sm font-semibold text-foreground mb-2">Offer</Text>
+          <Text className="text-foreground font-medium">{simpleReviewOffer.title}</Text>
+          <Text className="text-primary font-semibold mt-1">{formatGBPFromMinor(simpleReviewOffer.priceMinor)}</Text>
+        </SurfaceCard>
+
+        {(!createdClient.email || !createdClient.email.trim()) && (
+          <SurfaceCard className="mb-4">
+            <Text className="text-sm font-semibold text-foreground mb-2">Client email for invite</Text>
+            <TextInput
+              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground"
+              value={simpleInviteEmail}
+              onChangeText={setSimpleInviteEmail}
+              placeholder="client@email.com"
+              placeholderTextColor={colors.muted}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              accessibilityLabel="Email address for invite"
+              testID="add-client-simple-invite-email"
+            />
+          </SurfaceCard>
+        )}
+
+        <SurfaceCard className="mb-4">
+          <Text className="text-sm font-semibold text-foreground mb-2">Invite note</Text>
+          <Text className="text-muted text-sm leading-5">{message.trim() ? message.trim() : "No personal message."}</Text>
+        </SurfaceCard>
+
+        <ActionButton
+          constrainWidth
+          variant="primary"
+          size="md"
+          onPress={handleSendSimpleInvite}
+          loading={createProposalMutation.isPending || sendInviteMutation.isPending}
+          loadingText="Sending..."
+          accessibilityLabel="Send invite email"
+          testID="add-client-simple-send"
+        >
+          Send invite
+        </ActionButton>
+      </View>
+    );
+  };
+
+  const chooseOfferModalVisible = flowStep.type === "choose_offer";
+
   return (
     <ScreenContainer>
       <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false}>
         <ScreenHeader
-          title={clientName.trim() ? `Invite ${clientName.trim()}` : "Invite Client"}
-          subtitle={clientEmail.trim() ? `Preparing invite for ${clientEmail.trim()}` : "Send an invite link in under 30 seconds."}
+          title={headerTitle}
+          subtitle={headerSubtitle}
           leftSlot={(
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={handleHeaderBack}
               className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              testID="add-client-back"
             >
               <IconSymbol name="arrow.left" size={18} color={colors.foreground} />
             </TouchableOpacity>
@@ -334,307 +755,175 @@ export default function InviteScreen() {
         />
 
         <View className="px-4 pb-8">
-          <SurfaceCard className="mb-4">
-            <Text className="text-sm font-medium text-muted mb-2">Client name (optional)</Text>
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
-              value={clientName}
-              onChangeText={setClientName}
-              placeholder="Jane Doe"
-              placeholderTextColor={colors.muted}
-            />
-
-            <Text className="text-sm font-medium text-muted mb-2">Client email</Text>
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
-              value={clientEmail}
-              onChangeText={setClientEmail}
-              placeholder="jane@email.com"
-              placeholderTextColor={colors.muted}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-
-            <Text className="text-sm font-medium text-muted mb-2">Client phone (optional)</Text>
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground mb-4"
-              value={clientPhone}
-              onChangeText={setClientPhone}
-              placeholder="+44 7700 900123"
-              placeholderTextColor={colors.muted}
-              keyboardType="phone-pad"
-            />
-
-            <Text className="text-sm font-medium text-muted mb-2">Optional message</Text>
-            <TextInput
-              className="bg-background border border-border rounded-xl px-4 py-3 text-foreground min-h-[90px]"
-              value={message}
-              onChangeText={setMessage}
-              placeholder="Excited to train with you. Here is your invite."
-              placeholderTextColor={colors.muted}
-              multiline
-              textAlignVertical="top"
-            />
-          </SurfaceCard>
-
-          <SurfaceCard className="mb-4">
-            <View className="flex-row items-center justify-between mb-3">
-              <Text className="text-sm font-semibold text-foreground">Attach offer (optional)</Text>
-              {selectedOfferId ? (
-                <TouchableOpacity onPress={() => setSelectedOfferId(null)}>
-                  <Text className="text-primary text-sm font-medium">Clear</Text>
-                </TouchableOpacity>
+          {flowStep.type === "form" || flowStep.type === "choose_offer" ? (
+            <>
+              {flowStep.type === "choose_offer" ? (
+                <SurfaceCard className="mb-4 bg-primary/5 border-primary/20">
+                  <Text className="text-foreground font-semibold">
+                    {createdClient?.name ? `${createdClient.name} is ready.` : "Client is ready."}
+                  </Text>
+                  <Text className="text-muted text-sm mt-1">Choose an option below.</Text>
+                </SurfaceCard>
               ) : null}
-            </View>
-            {options.length === 0 ? (
-              <EmptyStateCard
-                icon="tag.fill"
-                title="No offers yet"
-                description="You can still invite clients now and add offers later."
-                ctaLabel="Create Offer"
-                onCtaPress={() => router.push("/bundle-editor/new" as any)}
-              />
-            ) : (
-              options.map((offer) => {
-                const offerImageUrl = getOfferImageUrl(offer);
-                return (
-                  <View key={offer.id} className="mb-2">
-                    <TouchableOpacity
-                      className={`border rounded-xl p-3 ${
-                        selectedOfferId === offer.id ? "border-primary bg-primary/10" : "border-border bg-background"
-                      }`}
-                      onPress={() => setSelectedOfferId(offer.id)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Select offer ${offer.title}`}
-                      testID={`invite-offer-${offer.id}`}
-                    >
-                      <View className="flex-row">
-                        <View className="w-16 h-16 rounded-lg bg-surface overflow-hidden items-center justify-center mr-3">
-                          {offerImageUrl ? (
-                            <Image source={{ uri: offerImageUrl }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
-                          ) : (
-                            <IconSymbol name="photo" size={18} color={colors.muted} />
-                          )}
-                        </View>
-                        <View className="flex-1">
-                        <View className="flex-row items-start justify-between">
-                          <Text className={selectedOfferId === offer.id ? "text-primary font-semibold flex-1 pr-2" : "text-foreground font-medium flex-1 pr-2"}>
-                            {offer.title}
-                          </Text>
-                          <Text className={selectedOfferId === offer.id ? "text-primary font-semibold" : "text-foreground font-semibold"}>
-                            {formatGBPFromMinor(offer.priceMinor)}
-                          </Text>
-                        </View>
-
-                        <View className="flex-row flex-wrap items-center mt-1 gap-2">
-                          <Text className="text-xs text-muted">{formatOfferTypeLabel(offer.type)}</Text>
-                          <Text className="text-xs text-muted">
-                            {offer.paymentType === "recurring" ? "Recurring" : "One-off"}
-                          </Text>
-                          {offer.sessionCount ? (
-                            <Text className="text-xs text-muted">{offer.sessionCount} sessions</Text>
-                          ) : null}
-                        </View>
-
-                        {offer.description ? (
-                          <Text className="text-xs text-muted mt-1" numberOfLines={2}>
-                            {offer.description}
-                          </Text>
-                        ) : null}
-
-                        {offer.included.length > 0 ? (
-                          <Text className="text-xs text-muted mt-1" numberOfLines={1}>
-                            Includes: {offer.included.slice(0, 2).join(", ")}
-                            {offer.included.length > 2 ? ` +${offer.included.length - 2}` : ""}
-                          </Text>
-                        ) : null}
-
-                        <View className="flex-row items-center mt-2">
-                          {(() => {
-                            const meta = BUNDLE_OFFER_STATUS_META[offer.status] || BUNDLE_OFFER_STATUS_META.draft;
-                            const dotColor =
-                              meta.colorKey === "success"
-                                ? colors.success
-                                : meta.colorKey === "primary"
-                                  ? colors.primary
-                                  : meta.colorKey === "error"
-                                    ? colors.error
-                                    : colors.warning;
-                            return (
-                              <>
-                                <View className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
-                                <Text className="text-xs text-muted ml-1">{meta.label}</Text>
-                              </>
-                            );
-                          })()}
-                        </View>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      className="self-start mt-1 px-2 py-1"
-                      onPress={() => setDetailsOffer(offer)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View details for ${offer.title}`}
-                      testID={`invite-offer-details-${offer.id}`}
-                    >
-                      <Text className="text-primary text-xs font-semibold">View details</Text>
-                    </TouchableOpacity>
-                  </View>
-                );
-              })
-            )}
-          </SurfaceCard>
-
-          {inviteLink ? (
-            <View
-              className="bg-success/10 border border-success/30 rounded-xl p-4"
-              onLayout={(event) => {
-                inviteResultTopRef.current = event.nativeEvent.layout.y;
-              }}
-            >
-              <View className="flex-row items-center mb-2">
-                <IconSymbol name="checkmark.circle.fill" size={18} color={colors.success} />
-                <Text className="text-success font-semibold ml-2">Invite link ready</Text>
-              </View>
-              <Text className="text-foreground text-sm" selectable>{inviteLink}</Text>
-              <View className="flex-row gap-2 mt-4">
-                <TouchableOpacity
-                  className="flex-1 bg-primary rounded-xl py-3 items-center"
-                  onPress={emailLink}
-                  accessibilityRole="button"
-                  accessibilityLabel="Email invite link"
-                  testID="invite-email-link"
+              {flowStep.type === "form" ? renderForm() : null}
+              {flowStep.type === "form" ? (
+                <ActionButton
+                  constrainWidth
+                  variant="primary"
+                  size="md"
+                  onPress={isExistingClientFlow ? handleExistingClientContinue : handleNextCreateClient}
+                  loading={createClientMutation.isPending}
+                  loadingText="Saving..."
+                  accessibilityLabel={isExistingClientFlow ? "Continue to offer options" : "Save client and continue"}
+                  testID="add-client-next"
                 >
-                  <Text className="text-background font-semibold">Email</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
-                  onPress={copyLink}
-                  accessibilityRole="button"
-                  accessibilityLabel="Copy invite link"
-                  testID="invite-copy-link"
-                >
-                  <Text className="text-foreground font-semibold">Copy</Text>
-                </TouchableOpacity>
-              </View>
-              <View className="flex-row gap-2 mt-2">
-                <TouchableOpacity
-                  className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
-                  onPress={shareLink}
-                  accessibilityRole="button"
-                  accessibilityLabel="Share invite link"
-                  testID="invite-share-link"
-                >
-                  <Text className="text-foreground font-semibold">Share</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
-                  onPress={smsLink}
-                  accessibilityRole="button"
-                  accessibilityLabel="Send invite by SMS"
-                  testID="invite-sms-link"
-                >
-                  <Text className="text-foreground font-semibold">SMS</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            <TouchableOpacity
-              className="bg-primary rounded-xl py-4 items-center"
-              onPress={createInvite}
-              disabled={inviteMutation.isPending}
-            >
-              {inviteMutation.isPending ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-background font-semibold text-lg">Create Invite Link</Text>
-              )}
-            </TouchableOpacity>
-          )}
+                  {isExistingClientFlow ? "Continue" : "Next"}
+                </ActionButton>
+              ) : null}
+            </>
+          ) : null}
+
+          {flowStep.type === "simple_pick" ? renderSimplePick() : null}
+          {flowStep.type === "simple_review" ? renderSimpleReview() : null}
         </View>
       </ScrollView>
 
-      <Modal
-        visible={Boolean(detailsOffer)}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setDetailsOffer(null)}
-      >
-        <Pressable style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }} onPress={() => setDetailsOffer(null)}>
+      <Modal visible={chooseOfferModalVisible} transparent animationType="fade" onRequestClose={handleDoLater}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.85)" }}>
+          <Pressable
+            className="bg-background rounded-2xl mx-6 overflow-hidden border border-border"
+            style={{ maxWidth: 400, width: "90%" }}
+          >
+            <View className="px-5 pt-5 pb-2">
+              <Text className="text-lg font-bold text-foreground text-center">Add an offer?</Text>
+              <Text className="text-sm text-muted text-center mt-2 leading-5">
+                Send a published offer now, build a custom plan, or finish later.
+              </Text>
+            </View>
+            <View className="px-5 pb-5 gap-2">
+              <ActionButton
+                fullWidth
+                variant="primary"
+                size="md"
+                onPress={handleChooseSimpleOffer}
+                accessibilityLabel="Simple offer..."
+                testID="add-client-choice-simple"
+              >
+                <View className="items-center py-0.5">
+                  <Text className="text-background font-semibold">Simple offer</Text>
+                  <Text className="text-background/80 text-xs mt-0.5">One published offer</Text>
+                </View>
+              </ActionButton>
+              <ActionButton
+                fullWidth
+                variant="secondary"
+                size="md"
+                onPress={handleChooseCustomOffer}
+                accessibilityLabel="Custom offer"
+                testID="add-client-choice-custom"
+              >
+                <View className="items-center py-0.5">
+                  <Text className="text-foreground font-semibold">Custom offer</Text>
+                  <Text className="text-muted text-xs mt-0.5">Shop plan, then review and send</Text>
+                </View>
+              </ActionButton>
+              <ActionButton
+                fullWidth
+                variant="secondary"
+                size="md"
+                onPress={handleDoLater}
+                accessibilityLabel="Do this later"
+                testID="add-client-choice-later"
+              >
+                Do this later
+              </ActionButton>
+            </View>
+          </Pressable>
+        </View>
+      </Modal>
+
+      <Modal visible={Boolean(detailsOffer)} transparent animationType="slide" onRequestClose={() => setDetailsOffer(null)}>
+        <Pressable
+          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}
+          onPress={() => setDetailsOffer(null)}
+        >
           <View>
             <SwipeDownSheet
               visible={Boolean(detailsOffer)}
               onClose={() => setDetailsOffer(null)}
               className="bg-background rounded-t-2xl border-t border-border max-h-[84%]"
             >
-            <View className="px-4 py-3 border-b border-border flex-row items-center justify-between">
-              <Text className="text-foreground font-semibold text-base">Offer details</Text>
-              <TouchableOpacity
-                onPress={() => setDetailsOffer(null)}
-                accessibilityRole="button"
-                accessibilityLabel="Close offer details"
-                testID="invite-offer-details-close"
-              >
-                <IconSymbol name="xmark" size={18} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
+              <View className="px-4 py-3 border-b border-border flex-row items-center justify-between">
+                <Text className="text-foreground font-semibold text-base">Offer details</Text>
+                <TouchableOpacity
+                  onPress={() => setDetailsOffer(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close offer details"
+                  testID="invite-offer-details-close"
+                >
+                  <IconSymbol name="xmark" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
 
-            {detailsOffer ? (
-              <ScrollView className="px-4 py-4" showsVerticalScrollIndicator={false}>
-                <View className="flex-row">
-                  <View className="w-20 h-20 rounded-xl bg-surface overflow-hidden items-center justify-center mr-3">
-                    {getOfferImageUrl(detailsOffer) ? (
-                      <Image source={{ uri: getOfferImageUrl(detailsOffer)! }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
-                    ) : (
-                      <IconSymbol name="photo" size={20} color={colors.muted} />
-                    )}
+              {detailsOffer ? (
+                <ScrollView className="px-4 py-4" showsVerticalScrollIndicator={false}>
+                  <View className="flex-row">
+                    <View className="w-20 h-20 rounded-xl bg-surface overflow-hidden items-center justify-center mr-3">
+                      {getOfferImageUrl(detailsOffer) ? (
+                        <Image
+                          source={{ uri: getOfferImageUrl(detailsOffer)! }}
+                          style={{ width: "100%", height: "100%" }}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <IconSymbol name="photo" size={20} color={colors.muted} />
+                      )}
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-foreground font-semibold text-base">{detailsOffer.title}</Text>
+                      <Text className="text-primary font-semibold mt-0.5">{formatGBPFromMinor(detailsOffer.priceMinor)}</Text>
+                      <Text className="text-muted text-xs mt-1">
+                        {formatOfferTypeLabel(detailsOffer.type)} • {detailsOffer.paymentType === "recurring" ? "Recurring" : "One-off"}
+                        {detailsOffer.sessionCount ? ` • ${detailsOffer.sessionCount} sessions` : ""}
+                      </Text>
+                    </View>
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-foreground font-semibold text-base">{detailsOffer.title}</Text>
-                    <Text className="text-primary font-semibold mt-0.5">{formatGBPFromMinor(detailsOffer.priceMinor)}</Text>
-                    <Text className="text-muted text-xs mt-1">
-                      {formatOfferTypeLabel(detailsOffer.type)} • {detailsOffer.paymentType === "recurring" ? "Recurring" : "One-off"}
-                      {detailsOffer.sessionCount ? ` • ${detailsOffer.sessionCount} sessions` : ""}
-                    </Text>
-                  </View>
-                </View>
 
-                {detailsOffer.description ? (
-                  <View className="mt-4">
-                    <Text className="text-foreground text-sm font-semibold mb-2">Description</Text>
-                    {/<[a-z][\s\S]*>/i.test(detailsOffer.description) ? (
-                      <RenderHTML
-                        contentWidth={Math.max(0, width - 32)}
-                        source={{ html: sanitizeHtml(detailsOffer.description) }}
-                        tagsStyles={{
-                          p: { color: colors.muted, lineHeight: 20, marginTop: 0, marginBottom: 8 },
-                          ul: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
-                          ol: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
-                          li: { color: colors.muted, marginBottom: 4 },
-                          strong: { color: colors.foreground, fontWeight: "600" },
-                          b: { color: colors.foreground, fontWeight: "600" },
-                        }}
-                      />
-                    ) : (
-                      <Text className="text-muted text-sm leading-6">{detailsOffer.description}</Text>
-                    )}
-                  </View>
-                ) : null}
+                  {detailsOffer.description ? (
+                    <View className="mt-4">
+                      <Text className="text-foreground text-sm font-semibold mb-2">Description</Text>
+                      {/<[a-z][\s\S]*>/i.test(detailsOffer.description) ? (
+                        <RenderHTML
+                          contentWidth={Math.max(0, width - 32)}
+                          source={{ html: sanitizeHtml(detailsOffer.description) }}
+                          tagsStyles={{
+                            p: { color: colors.muted, lineHeight: 20, marginTop: 0, marginBottom: 8 },
+                            ul: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
+                            ol: { color: colors.muted, marginBottom: 8, paddingLeft: 18 },
+                            li: { color: colors.muted, marginBottom: 4 },
+                            strong: { color: colors.foreground, fontWeight: "600" },
+                            b: { color: colors.foreground, fontWeight: "600" },
+                          }}
+                        />
+                      ) : (
+                        <Text className="text-muted text-sm leading-6">{detailsOffer.description}</Text>
+                      )}
+                    </View>
+                  ) : null}
 
-                {offerDetailsIncluded.length > 0 ? (
-                  <View className="mt-4">
-                    <Text className="text-foreground text-sm font-semibold mb-2">{"What's included"}</Text>
-                    {offerDetailsIncluded.map((item, index) => (
-                      <View key={`${item}-${index}`} className="flex-row items-start mb-2">
-                        <IconSymbol name="checkmark.circle.fill" size={16} color={colors.success} />
-                        <Text className="text-muted text-sm ml-2 flex-1">{item}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-              </ScrollView>
-            ) : null}
+                  {offerDetailsIncluded.length > 0 ? (
+                    <View className="mt-4">
+                      <Text className="text-foreground text-sm font-semibold mb-2">{"What's included"}</Text>
+                      {offerDetailsIncluded.map((item, index) => (
+                        <View key={`${item}-${index}`} className="flex-row items-start mb-2">
+                          <IconSymbol name="checkmark.circle.fill" size={16} color={colors.success} />
+                          <Text className="text-muted text-sm ml-2 flex-1">{item}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </ScrollView>
+              ) : null}
             </SwipeDownSheet>
           </View>
         </Pressable>

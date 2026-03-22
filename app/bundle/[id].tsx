@@ -35,12 +35,18 @@ export default function BundleDetailScreen() {
   const [bundleImageLoadFailed, setBundleImageLoadFailed] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const { effectiveRole, isTrainer, isManager, isCoordinator, isClient, isAuthenticated } = useAuthContext();
-  const { addItem } = useCart();
+  const { addItem, proposalContext } = useCart();
   const isAdmin = isCoordinator || isManager;
-  const isTrainerRoleRoute =
-    segmentList.includes("(trainer)") || segmentList.includes("(manager)") || segmentList.includes("(coordinator)");
-  const showInviteCta = isTrainerRoleRoute || (isAuthenticated && (isTrainer || isManager || isCoordinator));
-  const canPurchase = !showInviteCta && (!isAuthenticated || isClient || effectiveRole === "shopper");
+  const isPlanShopping = isTrainer && !!proposalContext?.clientRecordId;
+  const isRoleBundleRoute =
+    !isPlanShopping &&
+    (segmentList.includes("(trainer)") || segmentList.includes("(manager)") || segmentList.includes("(coordinator)"));
+  const canPurchase =
+    isPlanShopping ||
+    (!isRoleBundleRoute && (!isAuthenticated || isClient || isTrainer || effectiveRole === "shopper"));
+  const showInviteCta =
+    !isPlanShopping &&
+    (isRoleBundleRoute || (!canPurchase && isAuthenticated && (isTrainer || isManager || isCoordinator)));
 
   // Fetch bundle detail and catalog products for image matching
   const { data: rawBundle, isLoading, error, refetch: refetchBundle } = trpc.catalog.bundleDetail.useQuery(
@@ -182,17 +188,11 @@ export default function BundleDetailScreen() {
           : "one_time",
       fulfillment: "trainer_delivery",
     });
-    Alert.alert(
-      "Added to cart",
-      `${bundle.title} is ready in your cart.`,
-      [
-        { text: "Keep shopping", style: "cancel" },
-        {
-          text: "View cart",
-          onPress: () => router.push("/(tabs)/cart" as any),
-        },
-      ],
-    );
+    // Match `ProductsScreen` add flow: cart context already plays success haptic — no Alert that
+    // navigates to a different cart/review screen (that broke plan-shopping continuity).
+    if (isPlanShopping) {
+      router.back();
+    }
   };
 
   const handleInviteClient = () => {
@@ -471,11 +471,11 @@ export default function BundleDetailScreen() {
             onPress={handleInviteClient}
             activeOpacity={0.8}
             accessibilityRole="button"
-            accessibilityLabel={isTrainer ? "Invite client to this bundle" : "Assign this bundle to a client"}
+            accessibilityLabel={isTrainer ? "Add client with this bundle offer" : "Assign this bundle to a client"}
             testID="bundle-invite-cta"
           >
             <Text className="text-background font-semibold text-lg">
-              {isTrainer ? "Invite Client" : "Assign to Client"}
+              {isTrainer ? "Add Client" : "Assign to Client"}
             </Text>
           </TouchableOpacity>
         ) : canPurchase ? (
@@ -497,11 +497,11 @@ export default function BundleDetailScreen() {
             onPress={handleInviteClient}
             activeOpacity={0.8}
             accessibilityRole="button"
-            accessibilityLabel={isTrainer ? "Invite client to this bundle" : "Assign this bundle to a client"}
+            accessibilityLabel={isTrainer ? "Add client with this bundle offer" : "Assign this bundle to a client"}
             testID="bundle-invite-fallback-cta"
           >
             <Text className="text-background font-semibold text-lg">
-              {isTrainer ? "Invite Client" : "Assign to Client"}
+              {isTrainer ? "Add Client" : "Assign to Client"}
             </Text>
           </TouchableOpacity>
         )}

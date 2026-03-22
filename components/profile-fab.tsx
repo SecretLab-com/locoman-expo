@@ -4,8 +4,9 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ModalSurface } from "@/components/ui/modal-surface";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useBadgeContext } from "@/contexts/badge-context";
-import { useDesignSystem } from "@/hooks/use-design-system";
+import { useCart } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
+import { useDesignSystem } from "@/hooks/use-design-system";
 import { getApiBaseUrl } from "@/lib/api-config";
 import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
@@ -13,12 +14,12 @@ import { Image } from "expo-image";
 import { router, usePathname } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TouchableOpacity,
-  View,
+    Modal,
+    Platform,
+    Pressable,
+    StyleSheet,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -35,6 +36,7 @@ export function ProfileFAB() {
   const ds = useDesignSystem();
   const insets = useSafeAreaInsets();
   const { user, effectiveUser, isAuthenticated, logout, effectiveRole } = useAuthContext();
+  const { proposalContext } = useCart();
   const { counts } = useBadgeContext();
   const { data: latestProfile } = trpc.profile.get.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -73,10 +75,22 @@ export function ProfileFAB() {
     (pathname === "/" && Boolean(effectiveRole) && effectiveRole !== "shopper");
   const showFloatingAlerts = isOnDashboardScreen && effectiveRole === "trainer";
   const alertBadgeCount = counts.pendingDeliveries + counts.pendingJoinRequests;
-  const profileFabRightOffset = 16;
-  const alertFabRightOffset = 68;
+  /** Trainer Clients: add-client FAB (44px) + gap — sit profile FAB to the left of it. */
+  const pathSegments = pathname.split("/").filter(Boolean);
+  const lastPathSegment = pathSegments[pathSegments.length - 1] ?? "";
+  const isOnTrainerClientsScreen =
+    effectiveRole === "trainer" &&
+    lastPathSegment === "clients" &&
+    !pathname.includes("client-detail");
+  const trainerClientsAddFabWidth = 44;
+  const trainerClientsAddFabGap = 12;
+  const trainerClientsHeaderReserve = trainerClientsAddFabWidth + trainerClientsAddFabGap;
+  const profileFabRightOffset = isOnTrainerClientsScreen ? 16 + trainerClientsHeaderReserve : 16;
+  /** Sit left of the profile FAB (44px) with comfortable gap so the two don’t overlap. */
+  const alertFabRightOffset = 16 + 44 + 12;
   const isOnMessageThread = pathname.includes("/messages/") || pathname.includes("/conversation/");
   const isOnBundleDetail = pathname.includes("/bundle/");
+  const isOnClientDetail = pathname.includes("client-detail");
   const openConversationId = useMemo(() => {
     const isConversationRoute =
       pathname.startsWith("/conversation/") || pathname.startsWith("/messages/");
@@ -143,11 +157,26 @@ export function ProfileFAB() {
     setAvatarLoadFailed(false);
   }, [avatarUrl]);
 
+  /**
+   * Don’t cover plan-flow top chrome (cart / catalog / plan-shop) when a client proposal is active.
+   * Only hide on those routes — not on trainer home, or a stale `proposalContext` in storage would remove the FAB everywhere.
+   */
+  const isTrainerPlanFlowTopChromeRoute =
+    pathname.includes("plan-shop") ||
+    pathname.includes("/cart") ||
+    pathname.includes("/products");
+  const hideFabForTrainerPlanFlowChrome =
+    effectiveRole === "trainer" &&
+    Boolean(proposalContext?.clientRecordId) &&
+    isTrainerPlanFlowTopChromeRoute;
+
   if (
     isOnProfileScreen ||
     isOnMessageThread ||
     isOnBundleDetail ||
-    pathname === "/welcome"
+    isOnClientDetail ||
+    pathname === "/welcome" ||
+    hideFabForTrainerPlanFlowChrome
   ) {
     return null;
   }
@@ -368,14 +397,22 @@ export function ProfileFAB() {
   );
 }
 
+/** Above `CollapsibleHeaderScrollView` shell (zIndex 1010) so profile/alerts stay tappable on trainer home. */
+const FAB_Z_PROFILE = 1020;
+const FAB_Z_ALERTS = 1019;
+/** Android: above collapsible header `elevation: 12` without using extreme values (shadow cost). */
+const FAB_ELEVATION = 16;
+
 const styles = StyleSheet.create({
   fab: {
     position: "absolute",
-    zIndex: 1000,
+    zIndex: FAB_Z_PROFILE,
+    elevation: FAB_ELEVATION,
   },
   alertFab: {
     position: "absolute",
-    zIndex: 999,
+    zIndex: FAB_Z_ALERTS,
+    elevation: FAB_ELEVATION,
   },
   fabRing: {
     ...StyleSheet.absoluteFillObject,

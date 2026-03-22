@@ -3,8 +3,10 @@ import { EmptyStateCard } from "@/components/empty-state-card";
 import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
+import { FAB } from "@/components/ui/fab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
+import { useCart } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
 import { normalizeAssetUrl } from "@/lib/asset-url";
@@ -13,18 +15,19 @@ import { Image } from "expo-image";
 import { router, Stack } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    Platform,
-    Pressable,
-    RefreshControl,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const showAlert = (title: string, message: string) => {
   Alert.alert(title, message);
@@ -49,6 +52,7 @@ type Client = {
   id: string;
   name: string;
   email?: string | null;
+  phone?: string | null;
   avatar?: string | null;
   photoUrl?: string | null;
   activeBundles: number;
@@ -66,6 +70,11 @@ type Client = {
     bundleTitle?: string;
   } | null;
 };
+
+type ClientListRow =
+  | { type: "no_results" }
+  | { type: "header"; title: string; section: "active" | "inactive" | "hidden" }
+  | { type: "client"; data: Client };
 
 function toProgressPercent(used: number, included: number) {
   if (!included || included <= 0) return 0;
@@ -118,9 +127,22 @@ function ClientAvatar({ uri, name }: { uri?: string | null; name?: string | null
   );
 }
 
-function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onPress: () => void; onRequestPayment: () => void }) {
+function ClientCard({
+  client,
+  onPress,
+  onStartPlan,
+  onRequestPayment,
+  onUnhideClient,
+}: {
+  client: Client;
+  onPress: () => void;
+  onStartPlan: () => void;
+  onRequestPayment: () => void;
+  onUnhideClient?: () => void;
+}) {
   const colors = useColors();
   const bundleProgress = client.currentBundle || null;
+  const isHidden = (client.status || "") === "hidden";
   const sessionsProgress = toProgressPercent(
     Number(bundleProgress?.sessionsUsed || 0),
     Number(bundleProgress?.sessionsIncluded || 0),
@@ -146,8 +168,9 @@ function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onP
             <View className="flex-row items-center">
               <Text className="text-base font-semibold text-foreground">{client.name}</Text>
               <View
-                className={`w-2 h-2 rounded-full ml-2 ${client.status === "active" ? "bg-success" : "bg-muted"
-                  }`}
+                className={`w-2 h-2 rounded-full ml-2 ${
+                  client.status === "active" ? "bg-success" : isHidden ? "bg-warning" : "bg-muted"
+                }`}
               />
             </View>
             <Text className="text-sm text-muted mt-0.5">{client.email}</Text>
@@ -201,40 +224,83 @@ function ClientCard({ client, onPress, onRequestPayment }: { client: Client; onP
           </View>
         ) : (
           <View className="mt-3">
-            <Text className="text-xs text-warning">No active bundle. Tap to invite this client.</Text>
+            <Text className="text-xs text-warning">No active bundle. Create a plan or invite this client.</Text>
           </View>
         )}
       </TouchableOpacity>
-      <TouchableOpacity
-        className="flex-row items-center justify-center py-2.5 border-t border-border"
-        onPress={onRequestPayment}
-        activeOpacity={0.7}
-        accessibilityRole="button"
-        accessibilityLabel={`Request payment from ${client.name}`}
-        testID={`trainer-client-pay-${client.id}`}
-      >
-        <IconSymbol name="creditcard.fill" size={14} color={colors.primary} />
-        <Text className="text-primary font-medium text-sm ml-1.5">Request Payment</Text>
-      </TouchableOpacity>
+      {isHidden ? (
+        <View className="border-t border-border">
+          <TouchableOpacity
+            className="flex-row items-center justify-center py-2.5"
+            onPress={onUnhideClient}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={`Show ${client.name} in client list again`}
+            testID={`trainer-client-unhide-${client.id}`}
+          >
+            <IconSymbol name="eye.fill" size={14} color={colors.primary} />
+            <Text className="text-primary font-medium text-sm ml-1.5">Show in list again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          <View className="flex-row border-t border-border">
+            <TouchableOpacity
+              className="flex-1 flex-row items-center justify-center py-2.5 border-r border-border"
+              onPress={onStartPlan}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Create a custom plan for ${client.name}`}
+              testID={`trainer-client-create-plan-${client.id}`}
+            >
+              <IconSymbol name="bag.fill" size={14} color={colors.primary} />
+              <Text className="text-primary font-medium text-sm ml-1.5">Create Offer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className="flex-1 flex-row items-center justify-center py-2.5"
+              onPress={onRequestPayment}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Request payment from ${client.name}`}
+              testID={`trainer-client-pay-${client.id}`}
+            >
+              <IconSymbol name="creditcard.fill" size={14} color={colors.primary} />
+              <Text className="text-primary font-medium text-sm ml-1.5">Request Payment</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
     </View>
   );
 }
 
 export default function TrainerClientsScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { effectiveUser } = useAuthContext();
+  const { items, proposalContext, clearCart } = useCart();
   const [searchQuery, setSearchQuery] = useState("");
   const [showBulkInvite, setShowBulkInvite] = useState(false);
+  const [inactiveSectionCollapsed, setInactiveSectionCollapsed] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [payClientName, setPayClientName] = useState("");
   const [payClientId, setPayClientId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payDescription, setPayDescription] = useState("");
   const [payLinkResult, setPayLinkResult] = useState<string | null>(null);
+  /** Bottom sheet: safe area + standard screen gutter (matches ~p-4 horizontal rhythm). */
+  const requestPaymentSheetPaddingBottom = Math.max(insets.bottom, 20) + 16;
 
   // Fetch real clients from tRPC
+  const utils = trpc.useUtils();
   const { data: clientsData, isLoading, refetch, isRefetching } = trpc.clients.list.useQuery();
   const bulkInviteMutation = trpc.clients.bulkInvite.useMutation();
+  const updateClientMutation = trpc.clients.update.useMutation({
+    onSuccess: async () => {
+      await utils.clients.list.invalidate();
+    },
+    onError: (err) => showAlert("Update failed", err.message),
+  });
 
   const createPayLink = trpc.payments.createLink.useMutation({
     onSuccess: (data) => {
@@ -256,6 +322,57 @@ export default function TrainerClientsScreen() {
     setPayModalOpen(true);
   };
 
+  /** Same entry as client detail "Send offer": invite screen with Simple / Custom / Do this later. */
+  const openInviteOfferChoice = (client: Pick<Client, "id" | "name" | "email" | "phone">) => {
+    const clientId = String(client.id || "");
+    if (!clientId) return;
+    const name =
+      (client.name || "").trim() ||
+      (typeof client.email === "string" ? client.email.trim() : "") ||
+      "Client";
+    router.push({
+      pathname: "/(trainer)/invite",
+      params: {
+        clientId,
+        clientName: name,
+        clientEmail: client.email || "",
+        clientPhone: client.phone || "",
+        toOfferChoice: "1",
+      },
+    } as any);
+  };
+
+  const handleStartPlan = (client: Pick<Client, "id" | "name" | "email" | "phone">) => {
+    const clientId = String(client.id || "");
+    const existingClientId = proposalContext?.clientRecordId
+      ? String(proposalContext.clientRecordId)
+      : "";
+    const hasConflictingCart =
+      items.length > 0 && (!existingClientId || existingClientId !== clientId);
+
+    if (!hasConflictingCart) {
+      openInviteOfferChoice(client);
+      return;
+    }
+
+    const currentClientLabel = proposalContext?.clientName || "another client";
+    Alert.alert(
+      "Start new plan?",
+      `You already have a plan in progress for ${currentClientLabel}. Starting one for ${client.name || "this client"} will clear the current plan.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Create New",
+          style: "destructive",
+          onPress: () => {
+            clearCart();
+            openInviteOfferChoice(client);
+          },
+        },
+      ],
+    );
+  };
+
   const handleSubmitPayment = async () => {
     await haptics.light();
     const amountFloat = parseFloat(payAmount);
@@ -272,51 +389,49 @@ export default function TrainerClientsScreen() {
 
   const clients = clientsData || [];
 
-  const filteredClients = clients.filter(
-    (client) =>
-      client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (client.email && client.email.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const visibleCount = clients.filter((c) => (c.status || "") !== "hidden").length;
+  const hiddenCount = clients.length - visibleCount;
 
-  const activeClients = filteredClients.filter((c) => c.status === "active");
-  const inactiveClients = filteredClients.filter((c) => c.status !== "active");
+  const handleUnhideClient = (client: Client) => {
+    updateClientMutation.mutate({ id: client.id, status: "inactive" });
+  };
+
+  const clientListRows: ClientListRow[] = useMemo(() => {
+    const list = clientsData || [];
+    if (list.length === 0) {
+      return [];
+    }
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = list.filter(
+      (client) =>
+        client.name.toLowerCase().includes(q) ||
+        (client.email && client.email.toLowerCase().includes(q)),
+    );
+    if (filtered.length === 0 && q) {
+      return [{ type: "no_results" as const }];
+    }
+    const active = filtered.filter((c) => c.status === "active");
+    const inactive = filtered.filter((c) => {
+      const s = c.status || "";
+      return s !== "active" && s !== "hidden";
+    });
+    const hidden = filtered.filter((c) => (c.status || "") === "hidden");
+    return [
+      { type: "header" as const, title: `Active (${active.length})`, section: "active" as const },
+      ...active.map((c) => ({ type: "client" as const, data: c as Client })),
+      { type: "header" as const, title: `Inactive (${inactive.length})`, section: "inactive" as const },
+      ...(inactiveSectionCollapsed ? [] : inactive.map((c) => ({ type: "client" as const, data: c as Client }))),
+      { type: "header" as const, title: `Hidden (${hidden.length})`, section: "hidden" as const },
+      ...hidden.map((c) => ({ type: "client" as const, data: c as Client })),
+    ];
+  }, [clientsData, searchQuery, inactiveSectionCollapsed]);
 
   const onRefresh = async () => {
     await refetch();
   };
 
-  const handleClientPress = (client: any) => {
-    if (client?.currentBundle) {
-      router.push(`/client-detail/${client.id}` as any);
-      return;
-    }
-
-    const openInvite = () =>
-      router.push({
-        pathname: "/(trainer)/invite",
-        params: {
-          clientId: client.id,
-          clientName: client.name || "",
-          clientEmail: client.email || "",
-        },
-      } as any);
-
-    if (Platform.OS === "web") {
-      const confirmed = window.confirm(
-        `${client.name || "This client"} has no active bundle yet.\n\nInvite them to a bundle now?`,
-      );
-      if (confirmed) openInvite();
-      return;
-    }
-
-    Alert.alert(
-      "No active bundle",
-      `${client.name || "This client"} has no active bundle yet. Invite them now?`,
-      [
-        { text: "Not now", style: "cancel" },
-        { text: "Invite", onPress: openInvite },
-      ],
-    );
+  const handleClientPress = (client: Pick<Client, "id">) => {
+    router.push(`/client-detail/${client.id}` as any);
   };
 
   return (
@@ -326,14 +441,12 @@ export default function TrainerClientsScreen() {
       {/* Navigation Header */}
       <NavigationHeader
         title="Clients"
-        subtitle={`${clients.length} total clients`}
+        subtitle={
+          hiddenCount > 0
+            ? `${visibleCount} visible · ${hiddenCount} hidden`
+            : `${clients.length} total clients`
+        }
         showBack={false}
-        rightAction={{
-          icon: "person.badge.plus",
-          onPress: () => setShowBulkInvite(true),
-          label: "Bulk invite",
-          testID: "bulk-invite",
-        }}
       />
 
       {/* Content */}
@@ -355,6 +468,19 @@ export default function TrainerClientsScreen() {
             </TouchableOpacity>
           )}
         </View>
+        <TouchableOpacity
+          className="flex-row items-center self-start mt-3 py-2 px-3 rounded-xl border border-border bg-surface"
+          onPress={() => {
+            void haptics.light();
+            setShowBulkInvite(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Bulk invite"
+          testID="bulk-invite"
+        >
+          <IconSymbol name="person.badge.plus" size={18} color={colors.primary} />
+          <Text className="text-primary font-semibold text-sm ml-2">Bulk invite</Text>
+        </TouchableOpacity>
       </View>
 
       {isLoading ? (
@@ -362,31 +488,61 @@ export default function TrainerClientsScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-      <FlatList
-        data={[
-          { type: "header", title: `Active (${activeClients.length})` },
-          ...activeClients.map((c) => ({ type: "client", data: c })),
-          { type: "header", title: `Inactive (${inactiveClients.length})` },
-          ...inactiveClients.map((c) => ({ type: "client", data: c })),
-        ]}
-        keyExtractor={(item, index) => {
-          if (item.type === "header") return `header-${index}`;
-          return `client-${(item as any).data.id}`;
+      <FlatList<ClientListRow>
+        data={clientListRows}
+        keyExtractor={(item) => {
+          if (item.type === "header") return `header-${item.section}`;
+          if (item.type === "no_results") return "no-results";
+          return `client-${item.data.id}`;
         }}
         renderItem={({ item }) => {
-          if (item.type === "header") {
+          if (item.type === "no_results") {
             return (
-              <Text className="text-sm font-semibold text-muted uppercase px-4 py-2 mt-2">
-                {(item as any).title}
-              </Text>
+              <View className="px-4 py-12">
+                <Text className="text-muted text-center text-sm">No clients match your search.</Text>
+              </View>
             );
           }
+          if (item.type === "header") {
+            if (item.section === "inactive") {
+              return (
+                <TouchableOpacity
+                  className="flex-row items-center justify-between px-4 py-2 mt-2"
+                  activeOpacity={0.7}
+                  onPress={() => setInactiveSectionCollapsed((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    inactiveSectionCollapsed
+                      ? "Inactive clients, collapsed. Tap to expand."
+                      : "Inactive clients, expanded. Tap to collapse."
+                  }
+                  accessibilityState={{ expanded: !inactiveSectionCollapsed }}
+                  testID="trainer-clients-inactive-header"
+                >
+                  <Text className="text-sm font-semibold text-muted uppercase">{item.title}</Text>
+                  <IconSymbol
+                    name={inactiveSectionCollapsed ? "chevron.right" : "chevron.down"}
+                    size={14}
+                    color={colors.muted}
+                  />
+                </TouchableOpacity>
+              );
+            }
+            return (
+              <Text className="text-sm font-semibold text-muted uppercase px-4 py-2 mt-2">{item.title}</Text>
+            );
+          }
+          const rowClient = item.data;
           return (
             <View className="px-4">
               <ClientCard
-                client={(item as any).data}
-                onPress={() => handleClientPress((item as any).data)}
-                onRequestPayment={() => handleOpenPayModal((item as any).data)}
+                client={rowClient}
+                onPress={() => handleClientPress(rowClient)}
+                onStartPlan={() => handleStartPlan(rowClient)}
+                onRequestPayment={() => handleOpenPayModal(rowClient)}
+                onUnhideClient={
+                  rowClient.status === "hidden" ? () => handleUnhideClient(rowClient) : undefined
+                }
               />
             </View>
           );
@@ -400,8 +556,8 @@ export default function TrainerClientsScreen() {
             <EmptyStateCard
               icon="person.2.fill"
               title="No clients yet"
-              description="This is empty because you have not invited any clients yet."
-              ctaLabel="Invite Client"
+              description="Add a client first. You can send an offer or plan invite right after."
+              ctaLabel="Add Client"
               onCtaPress={() => router.push("/(trainer)/invite" as any)}
             />
           </View>
@@ -425,17 +581,20 @@ export default function TrainerClientsScreen() {
         }}
       />
 
-      {/* Add Client FAB */}
-      <TouchableOpacity
+      {/* Add client — top-right stack (matches ProfileFAB / site FAB pattern) */}
+      <FAB
+        icon="plus"
         onPress={() => router.push("/(trainer)/invite" as any)}
-        className="absolute w-14 h-14 rounded-full bg-primary items-center justify-center shadow-lg"
-        style={{ right: 16, bottom: 16 }}
-        accessibilityRole="button"
-        accessibilityLabel="Invite client"
+        accessibilityLabel="Add client"
         testID="clients-invite-fab"
-      >
-        <IconSymbol name="plus" size={24} color="#fff" />
-      </TouchableOpacity>
+        style={{
+          position: "absolute",
+          top: insets.top + 8,
+          right: 16,
+          zIndex: 1018,
+          elevation: 16,
+        }}
+      />
 
       {/* Request Payment Modal */}
       <Modal
@@ -449,38 +608,50 @@ export default function TrainerClientsScreen() {
           <SwipeDownSheet
             visible={payModalOpen}
             onClose={() => { setPayModalOpen(false); setPayLinkResult(null); }}
-            className="bg-background rounded-t-3xl p-6"
+            className="bg-background rounded-t-3xl"
+            style={{
+              // className on Animated.View doesn't reliably apply on web; use explicit insets (matches px-6 / pt-3).
+              paddingHorizontal: 24,
+              paddingTop: 12,
+              paddingBottom: requestPaymentSheetPaddingBottom,
+            }}
           >
-            <View className="flex-row items-center justify-between mb-4">
-              <View>
+            <View className="flex-row items-center justify-between mb-6">
+              <View className="flex-1 pr-3">
                 <Text className="text-xl font-bold text-foreground">
                   {payLinkResult ? "Payment Link Ready" : "Request Payment"}
                 </Text>
-                <Text className="text-sm text-muted">for {payClientName}</Text>
+                <Text className="text-sm text-muted mt-1">for {payClientName}</Text>
               </View>
-              <TouchableOpacity onPress={() => { setPayModalOpen(false); setPayLinkResult(null); }}>
+              <TouchableOpacity
+                onPress={() => { setPayModalOpen(false); setPayLinkResult(null); }}
+                className="p-2 rounded-full"
+                accessibilityRole="button"
+                accessibilityLabel="Close request payment"
+                testID="request-payment-close"
+              >
                 <IconSymbol name="xmark" size={20} color={colors.muted} />
               </TouchableOpacity>
             </View>
 
             {payLinkResult ? (
               <View>
-                <View className="bg-success/10 border border-success/30 rounded-xl p-4 mb-4">
-                  <View className="flex-row items-center mb-2">
+                <View className="bg-success/10 border border-success/30 rounded-xl p-5 mb-6">
+                  <View className="flex-row items-center mb-3">
                     <IconSymbol name="checkmark.circle.fill" size={20} color={colors.success} />
                     <Text className="text-success font-semibold ml-2">Payment link created</Text>
                   </View>
-                  <Text className="text-foreground text-sm" selectable>{payLinkResult}</Text>
+                  <Text className="text-foreground text-sm leading-6" selectable>{payLinkResult}</Text>
                 </View>
-                <View className="flex-row gap-3 mb-4">
+                <View className="flex-row gap-3 mb-6">
                   <TouchableOpacity
-                    className="flex-1 bg-primary py-4 rounded-xl items-center"
+                    className="flex-1 bg-primary py-4 px-3 rounded-xl items-center"
                     onPress={async () => { await copyToClipboard(payLinkResult); await haptics.light(); showAlert("Copied", "Payment link copied"); }}
                   >
                     <Text className="text-white font-bold">Copy Link</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    className="flex-1 bg-surface border border-border py-4 rounded-xl items-center"
+                    className="flex-1 bg-surface border border-border py-4 px-3 rounded-xl items-center"
                     onPress={async () => {
                       try {
                         const { Share } = require("react-native");
@@ -491,34 +662,37 @@ export default function TrainerClientsScreen() {
                     <Text className="text-foreground font-bold">Share</Text>
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity className="py-3 items-center" onPress={() => setPayLinkResult(null)}>
+                <TouchableOpacity className="py-4 items-center" onPress={() => setPayLinkResult(null)}>
                   <Text className="text-primary font-medium">Create Another</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <View>
-                <Text className="text-sm font-medium text-muted mb-2">Amount (£)</Text>
+                <Text className="text-sm font-medium text-foreground mb-2">Amount (£)</Text>
                 <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground text-lg font-bold mb-4"
+                  className="bg-surface border border-border rounded-xl px-4 py-4 text-foreground text-lg font-bold mb-5"
                   placeholder="0.00"
                   placeholderTextColor={colors.muted}
                   value={payAmount}
                   onChangeText={setPayAmount}
                   keyboardType="decimal-pad"
                 />
-                <Text className="text-sm font-medium text-muted mb-2">Description (optional)</Text>
+                <Text className="text-sm font-medium text-foreground mb-2">Description (optional)</Text>
                 <TextInput
-                  className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-6"
+                  className="bg-surface border border-border rounded-xl px-4 py-4 text-foreground mb-8"
                   placeholder={`e.g. PT session with ${payClientName}`}
                   placeholderTextColor={colors.muted}
                   value={payDescription}
                   onChangeText={setPayDescription}
                 />
                 <TouchableOpacity
-                  className="bg-primary py-4 rounded-xl items-center"
+                  className="bg-primary py-4 px-4 rounded-xl items-center"
                   onPress={handleSubmitPayment}
                   disabled={createPayLink.isPending}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Generate payment link"
+                  testID="request-payment-generate-link"
                 >
                   {createPayLink.isPending ? (
                     <ActivityIndicator color="#fff" />

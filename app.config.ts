@@ -90,6 +90,8 @@ const config: ExpoConfig = {
     googleServicesFile: "./assets/GoogleService-Info.plist",
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
+      /** Required for Linking.canOpenURL (and reliable mailto/sms handling) on iOS 9+. */
+      LSApplicationQueriesSchemes: ["mailto", "sms", "tel"],
       CFBundleURLTypes: [
         {
           CFBundleURLSchemes: [
@@ -199,6 +201,7 @@ const config: ExpoConfig = {
   plugins: [
     "expo-router",
     "expo-font",
+    "@react-native-community/datetimepicker",
     "expo-notifications",
     [
       "expo-share-intent",

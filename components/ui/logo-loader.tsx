@@ -12,6 +12,11 @@ const LOOP_PATH_LENGTH = 436.18;
 const TOTAL_PATH_LENGTH = ANGLE_PATH_LENGTH + LOOP_PATH_LENGTH;
 const ANGLE_PROGRESS_END = ANGLE_PATH_LENGTH / TOTAL_PATH_LENGTH;
 
+export const DEFAULT_LOGO_LOADER_DURATION_MS = 1000;
+export const DEFAULT_LOGO_LOADER_HOLD_MS = 200;
+export const DEFAULT_LOGO_LOADER_CYCLE_MS =
+  DEFAULT_LOGO_LOADER_DURATION_MS + DEFAULT_LOGO_LOADER_HOLD_MS;
+
 const LOGO_PATHS = [
   {
     key: "angle",
@@ -41,8 +46,8 @@ type LogoLoaderProps = {
 export function LogoLoader({
   size = 64,
   color,
-  durationMs = 1000,
-  holdMs = 200,
+  durationMs = DEFAULT_LOGO_LOADER_DURATION_MS,
+  holdMs = DEFAULT_LOGO_LOADER_HOLD_MS,
   style,
   trackOpacity = 0.14,
 }: LogoLoaderProps) {

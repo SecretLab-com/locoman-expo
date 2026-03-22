@@ -17,6 +17,7 @@ export function PostAuthOnboardingResolver() {
   const processingRef = useRef(false);
   const requestToJoin = trpc.myTrainers.requestToJoin.useMutation();
   const acceptUserInvitation = trpc.auth.acceptUserInvitation.useMutation();
+  const setAttribution = trpc.attribution.setAttribution.useMutation();
 
   useEffect(() => {
     if (!isAuthenticated || !profileHydrated || processingRef.current) return;
@@ -61,6 +62,14 @@ export function PostAuthOnboardingResolver() {
           (effectiveRole === "client" || effectiveRole === "shopper")
         ) {
           try {
+            await setAttribution.mutateAsync({
+              trainerId: pending.trainerId,
+              source: "store_link",
+            });
+          } catch {
+            // Attribution may fail if trainer is invalid; proceed anyway.
+          }
+          try {
             await requestToJoin.mutateAsync({
               trainerId: pending.trainerId,
               message: "Requested during registration",
@@ -85,7 +94,7 @@ export function PostAuthOnboardingResolver() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, profileHydrated, effectiveRole, requestToJoin, acceptUserInvitation, refresh]);
+  }, [isAuthenticated, profileHydrated, effectiveRole, requestToJoin, acceptUserInvitation, setAttribution, refresh]);
 
   return null;
 }

@@ -172,8 +172,8 @@ describe("LocoMotivate Expo App - Complete Feature Test Suite", () => {
       const invitePath = path.join(projectRoot, "app/(trainer)/invite.tsx");
       expect(fs.existsSync(invitePath)).toBe(true);
       const content = fs.readFileSync(invitePath, "utf-8");
-      expect(content).toContain("Invite Client");
-      expect(content).toContain("Create Invite Link");
+      expect(content).toContain("Add Client");
+      expect(content).toContain("Next");
     });
 
     it("should have trainer partnerships screen", () => {
@@ -184,11 +184,11 @@ describe("LocoMotivate Expo App - Complete Feature Test Suite", () => {
       expect(content).toContain("business");
     });
 
-    it("should have client detail screen with active offers and payment history", () => {
+    it("should have client detail screen with editable contact and payment history", () => {
       const clientDetailPath = path.join(projectRoot, "app/client-detail/[id].tsx");
       expect(fs.existsSync(clientDetailPath)).toBe(true);
       const content = fs.readFileSync(clientDetailPath, "utf-8");
-      expect(content).toContain("Active offers");
+      expect(content).toContain("Save changes");
       expect(content).toContain("Payment history");
       expect(content).toContain("Get Paid");
     });

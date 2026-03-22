@@ -8,6 +8,7 @@ type SwipeDownSheetProps = {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  /** Visual classes on the animated root; avoid relying on `padding*` here on web (use `style`). */
   className?: string;
   style?: StyleProp<ViewStyle>;
   dismissThreshold?: number;
@@ -66,7 +67,6 @@ export function SwipeDownSheet({
     <Animated.View
       className={className}
       style={[{ transform: [{ translateY }] }, style]}
-      onStartShouldSetResponder={() => true}
     >
       <View
         {...panResponder.panHandlers}

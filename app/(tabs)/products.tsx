@@ -1,4 +1,5 @@
 // import { useBottomNavHeight } from "@/components/role-bottom-nav";
+import { PlanShoppingProductsWrap } from "@/components/plan-shopping-products-wrap";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -29,7 +30,9 @@ import {
 } from "react-native";
 import RenderHTML from "react-native-render-html";
 
+import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
+import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
 
 type Product = {
   id: string;
@@ -58,8 +61,11 @@ type Bundle = {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  image?: string | null;
+  productsJson?: unknown;
   price: string | null;
   cadence: "one_time" | "weekly" | "monthly" | null;
+  trainerId?: string | null;
 };
 
 type Collection = {
@@ -72,7 +78,20 @@ type Collection = {
   updatedAt: string | null;
 };
 
-export default function ProductsScreen() {
+function extractListItemsFromHtml(description: string): string[] {
+  const names: string[] = [];
+  const liMatches = description.matchAll(/<li>(.*?)<\/li>/gi);
+  for (const match of liMatches) {
+    const raw = String(match[1] || "");
+    const withoutTags = raw.replace(/<[^>]+>/g, "");
+    const withoutQty = withoutTags.replace(/\(x\d+\)/gi, "");
+    const cleaned = withoutQty.trim();
+    if (cleaned) names.push(cleaned);
+  }
+  return names;
+}
+
+function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: boolean }) {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const { canManage, effectiveRole, isClient, isCoordinator, isManager, isTrainer } = useAuthContext();
@@ -81,7 +100,9 @@ export default function ProductsScreen() {
   const canPurchase = isClient || isTrainer || effectiveRole === "shopper" || !effectiveRole;
   const { width, height: windowHeight } = useWindowDimensions();
   const overlayColor = "rgba(0,0,0,0.85)";
-  const { addItem } = useCart();
+  const detailSheetMaxHeight = Math.min(windowHeight * 0.88, 820);
+  const { addItem, proposalContext } = useCart();
+  const isPlanShopping = isTrainer && !!proposalContext?.clientRecordId;
   const [viewMode, setViewMode] = useState<"bundles" | "categories" | "products">("categories");
   const [showHiddenBundles, setShowHiddenBundles] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -121,8 +142,24 @@ export default function ProductsScreen() {
   } = trpc.catalog.products.useQuery(undefined, {
     staleTime: 60000,
   });
-  const { data: bundles } = trpc.catalog.bundles.useQuery(undefined, {
+  const {
+    data: bundles,
+    isLoading: publicBundlesLoading,
+    isRefetching: publicBundlesRefetching,
+    refetch: refetchPublicBundles,
+  } = trpc.catalog.bundles.useQuery(undefined, {
     staleTime: 60000,
+    enabled: !(isPlanShopping && isTrainer),
+  });
+  /** Same source as trainer Offers (`/(trainer)/bundles`); plan builder only lists published offers. */
+  const {
+    data: trainerBundlesForPlan,
+    isLoading: trainerBundlesForPlanLoading,
+    isRefetching: trainerBundlesForPlanRefetching,
+    refetch: refetchTrainerBundlesForPlan,
+  } = trpc.bundles.list.useQuery(undefined, {
+    staleTime: 60000,
+    enabled: isPlanShopping && isTrainer,
   });
   const { data: allBundles } = trpc.catalog.allBundles.useQuery(undefined, {
     staleTime: 60000,
@@ -214,6 +251,58 @@ export default function ProductsScreen() {
     }
     return Array.from(deduped.values());
   }, [products]);
+
+  const productImageByName = useMemo(() => {
+    const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+    const imageMap = new Map<string, string>();
+    for (const product of baseProducts) {
+      if (!product?.name || !product.imageUrl) continue;
+      const normalized = normalizeName(product.name);
+      const normalizedImageUrl = normalizeAssetUrl(product.imageUrl);
+      if (!normalizedImageUrl) continue;
+      if (!imageMap.has(normalized)) {
+        imageMap.set(normalized, normalizedImageUrl);
+      }
+    }
+    return imageMap;
+  }, [baseProducts]);
+  const productImageEntries = useMemo(() => Array.from(productImageByName.entries()), [productImageByName]);
+
+  const resolveBundleImageUrl = useCallback(
+    (bundle: Bundle) => {
+      const offer = mapBundleDraftToOfferView(bundle as any);
+      const directImageUrl = normalizeAssetUrl(bundle.imageUrl || bundle.image || offer.imageUrl);
+      if (directImageUrl) return directImageUrl;
+
+      const normalizeName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const candidates = new Set<string>();
+      if (offer.title) candidates.add(normalizeName(offer.title));
+      for (const included of offer.included) {
+        if (included) candidates.add(normalizeName(included));
+      }
+      if (offer.description) {
+        for (const extracted of extractListItemsFromHtml(offer.description)) {
+          candidates.add(normalizeName(extracted));
+        }
+      }
+
+      for (const name of candidates) {
+        const match = productImageByName.get(name);
+        if (match) return match;
+      }
+
+      for (const name of candidates) {
+        for (const [productName, imageUrl] of productImageEntries) {
+          if (name.includes(productName) || productName.includes(name)) {
+            return imageUrl;
+          }
+        }
+      }
+
+      return getOfferFallbackImageUrl(offer.title);
+    },
+    [productImageByName, productImageEntries],
+  );
 
   const categories = useMemo(() => {
     const fromCollections = (collections as Collection[])
@@ -353,8 +442,17 @@ export default function ProductsScreen() {
   }, [categories, selectedCategory, viewMode]);
 
   const filteredBundles = useMemo(() => {
-    const source = (isAdmin && showHiddenBundles ? allBundles : bundles) as Bundle[] | undefined ?? [];
-    const all = source ?? [];
+    const source = (() => {
+      if (isPlanShopping && isTrainer) {
+        const raw = (trainerBundlesForPlan ?? []) as Bundle[];
+        return raw.filter((b) => String((b as any).status || "").toLowerCase() === "published");
+      }
+      return ((isAdmin && showHiddenBundles ? allBundles : bundles) as Bundle[] | undefined) ?? [];
+    })();
+    let all = (source ?? []).map((bundle) => ({
+      ...bundle,
+      imageUrl: resolveBundleImageUrl(bundle),
+    }));
     if (!bundleSearchQuery.trim()) return all;
     const term = bundleSearchQuery.toLowerCase();
     return all.filter(
@@ -362,7 +460,20 @@ export default function ProductsScreen() {
         b.title.toLowerCase().includes(term) ||
         (b.description || "").toLowerCase().includes(term),
     );
-  }, [bundles, allBundles, bundleSearchQuery, isAdmin, showHiddenBundles]);
+  }, [
+    bundles,
+    allBundles,
+    trainerBundlesForPlan,
+    bundleSearchQuery,
+    isAdmin,
+    showHiddenBundles,
+    isPlanShopping,
+    isTrainer,
+    resolveBundleImageUrl,
+  ]);
+
+  const bundlesCatalogLoading =
+    isPlanShopping && isTrainer ? trainerBundlesForPlanLoading : publicBundlesLoading;
 
   const filteredProducts = useMemo(() => {
     if (!baseProducts.length) return [];
@@ -395,7 +506,7 @@ export default function ProductsScreen() {
       title: product.name,
       price: parseFloat(product.price),
       quantity: 1,
-      imageUrl: product.imageUrl || undefined,
+      imageUrl: normalizeAssetUrl(product.imageUrl) ?? undefined,
       productId: product.id,
       fulfillment: "home_ship",
     });
@@ -470,9 +581,18 @@ export default function ProductsScreen() {
     setMediaModalOpen(true);
   };
 
+  if (isPlanShopping && !planShopEmbedded) {
+    return (
+      <PlanShoppingProductsWrap>
+        <ProductsScreenInner planShopEmbedded />
+      </PlanShoppingProductsWrap>
+    );
+  }
+
   return (
-    <ScreenContainer className="flex-1">
-      {/* Header */}
+    <ScreenContainer className="flex-1" edges={isPlanShopping ? ["left", "right"] : ["top", "left", "right"]}>
+      {/* Header — hidden when trainer plan shopping (shell provides chrome) */}
+      {!isPlanShopping && (
       <View className="px-4 pt-2 pb-4">
         <View className="flex-row items-center">
           <Text className="text-2xl font-bold text-foreground">Products</Text>
@@ -505,58 +625,101 @@ export default function ProductsScreen() {
         </View>
         <Text className="text-sm text-muted mt-1">Browse wellness products</Text>
       </View>
+      )}
 
-      {/* Browse Mode Tabs */}
+      {/* Browse Mode Tabs — explicit RN styles for selected state so highlight syncs on first tap (NativeWind conditional classes can lag). */}
       <View className="px-4 mb-3">
-        <View className="flex-row bg-surface border border-border rounded-xl p-1">
-          <TouchableOpacity
+        <View
+          className="flex-row bg-surface border border-border rounded-xl p-1"
+          accessibilityRole="tablist"
+        >
+          <Pressable
             onPress={() => setViewMode("bundles")}
-            className={`flex-1 py-2 rounded-lg ${viewMode === "bundles" ? "bg-primary" : ""}`}
-            accessibilityRole="button"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: viewMode === "bundles" }}
             accessibilityLabel="Browse trainer offers"
             testID="products-tab-bundles"
+            android_ripple={{ color: `${colors.primary}33` }}
+            style={({ pressed }) => ({
+              flex: 1,
+              paddingVertical: 8,
+              borderRadius: 8,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: viewMode === "bundles" ? colors.primary : "transparent",
+              opacity: pressed ? 0.9 : 1,
+            })}
           >
             <Text
-              className={`text-center font-medium ${
-                viewMode === "bundles" ? "text-background" : "text-foreground"
-              }`}
+              style={{
+                textAlign: "center",
+                fontWeight: "600",
+                fontSize: 15,
+                color: viewMode === "bundles" ? colors["primary-foreground"] : colors.foreground,
+              }}
             >
               Offers
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </Pressable>
+          <Pressable
             onPress={() => setViewMode("categories")}
-            className={`flex-1 py-2 rounded-lg ${viewMode === "categories" ? "bg-primary" : ""}`}
-            accessibilityRole="button"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: viewMode === "categories" }}
             accessibilityLabel="Browse by category"
             testID="products-tab-categories"
+            android_ripple={{ color: `${colors.primary}33` }}
+            style={({ pressed }) => ({
+              flex: 1,
+              paddingVertical: 8,
+              borderRadius: 8,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: viewMode === "categories" ? colors.primary : "transparent",
+              opacity: pressed ? 0.9 : 1,
+            })}
           >
             <Text
-              className={`text-center font-medium ${
-                viewMode === "categories" ? "text-background" : "text-foreground"
-              }`}
+              style={{
+                textAlign: "center",
+                fontWeight: "600",
+                fontSize: 15,
+                color: viewMode === "categories" ? colors["primary-foreground"] : colors.foreground,
+              }}
             >
               Categories
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </Pressable>
+          <Pressable
             onPress={() => {
               setSelectedCategory("all");
               setViewMode("products");
             }}
-            className={`flex-1 py-2 rounded-lg ${viewMode === "products" ? "bg-primary" : ""}`}
-            accessibilityRole="button"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: viewMode === "products" }}
             accessibilityLabel="Browse all products"
             testID="products-tab-products"
+            android_ripple={{ color: `${colors.primary}33` }}
+            style={({ pressed }) => ({
+              flex: 1,
+              paddingVertical: 8,
+              borderRadius: 8,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: viewMode === "products" ? colors.primary : "transparent",
+              opacity: pressed ? 0.9 : 1,
+            })}
           >
             <Text
-              className={`text-center font-medium ${
-                viewMode === "products" ? "text-background" : "text-foreground"
-              }`}
+              style={{
+                textAlign: "center",
+                fontWeight: "600",
+                fontSize: 15,
+                color: viewMode === "products" ? colors["primary-foreground"] : colors.foreground,
+              }}
             >
               Products
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
 
@@ -617,35 +780,57 @@ export default function ProductsScreen() {
         </View>
       )}
 
-      {viewMode === "bundles" && !isLoading && !error && (
+      {viewMode === "bundles" && !bundlesCatalogLoading && !error && (
         <ScrollView
           className="flex-1 px-4"
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={() => refetch()}
+              refreshing={
+                isRefetching ||
+                (isPlanShopping && isTrainer
+                  ? trainerBundlesForPlanRefetching
+                  : publicBundlesRefetching)
+              }
+              onRefresh={async () => {
+                await refetch();
+                if (isPlanShopping && isTrainer) await refetchTrainerBundlesForPlan();
+                else await refetchPublicBundles();
+              }}
               tintColor={colors.primary}
             />
           }
         >
           <View className="pb-24">
             {filteredBundles.map((bundle) => (
+              (() => {
+                const bundleImageKey = `bundle-${bundle.id}-${bundle.imageUrl || "none"}`;
+                return (
               <TouchableOpacity
                 key={bundle.id}
-                onPress={() => router.push((isClient ? `/(client)/bundle/${bundle.id}` : `/bundle/${bundle.id}`) as any)}
+                onPress={() => {
+                  if (isClient) {
+                    router.push({ pathname: "/(client)/bundle/[id]", params: { id: bundle.id } } as any);
+                    return;
+                  }
+                  if (isTrainer) {
+                    router.push(`/(trainer)/bundle/${bundle.id}` as any);
+                    return;
+                  }
+                  router.push({ pathname: "/bundle/[id]", params: { id: bundle.id } } as any);
+                }}
                 className="mb-6 bg-surface rounded-2xl overflow-hidden border border-border"
                 accessibilityRole="button"
                 accessibilityLabel={`View ${bundle.title} bundle`}
                 testID={`bundle-card-${bundle.id}`}
               >
                 <View className="bg-background items-center justify-center" style={{ height: 210 }}>
-                  {bundle.imageUrl && !failedImages[`bundle-${bundle.id}`] ? (
+                  {bundle.imageUrl && !failedImages[bundleImageKey] ? (
                     <Image
                       source={{ uri: bundle.imageUrl }}
                       className="w-full h-full"
                       resizeMode="cover"
-                      onError={() => markImageFailed(`bundle-${bundle.id}`)}
+                      onError={() => markImageFailed(bundleImageKey)}
                     />
                   ) : (
                     <IconSymbol name="cube.box" size={48} color={colors.muted} />
@@ -679,6 +864,8 @@ export default function ProductsScreen() {
                   ) : null}
                 </View>
               </TouchableOpacity>
+                );
+              })()
             ))}
 
             {filteredBundles.length === 0 && (
@@ -706,6 +893,13 @@ export default function ProductsScreen() {
             )}
           </View>
         </ScrollView>
+      )}
+
+      {viewMode === "bundles" && bundlesCatalogLoading && !error && (
+        <View className="flex-1 items-center justify-center py-16 px-4" accessibilityLabel="Loading offers">
+          <LogoLoader size={48} />
+          <Text className="text-muted mt-4 text-sm">Loading offers…</Text>
+        </View>
       )}
 
       {isProductsMode && (
@@ -1102,10 +1296,19 @@ export default function ProductsScreen() {
             visible={detailModalOpen}
             onClose={() => setDetailModalOpen(false)}
             className="rounded-t-3xl overflow-hidden"
-            style={{ backgroundColor: colors.background }}
+            style={{
+              backgroundColor: colors.background,
+              maxHeight: detailSheetMaxHeight,
+              flexShrink: 1,
+            }}
           >
             {selectedProduct && (
-              <ScrollView style={{ backgroundColor: colors.background }}>
+              <ScrollView
+                style={{ backgroundColor: colors.background, maxHeight: detailSheetMaxHeight }}
+                contentContainerStyle={{ paddingBottom: 24 }}
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
+              >
                 {/* Header */}
                 <View className="flex-row items-center justify-between px-6 pt-4 pb-3 border-b border-border">
                   <Text className="text-lg font-semibold text-foreground">Product details</Text>
@@ -1325,6 +1528,10 @@ export default function ProductsScreen() {
       )}
     </ScreenContainer>
   );
+}
+
+export default function ProductsScreen(props?: { planShopEmbedded?: boolean }) {
+  return <ProductsScreenInner planShopEmbedded={props?.planShopEmbedded ?? false} />;
 }
 
 function MediaSlide({

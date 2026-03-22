@@ -29,6 +29,7 @@ export function useBadgeContext() {
         pendingApprovals: 0,
         unreadMessages: 0,
         pendingJoinRequests: 0,
+        unreadSocialNotifications: 0,
       },
       isLoading: false,
       refetch: async () => {},

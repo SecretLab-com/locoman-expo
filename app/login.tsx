@@ -10,11 +10,13 @@ import { haptics } from "@/hooks/use-haptics";
 import { getHomeRoute } from "@/lib/navigation";
 import { clearPendingOnboardingContext, savePendingOnboardingContext } from "@/lib/onboarding-context";
 import { supabase } from "@/lib/supabase-client";
+import { trpc } from "@/lib/trpc";
 import { TEST_LOGIN_ACCOUNTS } from "@/constants/test-login-accounts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { LayoutChangeEvent } from "react-native";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -24,14 +26,50 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 
 const REMEMBER_ME_KEY = "locomotivate_remember_me";
 const SAVED_EMAIL_KEY = "locomotivate_saved_email";
 const MIN_BRANDED_LOGIN_LOADER_MS = 2000;
 
+/** Portrait source asset (background.m4v) — used to size cover like `welcome.tsx`. */
+const BACKGROUND_VIDEO_ASPECT = 1080 / 1920;
+
 export default function LoginScreen() {
   const colors = useColors();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  /** Prefer measured container (safe area); fall back to window until `onLayout`. */
+  const [backgroundSize, setBackgroundSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const { videoWidth, videoHeight, videoLeft, videoTop } = useMemo(() => {
+    const width = backgroundSize?.width ?? windowWidth;
+    const height = Math.max(backgroundSize?.height ?? windowHeight, 1);
+    const viewportAspectRatio = width / height;
+    const videoAspectRatio = BACKGROUND_VIDEO_ASPECT;
+    const vw =
+      viewportAspectRatio > videoAspectRatio ? width : height * videoAspectRatio;
+    const vh =
+      viewportAspectRatio > videoAspectRatio ? width / videoAspectRatio : height;
+    return {
+      videoWidth: vw,
+      videoHeight: vh,
+      videoLeft: (width - vw) / 2,
+      videoTop: (height - vh) / 2,
+    };
+  }, [backgroundSize?.height, backgroundSize?.width, windowHeight, windowWidth]);
+
+  const handleBackgroundLayout = (event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    if (width <= 0 || height <= 0) return;
+    setBackgroundSize((prev) =>
+      prev && prev.width === width && prev.height === height ? prev : { width, height },
+    );
+  };
+
   const backgroundPlayer = useVideoPlayer(require("../assets/background.m4v"), (video) => {
     video.loop = true;
     video.muted = true;
@@ -42,6 +80,15 @@ export default function LoginScreen() {
     typeof inviteToken === "string" && inviteToken.trim().length > 0
       ? inviteToken.trim()
       : null;
+  const inviteContextQuery = trpc.auth.inviteRegistrationContext.useQuery(
+    { token: normalizedInviteToken || "" },
+    { enabled: Boolean(normalizedInviteToken) },
+  );
+  const inviteContext = inviteContextQuery.data;
+  const hasInviteEmailLock =
+    Boolean(normalizedInviteToken) &&
+    typeof inviteContext?.email === "string" &&
+    inviteContext.email.length > 0;
   const { isAuthenticated, loading: authLoading, effectiveRole } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,6 +99,11 @@ export default function LoginScreen() {
   const [loginLoaderVisibleUntil, setLoginLoaderVisibleUntil] = useState<number | null>(null);
   const [authRedirectReady, setAuthRedirectReady] = useState(false);
 
+  useEffect(() => {
+    if (!inviteContext?.email) return;
+    setEmail((prev) => (prev.trim().length > 0 ? prev : inviteContext.email || ""));
+  }, [inviteContext?.email]);
+
   // Load saved email on mount
   useEffect(() => {
     async function loadSavedCredentials() {
@@ -60,7 +112,7 @@ export default function LoginScreen() {
         if (savedRememberMe === "true") {
           setRememberMe(true);
           const savedEmail = await AsyncStorage.getItem(SAVED_EMAIL_KEY);
-          if (savedEmail) {
+          if (savedEmail && !normalizedInviteToken) {
             setEmail(savedEmail);
           }
         }
@@ -69,7 +121,7 @@ export default function LoginScreen() {
       }
     }
     loadSavedCredentials();
-  }, []);
+  }, [normalizedInviteToken]);
 
   useEffect(() => {
     if (!loginLoaderVisibleUntil) {
@@ -250,12 +302,24 @@ export default function LoginScreen() {
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
-      <VideoView
-        player={backgroundPlayer}
-        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
-        contentFit="cover"
-        nativeControls={false}
-      />
+      <View
+        pointerEvents="none"
+        onLayout={handleBackgroundLayout}
+        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, overflow: "hidden" }}
+      >
+        <VideoView
+          player={backgroundPlayer}
+          style={{
+            position: "absolute",
+            left: videoLeft,
+            top: videoTop,
+            width: videoWidth,
+            height: videoHeight,
+          }}
+          contentFit="cover"
+          nativeControls={false}
+        />
+      </View>
       <View
         pointerEvents="none"
         style={{
@@ -350,8 +414,13 @@ export default function LoginScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
-                  editable={!loading}
+                  editable={!loading && !hasInviteEmailLock}
                 />
+                {hasInviteEmailLock ? (
+                  <Text className="text-xs text-muted mt-2">
+                    Email matches your invitation — sign in with this account.
+                  </Text>
+                ) : null}
               </View>
 
               {/* Password Input with Visibility Toggle */}

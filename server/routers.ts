@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "crypto";
 import { z } from "zod";
+import { CLIENT_STATUS_VALUES } from "../shared/client-status.js";
 import {
   COOKIE_NAME,
   LOCO_ASSISTANT_NAME,
@@ -2124,6 +2125,55 @@ async function normalizeProposalItemsForTrainer(
   );
 }
 
+function readPlanFieldsFromProposalMetadata(metadata: unknown): {
+  programWeeks: number | null;
+  sessionCost: number | null;
+  sessionDurationMinutes: number | null;
+} {
+  const meta =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)
+      : {};
+  const programWeeks =
+    typeof meta.programWeeks === "number" && meta.programWeeks > 0
+      ? Math.floor(meta.programWeeks)
+      : null;
+  const sessionCost =
+    typeof meta.sessionCost === "number" &&
+    Number.isFinite(meta.sessionCost) &&
+    meta.sessionCost >= 0
+      ? meta.sessionCost
+      : null;
+  const sessionDurationMinutes =
+    typeof meta.sessionDurationMinutes === "number" && meta.sessionDurationMinutes > 0
+      ? Math.floor(meta.sessionDurationMinutes)
+      : null;
+  return { programWeeks, sessionCost, sessionDurationMinutes };
+}
+
+function mergeSavedCartProposalPlanMetadata(
+  previous: unknown,
+  patch: {
+    programWeeks: number | null;
+    sessionCost: number | null;
+    sessionDurationMinutes: number | null;
+  },
+): Record<string, unknown> {
+  const base =
+    previous && typeof previous === "object" && !Array.isArray(previous)
+      ? { ...(previous as Record<string, unknown>) }
+      : {};
+  const snapshotVersion =
+    typeof base.snapshotVersion === "number" ? base.snapshotVersion : 1;
+  return {
+    ...base,
+    snapshotVersion,
+    programWeeks: patch.programWeeks,
+    sessionCost: patch.sessionCost,
+    sessionDurationMinutes: patch.sessionDurationMinutes,
+  };
+}
+
 async function buildSavedCartSnapshotFromRecord(
   proposal: db.SavedCartProposal,
   items?: db.SavedCartProposalItem[],
@@ -2131,6 +2181,7 @@ async function buildSavedCartSnapshotFromRecord(
   const proposalItems =
     items ?? (await db.getSavedCartProposalItems(proposal.id));
   const normalizedItems = proposalItems.map((item) => toProposalItemInput(item));
+  const planFields = readPlanFieldsFromProposalMetadata(proposal.metadata);
   return buildSavedCartProposalSnapshot({
     title: proposal.title,
     notes: proposal.notes,
@@ -2139,6 +2190,9 @@ async function buildSavedCartSnapshotFromRecord(
     cadenceCode: proposal.cadenceCode as ProposalCadenceCode,
     sessionsPerWeek: proposal.sessionsPerWeek,
     timePreference: proposal.timePreference,
+    programWeeks: planFields.programWeeks,
+    sessionCost: planFields.sessionCost,
+    sessionDurationMinutes: planFields.sessionDurationMinutes,
     items: normalizedItems,
   });
 }
@@ -2212,6 +2266,7 @@ async function createOrderFromProposalSnapshot(params: {
   snapshot: SavedCartProposalSnapshot;
   trainerId: string;
   clientRecord: db.Client;
+  attributionId?: string | null;
   shippingAmount?: number;
   taxAmount?: number;
   cartDiff?: ReturnType<typeof diffProposalSnapshots>;
@@ -2228,6 +2283,7 @@ async function createOrderFromProposalSnapshot(params: {
     snapshot,
     trainerId,
     clientRecord,
+    attributionId = null,
     shippingAmount = 0,
     taxAmount = 0,
     cartDiff,
@@ -2250,6 +2306,7 @@ async function createOrderFromProposalSnapshot(params: {
     paymentStatus,
     fulfillmentStatus: "unfulfilled",
     fulfillmentMethod: "trainer_delivery",
+    attributionId,
     savedCartProposalId: proposal?.id || null,
     proposalSnapshotJson: snapshot,
     cartDiffJson: cartDiff || null,
@@ -2718,6 +2775,22 @@ export const appRouter = router({
         return db.getUserById(input.id);
       }),
 
+    trainerBySlug: publicProcedure
+      .input(z.object({ slug: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const trainer = await db.getTrainerByUsername(input.slug);
+        if (!trainer) return null;
+        return {
+          id: trainer.id,
+          name: trainer.name,
+          username: trainer.username,
+          photoUrl: trainer.photoUrl,
+          bio: trainer.bio,
+          specialties: trainer.specialties,
+          socialLinks: trainer.socialLinks,
+        };
+      }),
+
     products: publicProcedure.query(async () => {
       // Always serve from local database. Shopify sync happens separately.
       return db.getProducts();
@@ -2792,6 +2865,7 @@ export const appRouter = router({
               name: item.title,
               quantity: item.quantity,
               productId: item.productId || item.customProductId || undefined,
+              imageUrl: item.imageUrl || null,
             }));
 
           const derivedServices = proposalSnapshot.items
@@ -2940,6 +3014,16 @@ export const appRouter = router({
         }
         if (!clientRecord) notFound("Client relationship");
 
+        let attributionId: string | null = null;
+        try {
+          attributionId = await db.upsertAttribution({
+            customerId: ctx.user.id,
+            trainerId,
+            source: "invitation_acceptance",
+            metadata: { invitationId: invitation.id, bundleDraftId: bundle?.id },
+          });
+        } catch { /* attribution is best-effort */ }
+
         const amount = Number.parseFloat(String(bundle.price || "0"));
         const safeAmount = Number.isFinite(amount) ? amount : 0;
         const subtotal = safeAmount;
@@ -2961,6 +3045,7 @@ export const appRouter = router({
           paymentStatus,
           fulfillmentStatus: "unfulfilled",
           fulfillmentMethod: "trainer_delivery",
+          attributionId,
           orderData: {
             source: "invitation_acceptance",
             invitationId: invitation.id,
@@ -3441,6 +3526,9 @@ export const appRouter = router({
           cadenceCode: proposalCadenceSchema.optional(),
           sessionsPerWeek: z.number().int().min(1).max(7).optional(),
           timePreference: z.string().optional(),
+          programWeeks: z.number().int().min(1).max(104).optional(),
+          sessionCost: z.number().min(0).optional().nullable(),
+          sessionDurationMinutes: z.number().int().min(15).max(480).optional(),
           items: z.array(proposalItemInputSchema).default([]),
         }),
       )
@@ -3460,6 +3548,14 @@ export const appRouter = router({
           input.items,
         );
         const items = await normalizeProposalItemsForTrainer(ctx.user.id, rawItems);
+        const programWeeks = input.programWeeks ?? 12;
+        const sessionDurationMinutes = input.sessionDurationMinutes ?? 60;
+        const sessionCost =
+          input.sessionCost != null &&
+          Number.isFinite(input.sessionCost) &&
+          input.sessionCost >= 0
+            ? input.sessionCost
+            : null;
         const snapshot = buildSavedCartProposalSnapshot({
           title: input.title || clientRecord?.name || null,
           notes: input.notes || null,
@@ -3470,6 +3566,9 @@ export const appRouter = router({
             input.sessionsPerWeek ??
             cadenceToSessionsPerWeek(input.cadenceCode || "weekly"),
           timePreference: input.timePreference || null,
+          programWeeks,
+          sessionCost,
+          sessionDurationMinutes,
           items,
         });
 
@@ -3495,7 +3594,12 @@ export const appRouter = router({
           discountAmount: snapshot.pricing.discountAmount.toFixed(2),
           totalAmount: snapshot.pricing.totalAmount.toFixed(2),
           currency: snapshot.pricing.currency,
-          metadata: { snapshotVersion: 1 },
+          metadata: mergeSavedCartProposalPlanMetadata(null, {
+            programWeeks: snapshot.programWeeks ?? programWeeks,
+            sessionCost: snapshot.sessionCost ?? sessionCost,
+            sessionDurationMinutes:
+              snapshot.sessionDurationMinutes ?? sessionDurationMinutes,
+          }),
         });
 
         await db.replaceSavedCartProposalItems(
@@ -3520,6 +3624,9 @@ export const appRouter = router({
           cadenceCode: proposalCadenceSchema.optional(),
           sessionsPerWeek: z.number().int().min(1).max(7).optional(),
           timePreference: z.string().optional(),
+          programWeeks: z.number().int().min(1).max(104).optional(),
+          sessionCost: z.number().min(0).optional().nullable(),
+          sessionDurationMinutes: z.number().int().min(15).max(480).optional(),
           items: z.array(proposalItemInputSchema).default([]),
         }),
       )
@@ -3545,6 +3652,17 @@ export const appRouter = router({
           input.items,
         );
         const items = await normalizeProposalItemsForTrainer(ctx.user.id, rawItems);
+        const prevPlan = readPlanFieldsFromProposalMetadata(proposal.metadata);
+        const programWeeks =
+          input.programWeeks !== undefined ? input.programWeeks : prevPlan.programWeeks ?? 12;
+        const sessionDurationMinutes =
+          input.sessionDurationMinutes !== undefined
+            ? input.sessionDurationMinutes
+            : prevPlan.sessionDurationMinutes ?? 60;
+        const sessionCost =
+          input.sessionCost !== undefined
+            ? input.sessionCost
+            : prevPlan.sessionCost ?? null;
         const snapshot = buildSavedCartProposalSnapshot({
           title: input.title ?? proposal.title,
           notes: input.notes ?? proposal.notes,
@@ -3557,6 +3675,12 @@ export const appRouter = router({
           sessionsPerWeek:
             input.sessionsPerWeek ?? proposal.sessionsPerWeek,
           timePreference: input.timePreference ?? proposal.timePreference,
+          programWeeks,
+          sessionCost:
+            sessionCost != null && Number.isFinite(sessionCost) && sessionCost >= 0
+              ? sessionCost
+              : null,
+          sessionDurationMinutes,
           items,
         });
 
@@ -3581,6 +3705,12 @@ export const appRouter = router({
           discountAmount: snapshot.pricing.discountAmount.toFixed(2),
           totalAmount: snapshot.pricing.totalAmount.toFixed(2),
           currency: snapshot.pricing.currency,
+          metadata: mergeSavedCartProposalPlanMetadata(proposal.metadata, {
+            programWeeks: snapshot.programWeeks ?? programWeeks,
+            sessionCost: snapshot.sessionCost ?? sessionCost ?? null,
+            sessionDurationMinutes:
+              snapshot.sessionDurationMinutes ?? sessionDurationMinutes,
+          }),
         });
 
         await db.replaceSavedCartProposalItems(
@@ -3781,6 +3911,12 @@ export const appRouter = router({
         if (!client) return undefined;
         assertTrainerOwned(ctx.user, client.trainerId, "client");
 
+        const linkedUser = client.userId
+          ? await db.getUserById(client.userId)
+          : undefined;
+        const resolvedPhotoUrl =
+          client.photoUrl || linkedUser?.photoUrl || null;
+
         const [subscriptions, trainerOrders, deliveriesByClient] =
           await Promise.all([
             db.getSubscriptionsByClient(client.id),
@@ -3860,6 +3996,7 @@ export const appRouter = router({
 
         return {
           ...client,
+          photoUrl: resolvedPhotoUrl,
           currentBundle: activeOffers[0] || null,
           activeOffers,
           paymentHistory,
@@ -3892,21 +4029,27 @@ export const appRouter = router({
         z.object({
           id: z.string(),
           name: z.string().min(1).max(255).optional(),
-          email: z.string().email().optional(),
-          phone: z.string().optional(),
+          email: z.union([z.string().email(), z.null()]).optional(),
+          phone: z.union([z.string(), z.null()]).optional(),
           goals: z.any().optional(),
-          notes: z.string().optional(),
-          status: z
-            .enum(["pending", "active", "inactive", "removed"])
-            .optional(),
+          notes: z.union([z.string(), z.null()]).optional(),
+          /** Includes `hidden` (see `025_client_status_hidden.sql` + `shared/client-status.ts`). */
+          status: z.enum(CLIENT_STATUS_VALUES).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
         const client = await db.getClientById(input.id);
         if (!client) notFound("Client");
         assertTrainerOwned(ctx.user, client.trainerId, "client");
-        const { id, ...data } = input;
-        await db.updateClient(id, data);
+        const { id, name, email, phone, goals, notes, status } = input;
+        const patch: Partial<db.InsertClient> = {};
+        if (name !== undefined) patch.name = name;
+        if (email !== undefined) patch.email = email;
+        if (phone !== undefined) patch.phone = phone;
+        if (goals !== undefined) patch.goals = goals;
+        if (notes !== undefined) patch.notes = notes;
+        if (status !== undefined) patch.status = status;
+        await db.updateClient(id, patch);
         return { success: true };
       }),
 
@@ -4743,6 +4886,16 @@ export const appRouter = router({
           forbidden("Mixed-trainer carts are not supported yet");
         }
 
+        let orderAttributionId: string | null = null;
+        let attributedTrainerId = trainerIds[0] || null;
+        if (!attributedTrainerId) {
+          const attribution = await db.getAttributionForCustomer(ctx.user.id);
+          if (attribution) {
+            attributedTrainerId = attribution.trainerId;
+            orderAttributionId = attribution.id;
+          }
+        }
+
         const subtotalComputed = resolvedItems.reduce(
           (sum, item) => sum + item.unitPrice * item.quantity,
           0,
@@ -4756,7 +4909,8 @@ export const appRouter = router({
 
         const orderId = await db.createOrder({
           clientId: ctx.user.id,
-          trainerId: trainerIds[0] || null,
+          trainerId: attributedTrainerId,
+          attributionId: orderAttributionId,
           customerEmail: ctx.user.email,
           customerName: ctx.user.name,
           totalAmount: totalAmount.toFixed(2),
@@ -4945,6 +5099,9 @@ export const appRouter = router({
             input.timePreference ??
             proposal.timePreference ??
             originalSnapshot.timePreference,
+          programWeeks: originalSnapshot.programWeeks ?? null,
+          sessionCost: originalSnapshot.sessionCost ?? null,
+          sessionDurationMinutes: originalSnapshot.sessionDurationMinutes ?? null,
           items: normalizedItems,
         });
 
@@ -4961,6 +5118,16 @@ export const appRouter = router({
           invitation,
         });
 
+        let proposalAttributionId: string | null = null;
+        try {
+          proposalAttributionId = await db.upsertAttribution({
+            customerId: ctx.user.id,
+            trainerId: proposal.trainerId,
+            source: "invitation_acceptance",
+            metadata: { invitationId: invitation.id, savedCartProposalId: proposal.id },
+          });
+        } catch { /* attribution is best-effort */ }
+
         const result = await createOrderFromProposalSnapshot({
           user: ctx.user,
           invitation,
@@ -4968,6 +5135,7 @@ export const appRouter = router({
           snapshot: finalSnapshot,
           trainerId: proposal.trainerId,
           clientRecord,
+          attributionId: proposalAttributionId,
           shippingAmount: input.shippingAmount ?? 0,
           taxAmount: input.taxAmount ?? 0,
           cartDiff,
@@ -8936,6 +9104,7 @@ export const appRouter = router({
       .input(z.object({ notificationId: z.string() }))
       .mutation(async ({ ctx, input }) => {
         await db.markSocialEventNotificationRead(input.notificationId, ctx.user.id);
+        notifyBadgeCounts([ctx.user.id]);
         return { success: true };
       }),
 
@@ -9986,6 +10155,60 @@ export const appRouter = router({
 
         return result;
       }),
+  }),
+
+  // ============================================================================
+  // TRAINER ATTRIBUTION
+  // ============================================================================
+  attribution: router({
+    setAttribution: protectedProcedure
+      .input(
+        z.object({
+          trainerId: z.string().min(1),
+          source: z.enum(["store_link", "invitation_acceptance", "bundle_purchase", "manual"]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const trainer = await db.getUserById(input.trainerId);
+        if (!trainer || trainer.role !== "trainer" || !trainer.active) {
+          notFound("Trainer");
+        }
+        const attributionId = await db.upsertAttribution({
+          customerId: ctx.user.id,
+          trainerId: input.trainerId,
+          source: input.source as db.AttributionSource,
+          metadata: { setBy: ctx.user.id },
+        });
+        return { attributionId, trainerId: input.trainerId };
+      }),
+
+    myAttribution: protectedProcedure.query(async ({ ctx }) => {
+      const attribution = await db.getAttributionForCustomer(ctx.user.id);
+      if (!attribution) return null;
+      const trainer = await db.getUserById(attribution.trainerId);
+      return {
+        ...attribution,
+        trainerName: trainer?.name || null,
+        trainerUsername: trainer?.username || null,
+        trainerPhotoUrl: trainer?.photoUrl || null,
+      };
+    }),
+
+    myClients: trainerProcedure.query(async ({ ctx }) => {
+      const attributions = await db.getAttributionsByTrainer(ctx.user.id);
+      const enriched = await Promise.all(
+        attributions.map(async (attr) => {
+          const customer = await db.getUserById(attr.customerId);
+          return {
+            ...attr,
+            customerName: customer?.name || customer?.email || null,
+            customerEmail: customer?.email || null,
+            customerPhotoUrl: customer?.photoUrl || null,
+          };
+        }),
+      );
+      return enriched;
+    }),
   }),
 });
 

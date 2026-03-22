@@ -1,54 +1,54 @@
 import { ActionButton } from "@/components/action-button";
+import { CollapsibleHeaderScrollView } from "@/components/collapsible-header-scroll-view";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useAuthContext } from "@/contexts/auth-context";
 import {
-  buildTrainerDashboardPalette,
-  createTrainerActivityStatusStyles,
-  createTrainerOfferStatusStyles,
-  type TrainerDashboardPalette,
-  trainerDialSegmentColors,
+    buildTrainerDashboardPalette,
+    createTrainerActivityStatusStyles,
+    createTrainerOfferStatusStyles,
+    type TrainerDashboardPalette,
+    trainerDialSegmentColors,
 } from "@/design-system/trainer-dashboard";
-import { useColors } from "@/hooks/use-colors";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useColors } from "@/hooks/use-colors";
 import { trackLaunchEvent } from "@/lib/analytics";
 import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { formatGBPFromMinor } from "@/lib/currency";
-import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
-import {
-  getCachedTrainerSocialPreviewMode,
-  getCachedTrainerSocialStatus,
-  getSocialStatusCacheTtlMs,
-  isFreshSocialStatusCache,
-  setCachedTrainerSocialPreviewMode,
-  setCachedTrainerSocialStatus,
-} from "@/lib/social-status-cache";
 import { maybeShowInviteCongrats } from "@/lib/social-invite-alerts";
+import {
+    getCachedTrainerSocialPreviewMode,
+    getCachedTrainerSocialStatus,
+    getSocialStatusCacheTtlMs,
+    isFreshSocialStatusCache,
+    setCachedTrainerSocialPreviewMode,
+    setCachedTrainerSocialStatus,
+} from "@/lib/social-status-cache";
 import { trpc } from "@/lib/trpc";
+import { mapBundleDraftToOfferView } from "@/shared/bundle-offer";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Easing,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Easing,
+    Platform,
+    RefreshControl,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Svg, {
-  Circle,
-  ClipPath,
-  Defs,
-  LinearGradient,
-  Path,
-  Rect,
-  Stop,
+    Circle,
+    ClipPath,
+    Defs,
+    LinearGradient,
+    Path,
+    Rect,
+    Stop,
 } from "react-native-svg";
 
 type NextAction = "invite" | "offer" | "pay" | "done";
@@ -176,23 +176,6 @@ function formatOfferType(value: string | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function getNameInitials(name: unknown): string {
-  const parts = String(name || "Client")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (parts.length === 0) return "C";
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
-}
-
-function toUsagePercent(used: unknown, included: unknown): number {
-  const usedValue = Number(used || 0);
-  const includedValue = Number(included || 0);
-  if (!Number.isFinite(usedValue) || !Number.isFinite(includedValue) || includedValue <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((usedValue / includedValue) * 100)));
 }
 
 function extractListItemsFromHtml(description: string): string[] {
@@ -926,7 +909,8 @@ function SocialCardSkeleton() {
 }
 
 export default function TrainerHomeScreen() {
-  const { effectiveUser, user } = useAuthContext();
+  const { effectiveUser, user, isImpersonating, impersonatedUser } = useAuthContext();
+  const impersonationBannerVisible = Boolean(isImpersonating && impersonatedUser);
   const colors = useColors();
   const colorScheme = useColorScheme();
   const isLight = colorScheme === "light";
@@ -969,7 +953,6 @@ export default function TrainerHomeScreen() {
 
   const {
     data: clients = [],
-    isLoading: clientsLoading,
     isRefetching: clientsRefetching,
     refetch: refetchClients,
   } = trpc.clients.list.useQuery();
@@ -1143,11 +1126,6 @@ export default function TrainerHomeScreen() {
     },
     onError: () => setCancellingRef(null),
   });
-
-  const previewClients = (clients.filter((client) => client.status === "active").length > 0
-    ? clients.filter((client) => client.status === "active")
-    : clients
-  ).slice(0, 3);
 
   const previewOffers = (offers.filter((offer) => offer.status === "published").length > 0
     ? offers.filter((offer) => offer.status === "published")
@@ -1879,7 +1857,6 @@ export default function TrainerHomeScreen() {
 
   const activityRows = (recentActivity as any[]).filter((item) => item.status !== "cancelled").slice(0, 5);
   const hasAnyLoading =
-    clientsLoading ||
     offersLoading ||
     statsLoading ||
     invitationsLoading ||
@@ -1889,29 +1866,73 @@ export default function TrainerHomeScreen() {
     pointsLoading ||
     (socialStatusLoading && !resolvedSocialStatus);
 
+  const homeHeaderSubtitle =
+    process.env.EXPO_PUBLIC_SHOW_PROGRESS_HEADER === "1"
+      ? "Let's get you paid."
+      : "Manage clients, create offers, and grow your business.";
+
   return (
     <ScreenContainer
+      edges={["top", "left", "right"]}
       containerClassName="bg-background"
       safeAreaClassName="bg-background"
       className="bg-background"
     >
-      <ScrollView
+      <CollapsibleHeaderScrollView
+        title={`Hi, ${firstName} 👋`}
+        subtitle={homeHeaderSubtitle}
+        testID="trainer-home-scroll"
+        contentContainerClassName="bg-background"
+        omitInternalTopInset={!impersonationBannerVisible}
+        expandedExtraHeight={process.env.EXPO_PUBLIC_SHOW_PROGRESS_HEADER === "1" ? 0 : 22}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={DASH.primary} />}
+        headerDecoration={
+          process.env.EXPO_PUBLIC_SHOW_PROGRESS_HEADER === "1" ? undefined : (
+            <View
+              style={{
+                width: "100%",
+                height: "100%",
+                borderRadius: 20,
+                overflow: "hidden",
+                backgroundColor: DASH.heroBg,
+                borderWidth: 1,
+                borderColor: DASH.heroBorder,
+              }}
+            >
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  top: -40,
+                  right: -30,
+                  width: 160,
+                  height: 160,
+                  borderRadius: 80,
+                  backgroundColor: "rgba(129,140,248,0.18)",
+                }}
+              />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  bottom: -50,
+                  left: -20,
+                  width: 130,
+                  height: 130,
+                  borderRadius: 65,
+                  backgroundColor: "rgba(96,165,250,0.14)",
+                }}
+              />
+            </View>
+          )
+        }
+        headerDecorationHeight={100}
+        decorationMarginTop={0}
+        overlayTitleOnHeaderDecoration
       >
         {process.env.EXPO_PUBLIC_SHOW_PROGRESS_HEADER === "1" ? (
           <>
-        <View className="px-6 pt-3 pb-4">
-          <View className="pr-24">
-            <Text className="text-3xl font-bold tracking-tight" style={{ color: DASH.text }}>
-              Hi, {firstName} 👋
-            </Text>
-            <Text className="text-sm mt-1" style={{ color: DASH.muted }}>
-              Let’s get you paid.
-            </Text>
-          </View>
-        </View>
-
         <View className={SECTION_SPACING_CLASS}>
           <Animated.View style={{ transform: [{ scale: heroScaleAnim }] }}>
             <SurfaceCard className="relative overflow-hidden" style={getHeroStyle()}>
@@ -2127,20 +2148,7 @@ export default function TrainerHomeScreen() {
           </Animated.View>
         </View>
           </>
-        ) : (
-          <View className="px-6 pt-4 pb-6">
-            <View style={{ borderRadius: 20, overflow: "hidden", backgroundColor: DASH.heroBg, padding: 28, position: "relative", borderWidth: 1, borderColor: DASH.heroBorder }}>
-              <View pointerEvents="none" style={{ position: "absolute", top: -40, right: -30, width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(129,140,248,0.18)" }} />
-              <View pointerEvents="none" style={{ position: "absolute", bottom: -50, left: -20, width: 130, height: 130, borderRadius: 65, backgroundColor: "rgba(96,165,250,0.14)" }} />
-              <Text style={{ fontSize: 28, fontWeight: "800", color: DASH.fallbackHeroText, letterSpacing: -0.5 }}>
-                Hi, {firstName} 👋
-              </Text>
-              <Text style={{ fontSize: 15, color: DASH.fallbackHeroSubtitle, marginTop: 6, lineHeight: 22 }}>
-                Manage clients, create offers, and grow your business.
-              </Text>
-            </View>
-          </View>
-        )}
+        ) : null}
 
         <View className={SECTION_SPACING_CLASS}>
           {shouldHideSocialHomeCard ? null : showSocialCardSkeleton ? (
@@ -2851,133 +2859,6 @@ export default function TrainerHomeScreen() {
         </View>
 
         <SectionHeader
-          title="Clients"
-          actionLabel={clients.length > 0 ? "See all" : "Add"}
-          onActionPress={() => router.push((clients.length > 0 ? "/(trainer)/clients" : "/(trainer)/invite") as any)}
-        />
-        <View className={SECTION_SPACING_CLASS}>
-          {clientsLoading ? (
-            <View className="py-6 items-center">
-              <ActivityIndicator size="small" color={DASH.primary} />
-            </View>
-          ) : previewClients.length === 0 ? (
-            <EmptyModuleCard
-              icon="person.2.fill"
-              description="Build your roster and track progress in one place."
-              cta="Add client"
-              onPress={() => router.push("/(trainer)/invite" as any)}
-            />
-          ) : (
-            <SurfaceCard style={getCardStyle()}>
-              {previewClients.map((client, index) => (
-                <TouchableOpacity
-                  key={client.id}
-                  className={index < previewClients.length - 1 ? "pb-3 mb-3 border-b" : ""}
-                  style={index < previewClients.length - 1 ? { borderColor: DASH.divider } : undefined}
-                  onPress={() => router.push(`/client-detail/${client.id}` as any)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open ${client.name} status`}
-                  testID={`trainer-dashboard-client-${client.id}`}
-                >
-                  {(() => {
-                    const avatarUrl = normalizeAssetUrl(client.photoUrl);
-                    const hasAvatar = typeof avatarUrl === "string" && avatarUrl.trim().length > 0;
-                    const bundle = client.currentBundle;
-                    const sessionsUsed = Number(bundle?.sessionsUsed || 0);
-                    const sessionsIncluded = Number(bundle?.sessionsIncluded || 0);
-                    const productsUsed = Number(bundle?.productsUsed || 0);
-                    const productsIncluded = Number(bundle?.productsIncluded || 0);
-                    const sessionsPct = toUsagePercent(sessionsUsed, sessionsIncluded);
-                    const productsPct = toUsagePercent(productsUsed, productsIncluded);
-                    const firstAlert =
-                      Array.isArray(bundle?.alerts) && bundle.alerts.length > 0 ? String(bundle.alerts[0]) : "";
-
-                    return (
-                      <View>
-                        <View className="flex-row items-center justify-between">
-                          <View className="flex-row items-center flex-1 pr-2">
-                            <View
-                              className="w-10 h-10 rounded-full overflow-hidden items-center justify-center mr-3 border"
-                              style={{ borderColor: "rgba(96,165,250,0.35)" }}
-                            >
-                              {hasAvatar ? (
-                                <Image
-                                  source={{ uri: avatarUrl }}
-                                  style={{ width: "100%", height: "100%" }}
-                                  contentFit="cover"
-                                />
-                              ) : (
-                                <View
-                                  className="w-10 h-10 rounded-full items-center justify-center"
-                                  style={{ backgroundColor: "rgba(96,165,250,0.22)" }}
-                                >
-                                  <Text className="text-xs font-bold" style={{ color: DASH.primary }}>
-                                    {getNameInitials(client.name)}
-                                  </Text>
-                                </View>
-                              )}
-                            </View>
-                            <View className="flex-1">
-                              <View className="flex-row items-center">
-                                <View
-                                  className="w-2 h-2 rounded-full mr-2"
-                                  style={{ backgroundColor: client.status === "active" ? DASH.primary : "#64748B" }}
-                                />
-                                <Text className="font-medium" style={{ color: DASH.text }} numberOfLines={1}>
-                                  {client.name}
-                                </Text>
-                              </View>
-                              <Text className="text-[11px] mt-1" style={{ color: DASH.muted }} numberOfLines={1}>
-                                {bundle?.bundleTitle || "No active bundle"}
-                              </Text>
-                            </View>
-                          </View>
-                          <Text className="text-xs" style={{ color: DASH.muted }}>
-                            {client.activeBundles || 0} active
-                          </Text>
-                        </View>
-
-                        {bundle ? (
-                          <View className="mt-3">
-                            <Text className="text-[11px]" style={{ color: DASH.muted }}>
-                              Sessions: {sessionsUsed}/{sessionsIncluded}
-                            </Text>
-                            <View className="h-1.5 rounded-full mt-1 mb-2 overflow-hidden" style={{ backgroundColor: DASH.progressTrackBg }}>
-                              <View
-                                className="h-full rounded-full"
-                                style={{ width: `${sessionsPct}%`, backgroundColor: sessionsPct >= 80 ? "#F59E0B" : DASH.primary }}
-                              />
-                            </View>
-                            <Text className="text-[11px]" style={{ color: DASH.muted }}>
-                              Products: {productsUsed}/{productsIncluded}
-                            </Text>
-                            <View className="h-1.5 rounded-full mt-1 overflow-hidden" style={{ backgroundColor: DASH.progressTrackBg }}>
-                              <View
-                                className="h-full rounded-full"
-                                style={{ width: `${productsPct}%`, backgroundColor: productsPct >= 80 ? "#F59E0B" : "#34D399" }}
-                              />
-                            </View>
-                            {firstAlert ? (
-                              <Text className="text-[11px] mt-2" style={{ color: "#FBBF24" }} numberOfLines={1}>
-                                {firstAlert}
-                              </Text>
-                            ) : null}
-                          </View>
-                        ) : (
-                          <Text className="text-[11px] mt-3" style={{ color: "#FBBF24" }}>
-                            No active bundle yet. Tap to invite.
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  })()}
-                </TouchableOpacity>
-              ))}
-            </SurfaceCard>
-          )}
-        </View>
-
-        <SectionHeader
           title="Offers"
           actionLabel={offers.length > 0 ? "Manage" : "New"}
           onActionPress={() => router.push((offers.length > 0 ? "/(trainer)/offers" : "/bundle-editor/new") as any)}
@@ -3148,7 +3029,7 @@ export default function TrainerHomeScreen() {
             <ActivityIndicator size="small" color={DASH.primary} />
           </View>
         ) : null}
-      </ScrollView>
+      </CollapsibleHeaderScrollView>
     </ScreenContainer>
   );
 }

@@ -68,7 +68,7 @@
 ## Dev Setup
 - Install dependencies: `pnpm install`
 - Set up environment variables in `.env`
-- Run migrations: Supabase migrations in `supabase/` directory
+- Run Supabase migrations in `supabase/migrations/` against your project (see `docs/DATABASE_MIGRATIONS.md`). Saved plans / proposals require `023_saved_cart_proposals.sql`.
 - Start dev server: `pnpm dev` or `expo start`
 - Design-system lint gate: `pnpm lint:design-system`
 

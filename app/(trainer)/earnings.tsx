@@ -104,13 +104,29 @@ function TransactionItem({ transaction }: { transaction: Transaction }) {
     <View className="flex-row items-center py-4 border-b border-border">
       <View
         className={`w-10 h-10 rounded-full items-center justify-center ${
-          transaction.type === "payout" ? "bg-error/10" : "bg-success/10"
+          transaction.type === "payout"
+            ? "bg-error/10"
+            : transaction.type === "commission"
+              ? "bg-primary/10"
+              : "bg-success/10"
         }`}
       >
         <IconSymbol
-          name={transaction.type === "payout" ? "arrow.right" : "arrow.left"}
+          name={
+            transaction.type === "payout"
+              ? "arrow.right"
+              : transaction.type === "commission"
+                ? "tag.fill"
+                : "arrow.left"
+          }
           size={18}
-          color={transaction.type === "payout" ? colors.error : colors.success}
+          color={
+            transaction.type === "payout"
+              ? colors.error
+              : transaction.type === "commission"
+                ? colors.primary
+                : colors.success
+          }
         />
       </View>
       <View className="flex-1 ml-4">
@@ -165,14 +181,25 @@ export default function TrainerEarningsScreen() {
   }, [summaryData]);
 
   const transactions: Transaction[] = useMemo(() => {
-    return (earningsData || []).map((e: any) => ({
-      id: e.id,
-      type: e.type || "sale",
-      description: e.description || e.bundleTitle || "Earning",
-      amount: Number(e.amount || 0),
-      date: e.date || e.createdAt || "",
-      status: e.status || "completed",
-    }));
+    return (earningsData || []).map((e: any) => {
+      const earningType = e.earningType || e.type || "sale";
+      const typeLabels: Record<string, string> = {
+        commission: "Commission",
+        bonus: "Bonus",
+        bundle_sale: "Bundle Sale",
+        subscription: "Subscription",
+      };
+      const description =
+        e.notes || e.description || e.bundleTitle || typeLabels[earningType] || "Earning";
+      return {
+        id: e.id,
+        type: earningType,
+        description,
+        amount: Number(e.amount || 0),
+        date: e.date || e.createdAt || "",
+        status: e.status || "completed",
+      };
+    });
   }, [earningsData]);
 
   const monthlyData = earnings.monthlyData || [];

@@ -1,4 +1,4 @@
-import { Slot } from "expo-router";
+import { Slot, usePathname } from "expo-router";
 import { useEffect } from "react";
 import { View } from "react-native";
 
@@ -17,6 +17,7 @@ import { getHomeRoute, resetToHome } from "@/lib/navigation";
  * - Profile: Settings, account
  */
 export default function UnifiedTabLayout() {
+  const pathname = usePathname();
   const { isAuthenticated, loading, hasSession, profileHydrated, effectiveRole, isTrainer, canManage } = useAuthContext();
 
   useEffect(() => {
@@ -25,12 +26,22 @@ export default function UnifiedTabLayout() {
     if (!isAuthenticated) return;
 
     if (effectiveRole && effectiveRole !== "shopper") {
+      // Trainers may browse catalog / cart tabs (RootAccessGate); do not bounce them to dashboard.
+      if (effectiveRole === "trainer") {
+        const p = pathname || "";
+        const trainerAllowed =
+          p === "/(tabs)/products" ||
+          p.startsWith("/(tabs)/products/") ||
+          p === "/(tabs)/cart" ||
+          p.startsWith("/(tabs)/cart/");
+        if (trainerAllowed) return;
+      }
       const target = getHomeRoute(effectiveRole);
       if (target !== "/(tabs)") {
         resetToHome(effectiveRole);
       }
     }
-  }, [effectiveRole, hasSession, isAuthenticated, loading, profileHydrated]);
+  }, [effectiveRole, hasSession, isAuthenticated, loading, profileHydrated, pathname]);
 
   const showCart = !canManage && !isTrainer;
 

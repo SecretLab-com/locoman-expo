@@ -181,6 +181,83 @@ async function submitPaidOrderToShopify(orderId: string) {
   }
 }
 
+const DEFAULT_COMMISSION_RATE = 10; // percent
+
+async function createAttributedCommissions(orderId: string) {
+  const order = await db.getOrderById(orderId);
+  if (!order?.trainerId) return;
+
+  try {
+    const items = await db.getOrderItems(orderId);
+    if (!items.length) return;
+
+    let totalCommission = 0;
+    const commissionNotes: string[] = [];
+
+    for (const item of items) {
+      const lineTotal = Number.parseFloat(String(item.totalPrice || "0"));
+      if (!Number.isFinite(lineTotal) || lineTotal <= 0) continue;
+
+      let rate = DEFAULT_COMMISSION_RATE;
+      if (item.productId) {
+        const product = await db.getProductById(item.productId);
+        if (product?.commissionRate) {
+          const override = Number.parseFloat(product.commissionRate);
+          if (Number.isFinite(override) && override >= 0) rate = override;
+        }
+      }
+
+      const commission = lineTotal * (rate / 100);
+      totalCommission += commission;
+      commissionNotes.push(`${item.name} (${rate}%): £${commission.toFixed(2)}`);
+    }
+
+    if (totalCommission <= 0) return;
+
+    await db.createEarning({
+      trainerId: order.trainerId,
+      orderId,
+      earningType: "commission",
+      amount: totalCommission.toFixed(2),
+      status: "pending",
+      notes: `Commission on order: ${commissionNotes.join(", ")}`,
+    });
+
+    logEvent("commission.created", {
+      orderId,
+      trainerId: order.trainerId,
+      amount: totalCommission.toFixed(2),
+    });
+  } catch (error) {
+    logError("commission.create_failed", error, { orderId });
+  }
+}
+
+async function notifyTrainerAboutAttributedPurchase(orderId: string) {
+  const order = await db.getOrderById(orderId);
+  if (!order?.trainerId || !order.attributionId) return;
+
+  try {
+    const total = Number.parseFloat(String(order.totalAmount || "0"));
+    const commission = total * (DEFAULT_COMMISSION_RATE / 100);
+    const customerName = order.customerName || order.customerEmail || "A customer";
+
+    await sendPushToUsers([order.trainerId], {
+      title: "New attributed purchase",
+      body: `${customerName} purchased £${total.toFixed(2)} — you earn ~£${commission.toFixed(2)} commission`,
+      data: {
+        type: "attributed_purchase",
+        orderId,
+      },
+    });
+  } catch (error) {
+    logError("attribution.purchase_push_failed", error, {
+      orderId,
+      trainerId: order.trainerId,
+    });
+  }
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -570,6 +647,8 @@ async function startServer() {
             ) {
               await submitPaidOrderToShopify(orderId);
               await notifyTrainerAboutPaidProposalOrder(orderId);
+              await createAttributedCommissions(orderId);
+              await notifyTrainerAboutAttributedPurchase(orderId);
             }
           }
           logEvent("adyen.payment_authorised", { merchantReference, pspReference });
@@ -596,6 +675,8 @@ async function startServer() {
             ) {
               await submitPaidOrderToShopify(orderId);
               await notifyTrainerAboutPaidProposalOrder(orderId);
+              await createAttributedCommissions(orderId);
+              await notifyTrainerAboutAttributedPurchase(orderId);
             }
           }
           logEvent("adyen.payment_captured", { merchantReference });

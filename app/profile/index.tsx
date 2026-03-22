@@ -11,7 +11,8 @@ import { navigateToHome } from "@/lib/navigation";
 import { useThemeContext } from "@/lib/theme-provider";
 import { Image } from "expo-image";
 import { router, useSegments } from "expo-router";
-import { Alert, Linking, Platform, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, ScrollView, Share, Text, TouchableOpacity, View } from "react-native";
+import { getInviteBaseUrl } from "@/lib/invite-links";
 
 type MenuItemProps = {
   icon: Parameters<typeof IconSymbol>[0]["name"];
@@ -376,6 +377,25 @@ export default function SharedProfileScreen() {
               <SectionTitle>Trainer Actions</SectionTitle>
               <View className="bg-surface rounded-xl px-4">
                 <MenuItem
+                  icon="link"
+                  title="My Store Link"
+                  subtitle={user?.username ? `${getInviteBaseUrl()}/shop/${user.username}` : "Set a username first"}
+                  onPress={async () => {
+                    if (!user?.username) {
+                      Alert.alert("Username Required", "Set a username in your settings to get a shareable store link.");
+                      return;
+                    }
+                    const storeUrl = `${getInviteBaseUrl()}/shop/${user.username}`;
+                    try {
+                      await Share.share({
+                        message: `Shop my store on LocoMotivate: ${storeUrl}`,
+                        url: storeUrl,
+                      });
+                    } catch { /* user dismissed */ }
+                  }}
+                  highlight
+                />
+                <MenuItem
                   icon="plus.circle.fill"
                   title="Create New Bundle"
                   subtitle="Design a new fitness program"
@@ -383,8 +403,8 @@ export default function SharedProfileScreen() {
                 />
                 <MenuItem
                   icon="person.badge.plus"
-                  title="Invite Client"
-                  subtitle="Send invitation to a new client"
+                  title="Add Client"
+                  subtitle="Create a client, then send an offer or plan"
                   onPress={() => router.push("/(trainer)/invite" as any)}
                 />
                 <MenuItem

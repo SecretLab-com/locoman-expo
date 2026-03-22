@@ -9,7 +9,11 @@ export default function ManagerTabLayout() {
   useRoleGuard("manager");
   const { counts } = useBadgeContext();
   const pathname = usePathname();
-  const moreBadge = counts.unreadMessages + counts.pendingApprovals + counts.pendingDeliveries;
+  const moreBadge =
+    counts.unreadMessages +
+    counts.pendingApprovals +
+    counts.pendingDeliveries +
+    counts.unreadSocialNotifications;
 
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(manager)/dashboard", testID: "tab-home" },

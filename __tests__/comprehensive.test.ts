@@ -149,11 +149,11 @@ describe("LocoMotivate Expo App - Comprehensive Feature Tests", () => {
       expect(fs.existsSync(screenPath)).toBe(true);
     });
 
-    it("should have client detail screen with active offers and payment history", () => {
+    it("should have client detail screen with contact editing and payment history", () => {
       const screenPath = path.join(PROJECT_ROOT, "app/client-detail/[id].tsx");
       expect(fs.existsSync(screenPath)).toBe(true);
       const content = fs.readFileSync(screenPath, "utf-8");
-      expect(content).toContain("Active offers");
+      expect(content).toContain("Contact & notes");
       expect(content).toContain("Payment history");
     });
   });

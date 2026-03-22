@@ -3,18 +3,21 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 
 import { ScreenContainer } from "@/components/screen-container";
-import { IconSymbol } from "@/components/ui/icon-symbol";
+import { IconSymbol, type IconSymbolName } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useCart, type CartItem } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
@@ -27,11 +30,16 @@ import {
   type SavedCartProposalSnapshot,
 } from "@/shared/saved-cart-proposal";
 
-const FULFILLMENT_OPTIONS = [
-  { value: "home_ship" as const, label: "Home Shipping", icon: "shippingbox.fill", description: "Delivered to your address" },
-  { value: "trainer_delivery" as const, label: "Trainer Delivery", icon: "person.fill", description: "Pick up from your trainer" },
-  { value: "vending" as const, label: "Vending Machine", icon: "cube.fill", description: "Pick up at vending location" },
-  { value: "cafeteria" as const, label: "Cafeteria", icon: "fork.knife", description: "Pick up at cafeteria" },
+const FULFILLMENT_OPTIONS: {
+  value: CartItem["fulfillment"];
+  label: string;
+  icon: IconSymbolName;
+  description: string;
+}[] = [
+  { value: "home_ship", label: "Home Shipping", icon: "shippingbox.fill", description: "Delivered to your address" },
+  { value: "trainer_delivery", label: "Trainer Delivery", icon: "person.fill", description: "Pick up from your trainer" },
+  { value: "vending", label: "Vending Machine", icon: "cube.fill", description: "Pick up at vending location" },
+  { value: "cafeteria", label: "Cafeteria", icon: "fork.knife", description: "Pick up at cafeteria" },
 ];
 
 type ProposalCheckoutMeta = {
@@ -42,6 +50,9 @@ type ProposalCheckoutMeta = {
   cadenceCode: ProposalCadenceCode;
   sessionsPerWeek: number;
   timePreference: string | null;
+  programWeeks: number | null;
+  sessionCost: number | null;
+  sessionDurationMinutes: number | null;
 };
 
 function mapSnapshotItemToCartItem(
@@ -171,7 +182,7 @@ function CartItemCard({
           >
             <View className="flex-row items-center">
               <IconSymbol
-                name={(currentFulfillment?.icon as any) || "shippingbox.fill"}
+                name={currentFulfillment?.icon ?? "shippingbox.fill"}
                 size={18}
                 color={colors.primary}
               />
@@ -210,7 +221,7 @@ function CartItemCard({
                   testID={`checkout-fulfillment-${item.id}-${option.value}`}
                 >
                   <IconSymbol
-                    name={option.icon as any}
+                    name={option.icon}
                     size={18}
                     color={
                       item.fulfillment === option.value ? colors.primary : colors.muted
@@ -247,6 +258,7 @@ function CartItemCard({
 
 export default function CheckoutScreen() {
   const colors = useColors();
+  const { height: windowHeight } = useWindowDimensions();
   const { invitationToken } = useLocalSearchParams<{ invitationToken?: string }>();
   const { isTrainer, isManager, isCoordinator, isClient } = useAuthContext();
   const {
@@ -260,6 +272,7 @@ export default function CheckoutScreen() {
   const [processing, setProcessing] = useState(false);
   const [proposalItems, setProposalItems] = useState<CartItem[]>([]);
   const [proposalMeta, setProposalMeta] = useState<ProposalCheckoutMeta | null>(null);
+  const [showAllProjectedSessionsModal, setShowAllProjectedSessionsModal] = useState(false);
   const utils = trpc.useUtils();
   const browseCatalogRoute = isClient ? "/(client)/products" : "/(tabs)/products";
   const proposalInvitationQuery = trpc.catalog.invitation.useQuery(
@@ -302,6 +315,9 @@ export default function CheckoutScreen() {
       cadenceCode: snapshot.cadenceCode,
       sessionsPerWeek: snapshot.sessionsPerWeek,
       timePreference: snapshot.timePreference || null,
+      programWeeks: snapshot.programWeeks ?? null,
+      sessionCost: snapshot.sessionCost ?? null,
+      sessionDurationMinutes: snapshot.sessionDurationMinutes ?? null,
     });
   }, [isProposalFlow, proposalInvitation]);
 
@@ -325,6 +341,9 @@ export default function CheckoutScreen() {
       cadenceCode: proposalMeta.cadenceCode,
       sessionsPerWeek: proposalMeta.sessionsPerWeek,
       timePreference: proposalMeta.timePreference,
+      programWeeks: proposalMeta.programWeeks,
+      sessionCost: proposalMeta.sessionCost,
+      sessionDurationMinutes: proposalMeta.sessionDurationMinutes,
       items: proposalItems.map((item) => ({
         itemType: item.type,
         title: item.title,
@@ -655,6 +674,19 @@ export default function CheckoutScreen() {
                 {entry.label}: {new Date(entry.startsAt).toLocaleString()}
               </Text>
             ))}
+            {proposalPreview.projectedSchedule.length > 4 ? (
+              <TouchableOpacity
+                className="mt-1 self-start mb-2"
+                onPress={() => setShowAllProjectedSessionsModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Show all ${proposalPreview.projectedSchedule.length} projected sessions`}
+                testID="checkout-projected-plan-sessions-more"
+              >
+                <Text className="text-sm font-semibold text-primary">
+                  More ({proposalPreview.projectedSchedule.length - 4} more)
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             {proposalPreview.projectedDeliveries.slice(0, 4).map((entry, index) => (
               <Text key={`${entry.title}-${index}`} className="text-xs text-muted mb-1">
                 Delivery: {entry.title} · {entry.projectedDate ? new Date(entry.projectedDate).toLocaleDateString() : "TBD"}
@@ -724,6 +756,61 @@ export default function CheckoutScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      {isProposalFlow && proposalPreview ? (
+        <Modal
+          visible={showAllProjectedSessionsModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowAllProjectedSessionsModal(false)}
+        >
+          <View className="flex-1">
+            <Pressable
+              className="flex-1 bg-black/50"
+              onPress={() => setShowAllProjectedSessionsModal(false)}
+              accessibilityLabel="Dismiss all sessions list"
+              accessibilityRole="button"
+            />
+            <View className="bg-background rounded-t-3xl w-full max-h-[88%]">
+              <View className="flex-row items-center justify-between px-4 pt-4 pb-2 border-b border-border">
+                <View className="w-10" />
+                <Text className="text-lg font-semibold text-foreground flex-1 text-center">
+                  All sessions ({proposalPreview.projectedSchedule.length})
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setShowAllProjectedSessionsModal(false)}
+                  className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
+                  accessibilityRole="button"
+                  accessibilityLabel="Close all sessions list"
+                  testID="checkout-projected-plan-sessions-close"
+                >
+                  <IconSymbol name="xmark" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                style={{ maxHeight: Math.min(windowHeight * 0.72, 640) }}
+                contentContainerStyle={{
+                  paddingHorizontal: 16,
+                  paddingTop: 12,
+                  paddingBottom: 28,
+                }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
+              >
+                {proposalPreview.projectedSchedule.map((entry) => (
+                  <Text
+                    key={`checkout-session-${entry.index}`}
+                    className="text-sm text-foreground py-2 border-b border-border/60"
+                  >
+                    {entry.label}: {new Date(entry.startsAt).toLocaleString()}
+                  </Text>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </ScreenContainer>
   );
 }

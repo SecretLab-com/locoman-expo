@@ -527,7 +527,7 @@ export default function CoordinatorHomeScreen() {
                 key={bundle.id}
                 onPress={async () => {
                   await haptics.light();
-                  router.push(`/bundle/${bundle.id}` as any);
+                  router.push(`/(coordinator)/bundle/${bundle.id}` as any);
                 }}
                 className="flex-1 rounded-2xl border border-border bg-surface overflow-hidden"
                 activeOpacity={0.7}

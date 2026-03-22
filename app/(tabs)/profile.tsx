@@ -276,8 +276,8 @@ export default function ProfileScreen() {
                 />
                 <MenuItem
                   icon="person.badge.plus"
-                  title="Invite Client"
-                  subtitle="Send invitation to a new client"
+                  title="Add Client"
+                  subtitle="Create a client, then send an offer or plan"
                   onPress={() => router.push("/(trainer)/invite" as any)}
                 />
                 <MenuItem

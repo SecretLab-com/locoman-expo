@@ -3,10 +3,12 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { getInviteLink } from "@/lib/invite-links";
+import { getOfferFallbackImageUrl, normalizeAssetUrl } from "@/lib/asset-url";
 import { navigateToHome } from "@/lib/navigation";
 import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
+import { Image } from "expo-image";
 import { useEffect, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -38,6 +40,7 @@ type InvitationData = {
     name: string;
     quantity: number;
     productId?: string;
+    imageUrl?: string | null;
   }[];
   services: {
     id: string;
@@ -394,17 +397,25 @@ export default function InvitationScreen() {
               Products Included
             </Text>
             <View className="bg-surface rounded-xl divide-y divide-border">
-              {invitation.products.map((product) => (
-                <View key={product.id} className="flex-row items-center p-4">
-                  <View className="w-10 h-10 rounded-lg bg-primary/10 items-center justify-center">
-                    <IconSymbol name="cube.box.fill" size={20} color={colors.primary} />
+              {invitation.products.map((product) => {
+                const thumb =
+                  normalizeAssetUrl(product.imageUrl || undefined) ||
+                  getOfferFallbackImageUrl(product.name);
+                return (
+                  <View key={product.id} className="flex-row items-center p-4">
+                    <Image
+                      source={{ uri: thumb }}
+                      style={{ width: 44, height: 44, borderRadius: 8 }}
+                      contentFit="cover"
+                      accessibilityLabel={product.name}
+                    />
+                    <View className="flex-1 ml-3">
+                      <Text className="text-foreground font-medium">{product.name}</Text>
+                      <Text className="text-sm text-muted">Qty: {product.quantity}</Text>
+                    </View>
                   </View>
-                  <View className="flex-1 ml-3">
-                    <Text className="text-foreground font-medium">{product.name}</Text>
-                    <Text className="text-sm text-muted">Qty: {product.quantity}</Text>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
         )}

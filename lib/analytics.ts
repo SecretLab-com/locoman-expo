@@ -3,6 +3,10 @@ import { logEvent } from "@/lib/logger";
 export type LaunchEventName =
   | "trainer_home_next_action_tapped"
   | "trainer_invite_sent"
+  | "trainer_client_created"
+  | "trainer_add_client_offer_deferred"
+  | "trainer_add_client_custom_offer_start"
+  | "trainer_simple_proposal_invite_sent"
   | "trainer_offer_created"
   | "trainer_offer_published"
   | "trainer_offer_submitted_for_review"

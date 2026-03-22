@@ -10,7 +10,11 @@ export default function TrainerTabLayout() {
   const { counts } = useBadgeContext();
   const pathname = usePathname();
 
-  const moreBadge = counts.unreadMessages + counts.pendingDeliveries + counts.pendingJoinRequests;
+  const moreBadge =
+    counts.unreadMessages +
+    counts.pendingDeliveries +
+    counts.pendingJoinRequests +
+    counts.unreadSocialNotifications;
 
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(trainer)/dashboard", testID: "tab-home" },

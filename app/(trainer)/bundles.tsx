@@ -136,7 +136,7 @@ export default function TrainerBundlesScreen() {
   };
 
   const handleBundlePress = (bundle: Bundle) => {
-    router.push(`/bundle/${bundle.id}` as any);
+    router.push(`/(trainer)/bundle/${bundle.id}` as any);
   };
 
   const handleEditBundle = (bundle: Bundle) => {

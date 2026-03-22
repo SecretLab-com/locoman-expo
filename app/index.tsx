@@ -1,21 +1,13 @@
 import { useAuthContext } from "@/contexts/auth-context";
-import { useColors } from "@/hooks/use-colors";
 import { getHomeRoute } from "@/lib/navigation";
-import { LogoLoader } from "@/components/ui/logo-loader";
 import { Redirect } from "expo-router";
-import { View } from "react-native";
 
 export default function RootIndexRoute() {
-  const colors = useColors();
   const { loading, hasSession, profileHydrated, isAuthenticated, effectiveRole } = useAuthContext();
 
   const authTransit = loading || (hasSession && !profileHydrated);
   if (authTransit) {
-    return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
-        <LogoLoader size={80} />
-      </View>
-    );
+    return null;
   }
 
   if (!isAuthenticated) {

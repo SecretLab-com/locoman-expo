@@ -4,7 +4,13 @@ import TrainerHomeScreen from "./index";
 export default function TrainerDashboardRoute() {
   return (
     <>
-      <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
+      <Stack.Screen
+        options={{
+          headerShown: false,
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
+        }}
+      />
       <TrainerHomeScreen />
     </>
   );

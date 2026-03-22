@@ -33,6 +33,12 @@ export interface CartProposalContext {
   cadenceCode?: ProposalCadenceCode;
   sessionsPerWeek?: number;
   timePreference?: string | null;
+  /** Program length in weeks; with sessions/week defines total scheduled sessions. */
+  programWeeks?: number | null;
+  /** Optional GBP per session for auto-added plan top-up line. */
+  sessionCost?: number | null;
+  /** Session length in minutes (schedule labels). */
+  sessionDurationMinutes?: number | null;
   notes?: string | null;
   assistantPrompt?: string | null;
 }

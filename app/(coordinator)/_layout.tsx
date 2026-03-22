@@ -10,7 +10,11 @@ export default function CoordinatorTabLayout() {
   const { counts } = useBadgeContext();
   const pathname = usePathname();
 
-  const moreBadge = counts.unreadMessages + counts.pendingApprovals + counts.pendingDeliveries;
+  const moreBadge =
+    counts.unreadMessages +
+    counts.pendingApprovals +
+    counts.pendingDeliveries +
+    counts.unreadSocialNotifications;
 
   const navItems: RoleNavItem[] = [
     { label: "Home", icon: "house.fill", href: "/(coordinator)/dashboard", testID: "tab-home" },

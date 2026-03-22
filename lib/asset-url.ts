@@ -9,6 +9,11 @@ export function normalizeAssetUrl(value: unknown): string | null {
     return raw;
   }
 
+  // Protocol-relative CDN URLs (common in Shopify/API payloads)
+  if (raw.startsWith("//")) {
+    return `https:${raw}`;
+  }
+
   const baseUrl = getApiBaseUrl();
   if (!baseUrl) {
     return null;

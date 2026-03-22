@@ -46,6 +46,12 @@ export type SavedCartProposalSnapshot = {
   cadenceCode: ProposalCadenceCode;
   sessionsPerWeek: number;
   timePreference: string | null;
+  /** Calendar length of the program; projected session count = programWeeks × sessionsPerWeek when set. */
+  programWeeks?: number | null;
+  /** Optional per-session rate for plan top-up line pricing in the trainer UI. */
+  sessionCost?: number | null;
+  /** Typical client session length (minutes), for schedule labels. */
+  sessionDurationMinutes?: number | null;
   items: ProposalItemInput[];
   projectedSchedule: ProposalScheduleEntry[];
   projectedDeliveries: ProposalDeliveryEntry[];
@@ -91,18 +97,133 @@ export function cadenceToSessionsPerWeek(cadenceCode: string | null | undefined)
   }
 }
 
+/**
+ * Maps discrete days-per-week (1–7) to a stored cadence code. Values 4–6 use `weekly` as the
+ * enum label; `sessionsPerWeek` on the proposal remains the source of truth for scheduling.
+ */
+export function sessionsPerWeekToCadenceCode(sessions: number): ProposalCadenceCode {
+  const n = Math.max(1, Math.min(7, Math.floor(Number(sessions))));
+  if (!Number.isFinite(n)) return 'weekly';
+  if (n >= 7) return 'daily';
+  if (n === 3) return '3x_week';
+  if (n === 2) return '2x_week';
+  return 'weekly';
+}
+
 function toDate(value: string | Date | null | undefined): Date | null {
   if (!value) return null;
   const parsed = value instanceof Date ? new Date(value) : new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function getPreferredHour(timePreference: string | null | undefined): number {
-  const normalized = String(timePreference || '').trim().toLowerCase();
-  if (normalized.includes('morning')) return 9;
-  if (normalized.includes('afternoon')) return 14;
-  if (normalized.includes('evening')) return 18;
-  return 12;
+/**
+ * Preferred session time from stored `timePreference`:
+ * - `HH:mm` (24h) from the plan time picker
+ * - legacy: `morning` / `afternoon` / `evening`
+ */
+export function parseTimePreference(timePreference: string | null | undefined): {
+  hour: number;
+  minute: number;
+} {
+  const raw = String(timePreference || '').trim();
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(raw);
+  if (hm) {
+    const h = parseInt(hm[1], 10);
+    const m = parseInt(hm[2], 10);
+    if (Number.isFinite(h) && Number.isFinite(m)) {
+      return {
+        hour: Math.min(23, Math.max(0, h)),
+        minute: Math.min(59, Math.max(0, m)),
+      };
+    }
+  }
+  const normalized = raw.toLowerCase();
+  if (normalized.includes('morning')) return { hour: 9, minute: 0 };
+  if (normalized.includes('afternoon')) return { hour: 14, minute: 0 };
+  if (normalized.includes('evening')) return { hour: 18, minute: 0 };
+  return { hour: 12, minute: 0 };
+}
+
+export function formatTimeHHmm(date: Date): string {
+  const h = date.getHours();
+  const m = date.getMinutes();
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+export function formatSessionDurationLabel(minutes: number | null | undefined): string {
+  const m = Math.floor(Number(minutes) || 0);
+  if (!Number.isFinite(m) || m <= 0) return '';
+  if (m % 60 === 0) {
+    const h = m / 60;
+    return h === 1 ? '1 hr' : `${h} hrs`;
+  }
+  return `${m} min`;
+}
+
+/** Metadata flag for the auto-added plan coverage service line (cart / proposals). */
+export function isPlanSessionTopUpItem(item: {
+  metadata?: Record<string, unknown> | null;
+}): boolean {
+  return Boolean(item.metadata && item.metadata.planSessionTopUp === true);
+}
+
+function stripTimeLocal(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function getWeekdayIndexMondayFirst(date: Date): number {
+  const day = date.getDay();
+  return day === 0 ? 6 : day - 1;
+}
+
+export function startOfWeekMonday(date: Date): Date {
+  const x = stripTimeLocal(date);
+  const idx = getWeekdayIndexMondayFirst(x);
+  x.setDate(x.getDate() - idx);
+  return x;
+}
+
+/**
+ * Weekday offsets from Monday: 0 = Mon, 1 = Tue, … — so 5 sessions/week = Mon–Fri.
+ */
+export function weekdayOffsetsFromMonday(sessionsPerWeek: number): number[] {
+  const n = Math.min(7, Math.max(1, Math.floor(Number(sessionsPerWeek))));
+  return Array.from({ length: n }, (_, i) => i);
+}
+
+/**
+ * Lay out exactly `totalSessions` occurrences on weekdays, advancing calendar weeks
+ * until filled. Skips dates strictly before `startDate` (calendar day).
+ */
+export function buildWeekdaySessionDates(input: {
+  startDate: Date;
+  totalSessions: number;
+  sessionsPerWeek: number;
+  prefHour: number;
+  prefMinute: number;
+}): Date[] {
+  const totalSessions = Math.max(0, Math.floor(input.totalSessions));
+  if (totalSessions === 0) return [];
+
+  const sessionsPerWeek = Math.min(7, Math.max(1, Math.floor(input.sessionsPerWeek)));
+  const offsets = weekdayOffsetsFromMonday(sessionsPerWeek);
+  const startDay = stripTimeLocal(input.startDate);
+  const monday = startOfWeekMonday(input.startDate);
+  const result: Date[] = [];
+
+  for (let week = 0; result.length < totalSessions; week += 1) {
+    for (const off of offsets) {
+      if (result.length >= totalSessions) break;
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + week * 7 + off);
+      if (d.getTime() < startDay.getTime()) continue;
+      d.setHours(input.prefHour, input.prefMinute, 0, 0);
+      result.push(d);
+    }
+  }
+  return result;
 }
 
 function getOriginalUnitPrice(item: ProposalItemInput): number {
@@ -135,42 +256,37 @@ export function calculateProposalPricing(items: ProposalItemInput[]): ProposalPr
 
 export function buildProjectedSchedule(input: {
   startDate: string | Date | null | undefined;
-  cadenceCode: string | null | undefined;
-  sessionsPerWeek?: number | null;
+  sessionsPerWeek: number;
   timePreference?: string | null;
-  totalSessions?: number | null;
+  totalSessions: number;
+  sessionDurationMinutes?: number | null;
 }): ProposalScheduleEntry[] {
   const startDate = toDate(input.startDate);
   if (!startDate) return [];
 
-  const totalSessions =
-    Number.isFinite(input.totalSessions) && Number(input.totalSessions) > 0
-      ? Math.floor(Number(input.totalSessions))
-      : cadenceToSessionsPerWeek(input.cadenceCode) * 4;
+  const totalSessions = Math.max(0, Math.floor(Number(input.totalSessions) || 0));
+  if (totalSessions === 0) return [];
 
-  const sessionsPerWeek =
-    Number.isFinite(input.sessionsPerWeek) && Number(input.sessionsPerWeek) > 0
-      ? Math.floor(Number(input.sessionsPerWeek))
-      : cadenceToSessionsPerWeek(input.cadenceCode);
+  const sessionsPerWeek = Math.min(
+    7,
+    Math.max(1, Math.floor(Number(input.sessionsPerWeek) || 1)),
+  );
+  const { hour: prefHour, minute: prefMinute } = parseTimePreference(input.timePreference);
+  const durLabel = formatSessionDurationLabel(input.sessionDurationMinutes);
+  const dates = buildWeekdaySessionDates({
+    startDate,
+    totalSessions,
+    sessionsPerWeek,
+    prefHour,
+    prefMinute,
+  });
 
-  const daySpacing = Math.max(1, Math.round(7 / Math.max(1, sessionsPerWeek)));
-  const preferredHour = getPreferredHour(input.timePreference);
-  const entries: ProposalScheduleEntry[] = [];
-
-  for (let index = 0; index < totalSessions; index += 1) {
-    const sessionDate = new Date(startDate);
-    sessionDate.setDate(sessionDate.getDate() + index * daySpacing);
-    sessionDate.setHours(preferredHour, 0, 0, 0);
-
-    entries.push({
-      index: index + 1,
-      startsAt: sessionDate.toISOString(),
-      label: `Session ${index + 1}`,
-      timePreference: input.timePreference || null,
-    });
-  }
-
-  return entries;
+  return dates.map((sessionDate, i) => ({
+    index: i + 1,
+    startsAt: sessionDate.toISOString(),
+    label: durLabel ? `Session ${i + 1} · ${durLabel}` : `Session ${i + 1}`,
+    timePreference: input.timePreference || null,
+  }));
 }
 
 export function buildProjectedDeliveries(input: {
@@ -226,6 +342,11 @@ export function countProjectedSessions(items: ProposalItemInput[]): number {
   }, 0);
 }
 
+/** Session count from bundle + services, excluding auto plan top-up lines. */
+export function countPlanEligibleSessions(items: ProposalItemInput[]): number {
+  return countProjectedSessions(items.filter((item) => !isPlanSessionTopUpItem(item)));
+}
+
 export function buildSavedCartProposalSnapshot(input: {
   title?: string | null;
   notes?: string | null;
@@ -234,6 +355,9 @@ export function buildSavedCartProposalSnapshot(input: {
   cadenceCode?: string | null;
   sessionsPerWeek?: number | null;
   timePreference?: string | null;
+  programWeeks?: number | null;
+  sessionCost?: number | null;
+  sessionDurationMinutes?: number | null;
   items: ProposalItemInput[];
 }): SavedCartProposalSnapshot {
   const cadenceCode = normalizeCadenceCode(input.cadenceCode);
@@ -241,19 +365,44 @@ export function buildSavedCartProposalSnapshot(input: {
     Number.isFinite(input.sessionsPerWeek) && Number(input.sessionsPerWeek) > 0
       ? Math.floor(Number(input.sessionsPerWeek))
       : cadenceToSessionsPerWeek(cadenceCode);
-  const totalSessions = countProjectedSessions(input.items);
+
+  const derivedProgramWeeks =
+    Number.isFinite(input.programWeeks) && Number(input.programWeeks) > 0
+      ? Math.floor(Number(input.programWeeks))
+      : null;
+
+  const totalSessionsFromProgram =
+    derivedProgramWeeks != null && derivedSessionsPerWeek > 0
+      ? derivedProgramWeeks * derivedSessionsPerWeek
+      : null;
+
+  const fromItems = countProjectedSessions(input.items);
+  const totalSessions =
+    totalSessionsFromProgram ??
+    (fromItems > 0 ? fromItems : derivedSessionsPerWeek * 4);
+
+  const sessionDurationMinutes =
+    Number.isFinite(input.sessionDurationMinutes) && Number(input.sessionDurationMinutes) > 0
+      ? Math.floor(Number(input.sessionDurationMinutes))
+      : null;
+
   const projectedSchedule = buildProjectedSchedule({
     startDate: input.startDate,
-    cadenceCode,
     sessionsPerWeek: derivedSessionsPerWeek,
     timePreference: input.timePreference || null,
-    totalSessions: totalSessions || undefined,
+    totalSessions,
+    sessionDurationMinutes,
   });
   const projectedDeliveries = buildProjectedDeliveries({
     startDate: input.startDate,
     items: input.items,
   });
   const pricing = calculateProposalPricing(input.items);
+
+  const sessionCost =
+    Number.isFinite(input.sessionCost) && Number(input.sessionCost) >= 0
+      ? Number(input.sessionCost)
+      : null;
 
   return {
     title: input.title || null,
@@ -263,6 +412,9 @@ export function buildSavedCartProposalSnapshot(input: {
     cadenceCode,
     sessionsPerWeek: derivedSessionsPerWeek,
     timePreference: input.timePreference || null,
+    programWeeks: derivedProgramWeeks,
+    sessionCost,
+    sessionDurationMinutes,
     items: input.items,
     projectedSchedule,
     projectedDeliveries,

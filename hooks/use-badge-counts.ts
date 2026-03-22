@@ -8,6 +8,8 @@ export type BadgeCounts = {
   pendingApprovals: number;
   unreadMessages: number;
   pendingJoinRequests: number;
+  /** In-app social / program notifications (Activity tab), unread only */
+  unreadSocialNotifications: number;
 };
 
 /**
@@ -21,6 +23,7 @@ export function useBadgeCounts() {
     pendingApprovals: 0,
     unreadMessages: 0,
     pendingJoinRequests: 0,
+    unreadSocialNotifications: 0,
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -92,9 +95,24 @@ export function useBadgeCounts() {
     }
   );
 
+  const socialUnreadQuery = trpc.socialProgram.myNotifications.useQuery(
+    { limit: 200, unreadOnly: true },
+    {
+      enabled: isAuthenticated,
+      staleTime: Infinity,
+      refetchOnReconnect: false,
+      refetchOnWindowFocus: false,
+    },
+  );
+
   // Update counts when queries change
   useEffect(() => {
-    const trainerDeliveries = trainerDeliveriesQuery.data?.length ?? 0;
+    /** Match Activity screen “Pending Deliveries” stat (pending + ready only). */
+    const trainerActionableDeliveries = (trainerDeliveriesQuery.data || []).filter(
+      (d: { status?: string | null }) =>
+        d.status === "pending" || d.status === "ready",
+    ).length;
+    const trainerDeliveries = trainerActionableDeliveries;
     const clientDeliveries = clientDeliveriesQuery.data?.filter(d => d.status === "pending" || d.status === "ready")?.length ?? 0;
     const actionableApprovals = (approvalsQuery.data || []).filter((bundle: any) =>
       bundle?.status === "pending_review" || bundle?.status === "changes_requested",
@@ -107,6 +125,7 @@ export function useBadgeCounts() {
       pendingJoinRequests: isTrainer
         ? (trainerIncomingRequestsQuery.data?.length ?? 0)
         : (joinRequestsQuery.data?.length ?? 0),
+      unreadSocialNotifications: (socialUnreadQuery.data || []).length,
     });
   }, [
     trainerDeliveriesQuery.data,
@@ -115,6 +134,7 @@ export function useBadgeCounts() {
     joinRequestsQuery.data,
     trainerIncomingRequestsQuery.data,
     conversationsQuery.data,
+    socialUnreadQuery.data,
     isTrainer,
   ]);
 
@@ -127,9 +147,18 @@ export function useBadgeCounts() {
       joinRequestsQuery.refetch(),
       trainerIncomingRequestsQuery.refetch(),
       conversationsQuery.refetch(),
+      socialUnreadQuery.refetch(),
     ]);
     setIsLoading(false);
-  }, [trainerDeliveriesQuery, clientDeliveriesQuery, approvalsQuery, joinRequestsQuery, trainerIncomingRequestsQuery, conversationsQuery]);
+  }, [
+    trainerDeliveriesQuery,
+    clientDeliveriesQuery,
+    approvalsQuery,
+    joinRequestsQuery,
+    trainerIncomingRequestsQuery,
+    conversationsQuery,
+    socialUnreadQuery,
+  ]);
 
   useEffect(() => {
     if (!isAuthenticated) return;

@@ -19,12 +19,14 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
 } from "react-native";
+import * as Haptics from "expo-haptics";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAYS_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -97,6 +99,89 @@ function getSessionMinute(session: Session): number {
   return parts.length >= 2 && Number.isFinite(parts[1]) ? parts[1] : 0;
 }
 
+function sessionStartLocal(session: Session): Date {
+  const d = new Date(session.date);
+  const [h, m] = session.time.split(":").map(Number);
+  d.setHours(Number.isFinite(h) ? h : 9, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
+}
+
+const WEEK_HOUR_ROW_HEIGHT = 48;
+const WEEK_TIME_COL_WIDTH = 48;
+
+type WeekSessionBlockProps = {
+  session: Session;
+  getStatusColor: (status: Session["status"]) => string;
+  onPressById: (sessionId: string) => void;
+  /** Long-press starts move mode (scroll view wins over Pan gestures; tap a slot next). */
+  onBeginMoveById: (sessionId: string) => void;
+  isPendingMove: boolean;
+};
+
+function CalendarWeekSessionBlock({
+  session,
+  getStatusColor,
+  onPressById,
+  onBeginMoveById,
+  isPendingMove,
+}: WeekSessionBlockProps) {
+  const colors = useColors();
+  const sid = session.id;
+  const ignoreNextPressRef = useRef(false);
+
+  const chipStyle = {
+    backgroundColor: `${getStatusColor(session.status)}18`,
+    borderLeftWidth: 3,
+    borderLeftColor: getStatusColor(session.status),
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    marginBottom: 2,
+  } as const;
+
+  if (session.status !== "scheduled") {
+    return (
+      <Pressable
+        onPress={() => onPressById(sid)}
+        style={chipStyle}
+        accessibilityRole="button"
+        accessibilityLabel={`${session.clientName} at ${session.time}`}
+      >
+        <Text className="text-foreground text-[11px] font-medium" numberOfLines={1}>
+          {session.clientName}
+        </Text>
+        <Text className="text-muted text-[10px]">{session.time}</Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Pressable
+      delayLongPress={450}
+      onLongPress={() => {
+        ignoreNextPressRef.current = true;
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onBeginMoveById(sid);
+      }}
+      onPress={() => {
+        if (ignoreNextPressRef.current) {
+          ignoreNextPressRef.current = false;
+          return;
+        }
+        onPressById(sid);
+      }}
+      style={[chipStyle, isPendingMove ? { borderWidth: 2, borderColor: colors.primary } : undefined]}
+      accessibilityRole="button"
+      accessibilityLabel={`${session.clientName} at ${session.time}. Long-press to move, then tap a time slot.`}
+    >
+      <Text className="text-foreground text-[11px] font-medium" numberOfLines={1}>
+        {session.clientName}
+      </Text>
+      <Text className="text-muted text-[10px]">{session.time}</Text>
+    </Pressable>
+  );
+}
+
 export default function CalendarScreen() {
   const colors = useColors();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -128,7 +213,9 @@ export default function CalendarScreen() {
   const [counterTime, setCounterTime] = useState("");
   const [counterNote, setCounterNote] = useState("");
   const [showMoveConfirm, setShowMoveConfirm] = useState(false);
-  const [moveTarget, setMoveTarget] = useState<{ session: Session; newDate: Date } | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ session: Session; proposedStart: Date } | null>(null);
+  /** Week view: long-press session → tap target slot (reliable vs ScrollView stealing Pan gestures). */
+  const [pendingMoveSessionId, setPendingMoveSessionId] = useState<string | null>(null);
 
   const timeInputRef = useRef<TextInput>(null);
   const durationInputRef = useRef<TextInput>(null);
@@ -286,6 +373,10 @@ export default function CalendarScreen() {
     }
   }, [googleStatus.data?.connected]);
 
+  useEffect(() => {
+    if (viewMode !== "week") setPendingMoveSessionId(null);
+  }, [viewMode]);
+
   const onRefresh = async () => {
     await Promise.all([refetch(), refetchReschedules()]);
     if (googleStatus.data?.connected) {
@@ -316,34 +407,69 @@ export default function CalendarScreen() {
     return sessions.filter((s) => isSameDay(s.date, selectedDate)).sort((a, b) => a.time.localeCompare(b.time));
   }, [sessions, selectedDate]);
 
-  const handleDateSelect = useCallback((date: Date) => {
-    setSelectedDate(date);
-    setCurrentDate(new Date(date.getFullYear(), date.getMonth(), 1));
-  }, []);
+  const handleDateSelect = useCallback(
+    (date: Date) => {
+      setSelectedDate(date);
+      // Month grid is anchored to the 1st; week/day use the picked day so navigation stays aligned.
+      if (viewMode === "month") {
+        setCurrentDate(new Date(date.getFullYear(), date.getMonth(), 1));
+      } else {
+        setCurrentDate(new Date(date));
+      }
+    },
+    [viewMode],
+  );
 
   const handleSessionPress = useCallback((session: Session) => {
     setSelectedSession(session);
     setShowSessionModal(true);
   }, []);
 
-  const handleDragMove = useCallback((session: Session, newDate: Date) => {
-    setMoveTarget({ session, newDate });
+  const handleSessionPressById = useCallback(
+    (sessionId: string) => {
+      setPendingMoveSessionId(null);
+      const s = sessions.find((x) => x.id === sessionId);
+      if (s) {
+        setSelectedSession(s);
+        setShowSessionModal(true);
+      }
+    },
+    [sessions],
+  );
+
+  const handleDragMove = useCallback((session: Session, proposedStart: Date) => {
+    setMoveTarget({ session, proposedStart });
     setShowMoveConfirm(true);
   }, []);
 
+  const handleBeginMoveById = useCallback((sessionId: string) => {
+    setPendingMoveSessionId(sessionId);
+  }, []);
+
+  const handleDropPendingToSlot = useCallback(
+    (sessionId: string, day: Date, hour: number) => {
+      const session = sessions.find((s) => s.id === sessionId);
+      setPendingMoveSessionId(null);
+      if (!session || session.status !== "scheduled") return;
+      const proposedStart = new Date(day);
+      proposedStart.setHours(hour, getSessionMinute(session), 0, 0);
+      if (sessionStartLocal(session).getTime() === proposedStart.getTime()) return;
+      handleDragMove(session, proposedStart);
+    },
+    [sessions, handleDragMove],
+  );
+
   const confirmMove = useCallback(async () => {
     if (!moveTarget) return;
-    const { session, newDate } = moveTarget;
-    const h = getSessionHour(session);
-    const m = getSessionMinute(session);
-    const proposed = new Date(newDate);
-    proposed.setHours(h, m, 0, 0);
+    const { session, proposedStart } = moveTarget;
+    const proposed = new Date(proposedStart);
+    proposed.setSeconds(0, 0);
     try {
       await suggestRescheduleMutation.mutateAsync({
         id: session.id,
         proposedStartTime: proposed,
         durationMinutes: session.duration,
-        note: "Moved via calendar drag",
+        note: "Moved via calendar",
       });
       setShowMoveConfirm(false);
       setMoveTarget(null);
@@ -558,13 +684,6 @@ export default function CalendarScreen() {
     <TouchableOpacity
       key={session.id}
       onPress={() => handleSessionPress(session)}
-      onLongPress={() => {
-        if (session.status === "scheduled") {
-          const tomorrow = new Date(session.date);
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          handleDragMove(session, tomorrow);
-        }
-      }}
       className={compact ? "mb-1" : "bg-surface rounded-xl p-3 mb-2 border border-border"}
       style={compact ? {
         backgroundColor: `${getStatusColor(session.status)}18`,
@@ -646,12 +765,26 @@ export default function CalendarScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
+        {pendingMoveSessionId ? (
+          <View className="bg-primary/15 border-b border-primary/40 px-4 py-3 flex-row items-center gap-3">
+            <Text className="text-foreground text-sm flex-1">
+              Tap the time slot where this session should go, or cancel.
+            </Text>
+            <TouchableOpacity
+              onPress={() => setPendingMoveSessionId(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel move"
+            >
+              <Text className="text-primary font-semibold">Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         <View className="flex-row border-b border-border">
-          <View style={{ width: 48 }} />
+          <View style={{ width: WEEK_TIME_COL_WIDTH }} />
           {days.map((day, i) => (
             <TouchableOpacity
               key={i}
-              onPress={() => { handleDateSelect(day); setViewMode("day"); }}
+              onPress={() => handleDateSelect(day)}
               className="flex-1 items-center py-2"
               accessibilityRole="button"
               accessibilityLabel={`Go to ${DAYS_FULL[day.getDay()]}`}
@@ -669,26 +802,49 @@ export default function CalendarScreen() {
           ))}
         </View>
         {HOURS.map((hour) => (
-          <View key={hour} className="flex-row border-b border-border" style={{ minHeight: 48 }}>
-            <View style={{ width: 48, paddingTop: 2 }}>
+          <View key={hour} className="flex-row border-b border-border" style={{ minHeight: WEEK_HOUR_ROW_HEIGHT }}>
+            <View style={{ width: WEEK_TIME_COL_WIDTH, paddingTop: 2 }}>
               <Text className="text-[10px] text-muted text-right pr-1">{formatHour(hour)}</Text>
             </View>
             {days.map((day, i) => {
               const hourSessions = sessions.filter((s) => isSameDay(s.date, day) && getSessionHour(s) === hour);
               return (
-                <TouchableOpacity
+                <View
                   key={i}
-                  onPress={() => {
-                    handleDateSelect(day);
-                    setNewSessionTime(`${String(hour).padStart(2, "0")}:00`);
-                    openAddSessionModal();
-                  }}
                   className="flex-1 border-l border-border px-0.5 py-0.5"
-                  accessibilityRole="button"
-                  accessibilityLabel={`${DAYS[day.getDay()]} ${formatHour(hour)}`}
+                  style={{ minHeight: WEEK_HOUR_ROW_HEIGHT }}
                 >
-                  {hourSessions.map((session) => renderSessionBlock(session, true))}
-                </TouchableOpacity>
+                  <Pressable
+                    style={[StyleSheet.absoluteFillObject, { zIndex: 0 }]}
+                    onPress={() => {
+                      if (pendingMoveSessionId) {
+                        handleDropPendingToSlot(pendingMoveSessionId, day, hour);
+                        return;
+                      }
+                      handleDateSelect(day);
+                      setNewSessionTime(`${String(hour).padStart(2, "0")}:00`);
+                      openAddSessionModal();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      pendingMoveSessionId
+                        ? `Move session to ${DAYS[day.getDay()]} ${formatHour(hour)}`
+                        : `${DAYS[day.getDay()]} ${formatHour(hour)} — add session`
+                    }
+                  />
+                  <View className="relative" style={{ zIndex: 1 }} pointerEvents="box-none">
+                    {hourSessions.map((session) => (
+                      <CalendarWeekSessionBlock
+                        key={session.id}
+                        session={session}
+                        getStatusColor={getStatusColor}
+                        onPressById={handleSessionPressById}
+                        onBeginMoveById={handleBeginMoveById}
+                        isPendingMove={pendingMoveSessionId === session.id}
+                      />
+                    ))}
+                  </View>
+                </View>
               );
             })}
           </View>
@@ -713,7 +869,7 @@ export default function CalendarScreen() {
           return (
             <TouchableOpacity
               key={index}
-              onPress={() => { handleDateSelect(day.date); setViewMode("day"); }}
+              onPress={() => handleDateSelect(day.date)}
               className="w-[14.28%] items-center"
               style={{ paddingVertical: 2, minHeight: 52 }}
               accessibilityRole="button"
@@ -1061,7 +1217,14 @@ export default function CalendarScreen() {
                   From: {moveTarget.session.date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                 </Text>
                 <Text className="text-primary font-semibold mt-1">
-                  To: {moveTarget.newDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                  To:{" "}
+                  {moveTarget.proposedStart.toLocaleString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
                 </Text>
               </View>
             )}

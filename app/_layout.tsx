@@ -10,7 +10,7 @@ import { ShareIntentProvider } from "expo-share-intent";
 import { StatusBar } from "expo-status-bar";
 import * as Updates from "expo-updates";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, AppState, AppStateStatus, LogBox, Platform, View } from "react-native";
+import { Alert, AppState, AppStateStatus, LogBox, Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
@@ -31,7 +31,10 @@ import { OfflineIndicator } from "@/components/offline-indicator";
 import { PostAuthOnboardingResolver } from "@/components/post-auth-onboarding-resolver";
 import { ProfileFAB } from "@/components/profile-fab";
 import { SocialAlertListener } from "@/components/social-alert-listener";
-import { LogoLoader } from "@/components/ui/logo-loader";
+import {
+  DEFAULT_LOGO_LOADER_CYCLE_MS,
+  LogoLoader,
+} from "@/components/ui/logo-loader";
 import { AuthProvider, useAuthContext } from "@/contexts/auth-context";
 import { BadgeProvider } from "@/contexts/badge-context";
 import { CartProvider } from "@/contexts/cart-context";
@@ -122,6 +125,16 @@ function ThemedStatusBar() {
   return <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />;
 }
 
+const styles = StyleSheet.create({
+  /** Sits above Stack + in-screen overlays (e.g. collapsible header); box-none keeps taps passing through. */
+  globalFabOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 5000,
+    elevation: 24,
+    pointerEvents: "box-none",
+  },
+});
+
 function RootAccessGate({ children }: { children: React.ReactNode }) {
   const colors = useColors();
   const { loading, hasSession, profileHydrated, isAuthenticated, effectiveRole, isImpersonating, navigationFrozen } =
@@ -131,6 +144,9 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
   const [redirecting, setRedirecting] = useState(false);
   const [authGraceActive, setAuthGraceActive] = useState(false);
   const [authGateReady, setAuthGateReady] = useState(false);
+  const [loaderSettledVisible, setLoaderSettledVisible] = useState(true);
+  const loaderShownAtRef = useRef<number | null>(null);
+  const loaderReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAuthTransit = loading || (hasSession && !profileHydrated);
   useEffect(() => {
@@ -204,9 +220,54 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
     }
     // Guests may browse bundles/trainers only.
     if (path === "/(tabs)/products" || path === "/(tabs)/trainers") return true;
-    if (path.startsWith("/bundle/") || path.startsWith("/trainer/")) return true;
+    if (path.startsWith("/bundle/") || path.startsWith("/trainer/") || path.startsWith("/shop/")) return true;
     return false;
   }, [pathname]);
+  const shouldBlockWithLoader =
+    !authGateReady ||
+    isAuthTransit ||
+    redirecting ||
+    (!isAuthenticated && !isGuestSafeRoute);
+
+  useEffect(() => {
+    if (loaderReleaseTimerRef.current) {
+      clearTimeout(loaderReleaseTimerRef.current);
+      loaderReleaseTimerRef.current = null;
+    }
+
+    if (shouldBlockWithLoader) {
+      if (loaderShownAtRef.current == null) {
+        loaderShownAtRef.current = Date.now();
+      }
+      setLoaderSettledVisible(true);
+      return;
+    }
+
+    if (loaderShownAtRef.current == null) {
+      setLoaderSettledVisible(false);
+      return;
+    }
+
+    const elapsed = Date.now() - loaderShownAtRef.current;
+    const remainingInCurrentCycle =
+      DEFAULT_LOGO_LOADER_CYCLE_MS - (elapsed % DEFAULT_LOGO_LOADER_CYCLE_MS || DEFAULT_LOGO_LOADER_CYCLE_MS);
+    const minimumRemainingForFirstCycle =
+      elapsed < DEFAULT_LOGO_LOADER_CYCLE_MS ? DEFAULT_LOGO_LOADER_CYCLE_MS - elapsed : 0;
+    const releaseDelayMs = Math.max(remainingInCurrentCycle, minimumRemainingForFirstCycle);
+
+    loaderReleaseTimerRef.current = setTimeout(() => {
+      loaderShownAtRef.current = null;
+      setLoaderSettledVisible(false);
+      loaderReleaseTimerRef.current = null;
+    }, releaseDelayMs);
+
+    return () => {
+      if (loaderReleaseTimerRef.current) {
+        clearTimeout(loaderReleaseTimerRef.current);
+        loaderReleaseTimerRef.current = null;
+      }
+    };
+  }, [shouldBlockWithLoader]);
 
   useEffect(() => {
     if (!authGateReady || isAuthTransit) {
@@ -266,12 +327,7 @@ function RootAccessGate({ children }: { children: React.ReactNode }) {
     router,
   ]);
 
-  if (
-    !authGateReady ||
-    isAuthTransit ||
-    redirecting ||
-    (!isAuthenticated && !isGuestSafeRoute)
-  ) {
+  if (shouldBlockWithLoader || loaderSettledVisible) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
         <LogoLoader size={80} />
@@ -481,8 +537,6 @@ export default function RootLayout() {
                       <PostAuthOnboardingResolver />
                       <ShareIntentRouter />
                       <View style={{ flex: 1 }}>
-                        <ProfileFAB />
-                        <IncomingMessageFAB />
                         <OfflineIndicator />
                         {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
                         {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
@@ -516,9 +570,12 @@ export default function RootLayout() {
                               name="register"
                               options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
                             />
-                            <Stack.Screen name="bundle/[id]" options={{ presentation: "card" }} />
+                            <Stack.Screen name="bundle/[id]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="client-detail/[id]" options={{ presentation: "card" }} />
+                            <Stack.Screen
+                              name="client-detail/[id]"
+                              options={{ presentation: "card", headerShown: false }}
+                            />
                             <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
                             <Stack.Screen
                               name="checkout/confirmation"
@@ -544,6 +601,8 @@ export default function RootLayout() {
                               name="share-intent"
                               options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
                             />
+                            <Stack.Screen name="plan-shop/index" options={{ presentation: "card", headerShown: false, animation: "slide_from_bottom", gestureEnabled: false }} />
+                            <Stack.Screen name="shop/[slug]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
                             <Stack.Screen
                               name="(trainer)"
@@ -566,6 +625,15 @@ export default function RootLayout() {
                             <Stack.Screen name="phyllo/callback" options={{ presentation: "card" }} />
                           </Stack>
                         </RootAccessGate>
+                        {/*
+                          FABs render after the Stack and sit in a box-none overlay above the navigator +
+                          in-screen chrome (e.g. collapsible header zIndex 1010) without stealing taps
+                          from the rest of the UI.
+                        */}
+                        <View style={styles.globalFabOverlay}>
+                          <ProfileFAB />
+                          <IncomingMessageFAB />
+                        </View>
                         <ThemedStatusBar />
                       </View>
                     </View>

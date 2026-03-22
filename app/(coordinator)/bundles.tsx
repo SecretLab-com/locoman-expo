@@ -209,7 +209,7 @@ export default function CoordinatorBundlesScreen() {
           renderItem={({ item }) => (
             <TouchableOpacity
               className="mb-3 bg-surface border border-border rounded-xl overflow-hidden"
-              onPress={() => router.push(`/bundle/${item.id}` as any)}
+              onPress={() => router.push(`/(coordinator)/bundle/${item.id}` as any)}
               accessibilityRole="button"
               accessibilityLabel={`Open offer ${item.title}`}
               testID={`bundle-row-${item.id}`}

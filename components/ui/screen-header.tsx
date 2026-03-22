@@ -25,9 +25,23 @@ export function ScreenHeader({
     <View className={cn("px-4 pt-2 pb-4", className)}>
       <View className="flex-row items-center justify-between">
         {leftSlot ? <View className="mr-3">{leftSlot}</View> : null}
-        <View className="flex-1 pr-3">
-          <Text className={cn("text-2xl font-bold text-foreground", titleClassName)}>{title}</Text>
-          {subtitle ? <Text className={cn("text-sm text-muted mt-1", subtitleClassName)}>{subtitle}</Text> : null}
+        <View className="flex-1 min-w-0 pr-2">
+          <Text
+            className={cn("text-2xl font-bold text-foreground", titleClassName)}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text
+              className={cn("text-sm text-muted mt-1", subtitleClassName)}
+              numberOfLines={2}
+              ellipsizeMode="tail"
+            >
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
         {rightSlot ? <View className="ml-3">{rightSlot}</View> : null}
       </View>

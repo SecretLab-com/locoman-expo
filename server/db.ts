@@ -387,6 +387,7 @@ export type Product = {
   sponsoredBy: string | null;
   bonusExpiresAt: string | null;
   isSponsored: boolean;
+  commissionRate: string | null;
   syncedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -510,6 +511,7 @@ export type Order = {
   savedCartProposalId: string | null;
   proposalSnapshotJson: any;
   cartDiffJson: any;
+  attributionId: string | null;
   orderData: any;
   createdAt: string;
   updatedAt: string;
@@ -680,6 +682,24 @@ export type TrainerEarning = {
 export type InsertTrainerEarning = Partial<Omit<TrainerEarning, "id" | "createdAt" | "updatedAt">> & {
   trainerId: string;
   amount: string;
+};
+
+export type AttributionSource = "store_link" | "invitation_acceptance" | "bundle_purchase" | "manual";
+
+export type TrainerAttribution = {
+  id: string;
+  customerId: string;
+  trainerId: string;
+  source: AttributionSource;
+  attributedAt: string;
+  metadata: any;
+};
+
+export type InsertTrainerAttribution = {
+  customerId: string;
+  trainerId: string;
+  source: AttributionSource;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type PartnershipStatus = "pending" | "active" | "rejected" | "expired";
@@ -2833,6 +2853,73 @@ export async function getEarningsSummary(trainerId: string): Promise<{ total: nu
 }
 
 // ============================================================================
+// TRAINER ATTRIBUTION
+// ============================================================================
+
+export async function getTrainerByUsername(username: string): Promise<User | undefined> {
+  const { data, error } = await sb()
+    .from("users")
+    .select("*")
+    .eq("username", username.toLowerCase())
+    .eq("role", "trainer")
+    .eq("active", true)
+    .maybeSingle();
+  if (error) { console.error("[Database] getTrainerByUsername:", error.message); return undefined; }
+  return mapFromDb<User>(data);
+}
+
+export async function getAttributionForCustomer(customerId: string): Promise<TrainerAttribution | undefined> {
+  const { data, error } = await sb()
+    .from("trainer_attributions")
+    .select("*")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+  if (error) { console.error("[Database] getAttributionForCustomer:", error.message); return undefined; }
+  return mapFromDb<TrainerAttribution>(data);
+}
+
+export async function upsertAttribution(input: InsertTrainerAttribution): Promise<string> {
+  const { data, error } = await sb()
+    .from("trainer_attributions")
+    .upsert(
+      mapToDb({
+        customerId: input.customerId,
+        trainerId: input.trainerId,
+        source: input.source,
+        attributedAt: new Date().toISOString(),
+        metadata: input.metadata || null,
+      }),
+      { onConflict: "customer_id" },
+    )
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  await sb()
+    .from("trainer_attribution_log")
+    .insert(
+      mapToDb({
+        customerId: input.customerId,
+        trainerId: input.trainerId,
+        source: input.source,
+        metadata: input.metadata || null,
+      }),
+    );
+
+  return data.id;
+}
+
+export async function getAttributionsByTrainer(trainerId: string): Promise<TrainerAttribution[]> {
+  const { data, error } = await sb()
+    .from("trainer_attributions")
+    .select("*")
+    .eq("trainer_id", trainerId)
+    .order("attributed_at", { ascending: false });
+  if (error) { console.error("[Database] getAttributionsByTrainer:", error.message); return []; }
+  return mapRowsFromDb<TrainerAttribution>(data || []);
+}
+
+// ============================================================================
 // PARTNERSHIPS
 // ============================================================================
 
@@ -2972,6 +3059,31 @@ export async function updateInvitation(id: string, data: Partial<InsertInvitatio
 // SAVED CART PROPOSALS
 // ============================================================================
 
+const SAVED_CART_MIGRATION_DOC =
+  "docs/DATABASE_MIGRATIONS.md — apply supabase/migrations/023_saved_cart_proposals.sql";
+
+function throwSavedCartSchemaHelpIfNeeded(
+  context: string,
+  error: { message: string },
+): never {
+  const msg = error.message || "";
+  if (
+    /saved_cart_proposal/i.test(msg) &&
+    (/schema cache/i.test(msg) ||
+      /does not exist/i.test(msg) ||
+      /could not find/i.test(msg))
+  ) {
+    console.error(`[Database] ${context}:`, msg);
+    throw new Error(
+      `Saved cart proposal tables are missing or not visible to the API. ` +
+        `Apply migration 023 (${SAVED_CART_MIGRATION_DOC}). ` +
+        `Original: ${msg}`,
+    );
+  }
+  console.error(`[Database] ${context}:`, msg);
+  throw error;
+}
+
 export async function createSavedCartProposal(
   data: InsertSavedCartProposal,
 ): Promise<string> {
@@ -2981,8 +3093,7 @@ export async function createSavedCartProposal(
     .select("id")
     .single();
   if (error) {
-    console.error("[Database] createSavedCartProposal:", error.message);
-    throw error;
+    throwSavedCartSchemaHelpIfNeeded("createSavedCartProposal", error);
   }
   return row.id;
 }
@@ -3026,8 +3137,7 @@ export async function updateSavedCartProposal(
     .update(mapToDb(data))
     .eq("id", id);
   if (error) {
-    console.error("[Database] updateSavedCartProposal:", error.message);
-    throw error;
+    throwSavedCartSchemaHelpIfNeeded("updateSavedCartProposal", error);
   }
 }
 
@@ -3056,11 +3166,10 @@ export async function replaceSavedCartProposalItems(
     .delete()
     .eq("proposal_id", proposalId);
   if (deleteResult.error) {
-    console.error(
-      "[Database] replaceSavedCartProposalItems delete:",
-      deleteResult.error.message,
+    throwSavedCartSchemaHelpIfNeeded(
+      "replaceSavedCartProposalItems delete",
+      deleteResult.error,
     );
-    throw deleteResult.error;
   }
 
   if (!items.length) return;
@@ -3069,8 +3178,10 @@ export async function replaceSavedCartProposalItems(
     .from("saved_cart_proposal_items")
     .insert(items.map((item) => mapToDb(item)));
   if (error) {
-    console.error("[Database] replaceSavedCartProposalItems insert:", error.message);
-    throw error;
+    throwSavedCartSchemaHelpIfNeeded(
+      "replaceSavedCartProposalItems insert",
+      error,
+    );
   }
 }
 

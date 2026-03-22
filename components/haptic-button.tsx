@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import { AppText } from "@/components/ui/app-text";
+import { FORM_PRIMARY_ACTION_MAX_WIDTH } from "@/design-system/layout-constants";
 import { getButtonRecipe } from "@/design-system/recipes";
 import { useDesignSystem } from "@/hooks/use-design-system";
 import { haptics } from "@/hooks/use-haptics";
@@ -17,7 +18,12 @@ interface HapticButtonProps extends TouchableOpacityProps {
   size?: "sm" | "md" | "lg";
   loading?: boolean;
   loadingText?: string;
+  /** Stretch to parent width (e.g. bottom bars, horizontal button groups). */
   fullWidth?: boolean;
+  /**
+   * Cap width and center (stacked form CTAs). Use with vertical stacks — not inside flex-row groups (use fullWidth there).
+   */
+  constrainWidth?: boolean;
   hapticType?: "light" | "medium" | "heavy" | "selection";
   children: React.ReactNode;
   className?: string;
@@ -31,6 +37,7 @@ export function HapticButton({
   loading = false,
   loadingText,
   fullWidth = false,
+  constrainWidth = false,
   hapticType = "light",
   children,
   className,
@@ -74,6 +81,16 @@ export function HapticButton({
     (loading && loadingText ? loadingText : undefined) ||
     (typeof children === "string" ? children : undefined);
 
+  const widthStyle = fullWidth
+    ? { alignSelf: "stretch" as const, width: "100%" as const }
+    : constrainWidth
+      ? {
+          alignSelf: "center" as const,
+          width: "100%" as const,
+          maxWidth: FORM_PRIMARY_ACTION_MAX_WIDTH,
+        }
+      : {};
+
   return (
     <TouchableOpacity
       onPress={handlePress}
@@ -84,12 +101,10 @@ export function HapticButton({
       style={[
         styles.button,
         recipe.container,
+        widthStyle,
         style,
       ]}
-      className={cn(
-        fullWidth && "w-full",
-        className
-      )}
+      className={cn(fullWidth && "w-full", className)}
       {...props}
     >
       {loading ? (

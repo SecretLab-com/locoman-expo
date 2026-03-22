@@ -56,7 +56,7 @@ Last updated: March 2026
 | Cart supports custom_product + service | Done | `CartItem.type` includes `custom_product` and `service` |
 | Cart has proposal context | Done | `proposalContext` with client, cadence, start date, time preference |
 | Trainer proposal builder UI | Done | `TrainerProposalBuilder` in `app/(tabs)/cart.tsx` |
-| Trainer nav entry to shop | Done | "Shop for Client" and "Saved Cart Builder" in trainer More menu |
+| Trainer nav entry to shop | Done | "Create Plan" and "Review & Send" in trainer More menu |
 | Save proposal draft | Done | `savedCartProposals.create` / `savedCartProposals.update` |
 | Send invite from proposal | Done | `savedCartProposals.sendInvite` |
 
