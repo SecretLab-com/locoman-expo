@@ -1,4 +1,5 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { Chip } from "@/components/ui/chip";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
@@ -391,17 +392,15 @@ export default function TemplateSettingsScreen() {
                 {SPECIALTIES.map((spec) => {
                   const active = visibility.includes(spec.value);
                   return (
-                    <TouchableOpacity
+                    <Chip
                       key={spec.value}
+                      label={spec.label}
+                      selected={active}
+                      tone="primary"
                       onPress={() => toggleSpecialty(spec.value)}
-                      className={`px-3 py-2 rounded-full border ${active ? "bg-primary border-primary" : "bg-surface border-border"}`}
                       accessibilityRole="button"
                       accessibilityLabel={`${active ? "Remove" : "Add"} ${spec.label}`}
-                    >
-                      <Text className={`text-xs font-medium ${active ? "text-background" : "text-foreground"}`}>
-                        {spec.label}
-                      </Text>
-                    </TouchableOpacity>
+                    />
                   );
                 })}
               </View>
@@ -442,20 +441,16 @@ export default function TemplateSettingsScreen() {
                 {brandAccounts.map((brand: any) => {
                   const active = selectedBrandAccountId === brand.id;
                   return (
-                    <TouchableOpacity
+                    <Chip
                       key={brand.id}
+                      label={brand.name}
+                      selected={active}
+                      tone="primary"
                       onPress={() => setSelectedBrandAccountId(brand.id)}
-                      className={`px-3 py-2 rounded-full border ${active ? "bg-primary border-primary" : "bg-surface border-border"}`}
                       accessibilityRole="button"
                       accessibilityLabel={`Select brand ${brand.name}`}
                       testID={`template-brand-${brand.id}`}
-                    >
-                      <Text
-                        className={`text-xs font-medium ${active ? "text-background" : "text-foreground"}`}
-                      >
-                        {brand.name}
-                      </Text>
-                    </TouchableOpacity>
+                    />
                   );
                 })}
               </View>
@@ -494,17 +489,15 @@ export default function TemplateSettingsScreen() {
                 {SOCIAL_PLATFORMS.map((platform) => {
                   const active = allowedPlatforms.includes(platform.value);
                   return (
-                    <TouchableOpacity
+                    <Chip
                       key={platform.value}
+                      label={platform.label}
+                      selected={active}
+                      tone="primary"
                       onPress={() => togglePlatform(platform.value)}
-                      className={`px-3 py-2 rounded-full border ${active ? "bg-primary border-primary" : "bg-surface border-border"}`}
                       accessibilityRole="button"
                       accessibilityLabel={`${active ? "Remove" : "Add"} ${platform.label}`}
-                    >
-                      <Text className={`text-xs font-medium ${active ? "text-background" : "text-foreground"}`}>
-                        {platform.label}
-                      </Text>
-                    </TouchableOpacity>
+                    />
                   );
                 })}
               </View>

@@ -1,8 +1,11 @@
 import { router } from "expo-router";
-import { Alert, Linking, Pressable, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Linking, ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { SignedOutGate } from "@/components/signed-out-gate";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { ListRow } from "@/components/ui/list-row";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
 import { haptics } from "@/hooks/use-haptics";
@@ -22,37 +25,21 @@ type MenuItemProps = {
 
 function MenuItem({ icon, title, subtitle, onPress, showChevron = true, danger = false, highlight = false }: MenuItemProps) {
   const colors = useColors();
-  // All menu item titles should be blue (primary color) for better visibility on dark theme
-  const textColor = danger ? colors.error : colors.primary;
-  const bgColor = highlight ? "bg-primary/10" : "bg-surface";
 
   return (
-    <Pressable
+    <ListRow
       onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        paddingVertical: 16,
+      icon={icon}
+      title={title}
+      subtitle={subtitle}
+      danger={danger}
+      highlight={highlight}
+      showChevron={showChevron}
+      style={{
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
-        backgroundColor: pressed
-          ? (highlight ? "rgba(59, 130, 246, 0.15)" : "rgba(59, 130, 246, 0.08)")
-          : (highlight ? "rgba(59, 130, 246, 0.05)" : "transparent"),
-      })}
-    >
-      <View className={`w-10 h-10 rounded-full ${bgColor} items-center justify-center mr-4`}>
-        <IconSymbol name={icon} size={20} color={danger ? colors.error : highlight ? colors.primary : colors.primary} />
-      </View>
-      <View className="flex-1">
-        <Text style={{ color: textColor }} className="text-base font-medium">
-          {title}
-        </Text>
-        {subtitle && <Text className="text-sm text-muted mt-0.5">{subtitle}</Text>}
-      </View>
-      {showChevron && (
-        <IconSymbol name="chevron.right" size={20} color={highlight ? colors.primary : colors.muted} />
-      )}
-    </Pressable>
+      }}
+    />
   );
 }
 
@@ -165,37 +152,22 @@ export default function ProfileScreen() {
 
   if (!isAuthenticated) {
     return (
-      <ScreenContainer className="items-center justify-center px-6">
-        <View className="w-24 h-24 rounded-full bg-surface items-center justify-center mb-6">
-          <IconSymbol name="person.fill" size={48} color={colors.muted} />
-        </View>
-        <Text className="text-xl font-semibold text-foreground">
-          Welcome to LocoMotivate
-        </Text>
-        <Text className="text-muted text-center mt-2 mb-6">
-          Sign in to access your profile, orders, and personalized recommendations
-        </Text>
-        <TouchableOpacity
-          className="bg-primary px-8 py-4 rounded-full mb-4"
-          onPress={() => router.push("/login")}
-        >
-          <Text className="text-background font-semibold text-lg">Sign In</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push("/register" as any)}>
-          <Text className="text-primary font-semibold">Create Account</Text>
-        </TouchableOpacity>
-      </ScreenContainer>
+      <SignedOutGate
+        icon="person.fill"
+        title="Welcome to LocoMotivate"
+        description="Sign in to access your profile, orders, and personalized recommendations"
+        primaryLabel="Sign In"
+        onPrimaryPress={() => router.push("/login")}
+        secondaryLabel="Create Account"
+        onSecondaryPress={() => router.push("/register" as any)}
+      />
     );
   }
 
   return (
     <ScreenContainer>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View className="px-4 pt-2 pb-4">
-          <Text className="text-2xl font-bold text-foreground">Profile</Text>
-          <Text className="text-sm text-muted">Manage your account</Text>
-        </View>
+        <ScreenHeader title="Profile" subtitle="Manage your account" />
 
         {/* Profile Header */}
         <View className="items-center py-6 px-4">

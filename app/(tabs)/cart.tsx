@@ -25,6 +25,7 @@ import { PlanStartDateField } from "@/components/plan-start-date-field";
 import { PlanTimePreferenceField } from "@/components/plan-time-preference-field";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { ModalHeader } from "@/components/ui/modal-header";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useCart, type CartItem, type CartProposalContext } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
@@ -215,47 +216,14 @@ function TrainerProposalBuilder() {
 
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [showPlanCancelModal, setShowPlanCancelModal] = useState(false);
-  const [showCustomProductModal, setShowCustomProductModal] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showAllProjectedSessionsModal, setShowAllProjectedSessionsModal] = useState(false);
-  const [customProductName, setCustomProductName] = useState("");
-  const [customProductPrice, setCustomProductPrice] = useState("");
-  const [customProductDescription, setCustomProductDescription] = useState("");
   const [serviceTitle, setServiceTitle] = useState("Additional Sessions");
   const [servicePrice, setServicePrice] = useState("");
   const [serviceSessions, setServiceSessions] = useState("1");
   const browseCatalogRoute = "/plan-shop";
 
   const clientsQuery = trpc.clients.list.useQuery();
-  const customProductsQuery = trpc.customProducts.list.useQuery();
-
-  const closeCustomProductModal = () => {
-    setShowCustomProductModal(false);
-    setCustomProductName("");
-    setCustomProductPrice("");
-    setCustomProductDescription("");
-  };
-
-  const createCustomProductMutation = trpc.customProducts.create.useMutation({
-    onSuccess: async (created) => {
-      await customProductsQuery.refetch();
-      addItem({
-        type: "custom_product",
-        title: created.name,
-        description: created.description || undefined,
-        customProductId: created.id,
-        trainer: effectiveUser?.name || "Trainer",
-        trainerId: effectiveUser?.id,
-        price: Number.parseFloat(String(created.price || "0")),
-        quantity: 1,
-        imageUrl: created.imageUrl || undefined,
-        cadence: "one_time",
-        fulfillment: created.fulfillmentMethod as CartItem["fulfillment"],
-        metadata: null,
-      });
-      closeCustomProductModal();
-    },
-  });
   const createProposalMutation = trpc.savedCartProposals.create.useMutation();
   const updateProposalMutation = trpc.savedCartProposals.update.useMutation();
   const sendInviteMutation = trpc.savedCartProposals.sendInvite.useMutation();
@@ -591,41 +559,6 @@ function TrainerProposalBuilder() {
     const current = proposalContext?.sessionDurationMinutes ?? 60;
     const next = Math.min(240, Math.max(15, Math.floor(current) + delta * 15));
     updateProposalField({ sessionDurationMinutes: next });
-  };
-
-  const handleAddExistingCustomProduct = (product: any) => {
-    addItem({
-      type: "custom_product",
-      title: product.name,
-      description: product.description || undefined,
-      customProductId: product.id,
-      trainer: effectiveUser?.name || "Trainer",
-      trainerId: effectiveUser?.id,
-      price: Number.parseFloat(String(product.price || "0")),
-      quantity: 1,
-      imageUrl: product.imageUrl || undefined,
-      cadence: "one_time",
-      fulfillment: product.fulfillmentMethod as CartItem["fulfillment"],
-      metadata: null,
-    });
-    closeCustomProductModal();
-  };
-
-  const handleCreateCustomProduct = async () => {
-    const parsedPrice = Number.parseFloat(customProductPrice || "0");
-    if (!customProductName.trim()) {
-      Alert.alert("Product name required", "Enter a custom product name.");
-      return;
-    }
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-      Alert.alert("Valid price required", "Enter a valid custom product price.");
-      return;
-    }
-    await createCustomProductMutation.mutateAsync({
-      name: customProductName.trim(),
-      description: customProductDescription.trim() || undefined,
-      price: parsedPrice.toFixed(2),
-    });
   };
 
   const handleAddService = () => {
@@ -1021,17 +954,9 @@ function TrainerProposalBuilder() {
           </View>
         </View>
 
-        <View className="flex-row gap-2 mb-4">
+        <View className="mb-4">
           <TouchableOpacity
-            className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 items-center"
-            onPress={() => setShowCustomProductModal(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Add custom product"
-          >
-            <Text className="text-foreground font-semibold">Add Custom Product</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 items-center"
+            className="bg-surface border border-border rounded-xl px-4 py-3 items-center"
             onPress={() => setShowServiceModal(true)}
             accessibilityRole="button"
             accessibilityLabel="Add sessions"
@@ -1045,7 +970,7 @@ function TrainerProposalBuilder() {
             <IconSymbol name="cart.fill" size={40} color={colors.muted} />
             <Text className="text-foreground font-semibold mt-3">No items in plan yet</Text>
             <Text className="text-muted text-center mt-2">
-              Browse published bundles and products to start building a client plan.
+              Browse bundles, products, and custom products to start building a client plan.
             </Text>
             <TouchableOpacity
               className="bg-primary px-6 py-3 rounded-full mt-6"
@@ -1184,7 +1109,11 @@ function TrainerProposalBuilder() {
       >
         <View className="flex-1 bg-black/50 justify-end">
           <View className="bg-background rounded-t-3xl p-4 max-h-[70%]">
-            <Text className="text-lg font-semibold text-foreground mb-3">Select Client</Text>
+            <ModalHeader
+              title="Select Client"
+              subtitle="Choose who this saved cart is for."
+              onClose={() => setShowClientPicker(false)}
+            />
             <ScrollView>
               {(clientsQuery.data || []).map((client) => (
                 <TouchableOpacity
@@ -1196,103 +1125,6 @@ function TrainerProposalBuilder() {
                   <Text className="text-xs text-muted mt-1">{client.email || "No email"}</Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={showCustomProductModal}
-        transparent
-        animationType="slide"
-        onRequestClose={closeCustomProductModal}
-      >
-        <View className="flex-1">
-          <Pressable
-            className="flex-1 bg-black/50"
-            onPress={closeCustomProductModal}
-            accessibilityLabel="Dismiss custom products"
-            accessibilityRole="button"
-          />
-          <View className="bg-background rounded-t-3xl max-h-[85%]">
-            <View className="flex-row items-center justify-between px-4 pt-4 pb-2">
-              <View className="w-10" />
-              <Text className="text-lg font-semibold text-foreground flex-1 text-center">
-                Custom Products
-              </Text>
-              <TouchableOpacity
-                onPress={closeCustomProductModal}
-                className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
-                accessibilityRole="button"
-                accessibilityLabel="Close custom products"
-                testID="custom-products-dismiss"
-              >
-                <IconSymbol name="xmark" size={18} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              className="px-4 pb-4"
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 24 }}
-            >
-              {(customProductsQuery.data || []).map((product) => (
-                <TouchableOpacity
-                  key={product.id}
-                  className="border border-border rounded-xl px-4 py-3 mb-2"
-                  onPress={() => handleAddExistingCustomProduct(product)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Add custom product ${product.name}`}
-                >
-                  <Text className="text-foreground font-medium">{product.name}</Text>
-                  <Text className="text-xs text-muted mt-1">£{Number(product.price || 0).toFixed(2)}</Text>
-                </TouchableOpacity>
-              ))}
-
-              <View className="mt-4 pt-4 border-t border-border">
-                <Text className="text-foreground font-semibold mb-2">Create New Custom Product</Text>
-                <TextInput
-                  className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
-                  value={customProductName}
-                  onChangeText={setCustomProductName}
-                  placeholder="Name"
-                  placeholderTextColor={colors.muted}
-                />
-                <TextInput
-                  className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
-                  value={customProductPrice}
-                  onChangeText={setCustomProductPrice}
-                  placeholder="Price"
-                  placeholderTextColor={colors.muted}
-                  keyboardType="decimal-pad"
-                />
-                <TextInput
-                  className="border border-border rounded-lg px-4 py-3 text-foreground mb-3"
-                  value={customProductDescription}
-                  onChangeText={setCustomProductDescription}
-                  placeholder="Description"
-                  placeholderTextColor={colors.muted}
-                />
-                <View className="flex-row gap-2">
-                  <TouchableOpacity
-                    className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
-                    onPress={closeCustomProductModal}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel custom products"
-                    testID="custom-products-cancel"
-                  >
-                    <Text className="text-foreground font-semibold">Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    className="flex-1 bg-primary rounded-xl py-3 items-center"
-                    onPress={() => void handleCreateCustomProduct()}
-                    accessibilityRole="button"
-                    accessibilityLabel="Create custom product and add to plan"
-                    testID="custom-products-create"
-                  >
-                    <Text className="text-background font-semibold">Create and Add</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
             </ScrollView>
           </View>
         </View>
@@ -1316,19 +1148,11 @@ function TrainerProposalBuilder() {
             accessibilityRole="button"
           />
           <View className="bg-background rounded-t-3xl p-4">
-            <View className="flex-row items-center justify-between mb-3">
-              <View className="w-10" />
-              <Text className="text-lg font-semibold text-foreground flex-1 text-center">Add Sessions</Text>
-              <TouchableOpacity
-                onPress={() => setShowServiceModal(false)}
-                className="w-10 h-10 rounded-full bg-surface items-center justify-center border border-border"
-                accessibilityRole="button"
-                accessibilityLabel="Close add sessions"
-                testID="add-sessions-dismiss"
-              >
-                <IconSymbol name="xmark" size={18} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
+            <ModalHeader
+              title="Add Sessions"
+              subtitle="Add a trainer-delivered session block to this plan."
+              onClose={() => setShowServiceModal(false)}
+            />
             <TextInput
               className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
               value={serviceTitle}

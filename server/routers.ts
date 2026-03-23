@@ -6504,6 +6504,60 @@ export const appRouter = router({
         }
         return created;
       }),
+
+    update: trainerProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          name: z.string().trim().min(1).max(255),
+          description: z.string().trim().max(2000).optional(),
+          imageUrl: z.string().trim().max(2000).optional(),
+          price: z.string().trim().min(1).max(32),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getTrainerCustomProductById(input.id);
+        if (!existing || existing.trainerId !== ctx.user.id || !existing.active) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Custom product not found.",
+          });
+        }
+        const numericPrice = Number.parseFloat(input.price);
+        if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Enter a valid custom product price greater than 0.",
+          });
+        }
+        const updated = await db.updateTrainerCustomProduct(input.id, {
+          name: input.name,
+          description: input.description?.trim() || null,
+          imageUrl: input.imageUrl?.trim() || null,
+          price: numericPrice.toFixed(2),
+        });
+        if (!updated) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Unable to update custom product.",
+          });
+        }
+        return updated;
+      }),
+
+    delete: trainerProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getTrainerCustomProductById(input.id);
+        if (!existing || existing.trainerId !== ctx.user.id || !existing.active) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Custom product not found.",
+          });
+        }
+        await db.deleteTrainerCustomProduct(input.id);
+        return { success: true };
+      }),
   }),
 
   // ============================================================================

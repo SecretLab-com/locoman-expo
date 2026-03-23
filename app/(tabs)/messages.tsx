@@ -1,6 +1,10 @@
 import { useBottomNavHeight } from "@/components/role-bottom-nav";
 import { ScreenContainer } from "@/components/screen-container";
+import { SignedOutGate } from "@/components/signed-out-gate";
+import { EmptyState } from "@/components/ui/empty-state";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LoadingState } from "@/components/ui/loading-state";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { LOCO_ASSISTANT_NAME, LOCO_ASSISTANT_USER_ID } from "@/shared/const";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useColors } from "@/hooks/use-colors";
@@ -301,31 +305,20 @@ export default function MessagesScreen() {
 
   if (!isAuthenticated) {
     return (
-      <ScreenContainer className="items-center justify-center px-6">
-        <View className="w-20 h-20 rounded-full bg-primary/10 items-center justify-center mb-6">
-          <IconSymbol name="message.fill" size={40} color={colors.primary} />
-        </View>
-        <Text className="text-2xl font-bold text-foreground text-center mb-2">
-          Your Messages
-        </Text>
-        <Text className="text-muted text-center mb-8">
-          Sign in to chat with your trainers and get support
-        </Text>
-        <TouchableOpacity
-          className="bg-primary px-8 py-3 rounded-full"
-          onPress={handleLoginPress}
-        >
-          <Text className="text-background font-semibold text-lg">Sign In</Text>
-        </TouchableOpacity>
-      </ScreenContainer>
+      <SignedOutGate
+        icon="message.fill"
+        title="Your Messages"
+        description="Sign in to chat with your trainers and get support"
+        primaryLabel="Sign In"
+        onPrimaryPress={handleLoginPress}
+      />
     );
   }
 
   if (isLoading) {
     return (
-      <ScreenContainer className="items-center justify-center">
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text className="text-muted mt-4">Loading messages...</Text>
+      <ScreenContainer>
+        <LoadingState fullScreen title="Loading messages..." />
       </ScreenContainer>
     );
   }
@@ -367,38 +360,26 @@ export default function MessagesScreen() {
     <ScreenContainer className="flex-1 relative">
       <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
       {/* Header */}
-      <View
-        className="px-4 pt-2 pb-4"
-        style={{
-          flexDirection: "row",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          rowGap: 12,
-          columnGap: 12,
-          paddingRight: profileFabClearance,
-        }}
-      >
-        <View style={{ flexShrink: 1, minWidth: 180 }}>
-          <Text className="text-2xl font-bold text-foreground">Messages</Text>
-          <Text className="text-sm text-muted">
-            {showAssistant ? "Chat with your clients" : "Chat with your trainers"}
-          </Text>
-        </View>
-        {showAssistant && (
-          <TouchableOpacity
-            onPress={handleAssistantChat}
-            className="px-3 py-2 rounded-full bg-primary/10 border border-primary/20 flex-row items-center"
-            accessibilityRole="button"
-            accessibilityLabel="Open Loco Assistant chat"
-            testID="messages-open-assistant"
-            style={{ alignSelf: "flex-start" }}
-          >
-            <IconSymbol name="sparkles" size={14} color={colors.primary} />
-            <Text className="text-xs font-semibold text-primary ml-1.5">Assistant</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      <ScreenHeader
+        className="pr-4"
+        title="Messages"
+        subtitle={showAssistant ? "Chat with your clients" : "Chat with your trainers"}
+        rightSlot={
+          showAssistant ? (
+            <TouchableOpacity
+              onPress={handleAssistantChat}
+              className="px-3 py-2 rounded-full bg-primary/10 border border-primary/20 flex-row items-center"
+              accessibilityRole="button"
+              accessibilityLabel="Open Loco Assistant chat"
+              testID="messages-open-assistant"
+              style={{ alignSelf: "flex-start" }}
+            >
+              <IconSymbol name="sparkles" size={14} color={colors.primary} />
+              <Text className="text-xs font-semibold text-primary ml-1.5">Assistant</Text>
+            </TouchableOpacity>
+          ) : null
+        }
+      />
 
       <View className="flex-1">
         {/* Conversations List */}
@@ -420,40 +401,27 @@ export default function MessagesScreen() {
             />
           }
           ListEmptyComponent={
-            <View className="items-center py-12 px-4">
-              <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
-                <IconSymbol name="message.fill" size={32} color={colors.muted} />
-              </View>
-              <Text className="text-foreground font-semibold text-lg mb-1">No messages yet</Text>
-              <Text className="text-muted text-center mb-6">
-                {showAssistant
+            <EmptyState
+              inline
+              icon="message.fill"
+              title="No messages yet"
+              description={
+                showAssistant
                   ? "Messages from your clients will appear here"
                   : showFindTrainerCta
                     ? "Start a conversation with your trainer"
-                    : "Start a new conversation"}
-              </Text>
-              {showFindTrainerCta ? (
-                <TouchableOpacity
-                  className="bg-primary px-6 py-3 rounded-full"
-                  onPress={async () => {
-                    await haptics.light();
-                    router.push("/(tabs)/discover" as any);
-                  }}
-                >
-                  <Text className="text-background font-semibold">Find a Trainer</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  className="bg-primary px-6 py-3 rounded-full"
-                  onPress={handleNewMessage}
-                  accessibilityRole="button"
-                  accessibilityLabel="Start a new message"
-                  testID="messages-empty-new-message"
-                >
-                  <Text className="text-background font-semibold">New Message</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                    : "Start a new conversation"
+              }
+              actionLabel={showFindTrainerCta ? "Find a Trainer" : "New Message"}
+              onActionPress={
+                showFindTrainerCta
+                  ? async () => {
+                      await haptics.light();
+                      router.push("/(tabs)/discover" as any);
+                    }
+                  : handleNewMessage
+              }
+            />
           }
           contentContainerStyle={{ flexGrow: 1 }}
         />

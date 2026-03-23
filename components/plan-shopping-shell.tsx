@@ -3,12 +3,14 @@ import {
   PLAN_FLOW_HEADER_SIDE_SLOT_WIDTH,
   PlanFlowCloseButton,
 } from "@/components/plan-flow-close-button";
+import { useCartAnimation } from "@/contexts/cart-animation-context";
 import { useCart } from "@/contexts/cart-context";
 import { useColors } from "@/hooks/use-colors";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Text, TouchableOpacity, View } from "react-native";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export type PlanShoppingShellProps = {
@@ -17,6 +19,7 @@ export type PlanShoppingShellProps = {
   clientPhotoUrl: string | null;
   getInitials: (name: string) => string;
   onDone: () => void;
+  hideHeader?: boolean;
   /** Override after "Discard & leave" (default: clearCart + back or clients) */
   onExitDiscard?: () => void;
 };
@@ -31,15 +34,49 @@ export function PlanShoppingShell({
   clientPhotoUrl,
   getInitials,
   onDone,
+  hideHeader = false,
   onExitDiscard: onExitDiscardProp,
 }: PlanShoppingShellProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { items, itemCount, subtotal, clearCart } = useCart();
+  const {
+    planFooterPulse,
+    registerPlanFooterTarget,
+    setPlanFooterFallbackRect,
+  } = useCartAnimation();
   const [showPlanCancelModal, setShowPlanCancelModal] = useState(false);
+  const summaryTargetRef = useRef<View | null>(null);
 
   const bundleCount = items.filter((i) => i.type === "bundle").length;
   const productCount = items.filter((i) => i.type === "product" || i.type === "custom_product").length;
+
+  const footerAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + planFooterPulse.value * 0.045 }],
+    opacity: 1 - planFooterPulse.value * 0.04,
+  }));
+
+  const updateSummaryTargetRect = useCallback(() => {
+    requestAnimationFrame(() => {
+      summaryTargetRef.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) {
+          setPlanFooterFallbackRect({ x, y, width, height });
+        }
+      });
+    });
+  }, [setPlanFooterFallbackRect]);
+
+  useEffect(() => {
+    registerPlanFooterTarget(summaryTargetRef.current);
+    updateSummaryTargetRect();
+    return () => {
+      registerPlanFooterTarget(null);
+    };
+  }, [registerPlanFooterTarget, updateSummaryTargetRect]);
+
+  useEffect(() => {
+    updateSummaryTargetRect();
+  }, [itemCount, subtotal, insets.bottom, updateSummaryTargetRect]);
 
   const defaultLeave = () => {
     if (router.canGoBack()) {
@@ -61,46 +98,48 @@ export function PlanShoppingShell({
 
   return (
     <View className="flex-1 bg-background">
-      <View
-        className="flex-row items-center px-4 pb-2 bg-background border-b border-border"
-        style={{ paddingTop: Math.max(insets.top, 12) }}
-      >
-        <View style={{ width: PLAN_FLOW_HEADER_SIDE_SLOT_WIDTH }} />
+      {!hideHeader ? (
+        <View
+          className="flex-row items-center px-4 pb-2 bg-background border-b border-border"
+          style={{ paddingTop: Math.max(insets.top, 12) }}
+        >
+          <View style={{ width: PLAN_FLOW_HEADER_SIDE_SLOT_WIDTH }} />
 
-        <View className="flex-1 flex-row items-center justify-center mx-3">
-          {clientPhotoUrl ? (
-            <Image
-              source={{ uri: clientPhotoUrl }}
-              style={{ width: 26, height: 26, borderRadius: 13, marginRight: 8 }}
-              contentFit="cover"
-            />
-          ) : (
-            <View
-              className="items-center justify-center"
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: 13,
-                marginRight: 8,
-                backgroundColor: `${colors.primary}22`,
-              }}
-            >
-              <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>
-                {getInitials(displayName)}
-              </Text>
-            </View>
-          )}
-          <Text className="text-sm font-semibold text-foreground" numberOfLines={1}>
-            Shopping for {displayName}
-          </Text>
+          <View className="flex-1 flex-row items-center justify-center mx-3">
+            {clientPhotoUrl ? (
+              <Image
+                source={{ uri: clientPhotoUrl }}
+                style={{ width: 26, height: 26, borderRadius: 13, marginRight: 8 }}
+                contentFit="cover"
+              />
+            ) : (
+              <View
+                className="items-center justify-center"
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 13,
+                  marginRight: 8,
+                  backgroundColor: `${colors.primary}22`,
+                }}
+              >
+                <Text className="text-xs font-bold" style={{ color: colors.primary }}>
+                  {getInitials(displayName)}
+                </Text>
+              </View>
+            )}
+            <Text className="text-sm font-semibold text-foreground" numberOfLines={1}>
+              Shopping for {displayName}
+            </Text>
+          </View>
+
+          <PlanFlowCloseButton
+            onPress={() => setShowPlanCancelModal(true)}
+            accessibilityLabel="Cancel plan shopping"
+            testID="plan-shop-close"
+          />
         </View>
-
-        <PlanFlowCloseButton
-          onPress={() => setShowPlanCancelModal(true)}
-          accessibilityLabel="Cancel plan shopping"
-          testID="plan-shop-close"
-        />
-      </View>
+      ) : null}
 
       <View className="flex-1 min-h-0">{children}</View>
 
@@ -108,8 +147,13 @@ export function PlanShoppingShell({
         className="bg-background border-t border-border px-4 pt-3"
         style={{ paddingBottom: Math.max(insets.bottom, 12) }}
       >
-        <View className="flex-row items-center">
-          <View className="flex-1">
+        <Animated.View className="flex-row items-center" style={footerAnimatedStyle}>
+          <View
+            ref={summaryTargetRef}
+            collapsable={false}
+            className="flex-1"
+            onLayout={updateSummaryTargetRect}
+          >
             <Text className="text-xs text-muted">
               {bundleCount > 0 ? `${bundleCount} bundle${bundleCount !== 1 ? "s" : ""}` : ""}
               {bundleCount > 0 && productCount > 0 ? " + " : ""}
@@ -135,7 +179,7 @@ export function PlanShoppingShell({
               {itemCount > 0 ? `Done (${itemCount})` : "Done"}
             </Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       </View>
 
       <PlanFlowCancelModal

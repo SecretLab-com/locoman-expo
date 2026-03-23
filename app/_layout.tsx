@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/logo-loader";
 import { AuthProvider, useAuthContext } from "@/contexts/auth-context";
 import { BadgeProvider } from "@/contexts/badge-context";
+import { CartAnimationProvider } from "@/contexts/cart-animation-context";
 import { CartProvider } from "@/contexts/cart-context";
 import { NotificationProvider } from "@/contexts/notification-context";
 import { OfflineProvider } from "@/contexts/offline-context";
@@ -523,123 +524,125 @@ export default function RootLayout() {
           <AuthProvider>
             <NotificationProvider>
               <CartProvider>
-                <BadgeProvider>
-                  <OfflineProvider>
-                  <RealtimeProvider>
-                    <View
-                      style={{ flex: 1 }}
-                      {...(Platform.OS === 'web' ? { suppressHydrationWarning: true } : {})}
-                    >
-                      <ImpersonationBanner />
-                      <MobileAppBanner />
-                      <InAppAlertHost />
-                      <SocialAlertListener />
-                      <PostAuthOnboardingResolver />
-                      <ShareIntentRouter />
-                      <View style={{ flex: 1 }}>
-                        <OfflineIndicator />
-                        {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
-                        {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
-                        {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
-                        {/* Enable swipe-back gesture globally for native iOS/Android feel */}
-                        <RootAccessGate>
-                          <Stack
-                            screenOptions={{
-                              headerShown: true,
-                              header: ({ route }) => (
-                                <NavigationHeader
-                                  title={getHeaderTitle(route.name)}
-                                />
-                              ),
-                              // Enable swipe-back gesture on all screens by default
-                              gestureEnabled: true,
-                              // iOS: Full-width swipe from left edge
-                              fullScreenGestureEnabled: true,
-                              // Animation configuration for smooth transitions
-                              animation: "slide_from_right",
-                              // Gesture direction for swipe-back
-                              gestureDirection: "horizontal",
-                            }}
-                          >
-                            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                            <Stack.Screen
-                              name="login"
-                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
-                            />
-                            <Stack.Screen
-                              name="register"
-                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
-                            />
-                            <Stack.Screen name="bundle/[id]" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen
-                              name="client-detail/[id]"
-                              options={{ presentation: "card", headerShown: false }}
-                            />
-                            <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
-                            <Stack.Screen
-                              name="checkout/confirmation"
-                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
-                            />
-                            <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
-                            <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
-                            <Stack.Screen name="activity/index" options={{ presentation: "card" }} />
-                            <Stack.Screen name="discover-bundles/index" options={{ presentation: "card" }} />
-                            <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen
-                              name="invite/[token]"
-                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
-                            />
-                            <Stack.Screen name="logo-loader-test" options={{ presentation: "card" }} />
-                            <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false, gestureEnabled: true, fullScreenGestureEnabled: true }} />
-                            <Stack.Screen name="new-message" options={{ presentation: "card" }} />
-                            <Stack.Screen
-                              name="share-intent"
-                              options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
-                            />
-                            <Stack.Screen name="plan-shop/index" options={{ presentation: "card", headerShown: false, animation: "slide_from_bottom", gestureEnabled: false }} />
-                            <Stack.Screen name="shop/[slug]" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
-                            <Stack.Screen
-                              name="(trainer)"
-                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
-                            />
-                            <Stack.Screen
-                              name="(client)"
-                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
-                            />
-                            <Stack.Screen
-                              name="(manager)"
-                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
-                            />
-                            <Stack.Screen
-                              name="(coordinator)"
-                              options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
-                            />
-                            <Stack.Screen name="welcome" options={{ headerShown: false }} />
-                            <Stack.Screen name="oauth/callback" />
-                            <Stack.Screen name="phyllo/callback" options={{ presentation: "card" }} />
-                          </Stack>
-                        </RootAccessGate>
-                        {/*
-                          FABs render after the Stack and sit in a box-none overlay above the navigator +
-                          in-screen chrome (e.g. collapsible header zIndex 1010) without stealing taps
-                          from the rest of the UI.
-                        */}
-                        <View style={styles.globalFabOverlay}>
-                          <ProfileFAB />
-                          <IncomingMessageFAB />
+                <CartAnimationProvider>
+                  <BadgeProvider>
+                    <OfflineProvider>
+                    <RealtimeProvider>
+                      <View
+                        style={{ flex: 1 }}
+                        {...(Platform.OS === 'web' ? { suppressHydrationWarning: true } : {})}
+                      >
+                        <ImpersonationBanner />
+                        <MobileAppBanner />
+                        <InAppAlertHost />
+                        <SocialAlertListener />
+                        <PostAuthOnboardingResolver />
+                        <ShareIntentRouter />
+                        <View style={{ flex: 1 }}>
+                          <OfflineIndicator />
+                          {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
+                          {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
+                          {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
+                          {/* Enable swipe-back gesture globally for native iOS/Android feel */}
+                          <RootAccessGate>
+                            <Stack
+                              screenOptions={{
+                                headerShown: true,
+                                header: ({ route }) => (
+                                  <NavigationHeader
+                                    title={getHeaderTitle(route.name)}
+                                  />
+                                ),
+                                // Enable swipe-back gesture on all screens by default
+                                gestureEnabled: true,
+                                // iOS: Full-width swipe from left edge
+                                fullScreenGestureEnabled: true,
+                                // Animation configuration for smooth transitions
+                                animation: "slide_from_right",
+                                // Gesture direction for swipe-back
+                                gestureDirection: "horizontal",
+                              }}
+                            >
+                              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                              <Stack.Screen
+                                name="login"
+                                options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                              />
+                              <Stack.Screen
+                                name="register"
+                                options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                              />
+                              <Stack.Screen name="bundle/[id]" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen name="bundle-editor/[id]" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen
+                                name="client-detail/[id]"
+                                options={{ presentation: "card", headerShown: false }}
+                              />
+                              <Stack.Screen name="checkout/index" options={{ presentation: "card" }} />
+                              <Stack.Screen
+                                name="checkout/confirmation"
+                                options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                              />
+                              <Stack.Screen name="messages/index" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen name="messages/[id]" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen name="trainer/[id]" options={{ presentation: "card" }} />
+                              <Stack.Screen name="browse/index" options={{ presentation: "card" }} />
+                              <Stack.Screen name="activity/index" options={{ presentation: "card" }} />
+                              <Stack.Screen name="discover-bundles/index" options={{ presentation: "card" }} />
+                              <Stack.Screen name="my-trainers/index" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen name="my-trainers/find" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen name="profile/index" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen
+                                name="invite/[token]"
+                                options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                              />
+                              <Stack.Screen name="logo-loader-test" options={{ presentation: "card" }} />
+                              <Stack.Screen name="conversation/[id]" options={{ presentation: "card", headerShown: false, gestureEnabled: true, fullScreenGestureEnabled: true }} />
+                              <Stack.Screen name="new-message" options={{ presentation: "card" }} />
+                              <Stack.Screen
+                                name="share-intent"
+                                options={{ presentation: "modal", animation: "slide_from_bottom", gestureDirection: "vertical" }}
+                              />
+                              <Stack.Screen name="plan-shop/index" options={{ presentation: "card", headerShown: false, animation: "slide_from_bottom", gestureEnabled: false }} />
+                              <Stack.Screen name="shop/[slug]" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen name="template-editor/[id]" options={{ presentation: "card", headerShown: false }} />
+                              <Stack.Screen
+                                name="(trainer)"
+                                options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                              />
+                              <Stack.Screen
+                                name="(client)"
+                                options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                              />
+                              <Stack.Screen
+                                name="(manager)"
+                                options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                              />
+                              <Stack.Screen
+                                name="(coordinator)"
+                                options={{ headerShown: false, gestureEnabled: false, fullScreenGestureEnabled: false }}
+                              />
+                              <Stack.Screen name="welcome" options={{ headerShown: false }} />
+                              <Stack.Screen name="oauth/callback" />
+                              <Stack.Screen name="phyllo/callback" options={{ presentation: "card" }} />
+                            </Stack>
+                          </RootAccessGate>
+                          {/*
+                            FABs render after the Stack and sit in a box-none overlay above the navigator +
+                            in-screen chrome (e.g. collapsible header zIndex 1010) without stealing taps
+                            from the rest of the UI.
+                          */}
+                          <View style={styles.globalFabOverlay}>
+                            <ProfileFAB />
+                            <IncomingMessageFAB />
+                          </View>
+                          <ThemedStatusBar />
                         </View>
-                        <ThemedStatusBar />
                       </View>
-                    </View>
-                  </RealtimeProvider>
-                  </OfflineProvider>
-                </BadgeProvider>
+                    </RealtimeProvider>
+                    </OfflineProvider>
+                  </BadgeProvider>
+                </CartAnimationProvider>
               </CartProvider>
             </NotificationProvider>
           </AuthProvider>

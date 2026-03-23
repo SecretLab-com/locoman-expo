@@ -1,7 +1,17 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
+import {
+  getCartAnimationApi,
+  type CartAddAnimationOptions,
+} from "@/contexts/cart-animation-context";
 import type { ProposalCadenceCode } from "@/shared/saved-cart-proposal";
 
 export interface CartItem {
@@ -48,7 +58,10 @@ interface CartContextType {
   proposalContext: CartProposalContext | null;
   itemCount: number;
   subtotal: number;
-  addItem: (item: Omit<CartItem, "id">) => void;
+  addItem: (
+    item: Omit<CartItem, "id">,
+    options?: CartAddAnimationOptions,
+  ) => void;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   updateFulfillment: (id: string, fulfillment: CartItem["fulfillment"]) => void;
@@ -153,25 +166,37 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  const addItem = useCallback((item: Omit<CartItem, "id">) => {
-    triggerHaptic("success");
-    setItems((prev) => {
-      const nextItemKey = getCartItemKey(item);
-      const existing = prev.find((i) => getCartItemKey(i) === nextItemKey);
-      if (existing) {
-        return prev.map((i) =>
-          getCartItemKey(i) === nextItemKey
-            ? { ...i, quantity: i.quantity + item.quantity }
-            : i
-        );
+  const addItem = useCallback(
+    (item: Omit<CartItem, "id">, options?: CartAddAnimationOptions) => {
+      triggerHaptic("success");
+      setItems((prev) => {
+        const nextItemKey = getCartItemKey(item);
+        const existing = prev.find((i) => getCartItemKey(i) === nextItemKey);
+        if (existing) {
+          return prev.map((i) =>
+            getCartItemKey(i) === nextItemKey
+              ? { ...i, quantity: i.quantity + item.quantity }
+              : i,
+          );
+        }
+        const newItem: CartItem = {
+          ...item,
+          id: `${nextItemKey}-${Date.now()}`,
+        };
+        return [...prev, newItem];
+      });
+
+      const animationApi = getCartAnimationApi();
+      if (!animationApi) return;
+      if (options?.flyFromRef) {
+        animationApi.animateToPlanFooter(options);
+        return;
       }
-      const newItem: CartItem = {
-        ...item,
-        id: `${nextItemKey}-${Date.now()}`,
-      };
-      return [...prev, newItem];
-    });
-  }, []);
+      animationApi.pulsePlanFooter();
+      options?.onAnimationComplete?.();
+    },
+    [],
+  );
 
   const removeItem = useCallback((id: string) => {
     triggerHaptic("warning");

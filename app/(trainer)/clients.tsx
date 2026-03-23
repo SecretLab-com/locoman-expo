@@ -1,3 +1,5 @@
+import * as Clipboard from "expo-clipboard";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BulkInviteModal } from "@/components/bulk-invite-modal";
 import { EmptyStateCard } from "@/components/empty-state-card";
 import { NavigationHeader } from "@/components/navigation-header";
@@ -22,6 +24,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  Share,
   Text,
   TextInput,
   TouchableOpacity,
@@ -39,7 +42,6 @@ const copyToClipboard = async (text: string) => {
       await navigator.clipboard.writeText(text);
       return;
     }
-    const Clipboard = require("expo-clipboard");
     await Clipboard.setStringAsync(text);
   } catch {
     if (Platform.OS === "web") {
@@ -282,14 +284,50 @@ export default function TrainerClientsScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showBulkInvite, setShowBulkInvite] = useState(false);
   const [inactiveSectionCollapsed, setInactiveSectionCollapsed] = useState(false);
+  const [inactiveSectionPrefLoaded, setInactiveSectionPrefLoaded] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [payClientName, setPayClientName] = useState("");
   const [payClientId, setPayClientId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payDescription, setPayDescription] = useState("");
   const [payLinkResult, setPayLinkResult] = useState<string | null>(null);
+  const inactiveSectionStorageKey = effectiveUser?.id
+    ? `trainerClients:inactiveSectionCollapsed:${effectiveUser.id}`
+    : "trainerClients:inactiveSectionCollapsed";
   /** Bottom sheet: safe area + standard screen gutter (matches ~p-4 horizontal rhythm). */
   const requestPaymentSheetPaddingBottom = Math.max(insets.bottom, 20) + 16;
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadInactiveSectionPreference = async () => {
+      try {
+        const storedValue = await AsyncStorage.getItem(inactiveSectionStorageKey);
+        if (!isCancelled && storedValue != null) {
+          setInactiveSectionCollapsed(storedValue === "true");
+        }
+      } finally {
+        if (!isCancelled) {
+          setInactiveSectionPrefLoaded(true);
+        }
+      }
+    };
+
+    setInactiveSectionPrefLoaded(false);
+    void loadInactiveSectionPreference();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [inactiveSectionStorageKey]);
+
+  useEffect(() => {
+    if (!inactiveSectionPrefLoaded) return;
+    void AsyncStorage.setItem(
+      inactiveSectionStorageKey,
+      inactiveSectionCollapsed ? "true" : "false",
+    );
+  }, [inactiveSectionCollapsed, inactiveSectionPrefLoaded, inactiveSectionStorageKey]);
 
   // Fetch real clients from tRPC
   const utils = trpc.useUtils();
@@ -654,7 +692,6 @@ export default function TrainerClientsScreen() {
                     className="flex-1 bg-surface border border-border py-4 px-3 rounded-xl items-center"
                     onPress={async () => {
                       try {
-                        const { Share } = require("react-native");
                         await Share.share({ message: `Hi ${payClientName}, please complete your payment: ${payLinkResult}`, url: payLinkResult });
                       } catch { await copyToClipboard(payLinkResult); }
                     }}

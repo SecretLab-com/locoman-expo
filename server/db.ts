@@ -1625,6 +1625,36 @@ export async function createTrainerCustomProduct(
   return mapFromDb<TrainerCustomProduct>(row);
 }
 
+export async function updateTrainerCustomProduct(
+  id: string,
+  data: Partial<InsertTrainerCustomProduct>,
+): Promise<TrainerCustomProduct | undefined> {
+  const payload = mapToDb(data);
+  const { data: row, error } = await sb()
+    .from("trainer_custom_products")
+    .update(payload)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[Database] updateTrainerCustomProduct:", error.message);
+    throw error;
+  }
+  return mapFromDb<TrainerCustomProduct>(row);
+}
+
+/** Soft-delete so existing proposal snapshots stay understandable while hiding from future picks. */
+export async function deleteTrainerCustomProduct(id: string): Promise<void> {
+  const { error } = await sb()
+    .from("trainer_custom_products")
+    .update({ active: false })
+    .eq("id", id);
+  if (error) {
+    console.error("[Database] deleteTrainerCustomProduct:", error.message);
+    throw error;
+  }
+}
+
 export async function upsertBundleFromShopify(data: {
   shopifyProductId: number;
   shopifyVariantId?: number;

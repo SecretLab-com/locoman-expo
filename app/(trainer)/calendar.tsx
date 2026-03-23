@@ -3,7 +3,7 @@ import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { ModalHeader } from "@/components/ui/modal-header";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import * as Linking from "expo-linking";
@@ -23,7 +23,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
@@ -184,12 +183,10 @@ function CalendarWeekSessionBlock({
 
 export default function CalendarScreen() {
   const colors = useColors();
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const params = useLocalSearchParams<{ scheduleClientId?: string | string[]; code?: string | string[] }>();
   const scheduleClientId = Array.isArray(params.scheduleClientId)
     ? params.scheduleClientId[0]
     : params.scheduleClientId;
-  const colorScheme = useColorScheme();
   const overlayColor = "rgba(0,0,0,0.85)";
 
   const [viewMode, setViewMode] = useState<CalendarViewMode>("month");
@@ -330,7 +327,7 @@ export default function CalendarScreen() {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
       });
-  }, [params.code]);
+  }, [connectGoogleCalendar, params.code]);
 
   const sessions: Session[] = useMemo(() => {
     const clientNameById = new Map<string, string>();
@@ -371,7 +368,7 @@ export default function CalendarScreen() {
     if (googleStatus.data?.connected && !syncFromGoogle.isPending) {
       syncFromGoogle.mutate();
     }
-  }, [googleStatus.data?.connected]);
+  }, [googleStatus.data?.connected, syncFromGoogle]);
 
   useEffect(() => {
     if (viewMode !== "week") setPendingMoveSessionId(null);
@@ -1247,10 +1244,11 @@ export default function CalendarScreen() {
           <SwipeDownSheet visible={showSessionModal} onClose={() => setShowSessionModal(false)} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}>
             {selectedSession && (
               <>
-                <View className="flex-row items-center justify-between mb-4">
-                  <Text className="text-xl font-bold text-foreground">Session Details</Text>
-                  <TouchableOpacity onPress={() => setShowSessionModal(false)}><IconSymbol name="xmark" size={24} color={colors.muted} /></TouchableOpacity>
-                </View>
+                <ModalHeader
+                  title="Session Details"
+                  subtitle="Review the appointment and take the next action."
+                  onClose={() => setShowSessionModal(false)}
+                />
                 <View className="bg-surface rounded-xl p-4 mb-4">
                   <Text className="text-lg font-semibold text-foreground">{selectedSession.clientName}</Text>
                   <Text className="text-muted">{selectedSession.bundleTitle}</Text>
@@ -1292,7 +1290,11 @@ export default function CalendarScreen() {
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
           <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowRescheduleModal(false)} />
           <SwipeDownSheet visible={showRescheduleModal} onClose={() => setShowRescheduleModal(false)} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32 }}>
-            <Text className="text-xl font-bold text-foreground mb-4">Suggest Appointment Move</Text>
+            <ModalHeader
+              title="Suggest Appointment Move"
+              subtitle="Send a proposed date, time, and note to the client."
+              onClose={() => setShowRescheduleModal(false)}
+            />
             <Text className="text-sm text-muted mb-2">Date (YYYY-MM-DD)</Text>
             <TextInput className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3" value={rescheduleDate} onChangeText={setRescheduleDate} placeholder="2026-02-15" placeholderTextColor={colors.muted} />
             <Text className="text-sm text-muted mb-2">Time (HH:MM)</Text>
@@ -1314,10 +1316,11 @@ export default function CalendarScreen() {
           <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: overlayColor }}>
             <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowAddModal(false)} />
             <SwipeDownSheet visible={showAddModal} onClose={() => setShowAddModal(false)} style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 24, paddingHorizontal: 24 }}>
-              <View className="flex-row items-center justify-between mb-4">
-                <Text className="text-xl font-bold text-foreground">Schedule Session</Text>
-                <TouchableOpacity onPress={() => setShowAddModal(false)}><IconSymbol name="xmark" size={24} color={colors.muted} /></TouchableOpacity>
-              </View>
+              <ModalHeader
+                title="Schedule Session"
+                subtitle="Create a new training session on the selected day."
+                onClose={() => setShowAddModal(false)}
+              />
               <ScrollView ref={scheduleScrollRef} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
                 <View className="mb-4">
                   <Text className="text-sm font-medium text-foreground mb-2">Date</Text>

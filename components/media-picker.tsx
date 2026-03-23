@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   Alert,
+  Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -345,37 +346,47 @@ export function SingleImagePicker({
   const overlayTextColor = isDark ? "#fff" : colors.foreground;
   const [showOptions, setShowOptions] = useState(false);
 
-  const pickFromLibrary = async () => {
+  const closeOptionsThen = async (action: () => Promise<void>) => {
     setShowOptions(false);
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: aspectRatio,
-      quality,
-    });
+    await new Promise((resolve) =>
+      setTimeout(resolve, Platform.OS === "ios" ? 260 : 80),
+    );
+    await action();
+  };
 
-    if (!result.canceled && result.assets.length > 0) {
-      onImageChange(result.assets[0].uri);
-    }
+  const pickFromLibrary = async () => {
+    await closeOptionsThen(async () => {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: aspectRatio,
+        quality,
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        onImageChange(result.assets[0].uri);
+      }
+    });
   };
 
   const takePhoto = async () => {
-    setShowOptions(false);
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission Required", "Camera permission is required.");
-      return;
-    }
+    await closeOptionsThen(async () => {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "Camera permission is required.");
+        return;
+      }
 
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: aspectRatio,
-      quality,
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: aspectRatio,
+        quality,
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        onImageChange(result.assets[0].uri);
+      }
     });
-
-    if (!result.canceled && result.assets.length > 0) {
-      onImageChange(result.assets[0].uri);
-    }
   };
 
   return (
@@ -427,10 +438,13 @@ export function SingleImagePicker({
         animationType="slide"
         onRequestClose={() => setShowOptions(false)}
       >
-        <Pressable
-          onPress={() => setShowOptions(false)}
-          style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}
-        >
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.85)" }}>
+          <Pressable
+            onPress={() => setShowOptions(false)}
+            style={{ flex: 1 }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss image picker options"
+          />
           <SwipeDownSheet
             visible={showOptions}
             onClose={() => setShowOptions(false)}
@@ -454,7 +468,7 @@ export function SingleImagePicker({
               <Text style={{ textAlign: "center", color: colors.muted, fontSize: 16 }}>Cancel</Text>
             </TouchableOpacity>
           </SwipeDownSheet>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );

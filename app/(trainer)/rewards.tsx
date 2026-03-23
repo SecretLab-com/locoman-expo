@@ -1,13 +1,14 @@
-import { EmptyStateCard } from "@/components/empty-state-card";
 import { ScreenContainer } from "@/components/screen-container";
+import { EmptyState } from "@/components/ui/empty-state";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { router, Stack } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 
 const POINTS_EXAMPLES = [
   "Complete training sessions",
@@ -35,9 +36,7 @@ export default function RewardsScreen() {
       <>
         <Stack.Screen options={{ gestureEnabled: false, fullScreenGestureEnabled: false }} />
         <ScreenContainer>
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
+          <LoadingState fullScreen title="Loading rewards..." />
         </ScreenContainer>
       </>
     );
@@ -50,12 +49,12 @@ export default function RewardsScreen() {
         <ScreenContainer>
           <ScreenHeader title="Rewards" subtitle="Motivation without pressure." />
           <View className="px-4 mt-6">
-            <EmptyStateCard
+            <EmptyState
               icon="star.fill"
               title="Rewards unlock after your first payment"
               description="Take your first payment to start earning points and status progress."
-              ctaLabel="Go to Get Paid"
-              onCtaPress={() => router.push("/(trainer)/get-paid" as any)}
+              actionLabel="Go to Get Paid"
+              onActionPress={() => router.push("/(trainer)/get-paid" as any)}
             />
           </View>
         </ScreenContainer>

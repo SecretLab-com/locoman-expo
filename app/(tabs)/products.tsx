@@ -1,17 +1,28 @@
 // import { useBottomNavHeight } from "@/components/role-bottom-nav";
+import { SingleImagePicker } from "@/components/media-picker";
 import { PlanShoppingProductsWrap } from "@/components/plan-shopping-products-wrap";
 import { ScreenContainer } from "@/components/screen-container";
 import { SwipeDownSheet } from "@/components/swipe-down-sheet";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { LogoLoader } from "@/components/ui/logo-loader";
+import { ModalHeader } from "@/components/ui/modal-header";
 import { useAuthContext } from "@/contexts/auth-context";
 import { useCart } from "@/contexts/cart-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import * as FileSystem from "expo-file-system/legacy";
 import { router, useLocalSearchParams } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import {
   Alert,
   Animated,
@@ -78,6 +89,39 @@ type Collection = {
   updatedAt: string | null;
 };
 
+function guessImageMimeType(uri: string): string {
+  const normalized = uri.toLowerCase();
+  if (normalized.includes(".png")) return "image/png";
+  if (normalized.includes(".webp")) return "image/webp";
+  if (normalized.includes(".gif")) return "image/gif";
+  if (normalized.includes(".heic")) return "image/heic";
+  if (normalized.includes(".heif")) return "image/heif";
+  return "image/jpeg";
+}
+
+async function uriToBase64(uri: string): Promise<string> {
+  if (uri.startsWith("data:")) {
+    return uri.split(",").pop() || "";
+  }
+
+  if (uri.startsWith("file:") || uri.startsWith("content:")) {
+    return FileSystem.readAsStringAsync(uri, { encoding: "base64" });
+  }
+
+  const response = await fetch(uri);
+  const blob = await response.blob();
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read image file."));
+    reader.onloadend = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      resolve(result.split(",").pop() || "");
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
 function extractListItemsFromHtml(description: string): string[] {
   const names: string[] = [];
   const liMatches = description.matchAll(/<li>(.*?)<\/li>/gi);
@@ -94,7 +138,7 @@ function extractListItemsFromHtml(description: string): string[] {
 function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: boolean }) {
   const colors = useColors();
   const colorScheme = useColorScheme();
-  const { canManage, effectiveRole, isClient, isCoordinator, isManager, isTrainer } = useAuthContext();
+  const { canManage, effectiveRole, effectiveUser, isClient, isCoordinator, isManager, isTrainer } = useAuthContext();
   const isAdmin = isCoordinator || isManager;
   // const bottomNavHeight = useBottomNavHeight();
   const canPurchase = isClient || isTrainer || effectiveRole === "shopper" || !effectiveRole;
@@ -103,13 +147,28 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
   const detailSheetMaxHeight = Math.min(windowHeight * 0.88, 820);
   const { addItem, proposalContext } = useCart();
   const isPlanShopping = isTrainer && !!proposalContext?.clientRecordId;
-  const [viewMode, setViewMode] = useState<"bundles" | "categories" | "products">("categories");
+  const canShowCustomTab = isTrainer && isPlanShopping;
+  const [viewMode, setViewMode] = useState<"bundles" | "categories" | "products" | "custom">("categories");
   const [showHiddenBundles, setShowHiddenBundles] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [customSearchQuery, setCustomSearchQuery] = useState("");
   const [bundleSearchQuery, setBundleSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [showCustomProductModal, setShowCustomProductModal] = useState(false);
+  const [editingCustomProduct, setEditingCustomProduct] = useState<{
+    id: string;
+    name: string;
+    description?: string | null;
+    imageUrl?: string | null;
+    price: string | number;
+    fulfillmentMethod?: string | null;
+  } | null>(null);
+  const [customProductName, setCustomProductName] = useState("");
+  const [customProductPrice, setCustomProductPrice] = useState("");
+  const [customProductDescription, setCustomProductDescription] = useState("");
+  const [customProductImageUrl, setCustomProductImageUrl] = useState("");
   const [mediaModalOpen, setMediaModalOpen] = useState(false);
   const [mediaItems, setMediaItems] = useState<{ type: "image" | "video"; uri: string }[]>([]);
   const [mediaIndex, setMediaIndex] = useState(0);
@@ -131,6 +190,18 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
       setSearchQuery("");
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "custom") {
+      setCustomSearchQuery("");
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (!canShowCustomTab && viewMode === "custom") {
+      setViewMode("categories");
+    }
+  }, [canShowCustomTab, viewMode]);
 
   // Fetch products via tRPC
   const {
@@ -165,9 +236,22 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
     staleTime: 60000,
     enabled: isAdmin,
   });
+  const {
+    data: customProducts = [],
+    isLoading: customProductsLoading,
+    isRefetching: customProductsRefetching,
+    refetch: refetchCustomProducts,
+  } = trpc.customProducts.list.useQuery(undefined, {
+    staleTime: 60000,
+    enabled: canShowCustomTab,
+  });
   const { data: collections = [] } = trpc.catalog.collections.useQuery(undefined, {
     staleTime: 60000,
   });
+  const createCustomProductMutation = trpc.customProducts.create.useMutation();
+  const updateCustomProductMutation = trpc.customProducts.update.useMutation();
+  const deleteCustomProductMutation = trpc.customProducts.delete.useMutation();
+  const uploadAttachmentMutation = trpc.messages.uploadAttachment.useMutation();
   const shopifySync = trpc.shopify.sync.useMutation({
     onSuccess: async (data) => {
       await refetch();
@@ -475,6 +559,15 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
   const bundlesCatalogLoading =
     isPlanShopping && isTrainer ? trainerBundlesForPlanLoading : publicBundlesLoading;
 
+  const filteredCustomProducts = useMemo(() => {
+    const term = customSearchQuery.trim().toLowerCase();
+    if (!term) return customProducts;
+    return customProducts.filter((product) => {
+      const haystack = [product.name, product.description || ""].join(" ").toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [customProducts, customSearchQuery]);
+
   const filteredProducts = useMemo(() => {
     if (!baseProducts.length) return [];
     let result = baseProducts;
@@ -498,18 +591,209 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
     return [...result].sort((a: Product, b: Product) => a.name.localeCompare(b.name));
   }, [baseProducts, categoryProductIdsByValue, normalizeCategoryValue, searchQuery, selectedCategory]);
 
+  const productAddRefs = useRef<Record<string, RefObject<View | null>>>({});
+  const customProductAddRefs = useRef<Record<string, RefObject<View | null>>>({});
+  const detailAddButtonRef = useRef<View | null>(null);
+  const createCustomProductButtonRef = useRef<View | null>(null);
+
+  const getProductAddRef = useCallback((productId: string) => {
+    if (!productAddRefs.current[productId]) {
+      productAddRefs.current[productId] = createRef<View>();
+    }
+    return productAddRefs.current[productId];
+  }, []);
+
+  const getCustomProductAddRef = useCallback((productId: string) => {
+    if (!customProductAddRefs.current[productId]) {
+      customProductAddRefs.current[productId] = createRef<View>();
+    }
+    return customProductAddRefs.current[productId];
+  }, []);
+
+  const closeCustomProductModal = () => {
+    setShowCustomProductModal(false);
+    setEditingCustomProduct(null);
+    setCustomProductName("");
+    setCustomProductPrice("");
+    setCustomProductDescription("");
+    setCustomProductImageUrl("");
+  };
+
+  const openCreateCustomProductModal = () => {
+    setEditingCustomProduct(null);
+    setCustomProductName("");
+    setCustomProductPrice("");
+    setCustomProductDescription("");
+    setCustomProductImageUrl("");
+    setShowCustomProductModal(true);
+  };
+
+  const openEditCustomProductModal = (product: {
+    id: string;
+    name: string;
+    description?: string | null;
+    imageUrl?: string | null;
+    price: string | number;
+    fulfillmentMethod?: string | null;
+  }) => {
+    setEditingCustomProduct(product);
+    setCustomProductName(product.name || "");
+    setCustomProductPrice(String(product.price || ""));
+    setCustomProductDescription(product.description || "");
+    setCustomProductImageUrl(product.imageUrl || "");
+    setShowCustomProductModal(true);
+  };
+
   // Handle add to cart
-  const handleAddToCart = (product: Product) => {
+  const handleAddToCart = (
+    product: Product,
+    options?: {
+      flyFromRef?: RefObject<View | null>;
+      closeAfterAdd?: boolean;
+    },
+  ) => {
     if (!canPurchase) return;
+    const imageUrl = normalizeAssetUrl(product.imageUrl) ?? undefined;
     addItem({
       type: "product",
       title: product.name,
       price: parseFloat(product.price),
       quantity: 1,
-      imageUrl: normalizeAssetUrl(product.imageUrl) ?? undefined,
+      imageUrl,
       productId: product.id,
       fulfillment: "home_ship",
+    }, {
+      flyFromRef: options?.flyFromRef,
+      imageUri: imageUrl,
     });
+    if (options?.closeAfterAdd) {
+      setDetailModalOpen(false);
+    }
+  };
+
+  const handleAddCustomProductToCart = (
+    product: {
+      id: string;
+      name: string;
+      description?: string | null;
+      price: string | number;
+      imageUrl?: string | null;
+      fulfillmentMethod?: string | null;
+    },
+    options?: {
+      flyFromRef?: RefObject<View | null>;
+    },
+  ) => {
+    const imageUrl = normalizeAssetUrl(product.imageUrl) ?? undefined;
+    addItem(
+      {
+        type: "custom_product",
+        title: product.name,
+        description: product.description || undefined,
+        customProductId: product.id,
+        trainer: effectiveUser?.name || "Trainer",
+        trainerId: effectiveUser?.id,
+        price: Number.parseFloat(String(product.price || "0")),
+        quantity: 1,
+        imageUrl,
+        cadence: "one_time",
+        fulfillment: (product.fulfillmentMethod as any) || "trainer_delivery",
+      },
+      {
+        flyFromRef: options?.flyFromRef,
+        imageUri: imageUrl,
+      },
+    );
+  };
+
+  const handleCreateCustomProduct = async () => {
+    try {
+      const parsedPrice = Number.parseFloat(customProductPrice || "0");
+      if (!customProductName.trim()) {
+        Alert.alert("Product name required", "Enter a custom product name.");
+        return;
+      }
+      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+        Alert.alert("Valid price required", "Enter a valid custom product price.");
+        return;
+      }
+      let uploadedImageUrl: string | undefined;
+      const rawImageValue = customProductImageUrl.trim();
+      if (rawImageValue && !/^https?:\/\//i.test(rawImageValue)) {
+        const base64 = await uriToBase64(rawImageValue);
+        if (!base64) {
+          Alert.alert("Image unavailable", "Could not read this image. Try another photo.");
+          return;
+        }
+        const mimeType = guessImageMimeType(rawImageValue);
+        const ext = mimeType.split("/")[1] || "jpg";
+        const uploadResult = await uploadAttachmentMutation.mutateAsync({
+          fileName: `custom-product-${Date.now()}.${ext}`,
+          fileData: base64,
+          mimeType,
+        });
+        uploadedImageUrl = uploadResult.url;
+      }
+
+      const effectiveImageUrl =
+        uploadedImageUrl ?? (rawImageValue.length > 0 ? rawImageValue : undefined);
+
+      const payload = {
+        name: customProductName.trim(),
+        description: customProductDescription.trim() || undefined,
+        imageUrl: effectiveImageUrl,
+        price: parsedPrice.toFixed(2),
+      };
+      if (editingCustomProduct) {
+        await updateCustomProductMutation.mutateAsync({
+          id: editingCustomProduct.id,
+          ...payload,
+        });
+        await refetchCustomProducts();
+        closeCustomProductModal();
+        return;
+      }
+      const created = await createCustomProductMutation.mutateAsync(payload);
+      await refetchCustomProducts();
+      handleAddCustomProductToCart(created, { flyFromRef: createCustomProductButtonRef });
+      closeCustomProductModal();
+    } catch (error) {
+      Alert.alert(
+        editingCustomProduct ? "Save failed" : "Create failed",
+        error instanceof Error ? error.message : "Unable to save this custom product.",
+      );
+    }
+  };
+
+  const handleDeleteCustomProduct = async () => {
+    if (!editingCustomProduct) return;
+    Alert.alert(
+      "Delete custom product",
+      `Remove ${editingCustomProduct.name} from your custom products list?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await deleteCustomProductMutation.mutateAsync({
+                  id: editingCustomProduct.id,
+                });
+                await refetchCustomProducts();
+                closeCustomProductModal();
+              } catch (error) {
+                Alert.alert(
+                  "Delete failed",
+                  error instanceof Error ? error.message : "Unable to delete this custom product.",
+                );
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   // Open product detail
@@ -528,6 +812,7 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
   };
 
   const isProductsMode = viewMode === "products";
+  const isCustomMode = viewMode === "custom";
   const markImageFailed = (key: string) => {
     setFailedImages((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
   };
@@ -720,6 +1005,36 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
               Products
             </Text>
           </Pressable>
+          {canShowCustomTab ? (
+            <Pressable
+              onPress={() => setViewMode("custom")}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: viewMode === "custom" }}
+              accessibilityLabel="Browse trainer custom products"
+              testID="products-tab-custom"
+              android_ripple={{ color: `${colors.primary}33` }}
+              style={({ pressed }) => ({
+                flex: 1,
+                paddingVertical: 8,
+                borderRadius: 8,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: viewMode === "custom" ? colors.primary : "transparent",
+                opacity: pressed ? 0.9 : 1,
+              })}
+            >
+              <Text
+                style={{
+                  textAlign: "center",
+                  fontWeight: "600",
+                  fontSize: 15,
+                  color: viewMode === "custom" ? colors["primary-foreground"] : colors.foreground,
+                }}
+              >
+                Custom
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -780,6 +1095,27 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
         </View>
       )}
 
+      {isCustomMode && (
+        <View className="px-4 mb-3">
+          <View className="flex-row items-center bg-surface rounded-xl px-4 py-3 border border-border">
+            <IconSymbol name="magnifyingglass" size={20} color={colors.muted} />
+            <TextInput
+              placeholder="Search custom products..."
+              placeholderTextColor={colors.muted}
+              value={customSearchQuery}
+              onChangeText={setCustomSearchQuery}
+              className="flex-1 ml-3 text-foreground text-base"
+              returnKeyType="search"
+            />
+            {customSearchQuery.length > 0 ? (
+              <TouchableOpacity onPress={() => setCustomSearchQuery("")}>
+                <IconSymbol name="xmark.circle.fill" size={20} color={colors.muted} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      )}
+
       {viewMode === "bundles" && !bundlesCatalogLoading && !error && (
         <ScrollView
           className="flex-1 px-4"
@@ -811,6 +1147,10 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
                 onPress={() => {
                   if (isClient) {
                     router.push({ pathname: "/(client)/bundle/[id]", params: { id: bundle.id } } as any);
+                    return;
+                  }
+                  if (isTrainer && isPlanShopping) {
+                    router.push({ pathname: "/bundle/[id]", params: { id: bundle.id } } as any);
                     return;
                   }
                   if (isTrainer) {
@@ -1095,16 +1435,159 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
         </ScrollView>
       )}
 
+      {isCustomMode && !customProductsLoading && (
+        <ScrollView
+          className="flex-1 px-4"
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={customProductsRefetching}
+              onRefresh={() => void refetchCustomProducts()}
+              tintColor={colors.primary}
+            />
+          }
+        >
+          <View className="pb-24">
+            <View className="flex-row items-center justify-between mb-4">
+              <View className="flex-1 pr-3">
+                <Text className="text-lg font-semibold text-foreground">Custom Products</Text>
+                <Text className="text-sm text-muted mt-1">
+                  Add your trainer-owned products directly into this plan.
+                </Text>
+              </View>
+              <TouchableOpacity
+                className="bg-primary rounded-full px-4 py-2"
+                onPress={openCreateCustomProductModal}
+                accessibilityRole="button"
+                accessibilityLabel="Create custom product"
+                testID="products-custom-create"
+              >
+                <Text className="text-background font-semibold">Create</Text>
+              </TouchableOpacity>
+            </View>
+
+            {filteredCustomProducts.length === 0 ? (
+              <View className="items-center py-16">
+                <View className="w-16 h-16 rounded-full bg-surface items-center justify-center mb-4">
+                  <IconSymbol name="bag.fill" size={32} color={colors.muted} />
+                </View>
+                <Text className="text-lg font-semibold text-foreground mb-2">
+                  {customSearchQuery.trim() ? "No custom products found" : "No custom products yet"}
+                </Text>
+                <Text className="text-muted text-center mb-4">
+                  {customSearchQuery.trim()
+                    ? "Try a different search term."
+                    : "Create trainer-delivered custom products such as tennis balls or gloves."}
+                </Text>
+                <TouchableOpacity
+                  className="bg-primary rounded-full px-6 py-3"
+                  onPress={openCreateCustomProductModal}
+                  accessibilityRole="button"
+                  accessibilityLabel="Create a new custom product"
+                  testID="products-custom-empty-create"
+                >
+                  <Text className="text-background font-semibold">Create Custom Product</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View className="flex-row flex-wrap justify-between pb-24">
+                {filteredCustomProducts.map((product) => {
+                  const customProductAddRef = getCustomProductAddRef(product.id);
+                  const customImageKey = `custom-product-${product.id}`;
+                  const customImageUrl = normalizeAssetUrl(product.imageUrl);
+                  return (
+                    <View
+                      key={product.id}
+                      className="mb-4 bg-surface rounded-xl overflow-hidden border border-border"
+                      style={{ width: "46%", maxWidth: 180 }}
+                    >
+                      <View className="bg-background items-center justify-center" style={{ height: 140 }}>
+                        {customImageUrl && !failedImages[customImageKey] ? (
+                          <Image
+                            source={{ uri: customImageUrl }}
+                            className="w-full h-full"
+                            resizeMode="cover"
+                            onError={() => markImageFailed(customImageKey)}
+                          />
+                        ) : (
+                          <IconSymbol name="bag.fill" size={40} color={colors.muted} />
+                        )}
+                      </View>
+
+                      <View className="p-2.5">
+                        <View className="flex-row items-start justify-between gap-2">
+                          <Text className="text-xs text-foreground flex-1" numberOfLines={2}>
+                            {product.name}
+                          </Text>
+                          <TouchableOpacity
+                            className="w-8 h-8 rounded-full bg-surface border border-border items-center justify-center"
+                            onPress={() => openEditCustomProductModal(product)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Edit custom product ${product.name}`}
+                            testID={`products-custom-edit-${product.id}`}
+                          >
+                            <IconSymbol name="pencil" size={14} color={colors.foreground} />
+                          </TouchableOpacity>
+                        </View>
+
+                        <View className="bg-primary/10 self-start px-2 py-0.5 rounded mt-1 mb-1">
+                          <Text className="text-xs text-primary">Custom</Text>
+                        </View>
+
+                        {product.description ? (
+                          <Text className="text-[11px] text-muted mt-0.5" numberOfLines={2}>
+                            {product.description}
+                          </Text>
+                        ) : null}
+
+                        <Text className="text-base font-bold text-foreground mt-2">
+                          £{Number(product.price || 0).toFixed(2)}
+                        </Text>
+                      </View>
+
+                      <View className="px-2.5 pb-2.5">
+                        <View ref={customProductAddRef} collapsable={false}>
+                          <TouchableOpacity
+                            className="py-1.5 rounded-lg items-center bg-primary"
+                            onPress={() =>
+                              handleAddCustomProductToCart(product, {
+                                flyFromRef: customProductAddRef,
+                              })
+                            }
+                            accessibilityRole="button"
+                            accessibilityLabel={`Add custom product ${product.name} to plan`}
+                            testID={`products-custom-add-${product.id}`}
+                          >
+                            <Text className="text-xs font-semibold text-white">Add to Cart</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      )}
+
       {/* Loading State */}
-      {isLoading && (
+      {isLoading && viewMode !== "custom" && (
         <View className="flex-1 items-center justify-center">
           <LogoLoader size={72} />
           <Text className="text-muted mt-3">Loading products...</Text>
         </View>
       )}
 
+      {isCustomMode && customProductsLoading ? (
+        <View className="flex-1 items-center justify-center">
+          <LogoLoader size={72} />
+          <Text className="text-muted mt-3">Loading custom products...</Text>
+        </View>
+      ) : null}
+
       {/* Error State */}
-      {!isLoading && error && (
+      {!isLoading && !isCustomMode && error && (
         <View className="flex-1 items-center justify-center px-6">
           <IconSymbol name="exclamationmark.triangle.fill" size={36} color={colors.error} />
           <Text className="text-lg font-semibold text-foreground mt-3">
@@ -1152,6 +1635,7 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
                     const comparePrice = product.compareAtPrice ? parseFloat(product.compareAtPrice) : null;
                     const inStock =
                       product.availability === "available" && (product.inventoryQuantity || 0) > 0;
+                    const productAddButtonRef = getProductAddRef(product.id);
 
                     return (
                       <TouchableOpacity
@@ -1225,27 +1709,32 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
                         {/* Add to Cart Button */}
                         <View className="px-2.5 pb-2.5">
                           {canPurchase ? (
-                            <TouchableOpacity
-                              onPress={(e) => {
-                                e.stopPropagation();
-                                handleAddToCart(product);
-                              }}
-                              disabled={!inStock}
-                              className={`py-1.5 rounded-lg items-center ${
-                                inStock ? "bg-primary" : "bg-muted"
-                              }`}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Add ${product.name} to cart`}
-                              testID={`product-add-${product.id}`}
+                            <View
+                              ref={productAddButtonRef}
+                              collapsable={false}
                             >
-                              <Text
-                                className={`text-xs font-semibold ${
-                                  inStock ? "text-white" : "text-foreground"
+                              <TouchableOpacity
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  handleAddToCart(product, { flyFromRef: productAddButtonRef });
+                                }}
+                                disabled={!inStock}
+                                className={`py-1.5 rounded-lg items-center ${
+                                  inStock ? "bg-primary" : "bg-muted"
                                 }`}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Add ${product.name} to cart`}
+                                testID={`product-add-${product.id}`}
                               >
-                                {inStock ? "Add to Cart" : "Sold Out"}
-                              </Text>
-                            </TouchableOpacity>
+                                <Text
+                                  className={`text-xs font-semibold ${
+                                    inStock ? "text-white" : "text-foreground"
+                                  }`}
+                                >
+                                  {inStock ? "Add to Cart" : "Sold Out"}
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
                           ) : null}
                         </View>
                       </TouchableOpacity>
@@ -1439,39 +1928,43 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
                   )}
 
                   {canPurchase ? (
-                    <TouchableOpacity
-                      onPress={() => {
-                        handleAddToCart(selectedProduct);
-                        setDetailModalOpen(false);
-                      }}
-                      disabled={selectedProduct.availability !== "available" || (selectedProduct.inventoryQuantity || 0) <= 0}
-                      className={`mt-6 mx-6 py-3 rounded-xl items-center flex-row justify-center ${
-                        selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                          ? "bg-primary"
-                          : "bg-muted"
-                      }`}
-                    >
-                      <IconSymbol
-                        name="cart"
-                        size={18}
-                        color={
-                          selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                            ? "#fff"
-                            : colors.foreground
+                    <View ref={detailAddButtonRef} collapsable={false}>
+                      <TouchableOpacity
+                        onPress={() =>
+                          handleAddToCart(selectedProduct, {
+                            flyFromRef: detailAddButtonRef,
+                            closeAfterAdd: true,
+                          })
                         }
-                      />
-                      <Text
-                        className={`font-semibold ml-2 ${
+                        disabled={selectedProduct.availability !== "available" || (selectedProduct.inventoryQuantity || 0) <= 0}
+                        className={`mt-6 mx-6 py-3 rounded-xl items-center flex-row justify-center ${
                           selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                            ? "text-white"
-                            : "text-foreground"
+                            ? "bg-primary"
+                            : "bg-muted"
                         }`}
                       >
-                        {selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
-                          ? "Add to Cart"
-                          : "Sold Out"}
-                      </Text>
-                    </TouchableOpacity>
+                        <IconSymbol
+                          name="cart"
+                          size={18}
+                          color={
+                            selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
+                              ? "#fff"
+                              : colors.foreground
+                          }
+                        />
+                        <Text
+                          className={`font-semibold ml-2 ${
+                            selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
+                              ? "text-white"
+                              : "text-foreground"
+                          }`}
+                        >
+                          {selectedProduct.availability === "available" && (selectedProduct.inventoryQuantity || 0) > 0
+                            ? "Add to Cart"
+                            : "Sold Out"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   ) : null}
                 </View>
               </ScrollView>
@@ -1512,6 +2005,138 @@ function ProductsScreenInner({ planShopEmbedded = false }: { planShopEmbedded?: 
             })}
           </ScrollView>
         </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showCustomProductModal}
+        transparent
+        animationType="slide"
+        onRequestClose={closeCustomProductModal}
+      >
+        <View className="flex-1">
+          <Pressable
+            className="flex-1 bg-black/50"
+            onPress={closeCustomProductModal}
+            accessibilityLabel="Dismiss custom product creation"
+            accessibilityRole="button"
+          />
+          <View className="bg-background rounded-t-3xl">
+            <View className="px-4 pt-4 pb-2">
+              <ModalHeader
+                title={editingCustomProduct ? "Edit Custom Product" : "Create Custom Product"}
+                subtitle={
+                  editingCustomProduct
+                    ? "Update this trainer-owned custom product or remove it if you no longer use it."
+                    : "This product is reusable, trainer-owned, and delivered by you through the app."
+                }
+                onClose={closeCustomProductModal}
+              />
+            </View>
+            <ScrollView
+              className="px-4 pb-4"
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 24 }}
+            >
+              <TextInput
+                className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
+                value={customProductName}
+                onChangeText={setCustomProductName}
+                placeholder="Name"
+                placeholderTextColor={colors.muted}
+              />
+              <TextInput
+                className="border border-border rounded-lg px-4 py-3 text-foreground mb-2"
+                value={customProductPrice}
+                onChangeText={setCustomProductPrice}
+                placeholder="Price"
+                placeholderTextColor={colors.muted}
+                keyboardType="decimal-pad"
+              />
+              <TextInput
+                className="border border-border rounded-lg px-4 py-3 text-foreground mb-3"
+                value={customProductDescription}
+                onChangeText={setCustomProductDescription}
+                placeholder="Description"
+                placeholderTextColor={colors.muted}
+                multiline
+                textAlignVertical="top"
+              />
+              <SingleImagePicker
+                image={customProductImageUrl || null}
+                onImageChange={(uri) => setCustomProductImageUrl(uri || "")}
+                aspectRatio={[1, 1]}
+                compactWhenEmpty
+                emptyButtonLabel="Upload product image"
+                placeholder="Upload custom product image"
+                accessibilityLabel="Upload custom product image"
+                testID="products-custom-image-upload"
+              />
+              <Text className="text-xs text-muted mt-2 mb-3">
+                Pick a photo from your library or camera. It will upload when you save this product.
+              </Text>
+              <View className="flex-row gap-2">
+                {editingCustomProduct ? (
+                  <TouchableOpacity
+                    className="bg-error/10 border border-error/30 rounded-xl px-4 py-3 items-center"
+                    onPress={() => void handleDeleteCustomProduct()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete custom product"
+                    testID="products-custom-modal-delete"
+                  >
+                    <Text className="text-error font-semibold">Delete</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                  className="flex-1 bg-surface border border-border rounded-xl py-3 items-center"
+                  onPress={closeCustomProductModal}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel custom product creation"
+                  testID="products-custom-modal-cancel"
+                >
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </TouchableOpacity>
+                <View ref={createCustomProductButtonRef} collapsable={false} className="flex-1">
+                  <TouchableOpacity
+                    className="bg-primary rounded-xl py-3 items-center"
+                    onPress={() => void handleCreateCustomProduct()}
+                    disabled={
+                      createCustomProductMutation.isPending ||
+                      updateCustomProductMutation.isPending ||
+                      uploadAttachmentMutation.isPending
+                    }
+                    style={{
+                      opacity:
+                        createCustomProductMutation.isPending ||
+                        updateCustomProductMutation.isPending ||
+                        uploadAttachmentMutation.isPending
+                          ? 0.7
+                          : 1,
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      editingCustomProduct
+                        ? "Save custom product changes"
+                        : "Create custom product and add to plan"
+                    }
+                    testID="products-custom-modal-create"
+                  >
+                    <Text className="text-background font-semibold">
+                      {uploadAttachmentMutation.isPending
+                        ? "Uploading..."
+                        : createCustomProductMutation.isPending
+                        ? "Creating..."
+                        : updateCustomProductMutation.isPending
+                          ? "Saving..."
+                          : editingCustomProduct
+                            ? "Save Changes"
+                            : "Create and Add"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
 
       {canManage && (

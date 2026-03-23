@@ -8,8 +8,12 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import { AsyncScreenBoundary } from "@/components/async-screen-boundary";
+import { NavigationHeader } from "@/components/navigation-header";
 import { ScreenContainer } from "@/components/screen-container";
+import { FilterToolbar } from "@/components/ui/filter-toolbar";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { MetricCard } from "@/components/ui/metric-card";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
@@ -74,85 +78,34 @@ export default function AnalyticsScreen() {
 
   if (isLoading) {
     return (
-      <ScreenContainer className="flex-1">
-        <View className="px-4 pt-2 pb-4">
-          <View className="flex-row items-center">
-            <TouchableOpacity
-              onPress={() => router.back()}
-              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
-            </TouchableOpacity>
-            <Text className="text-2xl font-bold text-foreground">Analytics</Text>
-          </View>
-        </View>
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text className="text-muted mt-4">Loading analytics...</Text>
-        </View>
-      </ScreenContainer>
+      <AsyncScreenBoundary isLoading loadingTitle="Loading analytics...">
+        <ScreenContainer />
+      </AsyncScreenBoundary>
     );
   }
 
   if (isError) {
     return (
-      <ScreenContainer className="flex-1">
-        <View className="px-4 pt-2 pb-4">
-          <View className="flex-row items-center">
-            <TouchableOpacity
-              onPress={() => router.back()}
-              className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
-            </TouchableOpacity>
-            <Text className="text-2xl font-bold text-foreground">Analytics</Text>
-          </View>
-        </View>
-        <View className="flex-1 items-center justify-center px-8">
-          <IconSymbol name="exclamationmark.triangle.fill" size={48} color={colors.error} />
-          <Text className="text-foreground font-semibold mt-4 text-center">Failed to load analytics</Text>
-          <TouchableOpacity
-            onPress={() => {
-              statsQuery.refetch();
-              topTrainersQuery.refetch();
-              topBundlesQuery.refetch();
-              revenueSummaryQuery.refetch();
-              revenueTrendQuery.refetch();
-            }}
-            className="mt-4 bg-primary px-6 py-3 rounded-xl"
-            accessibilityRole="button"
-            accessibilityLabel="Retry loading analytics"
-          >
-            <Text className="text-white font-semibold">Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </ScreenContainer>
+      <AsyncScreenBoundary
+        isError
+        errorTitle="Failed to load analytics"
+        errorDescription="Please check your connection and try again."
+        onRetry={() => {
+          statsQuery.refetch();
+          topTrainersQuery.refetch();
+          topBundlesQuery.refetch();
+          revenueSummaryQuery.refetch();
+          revenueTrendQuery.refetch();
+        }}
+      >
+        <ScreenContainer />
+      </AsyncScreenBoundary>
     );
   }
 
   return (
     <ScreenContainer className="flex-1">
-      {/* Header */}
-      <View className="px-4 pt-2 pb-4">
-        <View className="flex-row items-center">
-          <TouchableOpacity
-            onPress={() => router.back()}
-            className="w-10 h-10 rounded-full bg-surface items-center justify-center mr-3"
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <IconSymbol name="arrow.left" size={20} color={colors.foreground} />
-          </TouchableOpacity>
-          <View>
-            <Text className="text-2xl font-bold text-foreground">Analytics</Text>
-            <Text className="text-sm text-muted mt-1">Platform performance insights</Text>
-          </View>
-        </View>
-      </View>
+      <NavigationHeader title="Analytics" subtitle="Platform performance insights" />
 
       <ScrollView
         className="flex-1 px-4"
@@ -161,28 +114,15 @@ export default function AnalyticsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Period Selector */}
-        <View className="flex-row bg-surface rounded-xl p-1 mb-6">
-          {(["week", "month", "year"] as const).map((period) => (
-            <TouchableOpacity
-              key={period}
-              onPress={() => setSelectedPeriod(period)}
-              className={`flex-1 py-2 rounded-lg ${
-                selectedPeriod === period ? "bg-primary" : ""
-              }`}
-              accessibilityRole="button"
-              accessibilityLabel={`Select ${period} period`}
-            >
-              <Text
-                className={`text-center font-medium capitalize ${
-                  selectedPeriod === period ? "text-white" : "text-muted"
-                }`}
-              >
-                {period}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <FilterToolbar
+          options={[
+            { id: "week", label: "Week" },
+            { id: "month", label: "Month" },
+            { id: "year", label: "Year" },
+          ]}
+          selectedId={selectedPeriod}
+          onSelect={(id) => setSelectedPeriod(id as "week" | "month" | "year")}
+        />
 
         {/* Revenue Overview */}
         <View className="bg-surface rounded-xl p-6 mb-6">

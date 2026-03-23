@@ -1,4 +1,5 @@
 import { ActionButton } from "@/components/action-button";
+import { PlanShoppingShell } from "@/components/plan-shopping-shell";
 import { ScreenContainer } from "@/components/screen-container";
 import { ShareButton } from "@/components/share-button";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -10,7 +11,7 @@ import { sanitizeHtml, stripHtml } from "@/lib/html-utils";
 import { trpc } from "@/lib/trpc";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams, useSegments } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -34,6 +35,7 @@ export default function BundleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [bundleImageLoadFailed, setBundleImageLoadFailed] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
+  const addToCartButtonRef = useRef<View | null>(null);
   const { effectiveRole, isTrainer, isManager, isCoordinator, isClient, isAuthenticated } = useAuthContext();
   const { addItem, proposalContext } = useCart();
   const isAdmin = isCoordinator || isManager;
@@ -47,6 +49,14 @@ export default function BundleDetailScreen() {
   const showInviteCta =
     !isPlanShopping &&
     (isRoleBundleRoute || (!canPurchase && isAuthenticated && (isTrainer || isManager || isCoordinator)));
+  const displayName = proposalContext?.clientName || "Client";
+
+  const getInitials = (name: string) => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "C";
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
+  };
 
   // Fetch bundle detail and catalog products for image matching
   const { data: rawBundle, isLoading, error, refetch: refetchBundle } = trpc.catalog.bundleDetail.useQuery(
@@ -173,6 +183,7 @@ export default function BundleDetailScreen() {
 
   const handleAddToCart = () => {
     if (!bundle) return;
+    const imageUrl = bundleImageUrl || undefined;
     addItem({
       type: "bundle",
       bundleId: String(bundle.id),
@@ -181,18 +192,17 @@ export default function BundleDetailScreen() {
       trainerId: bundle.trainerId || undefined,
       price: Number(bundle.price || 0),
       quantity: 1,
-      imageUrl: bundleImageUrl || undefined,
+      imageUrl,
       cadence:
         bundle.duration === "weekly" || bundle.duration === "monthly"
           ? bundle.duration
           : "one_time",
       fulfillment: "trainer_delivery",
+    }, {
+      flyFromRef: addToCartButtonRef,
+      imageUri: imageUrl,
+      onAnimationComplete: isPlanShopping ? () => router.back() : undefined,
     });
-    // Match `ProductsScreen` add flow: cart context already plays success haptic — no Alert that
-    // navigates to a different cart/review screen (that broke plan-shopping continuity).
-    if (isPlanShopping) {
-      router.back();
-    }
   };
 
   const handleInviteClient = () => {
@@ -213,9 +223,59 @@ export default function BundleDetailScreen() {
     router.push({ pathname: "/(trainer)/invite", params } as any);
   };
 
-  return (
-    <ScreenContainer edges={["top", "bottom", "left", "right"]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+  const actionBar = (
+    <>
+      {showInviteCta ? (
+        <TouchableOpacity
+          className="bg-primary rounded-xl py-4 items-center"
+          onPress={handleInviteClient}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={isTrainer ? "Add client with this bundle" : "Assign this bundle to a client"}
+          testID="bundle-invite-cta"
+        >
+          <Text className="text-background font-semibold text-lg">
+            {isTrainer ? "Add Client" : "Assign to Client"}
+          </Text>
+        </TouchableOpacity>
+      ) : canPurchase ? (
+        <View ref={addToCartButtonRef} collapsable={false}>
+          <TouchableOpacity
+            className="bg-primary rounded-xl py-4 items-center"
+            onPress={handleAddToCart}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Add bundle to cart"
+            testID="bundle-add-to-cart-cta"
+          >
+            <Text className="text-background font-semibold text-lg">
+              Add to Cart - ${bundle.price}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          className="bg-primary rounded-xl py-4 items-center"
+          onPress={handleInviteClient}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={isTrainer ? "Add client with this bundle" : "Assign to Client"}
+          testID="bundle-invite-fallback-cta"
+        >
+          <Text className="text-background font-semibold text-lg">
+            {isTrainer ? "Add Client" : "Assign to Client"}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </>
+  );
+
+  const content = (
+    <ScreenContainer edges={isPlanShopping ? ["top", "left", "right"] : ["top", "bottom", "left", "right"]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: isPlanShopping ? 32 : 120 }}
+      >
         {/* Header Image */}
         <View className="relative">
           {bundleImageUrl && !bundleImageLoadFailed ? (
@@ -460,52 +520,21 @@ export default function BundleDetailScreen() {
               </Text>
             </View>
           )}
+
+          {isPlanShopping ? (
+            <View className="pt-2">
+              {actionBar}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
       {/* Bottom Action Bar */}
-      <View className="absolute bottom-0 left-0 right-0 bg-background border-t border-border px-4 pt-4 pb-8">
-        {showInviteCta ? (
-          <TouchableOpacity
-            className="bg-primary rounded-xl py-4 items-center"
-            onPress={handleInviteClient}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={isTrainer ? "Add client with this bundle" : "Assign this bundle to a client"}
-            testID="bundle-invite-cta"
-          >
-            <Text className="text-background font-semibold text-lg">
-              {isTrainer ? "Add Client" : "Assign to Client"}
-            </Text>
-          </TouchableOpacity>
-        ) : canPurchase ? (
-          <TouchableOpacity
-            className="bg-primary rounded-xl py-4 items-center"
-            onPress={handleAddToCart}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel="Add bundle to cart"
-            testID="bundle-add-to-cart-cta"
-          >
-            <Text className="text-background font-semibold text-lg">
-              Add to Cart - ${bundle.price}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            className="bg-primary rounded-xl py-4 items-center"
-            onPress={handleInviteClient}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={isTrainer ? "Add client with this bundle" : "Assign this bundle to a client"}
-            testID="bundle-invite-fallback-cta"
-          >
-            <Text className="text-background font-semibold text-lg">
-              {isTrainer ? "Add Client" : "Assign to Client"}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      {!isPlanShopping ? (
+        <View className="absolute bottom-0 left-0 right-0 bg-background border-t border-border px-4 pt-4 pb-8">
+          {actionBar}
+        </View>
+      ) : null}
 
       {/* Admin Status Management Modal */}
       {isAdmin && (
@@ -598,4 +627,16 @@ export default function BundleDetailScreen() {
       )}
     </ScreenContainer>
   );
+
+  return isPlanShopping ? (
+    <PlanShoppingShell
+      displayName={displayName}
+      clientPhotoUrl={null}
+      getInitials={getInitials}
+      onDone={() => router.push("/(trainer)/cart" as any)}
+      hideHeader
+    >
+      {content}
+    </PlanShoppingShell>
+  ) : content;
 }

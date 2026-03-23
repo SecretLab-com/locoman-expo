@@ -698,7 +698,7 @@ export default function ClientDetailScreen() {
           )}
         </View>
 
-        {(data.status ?? "pending") === "active" || (data.status ?? "pending") === "pending" ? (
+        {(data.status ?? "pending") !== "hidden" ? (
           <View className="px-4 mb-3">
             <SurfaceCard className="border-border py-3">
               <Text className="text-sm font-semibold text-foreground mb-1">List visibility</Text>
